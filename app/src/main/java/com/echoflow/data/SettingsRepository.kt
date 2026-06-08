@@ -21,6 +21,9 @@ class SettingsRepository(context: Context) {
     private val _darkMode = MutableStateFlow(getDarkModeDirect())
     val darkMode: StateFlow<String> = _darkMode.asStateFlow() // "system", "dark", "light"
 
+    private val _webSearchEnabled = MutableStateFlow(getWebSearchEnabledDirect())
+    val webSearchEnabled: StateFlow<Boolean> = _webSearchEnabled.asStateFlow()
+
     fun getApiKeyDirect(): String {
         return prefs.getString("openrouter_api_key", "").orEmpty()
     }
@@ -58,5 +61,14 @@ class SettingsRepository(context: Context) {
     fun saveDarkMode(mode: String) {
         prefs.edit().putString("dark_mode", mode).apply()
         _darkMode.value = mode
+    }
+
+    fun getWebSearchEnabledDirect(): Boolean {
+        return prefs.getBoolean("web_search_enabled", false)
+    }
+
+    fun saveWebSearchEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("web_search_enabled", enabled).apply()
+        _webSearchEnabled.value = enabled
     }
 }

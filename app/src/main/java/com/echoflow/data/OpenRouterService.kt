@@ -102,17 +102,22 @@ class OpenRouterService(private val context: Context) {
     /**
      * Run standard non-streaming api completion.
      */
-    suspend fun sendChatMessage(apiKey: String, model: String, history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
+    suspend fun sendChatMessage(apiKey: String, model: String, history: List<ChatMessage>, webSearchEnabled: Boolean = false): String = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
 
         val messagesPayload = buildMessagesPayload(history)
-        val requestMap = mapOf(
+        val requestMap = mutableMapOf<String, Any>(
             "model" to model,
             "messages" to messagesPayload,
             "stream" to false
         )
+        if (webSearchEnabled) {
+            requestMap["plugins"] = listOf(
+                mapOf("id" to "web")
+            )
+        }
 
         val jsonPayload = dynamicAdapter.toJson(requestMap)
         val requestBody = jsonPayload.toRequestBody("application/json".toMediaType())
@@ -155,13 +160,13 @@ class OpenRouterService(private val context: Context) {
     /**
      * Run Streaming completions with flows.
      */
-    fun sendChatMessageStream(apiKey: String, model: String, history: List<ChatMessage>): Flow<StreamChunk> = flow {
+    fun sendChatMessageStream(apiKey: String, model: String, history: List<ChatMessage>, webSearchEnabled: Boolean = false): Flow<StreamChunk> = flow {
         if (apiKey.isBlank()) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
 
         val messagesPayload = buildMessagesPayload(history)
-        val requestMap = mapOf(
+        val requestMap = mutableMapOf<String, Any>(
             "model" to model,
             "messages" to messagesPayload,
             "stream" to true,
@@ -170,6 +175,11 @@ class OpenRouterService(private val context: Context) {
             "include_reasoning" to true,
             "reasoning" to mapOf("enabled" to true)
         )
+        if (webSearchEnabled) {
+            requestMap["plugins"] = listOf(
+                mapOf("id" to "web")
+            )
+        }
 
         val jsonPayload = dynamicAdapter.toJson(requestMap)
         val requestBody = jsonPayload.toRequestBody("application/json".toMediaType())

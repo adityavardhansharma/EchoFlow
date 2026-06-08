@@ -20,6 +20,7 @@ class SettingsViewModel(
     val selectedModel: StateFlow<String> = repository.selectedModel
     val themeColor: StateFlow<String> = repository.themeColor
     val darkMode: StateFlow<String> = repository.darkMode
+    val webSearchEnabled: StateFlow<Boolean> = repository.webSearchEnabled
 
     val customModels: StateFlow<List<CustomModel>> = customModelDao.getAllCustomModels()
         .stateIn(
@@ -42,6 +43,10 @@ class SettingsViewModel(
 
     fun saveDarkMode(mode: String) {
         repository.saveDarkMode(mode)
+    }
+
+    fun saveWebSearchEnabled(enabled: Boolean) {
+        repository.saveWebSearchEnabled(enabled)
     }
 
     fun addCustomModel(id: String, name: String) {

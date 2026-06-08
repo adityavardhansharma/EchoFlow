@@ -109,6 +109,17 @@ The app ships with a simple default model and lets users add their own OpenRoute
 
 For reasoning-capable models, EchoFlow requests reasoning tokens and separates them from the final answer. The reasoning panel can expand while the model is thinking and collapse once the answer begins, keeping the main message clean.
 
+### Web Search (Auto)
+
+EchoFlow supports OpenRouter's web search via a simple toggle in Settings. When enabled, the **Auto** engine is used:
+
+- The model autonomously decides if and when to search the web based on your prompt.
+- If the AI provider supports native search (OpenAI, Anthropic, xAI), the model uses it directly at **provider rates**.
+- Otherwise, web search falls back to **Exa** at **$0.005/request** (up to 10 results; +$0.001 per extra result).
+- Exa combines keyword and embeddings-based search for high-quality results.
+
+No separate search engine configuration is needed — the toggle is all you see. Enable it and the model handles the rest.
+
 ### Appearance
 
 Users can choose light, dark, system, dynamic wallpaper color, or curated accent palettes. The theme is applied through Compose and Material 3 role colors so the whole interface moves together.

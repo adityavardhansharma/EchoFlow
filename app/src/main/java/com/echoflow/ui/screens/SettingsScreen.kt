@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,6 +58,7 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsState()
     val darkMode by viewModel.darkMode.collectAsState()
     val themeColor by viewModel.themeColor.collectAsState()
+    val webSearchEnabled by viewModel.webSearchEnabled.collectAsState()
     val customModels by viewModel.customModels.collectAsState()
 
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
@@ -142,6 +144,61 @@ fun SettingsScreen(
                         Spacer(Modifier.height(Spacing.m))
                         Button(onClick = { viewModel.saveApiKey(keyInput.trim()) }, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
                             Text("Save key")
+                        }
+                        Spacer(Modifier.height(Spacing.l))
+                        // ── Web Search Toggle ────────────────────────────────────────────────
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.Language, null,
+                                tint = if (webSearchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.width(Spacing.base))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Web search",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    if (webSearchEnabled) "Enabled — Auto" else "Allow the model to search the web",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Spacer(Modifier.width(Spacing.s))
+                            Switch(
+                                checked = webSearchEnabled,
+                                onCheckedChange = viewModel::saveWebSearchEnabled,
+                            )
+                        }
+
+                        if (webSearchEnabled) {
+                            Spacer(Modifier.height(Spacing.m))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(Spacing.m))
+                            Text("Auto (recommended)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(Spacing.s))
+                            Text(
+                                "Select \"Auto\" in your OpenRouter web search settings. " +
+                                "The model decides if and when to search based on your prompt. " +
+                                "It uses the AI model's native search feature (OpenAI, Anthropic, xAI) " +
+                                "when available, otherwise defaults to Exa at \$0.005 per search request.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(Spacing.m))
+                            Text("Pricing", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(Spacing.s))
+                            Text(
+                                "• Native search (OpenAI, Anthropic, xAI) — passed through at provider rates\n" +
+                                "• Exa — \$0.005/request (includes up to 10 results; +\$0.001/extra result)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

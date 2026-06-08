@@ -143,6 +143,7 @@ class ChatViewModel(
 
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
+            val webSearchEnabled = settingsRepository.getWebSearchEnabledDirect()
 
             if (apiKey.isBlank()) {
                 _errorMessage.value = "OpenRouter API Key is missing! Go to Settings to configure it."
@@ -207,7 +208,7 @@ class ChatViewModel(
             var accumulatedResponse = ""
             var accumulatedReasoning = ""
             try {
-                openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory)
+                openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, webSearchEnabled)
                     .collect { chunk ->
                         _apiProgressLoading.value = false // Dismiss initial load as stream flows
                         when (chunk) {
