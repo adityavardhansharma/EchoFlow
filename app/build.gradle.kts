@@ -18,6 +18,12 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // MediaPipe LLM inference ships large native libs per ABI; limit to the ABIs we
+    // actually target (arm64 devices + x86_64 emulator) to keep the APK size sane.
+    ndk {
+      abiFilters += listOf("arm64-v8a", "x86_64")
+    }
   }
 
   signingConfigs {
@@ -99,6 +105,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
+  implementation(libs.mediapipe.tasks.genai)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
