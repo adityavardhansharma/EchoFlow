@@ -9,6 +9,13 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsRepository(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
 
+    init {
+        // One-time migration from the legacy boolean toggle to the provider-based setting.
+        if (!prefs.contains(KEY_SEARCH_PROVIDER) && prefs.getBoolean("web_search_enabled", false)) {
+            prefs.edit().putString(KEY_SEARCH_PROVIDER, "openrouter").apply()
+        }
+    }
+
     private val _apiKey = MutableStateFlow(getApiKeyDirect())
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
 
@@ -21,8 +28,26 @@ class SettingsRepository(context: Context) {
     private val _darkMode = MutableStateFlow(getDarkModeDirect())
     val darkMode: StateFlow<String> = _darkMode.asStateFlow() // "system", "dark", "light"
 
-    private val _webSearchEnabled = MutableStateFlow(getWebSearchEnabledDirect())
-    val webSearchEnabled: StateFlow<Boolean> = _webSearchEnabled.asStateFlow()
+    private val _webSearchProvider = MutableStateFlow(getWebSearchProviderDirect())
+    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", "exa", "parallel", "firecrawl"
+
+    private val _webSearchScope = MutableStateFlow(getWebSearchScopeDirect())
+    val webSearchScope: StateFlow<String> = _webSearchScope.asStateFlow() // "both", "cloud", "local"
+
+    private val _exaApiKey = MutableStateFlow(getSearchApiKeyDirect("exa"))
+    val exaApiKey: StateFlow<String> = _exaApiKey.asStateFlow()
+
+    private val _parallelApiKey = MutableStateFlow(getSearchApiKeyDirect("parallel"))
+    val parallelApiKey: StateFlow<String> = _parallelApiKey.asStateFlow()
+
+    private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect("firecrawl"))
+    val firecrawlApiKey: StateFlow<String> = _firecrawlApiKey.asStateFlow()
+
+    private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
+    val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
+
+    private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
+    val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
 
     fun getApiKeyDirect(): String {
         return prefs.getString("openrouter_api_key", "").orEmpty()
@@ -63,12 +88,70 @@ class SettingsRepository(context: Context) {
         _darkMode.value = mode
     }
 
-    fun getWebSearchEnabledDirect(): Boolean {
-        return prefs.getBoolean("web_search_enabled", false)
+    fun getWebSearchProviderDirect(): String {
+        return prefs.getString(KEY_SEARCH_PROVIDER, "off").orEmpty()
     }
 
-    fun saveWebSearchEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("web_search_enabled", enabled).apply()
-        _webSearchEnabled.value = enabled
+    fun saveWebSearchProvider(provider: String) {
+        prefs.edit().putString(KEY_SEARCH_PROVIDER, provider).apply()
+        _webSearchProvider.value = provider
+    }
+
+    fun getWebSearchScopeDirect(): String {
+        return prefs.getString(KEY_SEARCH_SCOPE, "both").orEmpty()
+    }
+
+    fun saveWebSearchScope(scope: String) {
+        prefs.edit().putString(KEY_SEARCH_SCOPE, scope).apply()
+        _webSearchScope.value = scope
+    }
+
+    fun getSearchApiKeyDirect(provider: String): String {
+        val key = when (provider) {
+            "exa" -> "exa_api_key"
+            "parallel" -> "parallel_api_key"
+            "firecrawl" -> "firecrawl_api_key"
+            else -> return ""
+        }
+        return prefs.getString(key, "").orEmpty()
+    }
+
+    fun saveSearchApiKey(provider: String, value: String) {
+        val key = when (provider) {
+            "exa" -> "exa_api_key"
+            "parallel" -> "parallel_api_key"
+            "firecrawl" -> "firecrawl_api_key"
+            else -> return
+        }
+        prefs.edit().putString(key, value).apply()
+        when (provider) {
+            "exa" -> _exaApiKey.value = value
+            "parallel" -> _parallelApiKey.value = value
+            "firecrawl" -> _firecrawlApiKey.value = value
+        }
+    }
+
+    fun getLocalModelsEnabledDirect(): Boolean {
+        return prefs.getBoolean("local_models_enabled", false)
+    }
+
+    fun saveLocalModelsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("local_models_enabled", enabled).apply()
+        _localModelsEnabled.value = enabled
+    }
+
+    fun getHfAccessTokenDirect(): String {
+        return prefs.getString("hf_access_token", "").orEmpty()
+    }
+
+    fun saveHfAccessToken(token: String) {
+        prefs.edit().putString("hf_access_token", token).apply()
+        _hfAccessToken.value = token
+    }
+
+    companion object {
+        private const val KEY_SEARCH_PROVIDER = "web_search_provider"
+        private const val KEY_SEARCH_SCOPE = "web_search_scope"
+        const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
     }
 }

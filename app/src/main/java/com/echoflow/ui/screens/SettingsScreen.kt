@@ -3,6 +3,10 @@
 package com.echoflow.ui.screens
 
 import android.os.Build
+import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,11 +17,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -28,10 +39,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.echoflow.data.CatalogEntry
+import com.echoflow.data.DownloadState
+import com.echoflow.data.LocalModel
+import com.echoflow.data.LocalModelCatalog
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.groupedItemShape
@@ -40,6 +56,16 @@ import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 
 private data class Accent(val id: String, val label: String, val swatch: Color)
+
+private data class SearchProviderOption(val id: String, val label: String, val description: String)
+
+private val searchProviders = listOf(
+    SearchProviderOption("off", "Off", "Models answer from their training data only"),
+    SearchProviderOption("openrouter", "OpenRouter", "Server-side search for OpenRouter cloud models"),
+    SearchProviderOption("exa", "Exa", "Semantic search — works with any model, ~\$5 per 1k searches"),
+    SearchProviderOption("parallel", "Parallel", "Objective-based dense excerpts — works with any model"),
+    SearchProviderOption("firecrawl", "Firecrawl", "Search plus full-page markdown — works with any model"),
+)
 
 private val accents = listOf(
     Accent("monochrome", "Mono", Color(0xFF1B1B1F)),
@@ -58,13 +84,39 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsState()
     val darkMode by viewModel.darkMode.collectAsState()
     val themeColor by viewModel.themeColor.collectAsState()
-    val webSearchEnabled by viewModel.webSearchEnabled.collectAsState()
     val customModels by viewModel.customModels.collectAsState()
+
+    val webSearchProvider by viewModel.webSearchProvider.collectAsState()
+    val webSearchScope by viewModel.webSearchScope.collectAsState()
+    val exaKey by viewModel.exaApiKey.collectAsState()
+    val parallelKey by viewModel.parallelApiKey.collectAsState()
+    val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+
+    val localModelsEnabled by viewModel.localModelsEnabled.collectAsState()
+    val hfToken by viewModel.hfAccessToken.collectAsState()
+    val localModels by viewModel.localModels.collectAsState()
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    val importError by viewModel.importError.collectAsState()
 
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
     var keyVisible by remember { mutableStateOf(false) }
     var modelId by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("") }
+
+    val savedSearchKey = when (webSearchProvider) {
+        "exa" -> exaKey
+        "parallel" -> parallelKey
+        "firecrawl" -> firecrawlKey
+        else -> ""
+    }
+    var searchKeyInput by remember(webSearchProvider, savedSearchKey) { mutableStateOf(savedSearchKey) }
+    var searchKeyVisible by remember { mutableStateOf(false) }
+    var hfTokenInput by remember(hfToken) { mutableStateOf(hfToken) }
+    var hfTokenVisible by remember { mutableStateOf(false) }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.importModel(it) }
+    }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -145,60 +197,238 @@ fun SettingsScreen(
                         Button(onClick = { viewModel.saveApiKey(keyInput.trim()) }, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
                             Text("Save key")
                         }
-                        Spacer(Modifier.height(Spacing.l))
-                        // ── Web Search Toggle ────────────────────────────────────────────────
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Default.Language, null,
-                                tint = if (webSearchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp),
+                    }
+                }
+            }
+
+            // ── Web search ────────────────────────────────────────────────────────────────
+            item {
+                Column {
+                    SettingsSectionHeader(Icons.Default.Language, "Web search", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                        searchProviders.forEachIndexed { index, option ->
+                            SearchProviderRow(
+                                option = option,
+                                index = index,
+                                count = searchProviders.size,
+                                selected = webSearchProvider == option.id,
+                                onSelect = { viewModel.saveWebSearchProvider(option.id) },
                             )
-                            Spacer(Modifier.width(Spacing.base))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "Web search",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                        }
+                    }
+
+                    AnimatedVisibility(visible = webSearchProvider != "off") {
+                        Column {
+                            Spacer(Modifier.height(Spacing.m))
+                            SettingsCard {
+                                Text("Use search with", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(Spacing.s))
+                                SegmentedToggle(
+                                    options = listOf(
+                                        "both" to "Both",
+                                        "cloud" to "Cloud",
+                                        "local" to "Local"
+                                    ),
+                                    selected = webSearchScope,
+                                    onSelect = viewModel::saveWebSearchScope,
                                 )
+                                if (webSearchProvider == "openrouter" && webSearchScope != "cloud") {
+                                    Spacer(Modifier.height(Spacing.s))
+                                    Text(
+                                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel or Firecrawl.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = webSearchProvider == "openrouter") {
+                        Column {
+                            Spacer(Modifier.height(Spacing.m))
+                            SettingsCard {
+                                Text("How OpenRouter search works", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(Spacing.s))
                                 Text(
-                                    if (webSearchEnabled) "Enabled — Auto" else "Allow the model to search the web",
+                                    "Search runs server-side on OpenRouter: the model decides if and when " +
+                                        "to search — zero, one or several times per answer — and the cost is " +
+                                        "billed through your OpenRouter account.\n\n" +
+                                        "This only works with OpenRouter cloud models. For on-device models, " +
+                                        "pick Exa, Parallel or Firecrawl instead.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = webSearchProvider in setOf("exa", "parallel", "firecrawl")) {
+                        Column {
+                            Spacer(Modifier.height(Spacing.m))
+                            SettingsCard {
+                                val providerLabel = searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: ""
+                                Text("$providerLabel API key", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(Spacing.s))
+                                OutlinedTextField(
+                                    value = searchKeyInput,
+                                    onValueChange = { searchKeyInput = it },
+                                    placeholder = { Text("Paste your $providerLabel key") },
+                                    singleLine = true,
+                                    shape = MaterialTheme.shapes.medium,
+                                    visualTransformation = if (searchKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { searchKeyVisible = !searchKeyVisible }) {
+                                            Icon(if (searchKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (searchKeyVisible) "Hide" else "Show")
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(Spacing.m))
+                                Button(
+                                    onClick = { viewModel.saveSearchApiKey(webSearchProvider, searchKeyInput) },
+                                    shape = CircleShape,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Save key") }
+                                Spacer(Modifier.height(Spacing.m))
+                                Text(
+                                    "Offered to every model — including on-device ones — as a search tool " +
+                                        "it can call while answering. The key is stored only on this device.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Local models ──────────────────────────────────────────────────────────────
+            item {
+                Column {
+                    SettingsSectionHeader(Icons.Default.PhoneAndroid, "Local models", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                    SettingsCard {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Run models on-device", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    "Private, offline and free — powered by Google AI Edge",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Spacer(Modifier.width(Spacing.s))
-                            Switch(
-                                checked = webSearchEnabled,
-                                onCheckedChange = viewModel::saveWebSearchEnabled,
-                            )
+                            Switch(checked = localModelsEnabled, onCheckedChange = viewModel::saveLocalModelsEnabled)
                         }
+                    }
 
-                        if (webSearchEnabled) {
+                    AnimatedVisibility(visible = localModelsEnabled) {
+                        Column {
+                            // HuggingFace token
                             Spacer(Modifier.height(Spacing.m))
-                            HorizontalDivider()
-                            Spacer(Modifier.height(Spacing.m))
-                            Text("Auto (recommended)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.height(Spacing.s))
+                            SettingsCard {
+                                Text("Hugging Face token", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(Modifier.height(Spacing.xs))
+                                Text(
+                                    "Only needed for license-gated models (Gemma). Accept the model " +
+                                        "license on huggingface.co, then create a read token under " +
+                                        "Settings → Access Tokens.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(Spacing.s))
+                                OutlinedTextField(
+                                    value = hfTokenInput,
+                                    onValueChange = { hfTokenInput = it },
+                                    placeholder = { Text("hf_…") },
+                                    singleLine = true,
+                                    shape = MaterialTheme.shapes.medium,
+                                    visualTransformation = if (hfTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { hfTokenVisible = !hfTokenVisible }) {
+                                            Icon(if (hfTokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (hfTokenVisible) "Hide" else "Show")
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(Spacing.m))
+                                Button(
+                                    onClick = { viewModel.saveHfAccessToken(hfTokenInput) },
+                                    shape = CircleShape,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Save token") }
+                            }
+
+                            // Curated downloads
+                            Spacer(Modifier.height(Spacing.l))
                             Text(
-                                "Select \"Auto\" in your OpenRouter web search settings. " +
-                                "The model decides if and when to search based on your prompt. " +
-                                "It uses the AI model's native search feature (OpenAI, Anthropic, xAI) " +
-                                "when available, otherwise defaults to Exa at \$0.005 per search request.",
+                                "Download a model",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                                LocalModelCatalog.entries.forEachIndexed { index, entry ->
+                                    CatalogModelRow(
+                                        entry = entry,
+                                        index = index,
+                                        count = LocalModelCatalog.entries.size,
+                                        installed = localModels.any { it.id == entry.id },
+                                        state = downloadStates[entry.id],
+                                        onDownload = { viewModel.downloadModel(entry) },
+                                        onCancel = { viewModel.cancelDownload(entry.id) },
+                                        onRetry = { viewModel.retryDownload(entry) },
+                                    )
+                                }
+                            }
+
+                            // Import
+                            Spacer(Modifier.height(Spacing.l))
+                            FilledTonalButton(
+                                onClick = { importLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+                                shape = CircleShape,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(Spacing.s))
+                                Text("Import from file")
+                            }
+                            Text(
+                                "Pick a .task or .litertlm model file you've downloaded yourself.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = Spacing.xs, top = Spacing.s),
                             )
-                            Spacer(Modifier.height(Spacing.m))
-                            Text("Pricing", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.height(Spacing.s))
-                            Text(
-                                "• Native search (OpenAI, Anthropic, xAI) — passed through at provider rates\n" +
-                                "• Exa — \$0.005/request (includes up to 10 results; +\$0.001/extra result)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            importError?.let { error ->
+                                Spacer(Modifier.height(Spacing.s))
+                                Text(
+                                    error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = Spacing.xs),
+                                )
+                            }
+
+                            // Installed models
+                            if (localModels.isNotEmpty()) {
+                                Spacer(Modifier.height(Spacing.l))
+                                Text(
+                                    "Installed",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                                    localModels.forEachIndexed { index, model ->
+                                        InstalledModelRow(
+                                            model = model,
+                                            index = index,
+                                            count = localModels.size,
+                                            onDelete = { viewModel.deleteLocalModel(model) },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -319,6 +549,166 @@ private fun SegmentedToggle(options: List<Pair<String, String>>, selected: Strin
                         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.m),
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchProviderRow(
+    option: SearchProviderOption,
+    index: Int,
+    count: Int,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Surface(
+        onClick = onSelect,
+        shape = groupedItemShape(index, count),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    option.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    option.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (selected) {
+                Spacer(Modifier.width(Spacing.s))
+                Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogModelRow(
+    entry: CatalogEntry,
+    index: Int,
+    count: Int,
+    installed: Boolean,
+    state: DownloadState?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(entry.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        if (entry.requiresAuth) {
+                            Spacer(Modifier.width(Spacing.s))
+                            Icon(
+                                Icons.Default.Lock, "Requires HuggingFace token",
+                                Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(Spacing.s))
+                        Text(
+                            Formatter.formatShortFileSize(context, entry.approxSizeBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        entry.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                when {
+                    installed -> Icon(
+                        Icons.Default.CheckCircle, "Installed",
+                        Modifier.padding(Spacing.m), tint = MaterialTheme.colorScheme.primary,
+                    )
+                    state is DownloadState.Downloading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularWavyProgressIndicator(
+                            progress = { state.fraction },
+                            modifier = Modifier.size(32.dp),
+                        )
+                        IconButton(onClick = onCancel) {
+                            Icon(Icons.Default.Close, "Cancel download", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    state is DownloadState.Failed -> IconButton(onClick = onRetry) {
+                        Icon(Icons.Default.Refresh, "Retry download", tint = MaterialTheme.colorScheme.error)
+                    }
+                    else -> FilledTonalIconButton(onClick = onDownload) {
+                        Icon(Icons.Default.Download, "Download ${entry.name}")
+                    }
+                }
+            }
+            if (state is DownloadState.Downloading) {
+                Text(
+                    "${Formatter.formatShortFileSize(context, state.bytes)} of ${Formatter.formatShortFileSize(context, state.total)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (state is DownloadState.Failed) {
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    state.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstalledModelRow(
+    model: LocalModel,
+    index: Int,
+    count: Int,
+    onDelete: () -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedPolygonShape(BrandShapes.avatarStart)).background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(model.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    (if (model.source == "imported") "Imported · " else "Downloaded · ") +
+                        Formatter.formatShortFileSize(context, model.sizeBytes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.DeleteOutline, "Delete", tint = MaterialTheme.colorScheme.error)
             }
         }
     }
