@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -97,6 +98,10 @@ fun SettingsScreen(
     val localModels by viewModel.localModels.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val importError by viewModel.importError.collectAsState()
+    val hfModelQuery by viewModel.hfModelQuery.collectAsState()
+    val hfSearchResults by viewModel.hfSearchResults.collectAsState()
+    val hfSearchLoading by viewModel.hfSearchLoading.collectAsState()
+    val hfSearchError by viewModel.hfSearchError.collectAsState()
 
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
     var keyVisible by remember { mutableStateOf(false) }
@@ -113,6 +118,7 @@ fun SettingsScreen(
     var searchKeyVisible by remember { mutableStateOf(false) }
     var hfTokenInput by remember(hfToken) { mutableStateOf(hfToken) }
     var hfTokenVisible by remember { mutableStateOf(false) }
+    var showHfModelSearch by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importModel(it) }
@@ -361,12 +367,28 @@ fun SettingsScreen(
 
                             // Curated downloads
                             Spacer(Modifier.height(Spacing.l))
-                            Text(
-                                "Download a model",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = Spacing.xs, bottom = Spacing.m),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Download a model",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                FilledTonalButton(
+                                    onClick = {
+                                        showHfModelSearch = true
+                                        if (hfSearchResults.isEmpty()) viewModel.searchHfModels()
+                                    },
+                                    shape = CircleShape,
+                                ) {
+                                    Icon(Icons.Default.Search, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(Spacing.s))
+                                    Text("Search")
+                                }
+                            }
                             Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
                                 LocalModelCatalog.entries.forEachIndexed { index, entry ->
                                     CatalogModelRow(
@@ -499,6 +521,23 @@ fun SettingsScreen(
 
             item { Spacer(Modifier.height(Spacing.xl)) }
         }
+    }
+
+    if (showHfModelSearch) {
+        HfModelSearchDialog(
+            query = hfModelQuery,
+            results = hfSearchResults,
+            loading = hfSearchLoading,
+            error = hfSearchError,
+            localModels = localModels,
+            downloadStates = downloadStates,
+            onQueryChange = viewModel::updateHfModelQuery,
+            onSearch = viewModel::searchHfModels,
+            onDownload = viewModel::downloadModel,
+            onCancel = viewModel::cancelDownload,
+            onRetry = viewModel::retryDownload,
+            onDismiss = { showHfModelSearch = false },
+        )
     }
 }
 
@@ -674,6 +713,93 @@ private fun CatalogModelRow(
             }
         }
     }
+}
+
+@Composable
+private fun HfModelSearchDialog(
+    query: String,
+    results: List<CatalogEntry>,
+    loading: Boolean,
+    error: String?,
+    localModels: List<LocalModel>,
+    downloadStates: Map<String, DownloadState>,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    onDownload: (CatalogEntry) -> Unit,
+    onCancel: (String) -> Unit,
+    onRetry: (CatalogEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        title = { Text("Search mobile models") },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        placeholder = { Text("Gemma 4, Qwen3...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(Spacing.s))
+                    FilledTonalIconButton(onClick = onSearch, enabled = !loading) {
+                        Icon(Icons.Default.Search, "Search Hugging Face")
+                    }
+                }
+                Spacer(Modifier.height(Spacing.m))
+                Text(
+                    "Showing LiteRT-LM mobile bundles from Hugging Face that end in .litertlm or .task.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.m))
+                when {
+                    loading -> Box(
+                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularWavyProgressIndicator()
+                    }
+                    error != null -> Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    results.isEmpty() -> Text(
+                        "No mobile-ready LiteRT model bundles found for this search.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                    ) {
+                        items(results.size) { index ->
+                            val entry = results[index]
+                            CatalogModelRow(
+                                entry = entry,
+                                index = index,
+                                count = results.size,
+                                installed = localModels.any { it.id == entry.id },
+                                state = downloadStates[entry.id],
+                                onDownload = { onDownload(entry) },
+                                onCancel = { onCancel(entry.id) },
+                                onRetry = { onRetry(entry) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable

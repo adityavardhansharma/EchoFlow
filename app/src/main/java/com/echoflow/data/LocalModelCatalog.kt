@@ -28,7 +28,17 @@ object LocalModelCatalog {
             approxSizeBytes = 555L * 1024 * 1024,
             requiresAuth = true,
             maxTokens = 2048,
-            description = "Google's small instruction-tuned model. Fast on most phones (~1.5 GB RAM). Gated: accept the Gemma license on HuggingFace."
+            description = "Small Gemma instruction model. Fast on most phones; requires accepting the Gemma license on Hugging Face."
+        ),
+        CatalogEntry(
+            id = "local/qwen3-0.6b",
+            name = "Qwen3 0.6B",
+            fileName = "qwen3_0_6b_mixed_int4.litertlm",
+            url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm",
+            approxSizeBytes = 497_664_000L,
+            requiresAuth = false,
+            maxTokens = 2048,
+            description = "Tiny Qwen3 LiteRT-LM build for everyday phones. Mixed INT4, no login needed."
         ),
         CatalogEntry(
             id = "local/qwen2.5-1.5b-instruct",
@@ -49,16 +59,6 @@ object LocalModelCatalog {
             requiresAuth = false,
             maxTokens = 4096,
             description = "Reasoning-tuned distill that thinks before answering, no login needed (~2.5 GB RAM)."
-        ),
-        CatalogEntry(
-            id = "local/gemma-3n-e2b-it",
-            name = "Gemma 3n E2B",
-            fileName = "gemma-3n-E2B-it-int4.litertlm",
-            url = "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm-preview/resolve/main/gemma-3n-E2B-it-int4.litertlm",
-            approxSizeBytes = 3100L * 1024 * 1024,
-            requiresAuth = true,
-            maxTokens = 4096,
-            description = "Google's strongest on-device model. Needs a high-end phone with ~5 GB free RAM. Gated: accept the Gemma license on HuggingFace."
         )
     )
 

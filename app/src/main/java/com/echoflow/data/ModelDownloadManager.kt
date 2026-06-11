@@ -44,6 +44,7 @@ class ModelDownloadManager(
         .build()
 
     private val jobs = mutableMapOf<String, Job>()
+    private val activeDownloads = mutableMapOf<String, CatalogEntry>()
 
     private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
     val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
@@ -61,6 +62,7 @@ class ModelDownloadManager(
 
     fun download(entry: CatalogEntry, hfToken: String?) {
         if (jobs[entry.id]?.isActive == true) return
+        activeDownloads[entry.id] = entry
         setState(entry.id, DownloadState.Downloading(0, entry.approxSizeBytes))
 
         jobs[entry.id] = scope.launch {
@@ -122,11 +124,13 @@ class ModelDownloadManager(
                         )
                     )
                     setState(entry.id, DownloadState.Done)
+                    activeDownloads.remove(entry.id)
                 }
             } catch (e: Exception) {
                 partFile.delete()
                 if (e is kotlinx.coroutines.CancellationException) {
                     setState(entry.id, null)
+                    activeDownloads.remove(entry.id)
                     throw e
                 }
                 setState(entry.id, DownloadState.Failed(e.message ?: "Download failed."))
@@ -136,9 +140,10 @@ class ModelDownloadManager(
 
     fun cancel(entryId: String) {
         jobs.remove(entryId)?.cancel()
-        LocalModelCatalog.entryById(entryId)?.let {
+        (activeDownloads[entryId] ?: LocalModelCatalog.entryById(entryId))?.let {
             File(modelsDir, it.fileName + ".part").delete()
         }
+        activeDownloads.remove(entryId)
         setState(entryId, null)
     }
 
@@ -216,13 +221,42 @@ class ModelDownloadManager(
         setState(model.id, null)
     }
 
-    /** Drops DB rows whose file vanished and stray .part files from killed downloads. */
+    /** Reconciles app storage and DB after upgrades/reinstalls that keep files but lose rows. */
     suspend fun pruneOrphans() = withContext(Dispatchers.IO) {
-        localModelDao.getAllLocalModelsSync().forEach { model ->
+        val existingModels = localModelDao.getAllLocalModelsSync()
+        existingModels.forEach { model ->
             if (!fileFor(model).exists()) localModelDao.deleteLocalModel(model.id)
         }
+
         modelsDir.listFiles()?.forEach { file ->
-            if (file.name.endsWith(".part")) file.delete()
+            when {
+                file.name.endsWith(".part") -> file.delete()
+                file.isFile &&
+                    (file.name.endsWith(".task", ignoreCase = true) ||
+                        file.name.endsWith(".litertlm", ignoreCase = true)) -> {
+                    val catalogEntry = LocalModelCatalog.entries.firstOrNull { it.fileName == file.name }
+                    val safeId = catalogEntry?.id ?: "local/recovered-" + file.name.lowercase()
+                        .removeSuffix(".task")
+                        .removeSuffix(".litertlm")
+                        .replace(Regex("[^a-z0-9]+"), "-")
+                        .trim('-')
+                    val displayName = catalogEntry?.name ?: file.name
+                        .removeSuffix(".task")
+                        .removeSuffix(".litertlm")
+                        .replace('_', ' ')
+                        .replace('-', ' ')
+                    localModelDao.insertLocalModel(
+                        LocalModel(
+                            id = safeId,
+                            name = displayName,
+                            fileName = file.name,
+                            sizeBytes = file.length(),
+                            source = catalogEntry?.let { "curated" } ?: "recovered",
+                            addedAt = file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
         }
     }
 
