@@ -1,26 +1,50 @@
 package com.echoflow.ui
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
+import com.echoflow.data.DownloadState
+import com.echoflow.data.LocalModel
+import com.echoflow.data.LocalModelDao
+import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
-    private val customModelDao: CustomModelDao
+    private val customModelDao: CustomModelDao,
+    private val localModelDao: LocalModelDao,
+    private val downloadManager: ModelDownloadManager
 ) : ViewModel() {
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
     val themeColor: StateFlow<String> = repository.themeColor
     val darkMode: StateFlow<String> = repository.darkMode
-    val webSearchEnabled: StateFlow<Boolean> = repository.webSearchEnabled
+
+    // Web search
+    val webSearchProvider: StateFlow<String> = repository.webSearchProvider
+    val webSearchScope: StateFlow<String> = repository.webSearchScope
+    val exaApiKey: StateFlow<String> = repository.exaApiKey
+    val parallelApiKey: StateFlow<String> = repository.parallelApiKey
+    val firecrawlApiKey: StateFlow<String> = repository.firecrawlApiKey
+
+    // Local models
+    val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
+    val hfAccessToken: StateFlow<String> = repository.hfAccessToken
+    val downloadStates: StateFlow<Map<String, DownloadState>> = downloadManager.states
+
+    private val _importError = MutableStateFlow<String?>(null)
+    val importError: StateFlow<String?> = _importError.asStateFlow()
 
     val customModels: StateFlow<List<CustomModel>> = customModelDao.getAllCustomModels()
         .stateIn(
@@ -28,6 +52,17 @@ class SettingsViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val localModels: StateFlow<List<LocalModel>> = localModelDao.getAllLocalModels()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    init {
+        viewModelScope.launch { downloadManager.pruneOrphans() }
+    }
 
     fun saveApiKey(key: String) {
         repository.saveApiKey(key)
@@ -45,8 +80,62 @@ class SettingsViewModel(
         repository.saveDarkMode(mode)
     }
 
-    fun saveWebSearchEnabled(enabled: Boolean) {
-        repository.saveWebSearchEnabled(enabled)
+    fun saveWebSearchProvider(provider: String) {
+        repository.saveWebSearchProvider(provider)
+    }
+
+    fun saveWebSearchScope(scope: String) {
+        repository.saveWebSearchScope(scope)
+    }
+
+    fun saveSearchApiKey(provider: String, key: String) {
+        repository.saveSearchApiKey(provider, key.trim())
+    }
+
+    fun saveLocalModelsEnabled(enabled: Boolean) {
+        repository.saveLocalModelsEnabled(enabled)
+    }
+
+    fun saveHfAccessToken(token: String) {
+        repository.saveHfAccessToken(token.trim())
+    }
+
+    fun downloadModel(entry: CatalogEntry) {
+        downloadManager.download(entry, repository.getHfAccessTokenDirect())
+    }
+
+    fun cancelDownload(entryId: String) {
+        downloadManager.cancel(entryId)
+    }
+
+    fun retryDownload(entry: CatalogEntry) {
+        downloadManager.clearFailed(entry.id)
+        downloadModel(entry)
+    }
+
+    fun importModel(uri: Uri) {
+        viewModelScope.launch {
+            _importError.value = null
+            try {
+                downloadManager.importFromUri(uri)
+            } catch (e: Exception) {
+                _importError.value = e.message ?: "Import failed."
+            }
+        }
+    }
+
+    fun clearImportError() {
+        _importError.value = null
+    }
+
+    fun deleteLocalModel(model: LocalModel) {
+        viewModelScope.launch {
+            downloadManager.delete(model)
+            // If the deleted model was selected, fall back to default
+            if (selectedModel.value == model.id) {
+                saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
+            }
+        }
     }
 
     fun addCustomModel(id: String, name: String) {
@@ -64,7 +153,7 @@ class SettingsViewModel(
             customModelDao.deleteCustomModel(id)
             // If the deleted model was selected, fall back to default
             if (selectedModel.value == id) {
-                saveSelectedModel("google/gemini-2.0-flash")
+                saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
             }
         }
     }
@@ -72,11 +161,13 @@ class SettingsViewModel(
     companion object {
         fun provideFactory(
             repository: SettingsRepository,
-            customModelDao: CustomModelDao
+            customModelDao: CustomModelDao,
+            localModelDao: LocalModelDao,
+            downloadManager: ModelDownloadManager
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager) as T
             }
         }
     }

@@ -53,3 +53,21 @@ interface CustomModelDao {
     @Query("SELECT * FROM custom_models WHERE id = :modelId LIMIT 1")
     suspend fun getCustomModelById(modelId: String): CustomModel?
 }
+
+@Dao
+interface LocalModelDao {
+    @Query("SELECT * FROM local_models ORDER BY addedAt ASC")
+    fun getAllLocalModels(): Flow<List<LocalModel>>
+
+    @Query("SELECT * FROM local_models ORDER BY addedAt ASC")
+    suspend fun getAllLocalModelsSync(): List<LocalModel>
+
+    @Query("SELECT * FROM local_models WHERE id = :modelId LIMIT 1")
+    suspend fun getLocalModelById(modelId: String): LocalModel?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLocalModel(model: LocalModel)
+
+    @Query("DELETE FROM local_models WHERE id = :modelId")
+    suspend fun deleteLocalModel(modelId: String)
+}

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Settings
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -35,13 +36,16 @@ class MainActivity : ComponentActivity() {
         // 1. Initializing Local Repositories and SQLite Database
         val database = AppDatabase.getDatabase(application)
         val settingsRepo = SettingsRepository(applicationContext)
+        val modelDownloadManager = ModelDownloadManager(applicationContext, database.localModelDao())
 
         setContent {
             // 2. Fetch ViewModels using our custom factory providers
             val settingsVm: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.provideFactory(
                     settingsRepo,
-                    database.customModelDao()
+                    database.customModelDao(),
+                    database.localModelDao(),
+                    modelDownloadManager
                 )
             )
 
@@ -50,7 +54,8 @@ class MainActivity : ComponentActivity() {
                     application,
                     database.chatDao(),
                     database.messageDao(),
-                    settingsRepo
+                    settingsRepo,
+                    database.localModelDao()
                 )
             )
 

@@ -59,11 +59,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.ChatMessage
+import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
+import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.RichMarkdown
+import com.echoflow.ui.components.SearchActivityCard
+import com.echoflow.ui.components.SectionLabel
+import com.echoflow.ui.components.SourcesRow
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
@@ -85,15 +90,19 @@ fun ChatScreen(
 
     val messages by chatViewModel.currentMessages.collectAsState()
     val isStreaming by chatViewModel.isStreaming.collectAsState()
-    val streamingBuffer by chatViewModel.activeStreamingBuffer.collectAsState()
-    val reasoningBuffer by chatViewModel.activeReasoningBuffer.collectAsState()
+    val activeSegments by chatViewModel.activeSegments.collectAsState()
+    val statusNote by chatViewModel.statusNote.collectAsState()
     val progressLoading by chatViewModel.apiProgressLoading.collectAsState()
+    val localModelLoading by chatViewModel.localModelLoading.collectAsState()
+    val anyLocalStreamActive by chatViewModel.anyLocalStreamActive.collectAsState()
     val errorMessage by chatViewModel.errorMessage.collectAsState()
 
     val pendingUri by chatViewModel.pendingAttachmentUri.collectAsState()
     val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
     val selectedModelID by settingsViewModel.selectedModel.collectAsState()
     val customModelsList by settingsViewModel.customModels.collectAsState()
+    val localModelsList by settingsViewModel.localModels.collectAsState()
+    val localModelsEnabled by settingsViewModel.localModelsEnabled.collectAsState()
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
@@ -104,9 +113,14 @@ fun ChatScreen(
         customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
         list
     }
+    val localModelEntries = remember(localModelsList, localModelsEnabled) {
+        if (localModelsEnabled) localModelsList.map { it.id to it.name } else emptyList()
+    }
     val modelShortName = activeModelList.firstOrNull { it.first == selectedModelID }?.second
         ?: customModelsList.firstOrNull { it.id == selectedModelID }?.name
+        ?: localModelsList.firstOrNull { it.id == selectedModelID }?.name
         ?: selectedModelID
+    val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -137,9 +151,10 @@ fun ChatScreen(
                     MessagesPane(
                         messages = messages,
                         isStreaming = isStreaming,
-                        streamingBuffer = streamingBuffer,
-                        reasoningBuffer = reasoningBuffer,
+                        segments = activeSegments,
+                        statusNote = statusNote,
                         progressLoading = progressLoading,
+                        modelLoading = localModelLoading,
                         topInset = topBarInset,
                         bottomInset = messageBottomInset,
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
@@ -168,6 +183,7 @@ fun ChatScreen(
                 onClearAttachment = { chatViewModel.clearPendingAttachment() },
                 onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 isStreaming = isStreaming,
+                blockedReason = if (localSendBlocked) "On-device model is busy in another chat" else null,
                 onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
             )
 
@@ -186,6 +202,7 @@ fun ChatScreen(
     if (showModelMenu) {
         ModelPickerSheet(
             models = activeModelList,
+            localModels = localModelEntries,
             selectedId = selectedModelID,
             onSelect = { settingsViewModel.saveSelectedModel(it); showModelMenu = false },
             onManage = { showModelMenu = false; onSettingsClicked() },
@@ -203,9 +220,10 @@ fun ChatScreen(
 private fun MessagesPane(
     messages: List<ChatMessage>,
     isStreaming: Boolean,
-    streamingBuffer: String,
-    reasoningBuffer: String,
+    segments: List<StreamSegment>,
+    statusNote: String?,
     progressLoading: Boolean,
+    modelLoading: Boolean,
     topInset: Dp = Spacing.l,
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
@@ -248,15 +266,95 @@ private fun MessagesPane(
         items(messages, key = { it.id }) { msg ->
             MessageBubble(msg) { onCopy(msg.content) }
         }
-        if (progressLoading && streamingBuffer.isEmpty() && reasoningBuffer.isEmpty()) item { ThinkingRow() }
-        if (streamingBuffer.isNotEmpty() || reasoningBuffer.isNotEmpty()) item(key = "streaming") {
-            MessageBubble(
-                ChatMessage(
-                    "streaming", "temp", "assistant", streamingBuffer, System.currentTimeMillis(),
-                    reasoning = reasoningBuffer.ifBlank { null },
-                ),
-                streaming = true,
-            ) { onCopy(streamingBuffer) }
+        if (modelLoading && segments.isEmpty()) {
+            item { ModelLoadingRow() }
+        } else if (progressLoading && segments.isEmpty()) {
+            item { ThinkingRow() }
+        }
+        if (segments.isNotEmpty()) item(key = "streaming") {
+            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming)
+        }
+    }
+}
+
+/**
+ * Shown while an on-device model is loaded into RAM (or a long chat is prefilled) —
+ * this can take several seconds to a minute on first use, so it gets a richer
+ * animation than the plain "Thinking…" row: breathing brand mark plus an
+ * indeterminate expressive wavy progress line.
+ */
+@Composable
+private fun ModelLoadingRow(modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BrandMark(modifier = Modifier.padding(end = Spacing.m), size = 32.dp, animated = true)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Loading model…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "Getting it into memory — first use takes the longest",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(Spacing.m))
+        LinearWavyProgressIndicator(
+            modifier = Modifier.fillMaxWidth().padding(end = Spacing.xl),
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/**
+ * The live assistant reply, rendered as an ordered timeline: reasoning traces, web search
+ * steps and text blocks appear in the order the model produced them — so when the model
+ * searches, writes, then searches again, the user sees exactly that.
+ */
+@Composable
+private fun StreamingAssistantBubble(
+    segments: List<StreamSegment>,
+    statusNote: String?,
+    isStreaming: Boolean,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BrandMark(size = 26.dp, animated = true)
+            Spacer(Modifier.width(Spacing.s))
+            Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(Spacing.s))
+
+        segments.forEachIndexed { index, segment ->
+            val isLast = index == segments.lastIndex
+            key(index) {
+                when (segment) {
+                    is StreamSegment.Reasoning -> {
+                        ReasoningSection(reasoning = segment.text, active = isStreaming && isLast)
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    is StreamSegment.Search -> {
+                        SearchActivityCard(query = segment.query, sources = segment.sources, active = segment.active)
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    is StreamSegment.Text -> {
+                        SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
+                        if (!isLast) Spacer(Modifier.height(Spacing.s))
+                    }
+                }
+            }
+        }
+
+        statusNote?.let { note ->
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                note,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -361,6 +459,13 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                 Spacer(Modifier.height(Spacing.s))
             }
 
+            // Web searches the model ran for this answer (persisted, collapsed).
+            val toolEvents = remember(message.id) { ToolEventJson.toolEventsFromJson(message.toolEventsJson) }
+            toolEvents.forEach { event ->
+                SearchActivityCard(query = event.query, sources = event.sources, active = false)
+                Spacer(Modifier.height(Spacing.s))
+            }
+
             message.localAttachmentUri?.let {
                 AsyncImage(it, null, Modifier.padding(bottom = Spacing.s).size(200.dp).clip(MaterialTheme.shapes.large), contentScale = ContentScale.Crop)
             }
@@ -372,6 +477,11 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                 RichMarkdown(message.content, Modifier.fillMaxWidth())
             }
             if (!streaming) {
+                val citations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
+                if (citations.isNotEmpty()) {
+                    Spacer(Modifier.height(Spacing.m))
+                    SourcesRow(citations)
+                }
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalIconButton(
                     onClick = onCopy,
@@ -575,6 +685,7 @@ private fun InputToolbar(
     onClearAttachment: () -> Unit,
     onAttach: () -> Unit,
     isStreaming: Boolean,
+    blockedReason: String? = null,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -599,6 +710,14 @@ private fun InputToolbar(
                     }
                 }
             }
+        }
+        AnimatedVisibility(visible = blockedReason != null) {
+            Text(
+                blockedReason.orEmpty(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
+            )
         }
 
         Surface(
@@ -639,8 +758,9 @@ private fun InputToolbar(
                 )
 
                 val hasContent = text.trim().isNotEmpty() || pendingUri != null
-                SendButton(enabled = hasContent && !isStreaming, isStreaming = isStreaming) {
-                    if (hasContent && !isStreaming) onSend()
+                val canSend = hasContent && !isStreaming && blockedReason == null
+                SendButton(enabled = canSend, isStreaming = isStreaming) {
+                    if (canSend) onSend()
                 }
             }
         }
@@ -732,6 +852,7 @@ private fun ShapedIconButton(
 @Composable
 private fun ModelPickerSheet(
     models: List<Pair<String, String>>,
+    localModels: List<Pair<String, String>>,
     selectedId: String,
     onSelect: (String) -> Unit,
     onManage: () -> Unit,
@@ -764,7 +885,8 @@ private fun ModelPickerSheet(
             )
             Spacer(Modifier.height(Spacing.m))
             val filtered = models.filter { it.second.contains(query, true) || it.first.contains(query, true) }
-            if (filtered.isEmpty()) {
+            val filteredLocal = localModels.filter { it.second.contains(query, true) || it.first.contains(query, true) }
+            if (filtered.isEmpty() && filteredLocal.isEmpty()) {
                 Text(
                     "No models. Tap Manage to add one in Settings.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -778,7 +900,15 @@ private fun ModelPickerSheet(
                 contentPadding = PaddingValues(bottom = Spacing.xl),
             ) {
                 items(filtered, key = { it.first }) { (id, name) ->
-                    ModelRow(name, id, id == selectedId) { onSelect(id) }
+                    ModelRow(name, id, id == selectedId, isLocal = false) { onSelect(id) }
+                }
+                if (filteredLocal.isNotEmpty()) {
+                    item(key = "local-section") {
+                        Box(Modifier.padding(top = Spacing.m)) { SectionLabel("On-device") }
+                    }
+                    items(filteredLocal, key = { it.first }) { (id, name) ->
+                        ModelRow(name, id, id == selectedId, isLocal = true) { onSelect(id) }
+                    }
                 }
             }
         }
@@ -786,8 +916,12 @@ private fun ModelPickerSheet(
 }
 
 @Composable
-private fun ModelRow(name: String, modelId: String, selected: Boolean, onClick: () -> Unit) {
-    val provider = if (modelId.contains("/")) modelId.substringBefore("/").replaceFirstChar { it.uppercase() } else "Custom"
+private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: Boolean = false, onClick: () -> Unit) {
+    val provider = when {
+        isLocal -> "Runs on this device — private & offline"
+        modelId.contains("/") -> modelId.substringBefore("/").replaceFirstChar { it.uppercase() }
+        else -> "Custom"
+    }
     Surface(
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
@@ -798,7 +932,27 @@ private fun ModelRow(name: String, modelId: String, selected: Boolean, onClick: 
             BrandMark(size = 40.dp)
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    if (isLocal) {
+                        Spacer(Modifier.width(Spacing.s))
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Row(
+                                Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.OfflineBolt, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                                Spacer(Modifier.width(3.dp))
+                                Text("Local", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                        }
+                    }
+                }
                 Text(provider, style = MaterialTheme.typography.bodySmall, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
