@@ -68,6 +68,7 @@ import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
+import com.echoflow.ui.components.SourcesRow
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
@@ -476,6 +477,11 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                 RichMarkdown(message.content, Modifier.fillMaxWidth())
             }
             if (!streaming) {
+                val citations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
+                if (citations.isNotEmpty()) {
+                    Spacer(Modifier.height(Spacing.m))
+                    SourcesRow(citations)
+                }
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalIconButton(
                     onClick = onCopy,
