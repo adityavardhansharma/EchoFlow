@@ -65,6 +65,8 @@ class ModelDownloadManager(
         activeDownloads[entry.id] = entry
         setState(entry.id, DownloadState.Downloading(0, entry.approxSizeBytes))
 
+        // Keep the process alive while the multi-GB transfer streams, even minimized.
+        KeepAliveService.acquire(context, "Downloading ${entry.name}…")
         jobs[entry.id] = scope.launch {
             val partFile = File(modelsDir, entry.fileName + ".part")
             val finalFile = File(modelsDir, entry.fileName)
@@ -136,6 +138,7 @@ class ModelDownloadManager(
                 setState(entry.id, DownloadState.Failed(e.message ?: "Download failed."))
             }
         }
+        jobs[entry.id]?.invokeOnCompletion { KeepAliveService.release(context) }
     }
 
     fun cancel(entryId: String) {
@@ -172,6 +175,7 @@ class ModelDownloadManager(
         val partFile = File(modelsDir, "$safeName.part")
 
         setState(id, DownloadState.Downloading(0, declaredSize))
+        KeepAliveService.acquire(context, "Importing $displayName…")
         try {
             val input = context.contentResolver.openInputStream(uri)
                 ?: throw Exception("Could not open the selected file.")
@@ -212,6 +216,8 @@ class ModelDownloadManager(
             partFile.delete()
             setState(id, if (e is kotlinx.coroutines.CancellationException) null else DownloadState.Failed(e.message ?: "Import failed."))
             throw e
+        } finally {
+            KeepAliveService.release(context)
         }
     }
 
