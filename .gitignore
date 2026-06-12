@@ -1,2 +1,55 @@
-/build/
-/.gradle/
+# Gradle / Android build output
+.gradle/
+.kotlin/
+build/
+**/build/
+.build-outputs/
+*.apk
+*.ap_
+*.aab
+*.aar
+
+# Android Studio / IntelliJ local workspace files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Machine-local Android configuration
+local.properties
+
+# Signing keys and generated debug credentials
+*.keystore
+*.jks
+*.p12
+*.pem
+debug.keystore
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Generated reports, captures, and test output
+captures/
+outputs/
+reports/
+test-results/
+*.hprof
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local assistant/tooling state
+.claude/
+assets/.aistudio/
