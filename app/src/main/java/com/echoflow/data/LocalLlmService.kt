@@ -58,7 +58,7 @@ class LocalLlmService(private val context: Context) {
         engine = null
         loadedPath = null
 
-        val maxTokens = LocalModelCatalog.maxTokensFor(model.id)
+        val maxTokens = LocalModelCatalog.maxTokensFor(model.id, model.fileName)
 
         fun options(backend: LlmInference.Backend) = LlmInference.LlmInferenceOptions.builder()
             .setModelPath(path)
@@ -161,7 +161,7 @@ class LocalLlmService(private val context: Context) {
                     if (prior.isNotEmpty()) {
                         // Replay older turns as one transcript chunk, trimming the oldest turns
                         // when they would crowd out room for the answer.
-                        val maxTokens = LocalModelCatalog.maxTokensFor(model.id)
+                        val maxTokens = LocalModelCatalog.maxTokensFor(model.id, model.fileName)
                         var turns = prior
                         var transcript = transcriptOf(turns)
                         while (turns.size > 1 &&

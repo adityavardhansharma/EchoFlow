@@ -221,16 +221,23 @@ class ModelDownloadManager(
         setState(model.id, null)
     }
 
-    /** Reconciles app storage and DB after upgrades/reinstalls that keep files but lose rows. */
+    /**
+     * Reconciles app storage and DB after upgrades or DB resets that keep files but lose
+     * rows: rows whose file vanished are dropped, and model files on disk with no row are
+     * re-adopted (matched back to catalog entries by file name when possible) so they show
+     * up as installed without re-downloading.
+     */
     suspend fun pruneOrphans() = withContext(Dispatchers.IO) {
         val existingModels = localModelDao.getAllLocalModelsSync()
-        existingModels.forEach { model ->
-            if (!fileFor(model).exists()) localModelDao.deleteLocalModel(model.id)
-        }
+        val (tracked, missing) = existingModels.partition { fileFor(it).exists() }
+        missing.forEach { localModelDao.deleteLocalModel(it.id) }
+        val trackedFileNames = tracked.map { it.fileName.lowercase() }.toSet()
 
         modelsDir.listFiles()?.forEach { file ->
             when {
                 file.name.endsWith(".part") -> file.delete()
+                // Already represented by a DB row — don't create a duplicate "recovered" entry.
+                file.name.lowercase() in trackedFileNames -> Unit
                 file.isFile &&
                     (file.name.endsWith(".task", ignoreCase = true) ||
                         file.name.endsWith(".litertlm", ignoreCase = true)) -> {

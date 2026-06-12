@@ -59,11 +59,53 @@ object LocalModelCatalog {
             requiresAuth = false,
             maxTokens = 4096,
             description = "Reasoning-tuned distill that thinks before answering, no login needed (~2.5 GB RAM)."
+        ),
+        CatalogEntry(
+            id = "local/gemma-4-e2b-it",
+            name = "Gemma 4 E2B",
+            fileName = "gemma-4-E2B-it.litertlm",
+            url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            approxSizeBytes = 2_588_147_712L,
+            requiresAuth = false,
+            maxTokens = 4096,
+            description = "Latest Gemma generation with an effective 2B footprint. Strong quality on flagship phones, no login needed (~3.5 GB RAM)."
+        ),
+        CatalogEntry(
+            id = "local/qwen3-4b-instruct-2507",
+            name = "Qwen3 4B Instruct 2507",
+            fileName = "qwen3_4b_instruct_2507_mixed_int4.litertlm",
+            url = "https://huggingface.co/litert-community/Qwen3-4B-Instruct-2507/resolve/main/qwen3_4b_instruct_2507_mixed_int4.litertlm",
+            approxSizeBytes = 2_659_057_664L,
+            requiresAuth = false,
+            maxTokens = 4096,
+            description = "Newest Qwen3 instruct build (July 2025 refresh), mixed INT4, no login needed (~4 GB RAM)."
+        ),
+        CatalogEntry(
+            id = "local/gemma-4-e4b-it",
+            name = "Gemma 4 E4B",
+            fileName = "gemma-4-E4B-it.litertlm",
+            url = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
+            approxSizeBytes = 3_659_530_240L,
+            requiresAuth = false,
+            maxTokens = 4096,
+            description = "Largest Gemma 4 mobile bundle — best answers, needs a high-end phone (~5 GB RAM), no login needed."
         )
     )
 
     fun entryById(id: String): CatalogEntry? = entries.firstOrNull { it.id == id }
 
-    /** Safe context budget for a model: catalog value, or a conservative default for imports. */
-    fun maxTokensFor(modelId: String): Int = entryById(modelId)?.maxTokens ?: 1280
+    private val ekvHint = Regex("ekv(\\d+)", RegexOption.IGNORE_CASE)
+
+    /**
+     * Safe context budget for a model. Catalog entries know their value; imported or
+     * recovered files fall back to hints in the file name (ekv kv-cache markers), then to
+     * a conservative default so we never exceed the kv-cache the file was exported with.
+     */
+    fun maxTokensFor(modelId: String, fileName: String? = null): Int {
+        entryById(modelId)?.let { return it.maxTokens }
+        val file = fileName ?: return 1280
+        entries.firstOrNull { it.fileName.equals(file, ignoreCase = true) }?.let { return it.maxTokens }
+        ekvHint.find(file)?.groupValues?.get(1)?.toIntOrNull()?.let { return it.coerceIn(512, 4096) }
+        return if (file.endsWith(".litertlm", ignoreCase = true)) 2048 else 1280
+    }
 }
