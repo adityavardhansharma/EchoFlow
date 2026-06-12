@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- LiteRT-LM may declare a higher library minSdk than ours; local models only run
+         on modern arm64 devices in practice, so merging it in is safe. -->
+    <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm" />
+
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

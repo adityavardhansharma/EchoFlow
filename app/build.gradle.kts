@@ -105,6 +105,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
+  implementation(libs.litertlm.android)
   implementation(libs.mediapipe.tasks.genai)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
