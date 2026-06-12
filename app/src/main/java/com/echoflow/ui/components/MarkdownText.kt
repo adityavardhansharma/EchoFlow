@@ -29,6 +29,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
@@ -427,12 +428,31 @@ private fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color)
                     if (parenClose != -1) {
                         val label = text.substring(nextIdx + 1, labelEnd)
                         val url = text.substring(labelEnd + 2, parenClose)
-                        withLink(
-                            LinkAnnotation.Url(
-                                url,
-                                TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline))
-                            )
-                        ) { appendInline(label, linkColor) }
+                        if (isCitationLabel(label)) {
+                            // Numbered citation ([1](url)) — render as a tiny raised pill
+                            // in the accent color instead of a bare underlined "1".
+                            withLink(
+                                LinkAnnotation.Url(
+                                    url,
+                                    TextLinkStyles(
+                                        SpanStyle(
+                                            color = linkColor,
+                                            background = linkColor.copy(alpha = 0.14f),
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 11.sp,
+                                            baselineShift = BaselineShift.Superscript,
+                                        )
+                                    )
+                                )
+                            ) { append(" $label ") }
+                        } else {
+                            withLink(
+                                LinkAnnotation.Url(
+                                    url,
+                                    TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline))
+                                )
+                            ) { appendInline(label, linkColor) }
+                        }
                         cursor = parenClose + 1
                     } else { append("["); cursor = nextIdx + 1 }
                 } else { append("["); cursor = nextIdx + 1 }
@@ -440,6 +460,10 @@ private fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color)
         }
     }
 }
+
+/** A link label that is just a small number — the `[1](url)` citation convention. */
+private fun isCitationLabel(label: String): Boolean =
+    label.length in 1..3 && label.all { it.isDigit() }
 
 /** Index of a standalone `*` italic marker (not part of `**`, and opening a non-space run). */
 private fun indexOfItalic(text: String, from: Int): Int {

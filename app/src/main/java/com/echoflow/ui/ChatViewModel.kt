@@ -52,6 +52,31 @@ class ChatViewModel(
             initialValue = emptyList()
         )
 
+    // Drawer search: matches conversation titles and full message text.
+    private val _drawerSearchQuery = MutableStateFlow("")
+    val drawerSearchQuery: StateFlow<String> = _drawerSearchQuery.asStateFlow()
+
+    fun setDrawerSearchQuery(query: String) {
+        _drawerSearchQuery.value = query
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val filteredThreads: StateFlow<List<ChatThread>> = combine(
+        allThreads,
+        _drawerSearchQuery,
+        _drawerSearchQuery.flatMapLatest { query ->
+            if (query.isBlank()) flowOf(emptyList()) else messageDao.searchChatIdsByContent(query.trim())
+        },
+    ) { threads, query, contentMatchIds ->
+        val q = query.trim()
+        if (q.isEmpty()) threads
+        else threads.filter { it.title.contains(q, ignoreCase = true) || it.id in contentMatchIds }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
 
@@ -443,14 +468,15 @@ class ChatViewModel(
         segments: List<StreamSegment>,
         interrupted: String?
     ) {
-        val contentText = segments.filterIsInstance<StreamSegment.Text>()
+        val normalizedSegments = normalizeAssistantSegmentsForPersistence(segments)
+        val contentText = normalizedSegments.filterIsInstance<StreamSegment.Text>()
             .joinToString("\n\n") { it.text }.trim()
         if (contentText.isEmpty()) return
 
-        val reasoningText = segments.filterIsInstance<StreamSegment.Reasoning>()
+        val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim()
 
-        val toolEvents = segments.mapIndexedNotNull { index, seg ->
+        val toolEvents = normalizedSegments.mapIndexedNotNull { index, seg ->
             (seg as? StreamSegment.Search)?.let {
                 ToolEvent(query = it.query, sources = it.sources, orderIndex = index)
             }
@@ -463,6 +489,22 @@ class ChatViewModel(
             "$contentText\n\n*[Connection lost: $interrupted]*"
         } else contentText
 
+        // The ordered timeline (reason → search → reason → text) is persisted as-is so a
+        // finished reply renders exactly like it streamed, never merging reasoning blocks.
+        val persistedSegments = normalizedSegments.mapNotNull { seg ->
+            when (seg) {
+                is StreamSegment.Reasoning -> seg.text.trim().takeIf { it.isNotEmpty() }
+                    ?.let { PersistedSegment(type = "reasoning", text = it) }
+                is StreamSegment.Search ->
+                    PersistedSegment(type = "search", query = seg.query, sources = seg.sources)
+                is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
+                    ?.let { PersistedSegment(type = "text", text = it) }
+            }
+        }.let { list ->
+            if (interrupted != null) list + PersistedSegment(type = "text", text = "*[Connection lost: $interrupted]*")
+            else list
+        }
+
         messageDao.insertMessage(
             ChatMessage(
                 id = UUID.randomUUID().toString(),
@@ -472,13 +514,63 @@ class ChatViewModel(
                 createdAt = System.currentTimeMillis(),
                 reasoning = reasoningText.ifBlank { null },
                 toolEventsJson = ToolEventJson.toolEventsToJson(toolEvents),
-                citationsJson = ToolEventJson.citationsToJson(citations)
+                citationsJson = ToolEventJson.citationsToJson(citations),
+                segmentsJson = ToolEventJson.segmentsToJson(persistedSegments)
             )
         )
 
         chatDao.getThreadById(chatId)?.let { currentT ->
             chatDao.updateThread(currentT.copy(updatedAt = System.currentTimeMillis()))
         }
+    }
+
+    /**
+     * Some OpenRouter/provider combinations (notably a few DeepSeek routes) can stream the
+     * visible answer through `reasoning` / `reasoning_content` and never send `content`.
+     * Without this guard the live answer disappears when streaming ends because there is no
+     * assistant content to persist. Preserve the timeline, but promote the final reasoning tail
+     * into normal text when it is the only answer-like material we received.
+     */
+    private fun normalizeAssistantSegmentsForPersistence(segments: List<StreamSegment>): List<StreamSegment> {
+        if (segments.any { it is StreamSegment.Text && it.text.isNotBlank() }) return segments
+
+        val lastReasoningIndex = segments.indexOfLast {
+            it is StreamSegment.Reasoning && it.text.isNotBlank()
+        }
+        if (lastReasoningIndex < 0) return segments
+
+        val normalized = segments.toMutableList()
+        val reasoning = normalized[lastReasoningIndex] as StreamSegment.Reasoning
+        val (remainingReasoning, answerText) = splitReasoningOnlyAnswer(reasoning.text)
+        val replacement = mutableListOf<StreamSegment>()
+        if (remainingReasoning.isNotBlank()) replacement.add(StreamSegment.Reasoning(remainingReasoning))
+        replacement.add(StreamSegment.Text(answerText))
+
+        normalized.removeAt(lastReasoningIndex)
+        normalized.addAll(lastReasoningIndex, replacement)
+        return normalized
+    }
+
+    private fun splitReasoningOnlyAnswer(text: String): Pair<String, String> {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return "" to ""
+
+        val thinkEnd = trimmed.lastIndexOf("</think>", ignoreCase = true)
+        if (thinkEnd >= 0) {
+            val answer = trimmed.substring(thinkEnd + "</think>".length).trim()
+            if (answer.isNotEmpty()) return trimmed.substring(0, thinkEnd + "</think>".length).trim() to answer
+        }
+
+        val marker = Regex(
+            pattern = "(?im)^\\s*(final\\s+answer|answer|response)\\s*:\\s*"
+        ).findAll(trimmed).lastOrNull()
+        if (marker != null) {
+            val answerStart = marker.range.last + 1
+            val answer = trimmed.substring(answerStart).trim()
+            if (answer.isNotEmpty()) return trimmed.substring(0, marker.range.first).trim() to answer
+        }
+
+        return "" to trimmed
     }
 
     // -------------------------------------------------------------------------------

@@ -68,7 +68,6 @@ import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
-import com.echoflow.ui.components.SourcesRow
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
@@ -449,39 +448,55 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
             }
             Spacer(Modifier.height(Spacing.s))
 
-            // Reasoning ("thinking") trace for reasoning-capable models.
-            val reasoningText = message.reasoning
-            if (!reasoningText.isNullOrBlank()) {
-                ReasoningSection(
-                    reasoning = reasoningText,
-                    active = streaming && message.content.isBlank(),
-                )
-                Spacer(Modifier.height(Spacing.s))
-            }
-
-            // Web searches the model ran for this answer (persisted, collapsed).
-            val toolEvents = remember(message.id) { ToolEventJson.toolEventsFromJson(message.toolEventsJson) }
-            toolEvents.forEach { event ->
-                SearchActivityCard(query = event.query, sources = event.sources, active = false)
-                Spacer(Modifier.height(Spacing.s))
-            }
+            // Finished replies render their persisted timeline in arrival order, so
+            // reason → search → reason → search → answer keeps exactly the layout it
+            // streamed with instead of merging all reasoning into one block.
+            val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
 
             message.localAttachmentUri?.let {
                 AsyncImage(it, null, Modifier.padding(bottom = Spacing.s).size(200.dp).clip(MaterialTheme.shapes.large), contentScale = ContentScale.Crop)
             }
-            if (streaming) {
-                // Live markdown, revealed at a smooth steady cadence (decoupled from bursty chunks).
-                if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
-            } else {
-                // World-class render for the finished message: tables, lists, highlighted code, etc.
-                RichMarkdown(message.content, Modifier.fillMaxWidth())
-            }
-            if (!streaming) {
-                val citations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
-                if (citations.isNotEmpty()) {
-                    Spacer(Modifier.height(Spacing.m))
-                    SourcesRow(citations)
+
+            when {
+                streaming -> {
+                    // Live markdown, revealed at a smooth steady cadence (decoupled from bursty chunks).
+                    if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
                 }
+                persistedSegments.isNotEmpty() -> {
+                    persistedSegments.forEachIndexed { index, segment ->
+                        when (segment.type) {
+                            "reasoning" -> {
+                                ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                            "search" -> {
+                                SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                            else -> {
+                                RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    // Legacy messages saved before the timeline column existed.
+                    val reasoningText = message.reasoning
+                    if (!reasoningText.isNullOrBlank()) {
+                        ReasoningSection(reasoning = reasoningText, active = false)
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    val toolEvents = remember(message.id) { ToolEventJson.toolEventsFromJson(message.toolEventsJson) }
+                    toolEvents.forEach { event ->
+                        SearchActivityCard(query = event.query, sources = event.sources, active = false)
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    RichMarkdown(message.content, Modifier.fillMaxWidth())
+                }
+            }
+
+            if (!streaming) {
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalIconButton(
                     onClick = onCopy,

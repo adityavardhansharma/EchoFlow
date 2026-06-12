@@ -20,8 +20,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -33,22 +31,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -58,7 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -76,13 +79,15 @@ import com.echoflow.data.CatalogEntry
 import com.echoflow.data.DownloadState
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
+import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
-import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.BrandShapes
+import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberMorph
 
 private data class Accent(val id: String, val label: String, val swatch: Color)
 
@@ -110,10 +115,9 @@ private const val CatalogPreviewCount = 3
 
 private const val PageHome = "home"
 private const val PageAppearance = "appearance"
-private const val PageCloudApi = "cloud_api"
+private const val PageCloudModels = "cloud_models"
 private const val PageWebSearch = "web_search"
 private const val PageLocalModels = "local_models"
-private const val PageCustomModels = "custom_models"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -129,10 +133,10 @@ private fun sectionExit(): ExitTransition = shrinkVertically(
 ) + fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec())
 
 /**
- * Settings is a hub-and-detail flow, like Android system settings: the home page lists
- * each area as a tappable row with a live summary, and every area opens its own focused
- * page. This keeps each screen flat — content sits directly on the surface instead of
- * cards nested in expanding cards.
+ * Settings is a hub-and-detail flow: four focused destinations, each opening its own
+ * page. Every page is built from the same visual system — a flexible large app bar,
+ * section headers, and grouped slabs sitting directly on the surface — so nothing nests
+ * cards inside cards.
  */
 @Composable
 fun SettingsScreen(
@@ -149,7 +153,6 @@ fun SettingsScreen(
         targetState = page,
         transitionSpec = {
             if (targetState == PageHome) {
-                // Popping back to the hub: hub slides in from the left.
                 (slideInHorizontally(spatial) { -it / 5 } + fadeIn(effects)) togetherWith
                     (slideOutHorizontally(spatial) { it / 5 } + fadeOut(effects))
             } else {
@@ -161,10 +164,9 @@ fun SettingsScreen(
     ) { current ->
         when (current) {
             PageAppearance -> AppearancePage(viewModel, onBack = { page = PageHome })
-            PageCloudApi -> CloudApiPage(viewModel, onBack = { page = PageHome })
+            PageCloudModels -> CloudModelsPage(viewModel, onBack = { page = PageHome })
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
-            PageCustomModels -> CustomModelsPage(viewModel, onBack = { page = PageHome })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -194,6 +196,12 @@ private fun SettingsHomePage(
     }
     val accentLabel = if (themeColor == "dynamic") "Wallpaper"
     else accents.firstOrNull { it.id == themeColor }?.label ?: "Wallpaper"
+
+    val cloudSubtitle = when {
+        apiKey.isBlank() -> "Add your OpenRouter key to get started"
+        customModels.isEmpty() -> "Key saved · default model only"
+        else -> "Key saved · ${customModels.size} model" + (if (customModels.size == 1) "" else "s") + " added"
+    }
     val searchSubtitle = if (webSearchProvider == "off") "Off" else buildString {
         append(searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: webSearchProvider)
         append(" · ")
@@ -211,67 +219,49 @@ private fun SettingsHomePage(
         else -> "On · ${localModels.size} installed"
     }
 
-    SettingsPageScaffold(title = "Settings", onBack = onBackClicked) {
-        SectionLabel("Personalize")
-        SettingsNavRow(
-            icon = Icons.Default.Palette,
-            polygon = BrandShapes.heroStart, // Sunny
-            title = "Appearance",
-            subtitle = "$themeLabel theme · $accentLabel accent",
-            container = MaterialTheme.colorScheme.primaryContainer,
-            onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-            index = 0, count = 1,
-            onClick = { onOpen(PageAppearance) },
-        )
-
-        Spacer(Modifier.height(Spacing.m))
-        SectionLabel("Cloud")
+    SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
             SettingsNavRow(
-                icon = Icons.Default.Key,
-                polygon = MaterialShapes.Gem,
-                title = "OpenRouter API",
-                subtitle = if (apiKey.isBlank()) "No key saved" else "API key saved",
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 0, count = 3,
-                onClick = { onOpen(PageCloudApi) },
+                icon = Icons.Default.Palette,
+                polygon = BrandShapes.heroStart, // Sunny
+                title = "Appearance",
+                subtitle = "$themeLabel theme · $accentLabel accent",
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 0, count = 4,
+                onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Language,
+                polygon = MaterialShapes.Gem,
+                title = "Cloud models",
+                subtitle = cloudSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 1, count = 4,
+                onClick = { onOpen(PageCloudModels) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Search,
                 polygon = BrandShapes.avatarEnd, // Clover4Leaf
                 title = "Web search",
                 subtitle = searchSubtitle,
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 3,
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 2, count = 4,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
-                icon = Icons.Default.Memory,
-                polygon = BrandShapes.heroEnd, // Cookie12Sided
-                title = "Custom models",
-                subtitle = if (customModels.isEmpty()) "Add OpenRouter model IDs"
-                else "${customModels.size} model" + if (customModels.size == 1) "" else "s",
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 2, count = 3,
-                onClick = { onOpen(PageCustomModels) },
+                icon = Icons.Default.PhoneAndroid,
+                polygon = BrandShapes.avatarStart, // Cookie9Sided
+                title = "Local models",
+                subtitle = localSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 3, count = 4,
+                onClick = { onOpen(PageLocalModels) },
             )
         }
-
-        Spacer(Modifier.height(Spacing.m))
-        SectionLabel("On-device")
-        SettingsNavRow(
-            icon = Icons.Default.PhoneAndroid,
-            polygon = BrandShapes.avatarStart, // Cookie9Sided
-            title = "Local models",
-            subtitle = localSubtitle,
-            container = MaterialTheme.colorScheme.tertiaryContainer,
-            onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-            index = 0, count = 1,
-            onClick = { onOpen(PageLocalModels) },
-        )
     }
 }
 
@@ -295,16 +285,17 @@ private fun SettingsNavRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.base),
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.l),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(44.dp).clip(RoundedPolygonShape(polygon)).background(container),
+                Modifier.size(48.dp).clip(RoundedPolygonShape(polygon)).background(container),
                 contentAlignment = Alignment.Center,
-            ) { Icon(icon, null, Modifier.size(20.dp), tint = onContainer) }
+            ) { Icon(icon, null, Modifier.size(22.dp), tint = onContainer) }
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(2.dp))
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -322,7 +313,7 @@ private fun SettingsNavRow(
     }
 }
 
-// ── Detail pages ──────────────────────────────────────────────────────────────────────
+// ── Appearance ────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AppearancePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -330,55 +321,111 @@ private fun AppearancePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val themeColor by viewModel.themeColor.collectAsState()
 
     SettingsPageScaffold(title = "Appearance", subtitle = "Theme & accent color", onBack = onBack) {
-        Text(
-            "Theme",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-        )
+        PageSection("Theme")
         ConnectedToggleRow(
             options = listOf("system" to "System", "light" to "Light", "dark" to "Dark"),
+            icons = listOf(Icons.Default.BrightnessAuto, Icons.Default.LightMode, Icons.Default.DarkMode),
             selected = darkMode,
             onSelect = viewModel::saveDarkMode,
         )
 
         Spacer(Modifier.height(Spacing.xl))
-        Text(
-            "Accent color",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-        )
+        PageSection("Accent color", "Wallpaper follows your Material You palette")
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(Spacing.base),
-            verticalArrangement = Arrangement.spacedBy(Spacing.base),
+            verticalArrangement = Arrangement.spacedBy(Spacing.l),
         ) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                WallpaperSwatch(selected = themeColor == "dynamic") { viewModel.saveThemeColor("dynamic") }
+                MorphSwatch(
+                    label = "Wallpaper",
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    idleIcon = Icons.Default.Palette,
+                    idleIconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selected = themeColor == "dynamic",
+                ) { viewModel.saveThemeColor("dynamic") }
             }
             accents.forEach { accent ->
-                AccentSwatch(accent, selected = themeColor == accent.id) { viewModel.saveThemeColor(accent.id) }
+                MorphSwatch(
+                    label = accent.label,
+                    color = accent.swatch,
+                    idleIcon = null,
+                    idleIconTint = Color.White,
+                    selected = themeColor == accent.id,
+                ) { viewModel.saveThemeColor(accent.id) }
             }
         }
     }
 }
 
+/**
+ * Accent swatch with an Expressive selection state: the polygon morphs Cookie → Sunny
+ * with a spring, scales up slightly, and the check pops in.
+ */
 @Composable
-private fun CloudApiPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+private fun MorphSwatch(
+    label: String,
+    color: Color,
+    idleIcon: ImageVector?,
+    idleIconTint: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val morph = rememberMorph(BrandShapes.avatarStart, BrandShapes.heroStart)
+    val progress by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "swatchMorph",
+    )
+    val swatchScale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        label = "swatchScale",
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            shape = MorphPolygonShape(morph, progress),
+            color = color,
+            modifier = Modifier.size(56.dp).scale(swatchScale),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                when {
+                    selected -> Icon(
+                        Icons.Default.Check, "Selected",
+                        Modifier.size(24.dp).scale(progress),
+                        tint = idleIconTint,
+                    )
+                    idleIcon != null -> Icon(idleIcon, null, Modifier.size(22.dp), tint = idleIconTint)
+                }
+            }
+        }
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// ── Cloud models (OpenRouter key + model list) ────────────────────────────────────────
+
+@Composable
+private fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val apiKey by viewModel.apiKey.collectAsState()
+    val customModels by viewModel.customModels.collectAsState()
+    val orQuery by viewModel.orModelQuery.collectAsState()
+    val orResults by viewModel.orModelResults.collectAsState()
+    val orLoading by viewModel.orDirectoryLoading.collectAsState()
+    val orError by viewModel.orDirectoryError.collectAsState()
+
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
     var keyVisible by remember { mutableStateOf(false) }
+    var showModelDirectory by remember { mutableStateOf(false) }
 
-    SettingsPageScaffold(title = "OpenRouter API", subtitle = "Cloud model access", onBack = onBack) {
-        SettingsCard {
-            Text("API key", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                "Create a key at openrouter.ai → Keys. It unlocks every cloud model in the picker.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.s))
+    SettingsPageScaffold(title = "Cloud models", subtitle = "OpenRouter key & model list", onBack = onBack) {
+        PageSection("API key", "One key from openrouter.ai unlocks every cloud model")
+        FormCard {
             OutlinedTextField(
                 value = keyInput,
                 onValueChange = { keyInput = it },
@@ -386,6 +433,7 @@ private fun CloudApiPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
                 visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                leadingIcon = { Icon(Icons.Default.Key, null) },
                 trailingIcon = {
                     IconButton(onClick = { keyVisible = !keyVisible }) {
                         Icon(if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (keyVisible) "Hide" else "Show")
@@ -395,23 +443,316 @@ private fun CloudApiPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             )
             if (apiKey.isNotBlank()) {
                 Spacer(Modifier.height(Spacing.s))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text(
-                        "A key is saved on this device",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                SavedKeyBadge("A key is saved on this device")
             }
             Spacer(Modifier.height(Spacing.m))
             Button(onClick = { viewModel.saveApiKey(keyInput.trim()) }, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
                 Text("Save key")
             }
         }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Your models", "Live pricing and context windows from the directory")
+        Button(
+            onClick = {
+                showModelDirectory = true
+                viewModel.loadOpenRouterDirectory()
+            },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Search, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Browse the model directory")
+        }
+
+        Spacer(Modifier.height(Spacing.m))
+        if (customModels.isEmpty()) {
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(Spacing.xl),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(Icons.Default.Memory, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "No models added yet.\nSearch the directory to build your model picker.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                customModels.forEachIndexed { index, model ->
+                    Surface(
+                        shape = groupedItemShape(index, customModels.size),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Gem)).background(MaterialTheme.colorScheme.secondaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Default.Memory, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+                            Spacer(Modifier.width(Spacing.base))
+                            Column(Modifier.weight(1f)) {
+                                Text(model.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    model.id,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            IconButton(onClick = { viewModel.deleteCustomModel(model.id) }) {
+                                Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showModelDirectory) {
+        OpenRouterDirectorySheet(
+            query = orQuery,
+            results = orResults,
+            loading = orLoading,
+            error = orError,
+            addedIds = customModels.map { it.id }.toSet(),
+            onQueryChange = viewModel::updateOrModelQuery,
+            onRetry = viewModel::loadOpenRouterDirectory,
+            onAdd = { info -> viewModel.addCustomModel(info.id, info.name.substringAfter(": ")) },
+            onRemove = viewModel::deleteCustomModel,
+            onDismiss = { showModelDirectory = false },
+        )
     }
 }
+
+/** Live OpenRouter directory: search-as-you-type with pricing and context windows. */
+@Composable
+private fun OpenRouterDirectorySheet(
+    query: String,
+    results: List<OpenRouterModelInfo>,
+    loading: Boolean,
+    error: String?,
+    addedIds: Set<String>,
+    onQueryChange: (String) -> Unit,
+    onRetry: () -> Unit,
+    onAdd: (OpenRouterModelInfo) -> Unit,
+    onRemove: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        // Full height from the moment it opens — the sheet must not jump taller when
+        // results stream in.
+        modifier = Modifier.fillMaxHeight(0.94f),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = Spacing.base)
+                .imePadding()
+                .navigationBarsPadding(),
+        ) {
+            Text("Model directory", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                "Live from openrouter.ai — tap a model to add it to your picker.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.base))
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                placeholder = { Text("Claude, GPT, Gemini, DeepSeek…") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
+                    }
+                },
+                shape = CircleShape,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(Spacing.m))
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when {
+                    loading -> Column(
+                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        CircularWavyProgressIndicator()
+                        Spacer(Modifier.height(Spacing.m))
+                        Text(
+                            "Loading the directory…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    error != null -> Column(
+                        Modifier.fillMaxWidth().padding(vertical = Spacing.l),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(Spacing.m))
+                        FilledTonalButton(onClick = onRetry, shape = CircleShape) {
+                            Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(Spacing.s))
+                            Text("Try again")
+                        }
+                    }
+                    results.isEmpty() -> Column(
+                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(Spacing.s))
+                        Text(
+                            "Nothing in the directory matches “$query”.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                    ) {
+                        items(results.size) { index ->
+                            val info = results[index]
+                            OrModelRow(
+                                info = info,
+                                index = index,
+                                count = results.size,
+                                added = info.id in addedIds,
+                                onAdd = { onAdd(info) },
+                                onRemove = { onRemove(info.id) },
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(Spacing.xl))
+        }
+    }
+}
+
+@Composable
+private fun OrModelRow(
+    info: OpenRouterModelInfo,
+    index: Int,
+    count: Int,
+    added: Boolean,
+    onAdd: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        onClick = { if (added) onRemove() else onAdd() },
+        shape = groupedItemShape(index, count),
+        color = if (added) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.base, end = Spacing.m, top = Spacing.m, bottom = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    info.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (added) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    info.id,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (added) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    info.contextLength?.let { ctx ->
+                        InfoPill(text = formatContext(ctx), added = added)
+                    }
+                    InfoPill(text = formatPricing(info), added = added)
+                }
+            }
+            Spacer(Modifier.width(Spacing.s))
+            if (added) {
+                Icon(Icons.Default.CheckCircle, "Added", tint = MaterialTheme.colorScheme.primary)
+            } else {
+                FilledTonalIconButton(onClick = onAdd, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Add, "Add ${info.name}", Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoPill(text: String, added: Boolean) {
+    Surface(
+        shape = CircleShape,
+        color = if (added) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (added) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.s, vertical = 3.dp),
+        )
+    }
+}
+
+private fun formatContext(tokens: Int): String = when {
+    tokens >= 1_000_000 -> "%.1fM ctx".format(tokens / 1_000_000.0).replace(".0M", "M")
+    tokens >= 1_000 -> "${tokens / 1_000}K ctx"
+    else -> "$tokens ctx"
+}
+
+private fun formatPricing(info: OpenRouterModelInfo): String {
+    if (info.isFree) return "Free"
+    fun fmt(v: Double?): String? = v?.let {
+        when {
+            it >= 10 -> "$%.0f".format(it)
+            it >= 1 -> "$%.1f".format(it)
+            else -> "$%.2f".format(it)
+        }
+    }
+    val inP = fmt(info.promptPricePerM)
+    val outP = fmt(info.completionPricePerM)
+    return when {
+        inP != null && outP != null -> "$inP in · $outP out /M"
+        inP != null -> "$inP /M"
+        else -> "Pricing varies"
+    }
+}
+
+// ── Web search ────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -434,15 +775,10 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var searchKeyVisible by remember { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "Web search", subtitle = "Live answers for every model", onBack = onBack) {
-        Text(
-            "Provider",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-        )
+        PageSection("Provider")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
             searchProviders.forEachIndexed { index, option ->
-                SearchProviderRow(
+                ProviderRow(
                     option = option,
                     index = index,
                     count = searchProviders.size,
@@ -455,18 +791,9 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         AnimatedVisibility(visible = webSearchProvider != "off", enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(Spacing.xl))
-                Text(
-                    "Use search with",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-                )
+                PageSection("Use search with")
                 ConnectedToggleRow(
-                    options = listOf(
-                        "both" to "Both",
-                        "cloud" to "Cloud",
-                        "local" to "Local"
-                    ),
+                    options = listOf("both" to "Both", "cloud" to "Cloud", "local" to "Local"),
                     selected = webSearchScope,
                     onSelect = viewModel::saveWebSearchScope,
                 )
@@ -485,15 +812,13 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         AnimatedVisibility(visible = webSearchProvider == "openrouter", enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(Spacing.m))
-                SettingsCard {
-                    Text("How OpenRouter search works", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                FormCard {
+                    Text("How it works", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
                         "Search runs server-side on OpenRouter: the model decides if and when " +
                             "to search — zero, one or several times per answer — and the cost is " +
-                            "billed through your OpenRouter account.\n\n" +
-                            "This only works with OpenRouter cloud models. For on-device models, " +
-                            "pick Exa, Parallel or Firecrawl instead.",
+                            "billed through your OpenRouter account.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -503,11 +828,13 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
         AnimatedVisibility(visible = webSearchProvider in setOf("exa", "parallel", "firecrawl"), enter = sectionEnter(), exit = sectionExit()) {
             Column {
-                Spacer(Modifier.height(Spacing.m))
-                SettingsCard {
-                    val providerLabel = searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: ""
-                    Text("$providerLabel API key", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.height(Spacing.s))
+                Spacer(Modifier.height(Spacing.xl))
+                val providerLabel = searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: ""
+                PageSection(
+                    "$providerLabel API key",
+                    "Offered to every model — even on-device ones — as a search tool. Stored only on this phone.",
+                )
+                FormCard {
                     OutlinedTextField(
                         value = searchKeyInput,
                         onValueChange = { searchKeyDrafts[webSearchProvider] = it },
@@ -515,6 +842,7 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         singleLine = true,
                         shape = MaterialTheme.shapes.medium,
                         visualTransformation = if (searchKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        leadingIcon = { Icon(Icons.Default.Key, null) },
                         trailingIcon = {
                             IconButton(onClick = { searchKeyVisible = !searchKeyVisible }) {
                                 Icon(if (searchKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (searchKeyVisible) "Hide" else "Show")
@@ -524,15 +852,7 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     )
                     if (savedSearchKey.isNotBlank()) {
                         Spacer(Modifier.height(Spacing.s))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(Spacing.xs))
-                            Text(
-                                "A $providerLabel key is saved on this device",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                        SavedKeyBadge("A $providerLabel key is saved on this device")
                     }
                     Spacer(Modifier.height(Spacing.m))
                     Button(
@@ -543,18 +863,83 @@ private fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         shape = CircleShape,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Save key") }
-                    Spacer(Modifier.height(Spacing.m))
-                    Text(
-                        "Offered to every model — including on-device ones — as a search tool " +
-                            "it can call while answering. The key is stored only on this device.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
     }
 }
+
+/** Provider choice with a shaped monogram badge; selected state fills with primary. */
+@Composable
+private fun ProviderRow(
+    option: SearchProviderOption,
+    index: Int,
+    count: Int,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val badgeShapes = listOf(
+        MaterialShapes.Circle,
+        BrandShapes.heroEnd, // Cookie12Sided
+        BrandShapes.heroStart, // Sunny
+        BrandShapes.avatarEnd, // Clover4Leaf
+        BrandShapes.avatarStart, // Cookie9Sided
+    )
+    Surface(
+        onClick = onSelect,
+        shape = groupedItemShape(index, count),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedPolygonShape(badgeShapes[index % badgeShapes.size]))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceContainerHighest
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (option.id == "off") {
+                    Icon(
+                        Icons.Default.SearchOff, null, Modifier.size(18.dp),
+                        tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        option.label.take(1),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    option.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    option.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (selected) {
+                Spacer(Modifier.width(Spacing.s))
+                Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+// ── Local models ──────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -603,12 +988,7 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 // Installed models — the thing you came for goes first.
                 if (localModels.isNotEmpty()) {
                     Spacer(Modifier.height(Spacing.xl))
-                    Text(
-                        "Installed",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-                    )
+                    PageSection("Installed")
                     Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
                         localModels.forEachIndexed { index, model ->
                             InstalledModelRow(
@@ -621,20 +1001,11 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     }
                 }
 
-                // Get models: search + import side by side, then the curated list.
                 Spacer(Modifier.height(Spacing.xl))
-                Text(
-                    "Get models",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-                )
+                PageSection("Get models", "Curated picks below, or search all of Hugging Face")
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                     FilledTonalButton(
-                        onClick = {
-                            showHfModelSearch = true
-                            if (hfSearchResults.isEmpty()) viewModel.searchHfModels()
-                        },
+                        onClick = { showHfModelSearch = true },
                         shape = CircleShape,
                         modifier = Modifier.weight(1f),
                     ) {
@@ -702,26 +1073,29 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                             animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
                             label = "hfTokenChevron",
                         )
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { hfTokenOpen = !hfTokenOpen }
-                                .padding(Spacing.base),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Surface(
+                            onClick = { hfTokenOpen = !hfTokenOpen },
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Hugging Face token", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                                Text(
-                                    if (hfToken.isBlank()) "Only needed for gated models like Gemma 3"
-                                    else "Token saved",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Row(
+                                Modifier.padding(Spacing.base),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Hugging Face token", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(
+                                        if (hfToken.isBlank()) "Only needed for gated models like Gemma 3"
+                                        else "Token saved",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.ExpandMore, if (hfTokenOpen) "Collapse" else "Expand",
+                                    Modifier.rotate(tokenChevron), tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Icon(
-                                Icons.Default.ExpandMore, if (hfTokenOpen) "Collapse" else "Expand",
-                                Modifier.rotate(tokenChevron), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                         AnimatedVisibility(visible = hfTokenOpen, enter = sectionEnter(), exit = sectionExit()) {
                             Column(Modifier.padding(start = Spacing.base, end = Spacing.base, bottom = Spacing.base)) {
@@ -778,82 +1152,6 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-@Composable
-private fun CustomModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val customModels by viewModel.customModels.collectAsState()
-    var modelId by remember { mutableStateOf("") }
-    var modelName by remember { mutableStateOf("") }
-
-    SettingsPageScaffold(title = "Custom models", subtitle = "Your OpenRouter model list", onBack = onBack) {
-        SettingsCard {
-            Text("Add a model", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                "Any OpenRouter model ID works — e.g. anthropic/claude-sonnet-4.6",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            OutlinedTextField(
-                value = modelId, onValueChange = { modelId = it },
-                label = { Text("Model ID") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.s))
-            OutlinedTextField(
-                value = modelName, onValueChange = { modelName = it },
-                label = { Text("Display name") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.m))
-            FilledTonalButton(
-                onClick = {
-                    if (modelId.trim().isNotEmpty()) { viewModel.addCustomModel(modelId.trim(), modelName.trim()); modelId = ""; modelName = "" }
-                },
-                shape = CircleShape, modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Add model")
-            }
-        }
-
-        if (customModels.isNotEmpty()) {
-            Spacer(Modifier.height(Spacing.l))
-            Text(
-                "Your models",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.m),
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-                customModels.forEachIndexed { index, model ->
-                    Surface(
-                        shape = groupedItemShape(index, customModels.size),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                Modifier.size(40.dp).clip(RoundedPolygonShape(BrandShapes.avatarStart)).background(MaterialTheme.colorScheme.tertiaryContainer),
-                                contentAlignment = Alignment.Center,
-                            ) { Icon(Icons.Default.Memory, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
-                            Spacer(Modifier.width(Spacing.base))
-                            Column(Modifier.weight(1f)) {
-                                Text(model.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                                Text(model.id, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            IconButton(onClick = { viewModel.deleteCustomModel(model.id) }) {
-                                Icon(Icons.Default.DeleteOutline, "Delete", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ── Shared building blocks ────────────────────────────────────────────────────────────
 
 /**
@@ -901,8 +1199,24 @@ private fun SettingsPageScaffold(
     }
 }
 
+/** Section header used on every page: title plus optional supporting line. */
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+private fun PageSection(title: String, supporting: String? = null) {
+    Column(Modifier.padding(start = Spacing.xs, bottom = Spacing.m)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        if (supporting != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                supporting,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FormCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -912,9 +1226,18 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
+@Composable
+private fun SavedKeyBadge(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(Spacing.xs))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
 /**
  * The M3 Expressive connected button group: ToggleButtons that share a slab and morph
- * shape on press/selection, replacing the old custom segmented pill.
+ * shape on press/selection.
  */
 @Composable
 private fun ConnectedToggleRow(
@@ -922,18 +1245,20 @@ private fun ConnectedToggleRow(
     selected: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    icons: List<ImageVector>? = null,
 ) {
     Row(
         modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
         options.forEachIndexed { index, (value, label) ->
+            val checked = selected == value
             ToggleButton(
-                checked = selected == value,
+                checked = checked,
                 onCheckedChange = { if (it) onSelect(value) },
                 modifier = Modifier
                     .weight(1f)
-                    .height(48.dp)
+                    .height(52.dp)
                     .semantics { role = Role.RadioButton },
                 shapes = when (index) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
@@ -941,10 +1266,11 @@ private fun ConnectedToggleRow(
                     else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                 },
             ) {
-                if (selected == value) {
-                    Icon(Icons.Default.Check, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(Spacing.xs))
+                when {
+                    checked -> Icon(Icons.Default.Check, null, Modifier.size(16.dp))
+                    icons != null -> Icon(icons[index], null, Modifier.size(16.dp))
                 }
+                if (checked || icons != null) Spacer(Modifier.width(Spacing.xs))
                 Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1)
             }
         }
@@ -988,44 +1314,6 @@ private fun ShowMoreRow(
                 Modifier.size(18.dp).rotate(chevron),
                 tint = MaterialTheme.colorScheme.primary,
             )
-        }
-    }
-}
-
-@Composable
-private fun SearchProviderRow(
-    option: SearchProviderOption,
-    index: Int,
-    count: Int,
-    selected: Boolean,
-    onSelect: () -> Unit,
-) {
-    Surface(
-        onClick = onSelect,
-        shape = groupedItemShape(index, count),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    option.label,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    option.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (selected) {
-                Spacer(Modifier.width(Spacing.s))
-                Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
-            }
         }
     }
 }
@@ -1114,7 +1402,7 @@ private fun CatalogModelRow(
     }
 }
 
-/** Bottom-sheet Hugging Face model search. */
+/** Bottom-sheet Hugging Face model search. Opens idle — nothing runs until you search. */
 @Composable
 private fun HfModelSearchSheet(
     query: String,
@@ -1131,14 +1419,21 @@ private fun HfModelSearchSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var hasSearched by remember { mutableStateOf(false) }
+    val runSearch = {
+        hasSearched = true
+        onSearch()
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        // Full height from the start, matching the OpenRouter directory sheet.
+        modifier = Modifier.fillMaxHeight(0.94f),
     ) {
         Column(
             Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(horizontal = Spacing.base)
                 .imePadding()
                 .navigationBarsPadding(),
@@ -1164,17 +1459,17 @@ private fun HfModelSearchSheet(
                 },
                 shape = CircleShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(Spacing.m))
-            Button(onClick = onSearch, enabled = !loading, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = runSearch, enabled = !loading, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Search, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(Spacing.s))
                 Text(if (loading) "Searching…" else "Search Hugging Face")
             }
             Spacer(Modifier.height(Spacing.base))
-            Box(Modifier.fillMaxWidth().heightIn(min = 160.dp)) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
                 when {
                     loading -> Column(
                         Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
@@ -1200,24 +1495,34 @@ private fun HfModelSearchSheet(
                             modifier = Modifier.padding(Spacing.base),
                         )
                     }
+                    results.isEmpty() && !hasSearched -> Column(
+                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Default.Search, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(Spacing.s))
+                        Text(
+                            "Type a model name and search —\ntry “gemma”, “qwen” or “deepseek”.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     results.isEmpty() -> Column(
                         Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Icon(
-                            Icons.Default.Search, null,
-                            Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(Spacing.s))
                         Text(
-                            "No mobile-ready model bundles found.\nTry “gemma”, “qwen” or “deepseek”.",
+                            "No mobile-ready model bundles found.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
                     }
                     else -> LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),
+                        modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
                     ) {
                         items(results.size) { index ->
@@ -1279,40 +1584,5 @@ private fun InstalledModelRow(
                 Icon(Icons.Default.DeleteOutline, "Delete", tint = MaterialTheme.colorScheme.error)
             }
         }
-    }
-}
-
-@Composable
-private fun AccentSwatch(accent: Accent, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedPolygonShape(BrandShapes.avatarStart)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(52.dp).clip(shape).background(accent.swatch)
-                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, shape) else Modifier)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) { if (selected) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
-        Spacer(Modifier.height(Spacing.xs))
-        Text(accent.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun WallpaperSwatch(selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedPolygonShape(BrandShapes.heroStart)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(52.dp).clip(shape).background(MaterialTheme.colorScheme.primaryContainer)
-                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, shape) else Modifier)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (selected) Icons.Default.Check else Icons.Default.Palette, "Wallpaper colors",
-                tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp),
-            )
-        }
-        Spacer(Modifier.height(Spacing.xs))
-        Text("Wallpaper", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
     }
 }

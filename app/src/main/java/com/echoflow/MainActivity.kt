@@ -118,7 +118,8 @@ fun AdaptiveChatWorkspace(
     onSettingsClicked: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val allConversations by chatViewModel.allThreads.collectAsState()
+    val allConversations by chatViewModel.filteredThreads.collectAsState()
+    val drawerSearchQuery by chatViewModel.drawerSearchQuery.collectAsState()
     val selectedThreadId by chatViewModel.currentChatThreadId.collectAsState()
 
     // Inspect screen boundaries for Tablet orientation check
@@ -140,7 +141,9 @@ fun AdaptiveChatWorkspace(
                         onNewChatClicked = { chatViewModel.startNewChat() },
                         onDeleteThread = { t -> chatViewModel.deleteThread(t) },
                         onRenameThread = { t, name -> chatViewModel.renameThread(t, name) },
-                        onSettingsClicked = onSettingsClicked
+                        onSettingsClicked = onSettingsClicked,
+                        searchQuery = drawerSearchQuery,
+                        onSearchQueryChange = chatViewModel::setDrawerSearchQuery
                     )
                 }
 
@@ -180,7 +183,9 @@ fun AdaptiveChatWorkspace(
                             onDeleteThread = { t -> chatViewModel.deleteThread(t) },
                             onRenameThread = { t, name -> chatViewModel.renameThread(t, name) },
                             onSettingsClicked = onSettingsClicked,
-                            onCloseDrawer = { scope.launch { mobileDrawerState.close() } }
+                            onCloseDrawer = { scope.launch { mobileDrawerState.close() } },
+                            searchQuery = drawerSearchQuery,
+                            onSearchQueryChange = chatViewModel::setDrawerSearchQuery
                         )
                     }
                 }

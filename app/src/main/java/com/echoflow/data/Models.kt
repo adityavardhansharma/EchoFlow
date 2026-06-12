@@ -36,7 +36,8 @@ data class ChatMessage(
     val localAttachmentMimeType: String? = null,
     val localAttachmentName: String? = null,
     val toolEventsJson: String? = null, // JSON List<ToolEvent>: web searches the model ran for this answer
-    val citationsJson: String? = null // JSON List<Citation>: deduped sources backing this answer
+    val citationsJson: String? = null, // JSON List<Citation>: deduped sources backing this answer
+    val segmentsJson: String? = null // JSON List<PersistedSegment>: ordered reply timeline (reasoning/search/text interleaved)
 )
 
 @Entity(tableName = "custom_models")
