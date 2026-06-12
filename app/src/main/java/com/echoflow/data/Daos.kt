@@ -34,6 +34,10 @@ interface MessageDao {
 
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
+
+    /** Chat ids whose message text matches the drawer search query. */
+    @Query("SELECT DISTINCT chatId FROM chat_messages WHERE content LIKE '%' || :query || '%'")
+    fun searchChatIdsByContent(query: String): Flow<List<String>>
 }
 
 @Dao

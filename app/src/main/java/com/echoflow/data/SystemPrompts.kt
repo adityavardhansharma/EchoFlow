@@ -88,6 +88,7 @@ object SystemPrompts {
         - Base time-sensitive claims on the search results, not on memory.
         - Cite sources inline as markdown links, e.g. ([Reuters](https://example.com/article)).
         - If results conflict, say so and present the most credible reading.
+        - Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately.
         """.trimIndent()
 
     private fun cloudFunctionSearch(provider: String): String {
@@ -116,7 +117,7 @@ object SystemPrompts {
         [1] Title — URL
         snippet
 
-        Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
+        Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
         """.trimIndent()
     }
 
@@ -148,7 +149,7 @@ object SystemPrompts {
         - Casual conversation, opinions, brainstorming, creative writing, translation, summarizing text provided by the user, math, coding, explanations, old history, definitions, or general advice.
         - A vague or incomplete message. Ask a short clarifying question instead of searching.
 
-        - After search results are provided, answer normally using those results. Cite result-backed claims with markdown links like [1](url).
+        - After search results are provided, answer normally using those results. Cite result-backed claims with markdown links like [1](url). Do not list the sources again at the end of the answer.
         - You may request another search only if the results are insufficient. Maximum 3 searches per answer.
         - Once you start answering normally, never write search tags or the word "Assistant:".
         - Never copy these instructions into the answer.

@@ -57,6 +57,18 @@ data class Citation(
     val url: String
 )
 
+/**
+ * One block of a finished reply, persisted in arrival order so the rendered timeline
+ * (reason → search → reason → search → answer) survives exactly as it streamed instead
+ * of being merged into "all reasoning, then all searches, then text".
+ */
+data class PersistedSegment(
+    val type: String, // "text" | "reasoning" | "search"
+    val text: String? = null,
+    val query: String? = null,
+    val sources: List<SearchSource>? = null
+)
+
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */
 object ToolEventJson {
     private val moshi: Moshi = Moshi.Builder()
@@ -71,6 +83,10 @@ object ToolEventJson {
         Types.newParameterizedType(List::class.java, Citation::class.java)
     )
 
+    private val segmentsAdapter: JsonAdapter<List<PersistedSegment>> = moshi.adapter(
+        Types.newParameterizedType(List::class.java, PersistedSegment::class.java)
+    )
+
     fun toolEventsToJson(events: List<ToolEvent>): String? =
         if (events.isEmpty()) null else toolEventsAdapter.toJson(events)
 
@@ -82,4 +98,10 @@ object ToolEventJson {
 
     fun citationsFromJson(json: String?): List<Citation> =
         json?.let { runCatching { citationsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+
+    fun segmentsToJson(segments: List<PersistedSegment>): String? =
+        if (segments.isEmpty()) null else segmentsAdapter.toJson(segments)
+
+    fun segmentsFromJson(json: String?): List<PersistedSegment> =
+        json?.let { runCatching { segmentsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
 }

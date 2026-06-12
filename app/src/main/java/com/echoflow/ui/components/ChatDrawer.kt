@@ -17,9 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +65,8 @@ fun ChatDrawerContent(
     onRenameThread: (ChatThread, String) -> Unit,
     onSettingsClicked: () -> Unit,
     onCloseDrawer: (() -> Unit)? = null,
+    searchQuery: String = "",
+    onSearchQueryChange: ((String) -> Unit)? = null,
 ) {
     var threadToRename by remember { mutableStateOf<ChatThread?>(null) }
     var threadToDelete by remember { mutableStateOf<ChatThread?>(null) }
@@ -156,18 +165,42 @@ fun ChatDrawerContent(
             Text("New conversation", style = MaterialTheme.typography.titleSmall)
         }
 
-        Spacer(Modifier.height(Spacing.l))
-        SectionLabel("Recent")
+        // Search across every conversation — titles and message text.
+        if (onSearchQueryChange != null) {
+            Spacer(Modifier.height(Spacing.m))
+            DrawerSearchField(query = searchQuery, onQueryChange = onSearchQueryChange)
+        }
 
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            items(allThreads, key = { it.id }) { thread ->
-                ThreadPill(
-                    thread = thread,
-                    selected = thread.id == currentThreadId,
-                    onClick = { onThreadSelected(thread.id); onCloseDrawer?.invoke() },
-                    onRename = { threadToRename = thread },
-                    onDelete = { threadToDelete = thread },
+        Spacer(Modifier.height(Spacing.l))
+        SectionLabel(if (searchQuery.isBlank()) "Recent" else "Results")
+
+        if (searchQuery.isNotBlank() && allThreads.isEmpty()) {
+            Column(
+                Modifier.weight(1f).fillMaxWidth().padding(top = Spacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    Icons.Default.Search, null, Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    "No conversations match “$searchQuery”",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                items(allThreads, key = { it.id }) { thread ->
+                    ThreadPill(
+                        thread = thread,
+                        selected = thread.id == currentThreadId,
+                        onClick = { onThreadSelected(thread.id); onCloseDrawer?.invoke() },
+                        onRename = { threadToRename = thread },
+                        onDelete = { threadToDelete = thread },
+                    )
+                }
             }
         }
 
@@ -223,6 +256,97 @@ fun ChatDrawerContent(
             )
         }
         Spacer(Modifier.height(Spacing.s))
+    }
+}
+
+/**
+ * Compact pill search field tuned for the drawer's dark surface.
+ *
+ * The text field only exists in the composition after the user taps the pill: drawers
+ * move focus into their content when they open, and a permanently-focusable field would
+ * grab that focus and pop the keyboard on every drawer swipe.
+ */
+@Composable
+private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
+    var hadFocus by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    Surface(
+        onClick = { editing = true },
+        shape = PillShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.base),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Search, null, Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(Spacing.m))
+            if (editing) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    "Search conversations",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                hadFocus = true
+                            } else if (hadFocus) {
+                                // Leave edit mode when focus moves away (e.g. the drawer
+                                // closes) so reopening the drawer never re-grabs focus.
+                                editing = false
+                                hadFocus = false
+                            }
+                        },
+                )
+                LaunchedEffect(Unit) { focusRequester.requestFocus() }
+            } else {
+                Text(
+                    query.ifEmpty { "Search conversations" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        onQueryChange("")
+                        editing = false
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Close, "Clear search", Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 

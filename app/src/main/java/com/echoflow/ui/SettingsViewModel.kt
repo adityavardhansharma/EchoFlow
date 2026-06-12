@@ -12,8 +12,11 @@ import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelDao
 import com.echoflow.data.ModelDownloadManager
+import com.echoflow.data.OpenRouterModelDirectory
+import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.data.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,7 +51,9 @@ class SettingsViewModel(
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
 
-    private val _hfModelQuery = MutableStateFlow("qwen3")
+    // Starts empty on purpose: the search sheet must open idle, never replaying a stale
+    // query or kicking off a search by itself.
+    private val _hfModelQuery = MutableStateFlow("")
     val hfModelQuery: StateFlow<String> = _hfModelQuery.asStateFlow()
 
     private val _hfSearchResults = MutableStateFlow<List<CatalogEntry>>(emptyList())
@@ -59,6 +64,32 @@ class SettingsViewModel(
 
     private val _hfSearchError = MutableStateFlow<String?>(null)
     val hfSearchError: StateFlow<String?> = _hfSearchError.asStateFlow()
+
+    // OpenRouter model directory (add-cloud-model search)
+    private val orDirectory = OpenRouterModelDirectory()
+
+    private val _orAllModels = MutableStateFlow<List<OpenRouterModelInfo>>(emptyList())
+
+    private val _orModelQuery = MutableStateFlow("")
+    val orModelQuery: StateFlow<String> = _orModelQuery.asStateFlow()
+
+    private val _orDirectoryLoading = MutableStateFlow(false)
+    val orDirectoryLoading: StateFlow<Boolean> = _orDirectoryLoading.asStateFlow()
+
+    private val _orDirectoryError = MutableStateFlow<String?>(null)
+    val orDirectoryError: StateFlow<String?> = _orDirectoryError.asStateFlow()
+
+    /** Directory filtered live as the user types; capped so the sheet stays snappy. */
+    val orModelResults: StateFlow<List<OpenRouterModelInfo>> =
+        combine(_orAllModels, _orModelQuery) { all, query ->
+            val q = query.trim()
+            if (q.isEmpty()) all.take(40)
+            else all.filter { it.id.contains(q, true) || it.name.contains(q, true) }.take(60)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     val customModels: StateFlow<List<CustomModel>> = customModelDao.getAllCustomModels()
         .stateIn(
@@ -135,6 +166,26 @@ class SettingsViewModel(
                 _hfSearchError.value = e.message ?: "Search failed."
             } finally {
                 _hfSearchLoading.value = false
+            }
+        }
+    }
+
+    fun updateOrModelQuery(query: String) {
+        _orModelQuery.value = query
+    }
+
+    /** Loads the OpenRouter directory once; safe to call every time the sheet opens. */
+    fun loadOpenRouterDirectory() {
+        if (_orAllModels.value.isNotEmpty() || _orDirectoryLoading.value) return
+        viewModelScope.launch {
+            _orDirectoryLoading.value = true
+            _orDirectoryError.value = null
+            try {
+                _orAllModels.value = orDirectory.allModels()
+            } catch (e: Exception) {
+                _orDirectoryError.value = e.message ?: "Could not load the model directory."
+            } finally {
+                _orDirectoryLoading.value = false
             }
         }
     }

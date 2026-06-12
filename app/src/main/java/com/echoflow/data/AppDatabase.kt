@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ChatThread::class, ChatMessage::class, CustomModel::class, LocalModel::class],
-    version = 3, // v3: local_models table + chat_messages.toolEventsJson/citationsJson (MIGRATION_2_3)
+    version = 4, // v4: chat_messages.segmentsJson — ordered reply timeline (MIGRATION_3_4)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +38,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN segmentsJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -45,7 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "local_chat_database"
                 )
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 // Only pre-v2 installs (no migration path defined) fall back destructively.
                 .fallbackToDestructiveMigration()
                 .build()
