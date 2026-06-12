@@ -409,6 +409,8 @@ class ChatViewModel(
 
             val segments = mutableListOf<StreamSegment>()
             var statusNote: String? = null
+            // Keep the process unfrozen so the reply keeps streaming while minimized.
+            KeepAliveService.acquire(getApplication(), "Generating a reply…")
             try {
                 responseFlow.collect { chunk ->
                     val note = reduceSegments(segments, chunk)
@@ -429,6 +431,7 @@ class ChatViewModel(
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
                 persistAssistantMessage(chatId, segments, interrupted = e.message)
             } finally {
+                KeepAliveService.release(getApplication())
                 streamJobs.remove(chatId)
                 setStreamState(chatId, null)
             }
