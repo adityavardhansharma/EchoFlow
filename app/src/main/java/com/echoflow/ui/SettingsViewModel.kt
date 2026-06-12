@@ -8,6 +8,7 @@ import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
 import com.echoflow.data.DownloadState
+import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelDao
 import com.echoflow.data.ModelDownloadManager
@@ -25,6 +26,7 @@ class SettingsViewModel(
     private val localModelDao: LocalModelDao,
     private val downloadManager: ModelDownloadManager
 ) : ViewModel() {
+    private val hfModelSearch = HuggingFaceModelSearch()
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
@@ -45,6 +47,18 @@ class SettingsViewModel(
 
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
+
+    private val _hfModelQuery = MutableStateFlow("qwen3")
+    val hfModelQuery: StateFlow<String> = _hfModelQuery.asStateFlow()
+
+    private val _hfSearchResults = MutableStateFlow<List<CatalogEntry>>(emptyList())
+    val hfSearchResults: StateFlow<List<CatalogEntry>> = _hfSearchResults.asStateFlow()
+
+    private val _hfSearchLoading = MutableStateFlow(false)
+    val hfSearchLoading: StateFlow<Boolean> = _hfSearchLoading.asStateFlow()
+
+    private val _hfSearchError = MutableStateFlow<String?>(null)
+    val hfSearchError: StateFlow<String?> = _hfSearchError.asStateFlow()
 
     val customModels: StateFlow<List<CustomModel>> = customModelDao.getAllCustomModels()
         .stateIn(
@@ -102,6 +116,27 @@ class SettingsViewModel(
 
     fun downloadModel(entry: CatalogEntry) {
         downloadManager.download(entry, repository.getHfAccessTokenDirect())
+    }
+
+    fun updateHfModelQuery(query: String) {
+        _hfModelQuery.value = query
+    }
+
+    fun searchHfModels() {
+        viewModelScope.launch {
+            _hfSearchLoading.value = true
+            _hfSearchError.value = null
+            try {
+                _hfSearchResults.value = hfModelSearch.search(
+                    query = _hfModelQuery.value,
+                    hfToken = repository.getHfAccessTokenDirect()
+                )
+            } catch (e: Exception) {
+                _hfSearchError.value = e.message ?: "Search failed."
+            } finally {
+                _hfSearchLoading.value = false
+            }
+        }
     }
 
     fun cancelDownload(entryId: String) {
