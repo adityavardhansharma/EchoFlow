@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
+import com.echoflow.data.DeepResearchModel
+import com.echoflow.data.DeepResearchModelDao
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.LocalModel
@@ -27,7 +29,8 @@ class SettingsViewModel(
     private val repository: SettingsRepository,
     private val customModelDao: CustomModelDao,
     private val localModelDao: LocalModelDao,
-    private val downloadManager: ModelDownloadManager
+    private val downloadManager: ModelDownloadManager,
+    private val deepResearchModelDao: DeepResearchModelDao
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
 
@@ -47,6 +50,14 @@ class SettingsViewModel(
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
     val hfAccessToken: StateFlow<String> = repository.hfAccessToken
     val downloadStates: StateFlow<Map<String, DownloadState>> = downloadManager.states
+
+    // Deep Research
+    val deepResearchModelId: StateFlow<String> = repository.deepResearchModel
+    val deepResearchSearchProvider: StateFlow<String> = repository.deepResearchSearchProvider
+    val deepResearchMaxSearches: StateFlow<Int> = repository.deepResearchMaxSearches
+    val deepResearchMaxSources: StateFlow<Int> = repository.deepResearchMaxSources
+    val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
@@ -143,6 +154,32 @@ class SettingsViewModel(
 
     fun saveHfAccessToken(token: String) {
         repository.saveHfAccessToken(token.trim())
+    }
+
+    // ── Deep Research ────────────────────────────────────────────────────────────────
+
+    fun saveDeepResearchModel(id: String) = repository.saveDeepResearchModel(id)
+    fun saveDeepResearchSearchProvider(provider: String) = repository.saveDeepResearchSearchProvider(provider)
+    fun saveDeepResearchMaxSearches(value: Int) = repository.saveDeepResearchMaxSearches(value)
+    fun saveDeepResearchMaxSources(value: Int) = repository.saveDeepResearchMaxSources(value)
+
+    fun addDeepResearchModel(id: String, name: String) {
+        viewModelScope.launch {
+            val cleanId = id.trim()
+            val cleanName = name.trim().ifEmpty { cleanId.substringAfterLast("/") }
+            if (cleanId.isNotEmpty()) {
+                deepResearchModelDao.insert(DeepResearchModel(cleanId, cleanName, System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun deleteDeepResearchModel(id: String) {
+        viewModelScope.launch {
+            deepResearchModelDao.delete(id)
+            if (repository.getDeepResearchModelDirect() == id) {
+                repository.saveDeepResearchModel("")
+            }
+        }
     }
 
     fun downloadModel(entry: CatalogEntry) {
@@ -249,11 +286,12 @@ class SettingsViewModel(
             repository: SettingsRepository,
             customModelDao: CustomModelDao,
             localModelDao: LocalModelDao,
-            downloadManager: ModelDownloadManager
+            downloadManager: ModelDownloadManager,
+            deepResearchModelDao: DeepResearchModelDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao) as T
             }
         }
     }

@@ -59,6 +59,39 @@ interface CustomModelDao {
 }
 
 @Dao
+interface DeepResearchModelDao {
+    @Query("SELECT * FROM deep_research_models ORDER BY addedAt ASC")
+    fun getAll(): Flow<List<DeepResearchModel>>
+
+    @Query("SELECT * FROM deep_research_models ORDER BY addedAt ASC")
+    suspend fun getAllSync(): List<DeepResearchModel>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(model: DeepResearchModel)
+
+    @Query("DELETE FROM deep_research_models WHERE id = :modelId")
+    suspend fun delete(modelId: String)
+}
+
+@Dao
+interface ResearchRunDao {
+    @Query("SELECT * FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled') ORDER BY createdAt DESC LIMIT 1")
+    fun observeActiveForChat(chatId: String): Flow<ResearchRun?>
+
+    @Query("SELECT * FROM research_runs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ResearchRun?
+
+    @Query("SELECT * FROM research_runs WHERE status NOT IN ('completed','failed','cancelled')")
+    suspend fun getInterrupted(): List<ResearchRun>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(run: ResearchRun)
+
+    @Query("DELETE FROM research_runs WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
 interface LocalModelDao {
     @Query("SELECT * FROM local_models ORDER BY addedAt ASC")
     fun getAllLocalModels(): Flow<List<LocalModel>>

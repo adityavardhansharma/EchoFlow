@@ -156,6 +156,48 @@ object SystemPrompts {
         """.trimIndent()
     }
 
+    // ── Deep Research (agentic, cloud only) ──────────────────────────────────────────
+
+    /**
+     * Planner prompt: turn the user's topic into a short list of focused sub-questions,
+     * one per line, no numbering or prose. [maxSearches] caps how many we will run.
+     */
+    fun deepResearchPlanner(topic: String, maxSearches: Int, currentDate: String = currentDate()): String =
+        """
+        You are the planning stage of a deep-research agent. Today is $currentDate.
+
+        Break the user's request into at most $maxSearches focused, self-contained web-search
+        sub-questions that together fully answer it. Cover distinct angles (avoid near-duplicates),
+        order them from most to least important, and phrase each as a complete search query.
+
+        Output ONLY the sub-questions, one per line, with no numbering, bullets, commentary,
+        or blank lines.
+
+        User request:
+        $topic
+        """.trimIndent()
+
+    /**
+     * Synthesis prompt: write the final report from the gathered, numbered sources.
+     * The model must cite inline as [n](url) and must not invent sources.
+     */
+    fun deepResearchSynthesis(topic: String, currentDate: String = currentDate()): String =
+        """
+        You are the synthesis stage of a deep-research agent. Today is $currentDate.
+
+        Write a thorough, well-structured research report answering the user's request using ONLY
+        the numbered search results provided. Requirements:
+        - Open with a short direct answer / executive summary (2–4 sentences).
+        - Then use clear markdown sections with `##` headings.
+        - When comparing options, use a markdown table.
+        - Cite every factual claim inline as [n](url) using the result numbers; never invent URLs.
+        - If the evidence is thin or sources conflict, say so explicitly rather than guessing.
+        - Do NOT append a "Sources" or "References" list at the end — the app shows sources separately.
+
+        User request:
+        $topic
+        """.trimIndent()
+
     private fun formatting(isLocalModel: Boolean): String = buildString {
         append(
             "## Style\n" +

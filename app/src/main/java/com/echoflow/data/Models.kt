@@ -55,3 +55,64 @@ data class LocalModel(
     val source: String, // "curated" | "imported"
     val addedAt: Long
 )
+
+/**
+ * A cloud chat model the user has whitelisted to orchestrate agentic Deep Research.
+ * Kept separate from [CustomModel] (normal chat models) because Deep Research has its own
+ * "add model" flow and a much smaller, deliberately-curated capable-model list.
+ */
+@Entity(tableName = "deep_research_models")
+data class DeepResearchModel(
+    @PrimaryKey val id: String, // OpenRouter id, e.g. "google/gemini-2.5-pro"
+    val name: String,
+    val addedAt: Long
+)
+
+/**
+ * The durable record of one Deep Research run. This is the single source of truth: the
+ * foreground service writes progress here and the UI observes it, so a run survives the
+ * Activity/ViewModel being destroyed and can be resumed after the app is force-killed
+ * (provider-native runs by re-polling [providerJobId]; agentic runs from accumulated
+ * sources).
+ */
+@Entity(
+    tableName = "research_runs",
+    indices = [Index("chatId"), Index("status")]
+)
+data class ResearchRun(
+    @PrimaryKey val id: String,
+    val chatId: String,
+    val topic: String, // the user's research question
+    val engineId: String, // "exa-deep-reasoning" | "parallel-ultra" | "firecrawl-research" | a chat model id
+    val engineKind: String, // "provider" | "agent"
+    val engineLabel: String, // human label shown in the progress card
+    val searchProvider: String? = null, // agent mode: which search provider backs the tool
+    val maxSearches: Int = 5,
+    val maxSources: Int = 20,
+    val providerJobId: String? = null, // exa researchId / parallel run_id / firecrawl job id
+    val status: String = STATUS_QUEUED, // see STATUS_* constants
+    val phase: String? = null, // human progress line, e.g. "Searching 3 of 8"
+    val progressDone: Int = 0,
+    val progressTotal: Int = 0,
+    val planJson: String? = null, // JSON List<String>: planned sub-questions
+    val sourcesJson: String? = null, // JSON List<SearchSource>: accumulated sources
+    val report: String? = null, // final report markdown (or partial on cancel)
+    val error: String? = null,
+    val assistantMessageId: String? = null, // the chat_messages row holding the final report
+    val createdAt: Long,
+    val updatedAt: Long
+) {
+    val isTerminal: Boolean get() = status in TERMINAL_STATUSES
+
+    companion object {
+        const val STATUS_QUEUED = "queued"
+        const val STATUS_PLANNING = "planning"
+        const val STATUS_RESEARCHING = "researching"
+        const val STATUS_SYNTHESIZING = "synthesizing"
+        const val STATUS_COMPLETED = "completed"
+        const val STATUS_FAILED = "failed"
+        const val STATUS_CANCELLED = "cancelled"
+
+        val TERMINAL_STATUSES = setOf(STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED)
+    }
+}

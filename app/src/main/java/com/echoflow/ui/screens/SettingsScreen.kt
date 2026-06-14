@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Visibility
@@ -76,6 +77,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.echoflow.data.CatalogEntry
+import com.echoflow.data.DeepResearchCatalog
+import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DownloadState
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
@@ -118,6 +121,7 @@ private const val PageAppearance = "appearance"
 private const val PageCloudModels = "cloud_models"
 private const val PageWebSearch = "web_search"
 private const val PageLocalModels = "local_models"
+private const val PageDeepResearch = "deep_research"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -167,6 +171,7 @@ fun SettingsScreen(
             PageCloudModels -> CloudModelsPage(viewModel, onBack = { page = PageHome })
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
+            PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -188,6 +193,8 @@ private fun SettingsHomePage(
     val localModelsEnabled by viewModel.localModelsEnabled.collectAsState()
     val localModels by viewModel.localModels.collectAsState()
     val customModels by viewModel.customModels.collectAsState()
+    val deepResearchModelId by viewModel.deepResearchModelId.collectAsState()
+    val deepResearchModels by viewModel.deepResearchModels.collectAsState()
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -218,6 +225,12 @@ private fun SettingsHomePage(
         localModels.isEmpty() -> "On · No models installed yet"
         else -> "On · ${localModels.size} installed"
     }
+    val deepResearchSubtitle = when {
+        deepResearchModelId.isBlank() -> "No engine selected"
+        else -> DeepResearchCatalog.providerEngineById(deepResearchModelId)?.name
+            ?: deepResearchModels.firstOrNull { it.id == deepResearchModelId }?.name
+            ?: deepResearchModelId
+    }
 
     SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
@@ -228,7 +241,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 4,
+                index = 0, count = 5,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -238,7 +251,7 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 4,
+                index = 1, count = 5,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -248,8 +261,18 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 4,
+                index = 2, count = 5,
                 onClick = { onOpen(PageWebSearch) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Science,
+                polygon = MaterialShapes.Cookie4Sided,
+                title = "Deep Research",
+                subtitle = deepResearchSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 3, count = 5,
+                onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
                 icon = Icons.Default.PhoneAndroid,
@@ -258,7 +281,7 @@ private fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 3, count = 4,
+                index = 4, count = 5,
                 onClick = { onOpen(PageLocalModels) },
             )
         }
@@ -934,6 +957,207 @@ private fun ProviderRow(
             if (selected) {
                 Spacer(Modifier.width(Spacing.s))
                 Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+// ── Deep Research ─────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val searchProvider by viewModel.deepResearchSearchProvider.collectAsState()
+    val maxSearches by viewModel.deepResearchMaxSearches.collectAsState()
+    val maxSources by viewModel.deepResearchMaxSources.collectAsState()
+    val drModels by viewModel.deepResearchModels.collectAsState()
+    val exaKey by viewModel.exaApiKey.collectAsState()
+    val parallelKey by viewModel.parallelApiKey.collectAsState()
+    val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+    val orQuery by viewModel.orModelQuery.collectAsState()
+    val orResults by viewModel.orModelResults.collectAsState()
+    val orLoading by viewModel.orDirectoryLoading.collectAsState()
+    val orError by viewModel.orDirectoryError.collectAsState()
+
+    var showDirectory by remember { mutableStateOf(false) }
+
+    val detected = buildList {
+        if (exaKey.isNotBlank()) add("Exa")
+        if (parallelKey.isNotBlank()) add("Parallel")
+        if (firecrawlKey.isNotBlank()) add("Firecrawl")
+    }
+
+    SettingsPageScaffold(title = "Deep Research", subtitle = "Multi-step investigation mode", onBack = onBack) {
+        FormCard {
+            Text("What it is", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "An opt-in mode for questions that need real investigation. Turn it on from the " +
+                    "“+” menu in chat, then pick an engine: a provider (Exa, Parallel, Firecrawl) " +
+                    "that researches on its own, or one of your chat models that plans searches and " +
+                    "writes a cited report. It runs in the background and can take a few minutes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection(
+            "Search provider",
+            "Used when a chat model orchestrates the research. Auto-detected from your Web search keys.",
+        )
+        ConnectedToggleRow(
+            options = listOf("auto" to "Auto", "exa" to "Exa", "parallel" to "Parallel", "firecrawl" to "Firecrawl"),
+            selected = searchProvider,
+            onSelect = viewModel::saveDeepResearchSearchProvider,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            if (detected.isEmpty()) "No search keys saved yet — add one in Settings → Web search."
+            else "Detected: ${detected.joinToString(", ")}",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (detected.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Maximum searches", "More searches = deeper, slower, and pricier")
+        ConnectedToggleRow(
+            options = listOf("3" to "3", "5" to "5", "10" to "10"),
+            selected = maxSearches.toString(),
+            onSelect = { viewModel.saveDeepResearchMaxSearches(it.toInt()) },
+        )
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Maximum sources", "How many sources to gather before writing")
+        ConnectedToggleRow(
+            options = listOf("10" to "10", "20" to "20", "50" to "50"),
+            selected = maxSources.toString(),
+            onSelect = { viewModel.saveDeepResearchMaxSources(it.toInt()) },
+        )
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Research models", "Chat models allowed to orchestrate Deep Research — choose strong, tool-capable ones")
+        Button(
+            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Add a research model")
+        }
+        Spacer(Modifier.height(Spacing.m))
+        if (drModels.isEmpty()) {
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Science, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "No research models yet.\nProvider engines still work without one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                drModels.forEachIndexed { index, model ->
+                    DeepResearchModelRow(
+                        model = model,
+                        index = index,
+                        count = drModels.size,
+                        onDelete = { viewModel.deleteDeepResearchModel(model.id) },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("On-device")
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(40.dp).clip(RoundedPolygonShape(BrandShapes.avatarStart)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Spacer(Modifier.width(Spacing.base))
+                Column(Modifier.weight(1f)) {
+                    Text("Local Deep Research", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Run research fully on-device — coming soon",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                    Text(
+                        "Soon",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = Spacing.m, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDirectory) {
+        OpenRouterDirectorySheet(
+            query = orQuery,
+            results = orResults,
+            loading = orLoading,
+            error = orError,
+            addedIds = drModels.map { it.id }.toSet(),
+            onQueryChange = viewModel::updateOrModelQuery,
+            onRetry = viewModel::loadOpenRouterDirectory,
+            onAdd = { info -> viewModel.addDeepResearchModel(info.id, info.name.substringAfter(": ")) },
+            onRemove = viewModel::deleteDeepResearchModel,
+            onDismiss = { showDirectory = false },
+        )
+    }
+}
+
+@Composable
+private fun DeepResearchModelRow(
+    model: DeepResearchModel,
+    index: Int,
+    count: Int,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie4Sided)).background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Default.Science, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(model.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    model.id,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
             }
         }
     }

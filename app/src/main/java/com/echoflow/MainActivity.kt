@@ -12,12 +12,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Settings
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.DeepResearchForegroundService
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
@@ -38,6 +40,14 @@ class MainActivity : ComponentActivity() {
         val settingsRepo = SettingsRepository(applicationContext)
         val modelDownloadManager = ModelDownloadManager(applicationContext, database.localModelDao())
 
+        // Resume any Deep Research run that was interrupted by an app kill — but only spin
+        // up the service when there is actually something to resume (no idle notification).
+        lifecycleScope.launch {
+            if (database.researchRunDao().getInterrupted().isNotEmpty()) {
+                DeepResearchForegroundService.resume(applicationContext)
+            }
+        }
+
         setContent {
             // 2. Fetch ViewModels using our custom factory providers
             val settingsVm: SettingsViewModel = viewModel(
@@ -45,7 +55,8 @@ class MainActivity : ComponentActivity() {
                     settingsRepo,
                     database.customModelDao(),
                     database.localModelDao(),
-                    modelDownloadManager
+                    modelDownloadManager,
+                    database.deepResearchModelDao()
                 )
             )
 
@@ -55,7 +66,9 @@ class MainActivity : ComponentActivity() {
                     database.chatDao(),
                     database.messageDao(),
                     settingsRepo,
-                    database.localModelDao()
+                    database.localModelDao(),
+                    database.researchRunDao(),
+                    database.deepResearchModelDao()
                 )
             )
 
