@@ -183,42 +183,38 @@ fun ReportCard(
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(Spacing.base)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Science, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(Spacing.s))
-                Text(
-                    "Research report",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                )
-                FilledTonalIconButton(
-                    onClick = onCopy,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                ) { Icon(Icons.Default.ContentCopy, "Copy report", Modifier.size(16.dp)) }
-            }
+    // Plain background — the report reads like a first-class answer, not a boxed card. Only a
+    // small label + a divider before sources give it light structure.
+    Column(modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Science, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                "Research report",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalIconButton(
+                onClick = onCopy,
+                modifier = Modifier.size(30.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) { Icon(Icons.Default.ContentCopy, "Copy report", Modifier.size(15.dp)) }
+        }
 
-            if (planSteps.isNotEmpty()) {
-                Spacer(Modifier.height(Spacing.s))
-                ResearchPlanDisclosure(planSteps)
-            }
-
+        if (planSteps.isNotEmpty()) {
             Spacer(Modifier.height(Spacing.s))
-            RichMarkdown(report, Modifier.fillMaxWidth())
+            ResearchPlanDisclosure(planSteps)
+        }
 
-            if (citations.isNotEmpty()) {
-                Spacer(Modifier.height(Spacing.base))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(Modifier.height(Spacing.base))
-                SourcesRow(citations)
-            }
+        Spacer(Modifier.height(Spacing.s))
+        RichMarkdown(report, Modifier.fillMaxWidth())
+
+        if (citations.isNotEmpty()) {
+            Spacer(Modifier.height(Spacing.base))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(Spacing.base))
+            SourcesRow(citations)
         }
     }
 }
@@ -296,9 +292,10 @@ fun EffortPill(effort: String, onSelect: (String) -> Unit, modifier: Modifier = 
 }
 
 /**
- * Adaptive renderer for a Data Agent result (a JSON string). Picks the cleanest shape:
- * an array of objects → stacked item cards; a single object → field rows; anything else →
- * markdown/plain text. The user never chooses "structured vs text".
+ * Adaptive renderer for a Data Agent result (a JSON string). Renders recursively so nested
+ * data reads cleanly: an array of objects becomes stacked item cards; a nested object becomes
+ * a titled section with indented label→value rows; primitives align in two columns; anything
+ * unparseable falls back to markdown. Plain background — no boxed grey card.
  */
 @Composable
 fun DataResultCard(
@@ -310,93 +307,114 @@ fun DataResultCard(
     val array = remember(json) { runCatching { JSONArray(json) }.getOrNull() }
     val obj = remember(json) { if (array == null) runCatching { JSONObject(json) }.getOrNull() else null }
 
-    Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(Spacing.base)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Science, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(Spacing.s))
-                Text(
-                    "Data result",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                )
-                FilledTonalIconButton(
-                    onClick = onCopy,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp)) }
-            }
-            Spacer(Modifier.height(Spacing.m))
+    Column(modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Science, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                "Data result",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalIconButton(
+                onClick = onCopy,
+                modifier = Modifier.size(30.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(15.dp)) }
+        }
+        Spacer(Modifier.height(Spacing.m))
 
-            when {
-                array != null -> Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    for (i in 0 until array.length()) {
-                        when (val item = array.opt(i)) {
-                            is JSONObject -> JsonObjectCard(item)
-                            else -> Text("• ${item}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-                obj != null -> JsonObjectCard(obj, flat = true)
-                else -> RichMarkdown(json, Modifier.fillMaxWidth())
-            }
+        when {
+            array != null -> JsonArrayView(array, Modifier.fillMaxWidth())
+            obj != null -> JsonObjectView(obj, Modifier.fillMaxWidth())
+            else -> RichMarkdown(json, Modifier.fillMaxWidth())
+        }
 
-            if (citations.isNotEmpty()) {
-                Spacer(Modifier.height(Spacing.base))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(Modifier.height(Spacing.base))
-                SourcesRow(citations)
-            }
+        if (citations.isNotEmpty()) {
+            Spacer(Modifier.height(Spacing.base))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(Spacing.base))
+            SourcesRow(citations)
         }
     }
 }
 
-/** One object rendered as label → value rows; nested arrays/objects are shown compactly. */
+/** Renders any JSON value, recursing into objects/arrays. */
 @Composable
-private fun JsonObjectCard(obj: JSONObject, flat: Boolean = false) {
-    val content: @Composable ColumnScope.() -> Unit = {
-        val keys = obj.keys()
-        keys.forEach { key ->
+private fun JsonValue(value: Any?, modifier: Modifier = Modifier) {
+    when (value) {
+        null, JSONObject.NULL -> Text("—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+        is JSONObject -> JsonObjectView(value, modifier)
+        is JSONArray -> JsonArrayView(value, modifier)
+        else -> Text(value.toString(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = modifier)
+    }
+}
+
+/** Object → for each key: nested groups become titled sections, leaves become label→value rows. */
+@Composable
+private fun JsonObjectView(obj: JSONObject, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        obj.keys().forEach { key ->
             val value = obj.opt(key)
-            Row(Modifier.padding(vertical = 3.dp)) {
-                Text(
-                    prettyKey(key),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.widthIn(min = 96.dp).weight(0.4f),
-                )
-                Text(
-                    stringifyJson(value),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(0.6f),
-                )
+            val nested = value is JSONObject || (value is JSONArray && arrayHasObjects(value))
+            if (nested) {
+                Column {
+                    Text(
+                        prettyKey(key),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Box(Modifier.padding(start = Spacing.m, top = Spacing.xs)) { JsonValue(value) }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        prettyKey(key),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(0.4f).padding(end = Spacing.s),
+                    )
+                    JsonValue(value, Modifier.weight(0.6f))
+                }
             }
         }
     }
-    if (flat) {
-        Column(content = content)
+}
+
+/** Array → object elements become stacked item cards; primitives become a bullet list. */
+@Composable
+private fun JsonArrayView(arr: JSONArray, modifier: Modifier = Modifier) {
+    if (arrayHasObjects(arr)) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            for (i in 0 until arr.length()) {
+                val item = arr.opt(i)
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(Modifier.padding(Spacing.m)) { JsonValue(item) }
+                }
+            }
+        }
     } else {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(Spacing.m), content = content)
+        Column(modifier) {
+            for (i in 0 until arr.length()) {
+                Row(Modifier.padding(vertical = 2.dp)) {
+                    Text("•  ", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(arr.opt(i)?.toString() ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
         }
     }
 }
+
+private fun arrayHasObjects(arr: JSONArray): Boolean =
+    (0 until arr.length()).any { arr.opt(it) is JSONObject }
 
 private fun prettyKey(key: String): String =
     key.replace('_', ' ').replace(Regex("([a-z])([A-Z])"), "$1 $2").replaceFirstChar { it.uppercase() }
-
-private fun stringifyJson(value: Any?): String = when (value) {
-    null, JSONObject.NULL -> "—"
-    is JSONArray -> (0 until value.length()).joinToString(", ") { stringifyJson(value.opt(it)) }
-    is JSONObject -> value.keys().asSequence().joinToString(", ") { "${prettyKey(it)}: ${stringifyJson(value.opt(it))}" }
-    else -> value.toString()
-}
 
 /** A removable capability chip shown above the input (Search / Deep Research / file). */
 @Composable

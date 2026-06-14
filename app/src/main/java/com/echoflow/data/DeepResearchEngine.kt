@@ -164,6 +164,7 @@ class DeepResearchEngine(
                 "query" to topic,
                 "type" to type,
                 "numResults" to numResults.coerceIn(1, 100),
+                "systemPrompt" to SystemPrompts.exaResearchSystemPrompt(),
                 "outputSchema" to mapOf("type" to "text"),
                 "contents" to mapOf(
                     "highlights" to true,
@@ -299,7 +300,10 @@ class DeepResearchEngine(
             val created = post(
                 url = "https://api.exa.ai/agent/runs",
                 headers = headers,
-                body = mapOf("query" to topic, "effort" to (config.level ?: "auto")),
+                body = mapOf(
+                    "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
+                    "effort" to (config.level ?: "auto"),
+                ),
                 label = "Exa",
             )
             (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
@@ -356,7 +360,11 @@ class DeepResearchEngine(
             val created = post(
                 url = "https://api.firecrawl.dev/v2/agent",
                 headers = headers,
-                body = mapOf("prompt" to topic, "model" to config.providerModel, "maxCredits" to config.maxCredits),
+                body = mapOf(
+                    "prompt" to topic + SystemPrompts.dataAgentPromptSuffix(),
+                    "model" to config.providerModel,
+                    "maxCredits" to config.maxCredits,
+                ),
                 label = "Firecrawl",
             )
             (created["id"] as? String) ?: ((created["data"] as? Map<*, *>)?.get("id") as? String)
@@ -492,12 +500,22 @@ class DeepResearchEngine(
         apiKey: String,
         topic: String,
         sources: List<SearchSource>,
-    ): String = openRouterService.complete(
-        apiKey = apiKey,
-        model = model,
-        systemPrompt = SystemPrompts.deepResearchSynthesis(topic),
-        userPrompt = "Numbered search results:\n\n" + formatSearchResultsForModel(sources),
-    )
+    ): String {
+        // Cap what we feed the model: many chat models (especially free ones) have small
+        // context windows, so an un-trimmed 20×4000-char source dump 400s the request. We
+        // trim each snippet and bound the total so synthesis stays within budget.
+        val trimmed = sources.take(MAX_SYNTHESIS_SOURCES).map { src ->
+            src.copy(snippet = src.snippet?.take(MAX_SNIPPET_CHARS))
+        }
+        var block = formatSearchResultsForModel(trimmed)
+        if (block.length > MAX_SYNTHESIS_CHARS) block = block.take(MAX_SYNTHESIS_CHARS)
+        return openRouterService.complete(
+            apiKey = apiKey,
+            model = model,
+            systemPrompt = SystemPrompts.deepResearchSynthesis(topic),
+            userPrompt = "Numbered search results:\n\n$block",
+        )
+    }
 
     private fun parsePlan(raw: String, max: Int): List<String> =
         raw.lineSequence()
@@ -542,5 +560,9 @@ class DeepResearchEngine(
     companion object {
         private const val POLL_INTERVAL_MS = 5000L
         private const val EXA_AGENT_BETA = "agent-2026-05-07"
+        // Synthesis context budget (chars) so small/free model context windows aren't exceeded.
+        private const val MAX_SYNTHESIS_SOURCES = 16
+        private const val MAX_SNIPPET_CHARS = 800
+        private const val MAX_SYNTHESIS_CHARS = 14000
     }
 }

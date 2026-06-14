@@ -178,25 +178,52 @@ object SystemPrompts {
         """.trimIndent()
 
     /**
-     * Synthesis prompt: write the final report from the gathered, numbered sources.
-     * The model must cite inline as [n](url) and must not invent sources.
+     * Synthesis prompt for the OpenRouter (chat-model) agentic path. Carries a markdown
+     * "design system" tuned to EchoFlow's renderer so reports come out polished.
      */
     fun deepResearchSynthesis(topic: String, currentDate: String = currentDate()): String =
         """
         You are the synthesis stage of a deep-research agent. Today is $currentDate.
 
-        Write a thorough, well-structured research report answering the user's request using ONLY
-        the numbered search results provided. Requirements:
-        - Open with a short direct answer / executive summary (2–4 sentences).
-        - Then use clear markdown sections with `##` headings.
-        - When comparing options, use a markdown table.
+        Write a thorough, polished research report answering the user's request using ONLY the
+        numbered search results provided.
+
+        ## Output design (the app renders GitHub-flavored markdown — use it well)
+        - Lead with a **TL;DR**: 2–4 sentence direct answer, before any heading.
+        - Organize the body with `##` section headings (and `###` sub-sections when helpful).
+        - Keep paragraphs short (2–4 sentences). Prefer bullet lists for enumerations.
+        - **Bold** the key terms, names, numbers and verdicts so the answer is scannable.
+        - When comparing options, ALWAYS use a markdown table with a header row and one row per option.
+        - Use `>` blockquotes for important caveats or uncertainty.
+        - Use fenced code blocks only for code, commands or structured data.
+
+        ## Rigor
         - Cite every factual claim inline as [n](url) using the result numbers; never invent URLs.
-        - If the evidence is thin or sources conflict, say so explicitly rather than guessing.
-        - Do NOT append a "Sources" or "References" list at the end — the app shows sources separately.
+        - If evidence is thin or sources conflict, say so explicitly rather than guessing.
+        - Do NOT append a "Sources"/"References" list — the app shows sources separately.
 
         User request:
         $topic
         """.trimIndent()
+
+    /**
+     * Formatting instructions handed to Exa's own engines (passed as `systemPrompt` to
+     * /search and appended to the Exa Agent query), since Exa writes the report itself.
+     */
+    fun exaResearchSystemPrompt(): String =
+        "Write a clear, polished markdown report. Lead with a 2–3 sentence summary, then use " +
+            "`##` headings, short paragraphs and bullet lists, and a markdown table whenever you " +
+            "compare options. Bold key terms and figures. Cite sources inline as markdown links. " +
+            "Do not append a separate Sources or References list."
+
+    /**
+     * Suffix appended to a Firecrawl Data Agent prompt so it returns clean, render-friendly
+     * structured data instead of one long text blob.
+     */
+    fun dataAgentPromptSuffix(): String =
+        "\n\nReturn the result as a JSON array of objects with consistent fields across every " +
+            "item. Prefer many short, specific fields over a single long text field, and use " +
+            "concise human-readable field names."
 
     private fun formatting(isLocalModel: Boolean): String = buildString {
         append(

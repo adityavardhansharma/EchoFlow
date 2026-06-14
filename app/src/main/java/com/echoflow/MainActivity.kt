@@ -1,10 +1,15 @@
 package com.echoflow
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -31,9 +36,20 @@ import com.echoflow.ui.theme.EchoFlowTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
+        // foreground-service progress notification to appear in the status bar.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // 1. Initializing Local Repositories and SQLite Database
         val database = AppDatabase.getDatabase(application)
