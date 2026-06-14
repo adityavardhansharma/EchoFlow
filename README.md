@@ -1,6 +1,6 @@
 <div align="center">
   <h1>EchoFlow</h1>
-  <p><strong>A polished Android AI chat client with expressive Material design, streaming responses, reasoning traces, and rich markdown rendering.</strong></p>
+  <p><strong>A privacy-first, bring-your-own-key AI chat app for Android — cloud and on-device models, web search, and multi-step Deep Research, wrapped in expressive Material 3 design.</strong></p>
 
   <p>
     <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" />
@@ -10,59 +10,91 @@
   </p>
 
   <p>
-    <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-AI%20Models-111827?style=flat-square" />
-    <img alt="Room" src="https://img.shields.io/badge/Room-Local%20History-0F766E?style=flat-square" />
-    <img alt="DataStore" src="https://img.shields.io/badge/DataStore-Preferences-2563EB?style=flat-square" />
-    <img alt="Retrofit" src="https://img.shields.io/badge/Retrofit-Networking-C2410C?style=flat-square" />
-    <img alt="Moshi" src="https://img.shields.io/badge/Moshi-JSON-9333EA?style=flat-square" />
+    <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-Cloud%20Models-111827?style=flat-square" />
+    <img alt="On-device" src="https://img.shields.io/badge/On--device-LiteRT%20%2F%20MediaPipe-FF6F00?style=flat-square" />
+    <img alt="Web Search" src="https://img.shields.io/badge/Search-Exa%20%2F%20Parallel%20%2F%20Firecrawl-0F766E?style=flat-square" />
+    <img alt="Room" src="https://img.shields.io/badge/Room-Local%20Storage-2563EB?style=flat-square" />
     <img alt="MIT License" src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
+  </p>
+
+  <p>
+    <a href="https://github.com/adityavardhansharma/EchoFlow/releases/latest"><strong>📥 Download the app from GitHub Releases</strong></a>
   </p>
 </div>
 
 ## Overview
 
-EchoFlow is a native Android chat app built for fast, comfortable conversations with AI models through OpenRouter. It combines a refined Compose interface with practical chat features: streaming answers, persisted conversations, custom model management, image attachments, reasoning display for supported models, and rich markdown output that can handle the kind of structured responses people actually ask for.
+EchoFlow is a native Android AI chat client that puts you in control. It is **bring-your-own-key (BYOK)** and **local-first**: there is **no EchoFlow backend, no account, and no telemetry**. You plug in your own provider key — or run a model fully on-device — and the app talks directly to the provider. Your keys, conversations, and downloaded models stay on your phone.
 
-The app is designed to feel modern without being loud. It uses Material 3 Expressive motion, dynamic color, shaped controls, adaptive surfaces, and a focused chat layout where the conversation stays central.
+Beyond everyday chat, EchoFlow adds two opt-in power-user modes: **Deep Research**, which investigates the web across multiple steps and writes a cited report, and **Data Agent**, which extracts structured data from the web into clean tables. Both run in the background and never route through anyone's servers but the providers you choose.
+
+## Privacy
+
+- **No backend, no accounts, no analytics or telemetry.** EchoFlow runs entirely on your device and talks straight to the providers you configure.
+- **Bring your own key.** API keys are stored only on this device.
+- **Local-first storage.** Conversations and history live in a local Room database; nothing is uploaded.
+- **Fully offline option.** On-device models need no internet and no API key at all.
 
 ## Highlights
 
-- **Streaming AI conversations** with smooth text reveal instead of bursty token dumps.
-- **Reasoning traces** for supported models, shown in a collapsible panel separate from the final answer.
-- **OpenRouter model support** with a default Gemini model and user-managed custom model IDs.
-- **Persistent chat history** backed by Room, including threads, messages, reasoning content, and custom models.
-- **Rich markdown rendering** for headings, paragraphs, nested lists, blockquotes, dividers, links, inline styles, tables, and code blocks.
-- **Syntax-highlighted code** using the Highlights engine for readable technical answers.
-- **Image attachment support** for multimodal conversations.
-- **Settings built into the app** for API key storage, theme mode, color selection, and custom model management.
-- **Material You dynamic color** by default on supported Android versions, with curated fallback accent palettes.
+- **Any cloud model via OpenRouter** — Claude, GPT, Gemini, DeepSeek and more, with a live model directory (pricing + context windows) to build your own picker.
+- **On-device local models** — run models like Gemma, Qwen and DeepSeek distills entirely on your phone: private, offline, and free.
+- **Web search for any model** — Exa, Parallel, Firecrawl, or OpenRouter's server-side search.
+- **Deep Research** — opt-in, multi-step web investigation that produces a cited report; runs in the background and resumes after interruption.
+- **Data Agent** — Firecrawl-powered extraction that returns structured results as cards and tables.
+- **Streaming conversations** with smooth text reveal and **reasoning traces** in a collapsible panel.
+- **Rich markdown rendering** — headings, lists, blockquotes, links, tables, and syntax-highlighted code.
+- **Image attachments** for multimodal conversations.
+- **Material 3 Expressive UI** — Material You dynamic color, accent themes, light/dark, and an adaptive tablet layout.
+
+## Download & Setup
+
+1. Grab the latest APK from [GitHub Releases](https://github.com/adityavardhansharma/EchoFlow/releases/latest) and install it (you may need to allow installs from unknown sources).
+2. Open **Settings → Cloud models** and paste an [OpenRouter](https://openrouter.ai) API key to use cloud models — or open **Settings → Local models** to download an on-device model and run with no key at all.
+3. (Optional) Add an Exa, Parallel, or Firecrawl key under **Settings → Web search** to enable web search, Deep Research, and the Data Agent.
+
+## Modes
+
+### Chat
+
+Streaming answers with independent per-conversation scroll state, reasoning traces for supported models, image attachments, and first-class markdown. Pick any configured cloud or local model from the in-chat model picker.
+
+### Web Search
+
+Give any model live answers. Choose a provider in Settings (OpenRouter server-side search, or **Exa / Parallel / Firecrawl** with your own key), or flip the per-message **Web search** toggle from the **+** menu to search a single message using your last-used provider — no Settings trip required. Citations are shown under the answer.
+
+### Deep Research
+
+An opt-in mode for questions that need real investigation, producing a cited, well-structured report. Choose how it runs from the engine picker:
+
+- **Exa** — Deep Lite, Deep, Deep Reasoning, and **Exa Agent** (with a Low/Medium/High/X-High effort dial)
+- **Parallel** — Pro and Ultra
+- **Firecrawl** — autonomous deep research
+- **Your own chat models** — any OpenRouter model that plans searches and writes the report
+
+Runs happen in a foreground service with a **status-bar notification** (live progress + Cancel) and **resume after the app is closed**. Reports lead with a TL;DR, use sections and comparison tables, and cite sources inline.
+
+### Data Agent
+
+When you need *data* instead of an explanation — pricing, specs, lists, contacts — point the **Firecrawl** agent at a task and get structured results back, rendered automatically as cards and label→value sections. Includes a **live credit meter** and a configurable **spending limit**. Off by default; enable it in **Settings → Data Agent**.
+
+## On-device Models
+
+EchoFlow runs local LLMs through LiteRT-LM / MediaPipe, fully on the device:
+
+- **Curated catalog** of mobile-ready models, plus **search across Hugging Face** for `.task` / `.litertlm` bundles.
+- **Import your own** model file from storage.
+- **Hugging Face token** support for gated models (e.g. Gemma).
+- Local models are private, work offline, and need no API key. Web search can still be offered to them as a tool.
 
 ## Design System
 
-EchoFlow follows a Material 3 Expressive direction: tactile, shaped, and responsive, but still calm enough for long chat sessions.
+EchoFlow follows a Material 3 Expressive direction: tactile, shaped, and responsive, but calm enough for long sessions.
 
-### Chat Surface
-
-The chat screen uses a floating transparent top bar and a floating input toolbar so the message list can breathe across the full screen. Messages are padded around those floating elements, keeping the latest response readable without wasting vertical space.
-
-Assistant responses are presented as full-width readable content, while user messages keep a distinct authored-message shape. The empty state, assistant identity, drawer header, and launcher assets share the same EchoFlow brand mark for a cohesive visual system.
-
-### Motion And Shape
-
-Interactive controls use expressive shape morphs, springy press feedback, and Material shape primitives from `androidx.graphics.shapes`. Buttons and icon surfaces feel alive without turning the UI into decoration.
-
-### Color
-
-The theme defaults to Android wallpaper-derived dynamic color where available. EchoFlow also includes curated accent options for users who want a specific mood. Color roles are applied across containers, drawers, controls, and message surfaces instead of only tinting buttons.
-
-### Markdown Experience
-
-AI answers often include tables, code, nested lists, explanations, and links. EchoFlow treats markdown as a first-class reading experience:
-
-- finished assistant messages use the rich renderer
-- streaming messages use the same parsing path to avoid restyling jumps
-- code blocks are selectable, horizontally scrollable, and syntax highlighted
-- tables wrap content instead of clipping it
+- **Chat surface** — a floating transparent top bar and floating input toolbar let the message list span the full screen. Assistant replies are full-width readable content; user messages keep a distinct authored shape.
+- **Motion & shape** — expressive shape morphs, springy press feedback, and Material shape primitives from `androidx.graphics.shapes`.
+- **Color** — Material You wallpaper-derived dynamic color by default, with curated accent palettes; color roles flow across containers, drawers, controls, and surfaces.
+- **Markdown** — finished and streaming messages share one parsing path (no restyle jumps); code is selectable, scrollable, and highlighted; tables wrap instead of clipping. Deep Research reports and Data Agent results have purpose-built layouts.
 
 ## Tech Stack
 
@@ -71,74 +103,41 @@ AI answers often include tables, code, nested lists, explanations, and links. Ec
 | Language | Kotlin |
 | UI | Jetpack Compose, Material 3 Expressive |
 | Architecture | ViewModel, StateFlow, Compose state |
-| AI Provider | OpenRouter chat completions |
+| Cloud AI | OpenRouter chat completions |
+| On-device AI | LiteRT-LM / MediaPipe GenAI |
+| Search & Research | Exa, Parallel, Firecrawl, OpenRouter |
+| Background work | Foreground service + Room-backed run store |
 | Networking | OkHttp, Retrofit |
 | JSON | Moshi |
 | Persistence | Room |
-| Preferences | DataStore / shared settings repository |
+| Preferences | Shared settings repository |
 | Images | Coil |
-| Markdown | Custom Compose markdown renderer plus Mike Penz markdown dependencies |
+| Markdown | Custom Compose renderer + Mike Penz markdown modules |
 | Code Highlighting | `dev.snipme:highlights` |
 | Design Utilities | `androidx.graphics:graphics-shapes` |
-| Testing Tooling | JUnit, AndroidX test, Robolectric, Roborazzi |
+| Testing | JUnit, AndroidX test, Robolectric, Roborazzi |
 
 ## Project Structure
 
 ```text
 app/src/main/java/com/echoflow
-├── data        # Room entities/DAOs, settings storage, OpenRouter service
+├── data        # Room entities/DAOs, settings, OpenRouter + web search services,
+│               # local-model engine/downloader, Deep Research engine + foreground service
 ├── ui          # ViewModels and app state
-├── ui/components
-│   ├── reusable expressive UI pieces
-│   └── markdown rendering
+├── ui/components  # reusable expressive UI, markdown + research/result rendering
 ├── ui/screens  # Chat and settings screens
 └── ui/theme    # Material Expressive theme, color, shape, motion helpers
 ```
 
-## Core Features
+## Building from Source
 
-### Conversations
+EchoFlow is a standard Gradle Android project — open it in Android Studio and run the `app` configuration, or build a debug APK:
 
-EchoFlow stores chat threads locally and keeps each conversation's scroll state independent. Switching between chats does not inherit the previous chat's offset, and active streams stay pinned only when the user is already near the bottom.
+```bash
+./gradlew assembleDebug
+```
 
-### Models
-
-The app ships with a simple default model and lets users add their own OpenRouter model IDs from Settings. This keeps the picker clean while still supporting power users who want to bring specific providers or experimental models.
-
-### Reasoning
-
-For reasoning-capable models, EchoFlow requests reasoning tokens and separates them from the final answer. The reasoning panel can expand while the model is thinking and collapse once the answer begins, keeping the main message clean.
-
-### Web Search (Auto)
-
-EchoFlow supports OpenRouter's web search via a simple toggle in Settings. When enabled, the **Auto** engine is used:
-
-- The model autonomously decides if and when to search the web based on your prompt.
-- If the AI provider supports native search (OpenAI, Anthropic, xAI), the model uses it directly at **provider rates**.
-- Otherwise, web search falls back to **Exa** at **$0.005/request** (up to 10 results; +$0.001 per extra result).
-- Exa combines keyword and embeddings-based search for high-quality results.
-
-No separate search engine configuration is needed — the toggle is all you see. Enable it and the model handles the rest.
-
-### Appearance
-
-Users can choose light, dark, system, dynamic wallpaper color, or curated accent palettes. The theme is applied through Compose and Material 3 role colors so the whole interface moves together.
-
-## Libraries
-
-EchoFlow is built with:
-
-- `androidx.compose` for declarative native UI
-- `androidx.compose.material3` for Material 3 and expressive components
-- `androidx.graphics.shapes` for morphing polygon-based UI shapes
-- `androidx.room` for local chat persistence
-- `androidx.datastore` for app preferences
-- `okhttp` and `retrofit` for OpenRouter networking
-- `moshi` for JSON parsing and adapters
-- `coil-compose` for image loading
-- `dev.snipme:highlights` for code syntax highlighting
-- `com.mikepenz:multiplatform-markdown-renderer` modules for markdown support
-- `roborazzi` and AndroidX test libraries for visual and unit test infrastructure
+No keys are required to build. Provider keys are entered at runtime in the app's Settings.
 
 ## License
 
