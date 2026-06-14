@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
@@ -77,6 +78,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.echoflow.data.CatalogEntry
+import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
 import com.echoflow.data.LocalModel
@@ -122,6 +124,7 @@ private const val PageCloudModels = "cloud_models"
 private const val PageWebSearch = "web_search"
 private const val PageLocalModels = "local_models"
 private const val PageDeepResearch = "deep_research"
+private const val PageDataAgent = "data_agent"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -172,6 +175,7 @@ fun SettingsScreen(
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
+            PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageHome })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -195,6 +199,8 @@ private fun SettingsHomePage(
     val customModels by viewModel.customModels.collectAsState()
     val deepResearchModelId by viewModel.deepResearchModelId.collectAsState()
     val deepResearchModels by viewModel.deepResearchModels.collectAsState()
+    val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
+    val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -231,6 +237,10 @@ private fun SettingsHomePage(
             ?: deepResearchModels.firstOrNull { it.id == deepResearchModelId }?.name
             ?: deepResearchModelId
     }
+    val dataAgentSubtitle = when {
+        !dataAgentEnabled -> "Off"
+        else -> DataAgentCatalog.byId(dataAgentEngine)?.name ?: "On"
+    }
 
     SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
@@ -241,7 +251,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 5,
+                index = 0, count = 6,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -251,7 +261,7 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 5,
+                index = 1, count = 6,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -261,7 +271,7 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 5,
+                index = 2, count = 6,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -271,8 +281,18 @@ private fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 5,
+                index = 3, count = 6,
                 onClick = { onOpen(PageDeepResearch) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Dataset,
+                polygon = BrandShapes.avatarEnd, // Clover4Leaf
+                title = "Data Agent",
+                subtitle = dataAgentSubtitle,
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 4, count = 6,
+                onClick = { onOpen(PageDataAgent) },
             )
             SettingsNavRow(
                 icon = Icons.Default.PhoneAndroid,
@@ -281,7 +301,7 @@ private fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 4, count = 5,
+                index = 5, count = 6,
                 onClick = { onOpen(PageLocalModels) },
             )
         }
@@ -1215,6 +1235,95 @@ private fun DrEngineSelectRow(
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
                 }
+            }
+        }
+    }
+}
+
+// ── Data Agent ────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun DataAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val enabled by viewModel.dataAgentEnabled.collectAsState()
+    val selectedEngine by viewModel.dataAgentEngine.collectAsState()
+    val maxCredits by viewModel.dataAgentMaxCredits.collectAsState()
+    val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+
+    SettingsPageScaffold(title = "Data Agent", subtitle = "Extract data from the web", onBack = onBack) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Data Agent", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Collect data from the web into a clean table",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Switch(checked = enabled, onCheckedChange = viewModel::saveDataAgentEnabled)
+            }
+        }
+
+        AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
+            Column {
+                Spacer(Modifier.height(Spacing.xl))
+                FormCard {
+                    Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "Tell it the data you want — pricing, specs, lists, contacts — and the Firecrawl " +
+                            "agent searches the web and returns it as a table. Use Deep Research instead when " +
+                            "you want an explanation or report. It runs in the background and uses Firecrawl " +
+                            "credits, so a spending limit is enforced.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Agent model", "Faster is cheaper; Accurate handles complex, multi-site tasks")
+                if (firecrawlKey.isBlank()) {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Key, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(Spacing.s))
+                            Text(
+                                "Add your Firecrawl API key in Settings → Web search to use the Data Agent.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                        DataAgentCatalog.engines.forEach { engine ->
+                            DrEngineSelectRow(
+                                name = engine.name,
+                                subtitle = engine.description,
+                                selected = engine.id == selectedEngine,
+                                onClick = { viewModel.saveDataAgentEngine(engine.id) },
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Spending limit", "Caps how many Firecrawl credits a single run may use")
+                ConnectedToggleRow(
+                    options = listOf("1000" to "Low", "2500" to "Standard", "10000" to "High"),
+                    selected = maxCredits.toString(),
+                    onSelect = { viewModel.saveDataAgentMaxCredits(it.toInt()) },
+                )
             }
         }
     }

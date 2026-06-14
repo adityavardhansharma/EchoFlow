@@ -105,6 +105,7 @@ class DeepResearchForegroundService : Service() {
         val openRouterKey = settings.getApiKeyDirect()
         val searchKey = when (config.engineKind) {
             "provider" -> settings.getSearchApiKeyDirect(config.provider)
+            "data-agent" -> settings.getSearchApiKeyDirect("firecrawl")
             else -> config.searchProvider?.let { settings.getSearchApiKeyDirect(it) }.orEmpty()
         }
 
@@ -136,8 +137,15 @@ class DeepResearchForegroundService : Service() {
                     event.sources.forEach { if (it.url !in sources) sources[it.url] = it }
                     current = current.copy(sourcesJson = ResearchJson.sourcesToJson(sources.values.toList()), updatedAt = now())
                 }
+                is ResearchEvent.Cost -> {
+                    current = current.copy(costInfo = event.label, updatedAt = now())
+                }
                 is ResearchEvent.Report -> {
                     finishCompleted(current, event.text, sources.values.toList())
+                    return@collect
+                }
+                is ResearchEvent.Structured -> {
+                    finishStructured(current, event.json, sources.values.toList())
                     return@collect
                 }
                 is ResearchEvent.Failed -> {
@@ -151,28 +159,48 @@ class DeepResearchForegroundService : Service() {
     }
 
     private fun buildConfig(run: ResearchRun): DeepResearchConfig? {
-        return if (run.engineKind == "provider") {
-            val eng = DeepResearchCatalog.providerEngineById(run.engineId) ?: return null
-            DeepResearchConfig(
-                engineId = run.engineId,
-                engineKind = "provider",
-                engineLabel = run.engineLabel,
-                provider = eng.provider,
-                providerModel = eng.providerModel,
-                searchProvider = null,
-                maxSearches = run.maxSearches,
-                maxSources = run.maxSources,
-            )
-        } else {
-            DeepResearchConfig(
+        return when (run.engineKind) {
+            "provider" -> {
+                val eng = DeepResearchCatalog.providerEngineById(run.engineId) ?: return null
+                DeepResearchConfig(
+                    engineId = run.engineId,
+                    engineKind = "provider",
+                    engineLabel = run.engineLabel,
+                    provider = eng.provider,
+                    providerModel = eng.providerModel,
+                    searchProvider = null,
+                    level = run.level,
+                    maxSearches = run.maxSearches,
+                    maxSources = run.maxSources,
+                    maxCredits = run.maxCredits,
+                )
+            }
+            "data-agent" -> {
+                val eng = DataAgentCatalog.byId(run.engineId) ?: return null
+                DeepResearchConfig(
+                    engineId = run.engineId,
+                    engineKind = "data-agent",
+                    engineLabel = run.engineLabel,
+                    provider = eng.provider,
+                    providerModel = eng.providerModel,
+                    searchProvider = null,
+                    level = run.level,
+                    maxSearches = run.maxSearches,
+                    maxSources = run.maxSources,
+                    maxCredits = run.maxCredits,
+                )
+            }
+            else -> DeepResearchConfig(
                 engineId = run.engineId,
                 engineKind = "agent",
                 engineLabel = run.engineLabel,
                 provider = run.engineId, // chat model id
                 providerModel = "",
                 searchProvider = run.searchProvider,
+                level = run.level,
                 maxSearches = run.maxSearches,
                 maxSources = run.maxSources,
+                maxCredits = run.maxCredits,
             )
         }
     }
@@ -204,6 +232,34 @@ class DeepResearchForegroundService : Service() {
                 status = ResearchRun.STATUS_COMPLETED,
                 phase = "Completed",
                 report = report,
+                sourcesJson = ResearchJson.sourcesToJson(sources),
+                assistantMessageId = messageId,
+                updatedAt = now(),
+            )
+        )
+    }
+
+    private suspend fun finishStructured(run: ResearchRun, json: String, sources: List<SearchSource>) {
+        val citations = sources.distinctBy { it.url }.map { Citation(it.title, it.url) }
+        val segments = listOf(PersistedSegment(type = "data", text = json))
+        val messageId = UUID.randomUUID().toString()
+        db.messageDao().insertMessage(
+            ChatMessage(
+                id = messageId,
+                chatId = run.chatId,
+                role = "assistant",
+                content = json,
+                createdAt = now(),
+                citationsJson = ToolEventJson.citationsToJson(citations),
+                segmentsJson = ToolEventJson.segmentsToJson(segments),
+            )
+        )
+        db.chatDao().getThreadById(run.chatId)?.let { db.chatDao().updateThread(it.copy(updatedAt = now())) }
+        persist(
+            run.copy(
+                status = ResearchRun.STATUS_COMPLETED,
+                phase = "Completed",
+                report = json,
                 sourcesJson = ResearchJson.sourcesToJson(sources),
                 assistantMessageId = messageId,
                 updatedAt = now(),

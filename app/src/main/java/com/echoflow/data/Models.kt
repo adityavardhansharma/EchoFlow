@@ -83,12 +83,15 @@ data class ResearchRun(
     @PrimaryKey val id: String,
     val chatId: String,
     val topic: String, // the user's research question
-    val engineId: String, // "exa-deep-reasoning" | "parallel-ultra" | "firecrawl-research" | a chat model id
-    val engineKind: String, // "provider" | "agent"
+    val engineId: String, // "exa-deep-reasoning" | "exa-agent" | "parallel-ultra" | "firecrawl-agent-pro" | a chat model id
+    val engineKind: String, // "provider" | "agent" | "data-agent"
     val engineLabel: String, // human label shown in the progress card
     val searchProvider: String? = null, // agent mode: which search provider backs the tool
+    val level: String? = null, // Exa Agent effort, or the Firecrawl Data Agent model token
+    val costInfo: String? = null, // live cost/credits meter text (e.g. "$0.12" or "84 credits")
     val maxSearches: Int = 5,
     val maxSources: Int = 20,
+    val maxCredits: Int = 2500,
     val providerJobId: String? = null, // exa researchId / parallel run_id / firecrawl job id
     val status: String = STATUS_QUEUED, // see STATUS_* constants
     val phase: String? = null, // human progress line, e.g. "Searching 3 of 8"

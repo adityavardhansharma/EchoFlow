@@ -56,8 +56,14 @@ class SettingsViewModel(
     val deepResearchSearchProvider: StateFlow<String> = repository.deepResearchSearchProvider
     val deepResearchMaxSearches: StateFlow<Int> = repository.deepResearchMaxSearches
     val deepResearchMaxSources: StateFlow<Int> = repository.deepResearchMaxSources
+    val deepResearchExaEffort: StateFlow<String> = repository.deepResearchExaEffort
     val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Data Agent
+    val dataAgentEnabled: StateFlow<Boolean> = repository.dataAgentEnabled
+    val dataAgentEngine: StateFlow<String> = repository.dataAgentEngine
+    val dataAgentMaxCredits: StateFlow<Int> = repository.dataAgentMaxCredits
 
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
@@ -162,6 +168,11 @@ class SettingsViewModel(
     fun saveDeepResearchSearchProvider(provider: String) = repository.saveDeepResearchSearchProvider(provider)
     fun saveDeepResearchMaxSearches(value: Int) = repository.saveDeepResearchMaxSearches(value)
     fun saveDeepResearchMaxSources(value: Int) = repository.saveDeepResearchMaxSources(value)
+    fun saveDeepResearchExaEffort(value: String) = repository.saveDeepResearchExaEffort(value)
+
+    fun saveDataAgentEnabled(enabled: Boolean) = repository.saveDataAgentEnabled(enabled)
+    fun saveDataAgentEngine(id: String) = repository.saveDataAgentEngine(id)
+    fun saveDataAgentMaxCredits(value: Int) = repository.saveDataAgentMaxCredits(value)
 
     fun addDeepResearchModel(id: String, name: String) {
         viewModelScope.launch {

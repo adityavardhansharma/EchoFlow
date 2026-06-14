@@ -55,6 +55,14 @@ object DeepResearchCatalog {
             description = "Deep search with enhanced reasoning — recommended",
         ),
         DrEngine(
+            id = "exa-agent",
+            name = "Exa Agent",
+            provider = "exa",
+            // Routed to the Exa Agent API (/agent/runs); depth is set by the effort pill.
+            providerModel = "agent",
+            description = "Autonomous agent — searches, reasons, sets its own depth",
+        ),
+        DrEngine(
             id = "parallel-pro",
             name = "Parallel · Pro",
             provider = "parallel",
@@ -82,23 +90,69 @@ object DeepResearchCatalog {
     /** True when [id] is one of the built-in provider-native engines. */
     fun isProviderEngine(id: String): Boolean = providerEngineById(id) != null
 
+    /** True when [id] is the Exa Agent engine (the only one that uses the effort pill). */
+    fun usesEffort(id: String): Boolean = id == "exa-agent"
+
     /** Which providers have at least one provider-native engine. */
     val knownProviders = setOf("exa", "parallel", "firecrawl")
 }
 
-/** Resolved, ready-to-run configuration for a single Deep Research request. */
+/** Exa Agent effort levels (cost/depth dial). "auto" lets Exa pick. */
+object ExaEffort {
+    val levels = listOf("auto", "low", "medium", "high", "xhigh")
+    const val DEFAULT = "auto"
+    fun label(level: String): String = when (level) {
+        "auto" -> "Auto"
+        "low" -> "Low"
+        "medium" -> "Medium"
+        "high" -> "High"
+        "xhigh" -> "X-High"
+        else -> level.replaceFirstChar { it.uppercase() }
+    }
+}
+
+/**
+ * Data Agent is a separate, opt-in mode (off by default) for *extracting* data from the web
+ * — distinct from Deep Research, which answers questions. It is Firecrawl-only, using the
+ * Firecrawl Agent (`/v2/agent`), which returns structured data shaped by the request.
+ */
+object DataAgentCatalog {
+    val engines: List<DrEngine> = listOf(
+        DrEngine(
+            id = "firecrawl-agent-mini",
+            name = "Firecrawl · Faster",
+            provider = "firecrawl",
+            providerModel = "spark-1-mini",
+            description = "Cheaper — good for straightforward extraction",
+        ),
+        DrEngine(
+            id = "firecrawl-agent-pro",
+            name = "Firecrawl · Accurate",
+            provider = "firecrawl",
+            providerModel = "spark-1-pro",
+            description = "Higher accuracy for complex, multi-site tasks",
+        ),
+    )
+
+    fun byId(id: String): DrEngine? = engines.firstOrNull { it.id == id }
+}
+
+/** Resolved, ready-to-run configuration for a single Deep Research / Data Agent request. */
 data class DeepResearchConfig(
     val engineId: String,
-    val engineKind: String, // "provider" | "agent"
+    val engineKind: String, // "provider" | "agent" | "data-agent"
     val engineLabel: String,
     /** provider kind: search provider that runs it. agent kind: the chat model id. */
     val provider: String,
-    /** provider kind: API model/processor token. */
+    /** provider kind: API model/processor token (e.g. Exa type, Parallel processor, Firecrawl model). */
     val providerModel: String,
     /** agent kind: search provider backing the tool (resolved from "auto"). */
     val searchProvider: String?,
+    /** Exa Agent effort ("auto".."xhigh"); null for engines that don't use it. */
+    val level: String? = null,
     val maxSearches: Int,
     val maxSources: Int,
+    val maxCredits: Int = 2500, // Data Agent spend cap (Firecrawl credits)
 )
 
 /** Moshi helpers for the JSON columns on [ResearchRun]. */

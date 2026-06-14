@@ -59,6 +59,19 @@ class SettingsRepository(context: Context) {
     private val _deepResearchMaxSources = MutableStateFlow(getDeepResearchMaxSourcesDirect())
     val deepResearchMaxSources: StateFlow<Int> = _deepResearchMaxSources.asStateFlow()
 
+    private val _deepResearchExaEffort = MutableStateFlow(getDeepResearchExaEffortDirect())
+    val deepResearchExaEffort: StateFlow<String> = _deepResearchExaEffort.asStateFlow() // auto|low|medium|high|xhigh
+
+    // Data Agent (Firecrawl-only extraction mode; off by default)
+    private val _dataAgentEnabled = MutableStateFlow(getDataAgentEnabledDirect())
+    val dataAgentEnabled: StateFlow<Boolean> = _dataAgentEnabled.asStateFlow()
+
+    private val _dataAgentEngine = MutableStateFlow(getDataAgentEngineDirect())
+    val dataAgentEngine: StateFlow<String> = _dataAgentEngine.asStateFlow()
+
+    private val _dataAgentMaxCredits = MutableStateFlow(getDataAgentMaxCreditsDirect())
+    val dataAgentMaxCredits: StateFlow<Int> = _dataAgentMaxCredits.asStateFlow()
+
     private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
     val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
 
@@ -214,6 +227,40 @@ class SettingsRepository(context: Context) {
     fun saveDeepResearchMaxSources(value: Int) {
         prefs.edit().putInt("deep_research_max_sources", value).apply()
         _deepResearchMaxSources.value = value
+    }
+
+    fun getDeepResearchExaEffortDirect(): String =
+        prefs.getString("deep_research_exa_effort", "auto").orEmpty()
+
+    fun saveDeepResearchExaEffort(value: String) {
+        prefs.edit().putString("deep_research_exa_effort", value).apply()
+        _deepResearchExaEffort.value = value
+    }
+
+    // ── Data Agent ───────────────────────────────────────────────────────────────────
+
+    fun getDataAgentEnabledDirect(): Boolean =
+        prefs.getBoolean("data_agent_enabled", false)
+
+    fun saveDataAgentEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("data_agent_enabled", enabled).apply()
+        _dataAgentEnabled.value = enabled
+    }
+
+    fun getDataAgentEngineDirect(): String =
+        prefs.getString("data_agent_engine", "").orEmpty()
+
+    fun saveDataAgentEngine(id: String) {
+        prefs.edit().putString("data_agent_engine", id).apply()
+        _dataAgentEngine.value = id
+    }
+
+    fun getDataAgentMaxCreditsDirect(): Int =
+        prefs.getInt("data_agent_max_credits", 2500)
+
+    fun saveDataAgentMaxCredits(value: Int) {
+        prefs.edit().putInt("data_agent_max_credits", value).apply()
+        _dataAgentMaxCredits.value = value
     }
 
     companion object {

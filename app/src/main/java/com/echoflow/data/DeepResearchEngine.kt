@@ -30,6 +30,13 @@ sealed class ResearchEvent {
 
     /** Final report markdown. */
     data class Report(val text: String) : ResearchEvent()
+
+    /** Final structured result (JSON string) from the Data Agent. */
+    data class Structured(val json: String) : ResearchEvent()
+
+    /** Live cost/credits meter text, e.g. "$0.12" or "84 credits". */
+    data class Cost(val label: String) : ResearchEvent()
+
     data class Failed(val message: String) : ResearchEvent()
 }
 
@@ -65,10 +72,10 @@ class DeepResearchEngine(
         existing: ResearchRun?,
     ): Flow<ResearchEvent> = flow {
         try {
-            if (config.engineKind == "provider") {
-                runProvider(config, topic, searchKey, existing)
-            } else {
-                runAgent(config, topic, openRouterKey, searchKey, existing)
+            when (config.engineKind) {
+                "provider" -> runProvider(config, topic, searchKey, existing)
+                "data-agent" -> runDataAgent(config, topic, searchKey, existing)
+                else -> runAgent(config, topic, openRouterKey, searchKey, existing)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -91,12 +98,17 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Starting ${config.engineLabel}…"))
 
-        // Exa runs deep research synchronously in a single /search call (no job, no polling).
         if (config.provider == "exa") {
-            emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching with Exa…"))
-            val done = exaDeepSearch(apiKey, config.providerModel, topic, config.maxSources)
-            if (done.sources.isNotEmpty()) emit(ResearchEvent.Sources(done.sources))
-            emit(ResearchEvent.Report(done.report))
+            if (config.providerModel == "agent") {
+                // Exa Agent: async POST /agent/runs, depth set by `effort`.
+                runExaAgent(apiKey, config, topic, existing)
+            } else {
+                // Exa Deep Reasoning: a single synchronous /search call (no job, no polling).
+                emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching with Exa…"))
+                val done = exaDeepSearch(apiKey, config.providerModel, topic, config.maxSources)
+                if (done.sources.isNotEmpty()) emit(ResearchEvent.Sources(done.sources))
+                emit(ResearchEvent.Report(done.report))
+            }
             return
         }
 
@@ -275,6 +287,136 @@ class DeepResearchEngine(
         }
     }
 
+    // Exa Agent: async POST /agent/runs then poll GET /agent/runs/{id}. Depth = effort.
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.runExaAgent(
+        apiKey: String,
+        config: DeepResearchConfig,
+        topic: String,
+        existing: ResearchRun?,
+    ) {
+        val headers = mapOf("x-api-key" to apiKey, "Exa-Beta" to EXA_AGENT_BETA)
+        val jobId = existing?.providerJobId ?: run {
+            val created = post(
+                url = "https://api.exa.ai/agent/runs",
+                headers = headers,
+                body = mapOf("query" to topic, "effort" to (config.level ?: "auto")),
+                label = "Exa",
+            )
+            (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
+        }
+        emit(ResearchEvent.ProviderJob(jobId))
+        emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Exa agent is researching…"))
+
+        val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(POLL_INTERVAL_MS)
+            val json = get("https://api.exa.ai/agent/runs/$jobId", headers, "Exa")
+            (json["costDollars"] as? Double)?.let { emit(ResearchEvent.Cost("$" + "%.2f".format(it))) }
+            when ((json["status"] as? String).orEmpty()) {
+                "completed" -> {
+                    val output = json["output"] as? Map<*, *>
+                    val text = (output?.get("text") as? String).orEmpty()
+                    val structured = output?.get("structured")
+                    val report = when {
+                        text.isNotBlank() -> text
+                        structured != null -> anyAdapter.toJson(structured)
+                        else -> ""
+                    }
+                    val sources = collectSources(output?.get("grounding"))
+                    if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
+                    if (report.isBlank()) emit(ResearchEvent.Failed("Exa Agent returned an empty result."))
+                    else emit(ResearchEvent.Report(report))
+                    return
+                }
+                "failed", "cancelled", "canceled", "error" -> {
+                    emit(ResearchEvent.Failed("Exa Agent run failed."))
+                    return
+                }
+                else -> Unit
+            }
+        }
+        emit(ResearchEvent.Failed("Exa Agent timed out. Try a lower effort or a narrower question."))
+    }
+
+    // ── Data Agent (Firecrawl /v2/agent — structured extraction) ─────────────────────
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.runDataAgent(
+        config: DeepResearchConfig,
+        topic: String,
+        apiKey: String,
+        existing: ResearchRun?,
+    ) {
+        if (apiKey.isBlank()) {
+            emit(ResearchEvent.Failed("No Firecrawl API key — add one in Settings → Web search."))
+            return
+        }
+        emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Starting the data agent…"))
+        val headers = mapOf("Authorization" to "Bearer $apiKey")
+        val jobId = existing?.providerJobId ?: run {
+            val created = post(
+                url = "https://api.firecrawl.dev/v2/agent",
+                headers = headers,
+                body = mapOf("prompt" to topic, "model" to config.providerModel, "maxCredits" to config.maxCredits),
+                label = "Firecrawl",
+            )
+            (created["id"] as? String) ?: ((created["data"] as? Map<*, *>)?.get("id") as? String)
+                ?: throw Exception("Firecrawl agent did not return a job id.")
+        }
+        emit(ResearchEvent.ProviderJob(jobId))
+        emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Collecting data…"))
+
+        val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(POLL_INTERVAL_MS)
+            val json = get("https://api.firecrawl.dev/v2/agent/$jobId", headers, "Firecrawl")
+            (json["creditsUsed"] as? Double)?.let { emit(ResearchEvent.Cost("${it.toInt()} credits")) }
+            when ((json["status"] as? String).orEmpty()) {
+                "completed" -> {
+                    val data = json["data"]
+                    val sources = (collectSources(data) + collectSources(json["sources"])).distinctBy { it.url }
+                    if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
+                    when (data) {
+                        is String -> if (data.isBlank()) emit(ResearchEvent.Failed("The data agent returned no data.")) else emit(ResearchEvent.Report(data))
+                        null -> emit(ResearchEvent.Failed("The data agent returned no data."))
+                        else -> emit(ResearchEvent.Structured(anyAdapter.toJson(data)))
+                    }
+                    return
+                }
+                "failed", "cancelled", "error" -> {
+                    emit(ResearchEvent.Failed("The data agent failed."))
+                    return
+                }
+                else -> Unit
+            }
+        }
+        emit(ResearchEvent.Failed("The data agent timed out."))
+    }
+
+    /** Recursively pull any {url,title,…} objects out of an arbitrary JSON node (citations/sources). */
+    private fun collectSources(node: Any?): List<SearchSource> {
+        val out = mutableListOf<SearchSource>()
+        fun walk(n: Any?) {
+            when (n) {
+                is Map<*, *> -> {
+                    val url = n["url"] as? String
+                    if (url != null && url.startsWith("http")) {
+                        out.add(
+                            SearchSource(
+                                title = (n["title"] as? String).orEmpty().ifBlank { url },
+                                url = url,
+                                snippet = (n["snippet"] as? String) ?: (n["text"] as? String),
+                            )
+                        )
+                    }
+                    n.values.forEach { walk(it) }
+                }
+                is List<*> -> n.forEach { walk(it) }
+            }
+        }
+        walk(node)
+        return out.distinctBy { it.url }
+    }
+
     // ── Agentic (plan → search → synthesize) ─────────────────────────────────────────
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.runAgent(
@@ -399,5 +541,6 @@ class DeepResearchEngine(
 
     companion object {
         private const val POLL_INTERVAL_MS = 5000L
+        private const val EXA_AGENT_BETA = "agent-2026-05-07"
     }
 }

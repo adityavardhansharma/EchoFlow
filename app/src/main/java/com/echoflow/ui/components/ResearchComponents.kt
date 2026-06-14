@@ -29,10 +29,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.Citation
+import com.echoflow.data.ExaEffort
 import com.echoflow.data.ResearchJson
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.SearchSource
 import com.echoflow.ui.theme.Spacing
+import org.json.JSONArray
+import org.json.JSONObject
 
 private fun faviconFor(url: String): String =
     "https://www.google.com/s2/favicons?domain=${runCatching { android.net.Uri.parse(url).host }.getOrNull() ?: ""}&sz=64"
@@ -66,7 +69,7 @@ fun ResearchProgressCard(
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Deep Research",
+                        if (run.engineKind == "data-agent") "Data Agent" else "Deep Research",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -109,6 +112,14 @@ fun ResearchProgressCard(
                 )
             } else {
                 LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            run.costInfo?.takeIf { it.isNotBlank() }?.let { cost ->
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    "Spent so far: $cost",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             if (steps.isNotEmpty()) {
@@ -245,6 +256,146 @@ fun ResearchPlanDisclosure(steps: List<String>, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * Compact effort selector shown next to the Deep Research chip when the Exa Agent engine is
+ * picked — keeps the effort/cost dial out of the model list. Tapping cycles a dropdown.
+ */
+@Composable
+fun EffortPill(effort: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Surface(
+            onClick = { open = true },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+        ) {
+            Row(
+                Modifier.padding(start = Spacing.m, end = Spacing.s, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Effort: ${ExaEffort.label(effort)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Icon(Icons.Default.KeyboardArrowDown, "Change effort", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            ExaEffort.levels.forEach { level ->
+                DropdownMenuItem(
+                    text = { Text(ExaEffort.label(level)) },
+                    trailingIcon = { if (level == effort) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { open = false; onSelect(level) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Adaptive renderer for a Data Agent result (a JSON string). Picks the cleanest shape:
+ * an array of objects → stacked item cards; a single object → field rows; anything else →
+ * markdown/plain text. The user never chooses "structured vs text".
+ */
+@Composable
+fun DataResultCard(
+    json: String,
+    citations: List<Citation>,
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val array = remember(json) { runCatching { JSONArray(json) }.getOrNull() }
+    val obj = remember(json) { if (array == null) runCatching { JSONObject(json) }.getOrNull() else null }
+
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Science, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(Spacing.s))
+                Text(
+                    "Data result",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalIconButton(
+                    onClick = onCopy,
+                    modifier = Modifier.size(32.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp)) }
+            }
+            Spacer(Modifier.height(Spacing.m))
+
+            when {
+                array != null -> Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    for (i in 0 until array.length()) {
+                        when (val item = array.opt(i)) {
+                            is JSONObject -> JsonObjectCard(item)
+                            else -> Text("• ${item}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+                obj != null -> JsonObjectCard(obj, flat = true)
+                else -> RichMarkdown(json, Modifier.fillMaxWidth())
+            }
+
+            if (citations.isNotEmpty()) {
+                Spacer(Modifier.height(Spacing.base))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.base))
+                SourcesRow(citations)
+            }
+        }
+    }
+}
+
+/** One object rendered as label → value rows; nested arrays/objects are shown compactly. */
+@Composable
+private fun JsonObjectCard(obj: JSONObject, flat: Boolean = false) {
+    val content: @Composable ColumnScope.() -> Unit = {
+        val keys = obj.keys()
+        keys.forEach { key ->
+            val value = obj.opt(key)
+            Row(Modifier.padding(vertical = 3.dp)) {
+                Text(
+                    prettyKey(key),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.widthIn(min = 96.dp).weight(0.4f),
+                )
+                Text(
+                    stringifyJson(value),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(0.6f),
+                )
+            }
+        }
+    }
+    if (flat) {
+        Column(content = content)
+    } else {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(Spacing.m), content = content)
+        }
+    }
+}
+
+private fun prettyKey(key: String): String =
+    key.replace('_', ' ').replace(Regex("([a-z])([A-Z])"), "$1 $2").replaceFirstChar { it.uppercase() }
+
+private fun stringifyJson(value: Any?): String = when (value) {
+    null, JSONObject.NULL -> "—"
+    is JSONArray -> (0 until value.length()).joinToString(", ") { stringifyJson(value.opt(it)) }
+    is JSONObject -> value.keys().asSequence().joinToString(", ") { "${prettyKey(it)}: ${stringifyJson(value.opt(it))}" }
+    else -> value.toString()
 }
 
 /** A removable capability chip shown above the input (Search / Deep Research / file). */
