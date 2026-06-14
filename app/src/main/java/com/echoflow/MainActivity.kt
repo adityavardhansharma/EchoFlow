@@ -1,10 +1,15 @@
 package com.echoflow
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -12,12 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Settings
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.DeepResearchForegroundService
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
@@ -29,14 +36,33 @@ import com.echoflow.ui.theme.EchoFlowTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
+        // foreground-service progress notification to appear in the status bar.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // 1. Initializing Local Repositories and SQLite Database
         val database = AppDatabase.getDatabase(application)
         val settingsRepo = SettingsRepository(applicationContext)
         val modelDownloadManager = ModelDownloadManager(applicationContext, database.localModelDao())
+
+        // Resume any Deep Research run that was interrupted by an app kill — but only spin
+        // up the service when there is actually something to resume (no idle notification).
+        lifecycleScope.launch {
+            if (database.researchRunDao().getInterrupted().isNotEmpty()) {
+                DeepResearchForegroundService.resume(applicationContext)
+            }
+        }
 
         setContent {
             // 2. Fetch ViewModels using our custom factory providers
@@ -45,7 +71,8 @@ class MainActivity : ComponentActivity() {
                     settingsRepo,
                     database.customModelDao(),
                     database.localModelDao(),
-                    modelDownloadManager
+                    modelDownloadManager,
+                    database.deepResearchModelDao()
                 )
             )
 
@@ -55,7 +82,9 @@ class MainActivity : ComponentActivity() {
                     database.chatDao(),
                     database.messageDao(),
                     settingsRepo,
-                    database.localModelDao()
+                    database.localModelDao(),
+                    database.researchRunDao(),
+                    database.deepResearchModelDao()
                 )
             )
 

@@ -38,7 +38,9 @@ class ChatViewModel(
     private val chatDao: ChatDao,
     private val messageDao: MessageDao,
     private val settingsRepository: SettingsRepository,
-    private val localModelDao: LocalModelDao
+    private val localModelDao: LocalModelDao,
+    private val researchRunDao: ResearchRunDao,
+    private val deepResearchModelDao: DeepResearchModelDao
 ) : AndroidViewModel(application) {
 
     private val openRouterService = OpenRouterService(application)
@@ -169,6 +171,47 @@ class ChatViewModel(
     private val _pendingAttachmentName = MutableStateFlow<String?>(null)
     val pendingAttachmentName: StateFlow<String?> = _pendingAttachmentName.asStateFlow()
 
+    // Per-message capability toggles surfaced by the "+" menu as chips above the input.
+    private val _deepResearchActive = MutableStateFlow(false)
+    val deepResearchActive: StateFlow<Boolean> = _deepResearchActive.asStateFlow()
+
+    private val _webSearchChipOn = MutableStateFlow(false)
+    val webSearchChipOn: StateFlow<Boolean> = _webSearchChipOn.asStateFlow()
+
+    private val _dataAgentActive = MutableStateFlow(false)
+    val dataAgentActive: StateFlow<Boolean> = _dataAgentActive.asStateFlow()
+
+    /** The Deep Research engine/model the user has added (built-in provider engines + agentic). */
+    val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The live (non-terminal) research run for the open conversation, if any. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentResearchRun: StateFlow<ResearchRun?> = _currentChatThreadId
+        .flatMapLatest { chatId ->
+            if (chatId == null) flowOf(null) else researchRunDao.observeActiveForChat(chatId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // Web Search, Deep Research and Data Agent are mutually exclusive capabilities.
+    fun toggleDeepResearch() {
+        val next = !_deepResearchActive.value
+        _deepResearchActive.value = next
+        if (next) { _webSearchChipOn.value = false; _dataAgentActive.value = false }
+    }
+
+    fun toggleWebSearchChip() {
+        val next = !_webSearchChipOn.value
+        _webSearchChipOn.value = next
+        if (next) { _deepResearchActive.value = false; _dataAgentActive.value = false }
+    }
+
+    fun toggleDataAgent() {
+        val next = !_dataAgentActive.value
+        _dataAgentActive.value = next
+        if (next) { _deepResearchActive.value = false; _webSearchChipOn.value = false }
+    }
+
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
         clearPendingAttachment()
@@ -293,6 +336,18 @@ class ChatViewModel(
         val attachmentName = _pendingAttachmentName.value
 
         if (prompt.isEmpty() && attachmentUri == null) return
+
+        // Deep Research and Data Agent are different pipelines (foreground service +
+        // provider/agent orchestration), so they short-circuit the normal streaming send.
+        if (_deepResearchActive.value && prompt.isNotEmpty()) {
+            startDeepResearch(prompt)
+            return
+        }
+        if (_dataAgentActive.value && prompt.isNotEmpty()) {
+            startDataAgent(prompt)
+            return
+        }
+
         _currentChatThreadId.value?.let { chatId ->
             if (streamJobs[chatId]?.isActive == true) return
         }
@@ -303,8 +358,11 @@ class ChatViewModel(
 
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
-            val provider = settingsRepository.getWebSearchProviderDirect()
-            val searchScope = settingsRepository.getWebSearchScopeDirect()
+            // The "+ → Web Search" chip force-enables search using the last-used provider,
+            // so the user never has to open Settings just to search one message.
+            val chipProvider = if (_webSearchChipOn.value) settingsRepository.resolveChipSearchProvider() else null
+            val provider = chipProvider ?: settingsRepository.getWebSearchProviderDirect()
+            val searchScope = if (chipProvider != null) "both" else settingsRepository.getWebSearchScopeDirect()
             val isLocal = selectedModel.startsWith("local/")
 
             if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
@@ -461,6 +519,169 @@ class ChatViewModel(
                 setStreamState(chatId, null)
             }
         }
+    }
+
+    // -------------------------------------------------------------------------------
+    // Deep Research
+    // -------------------------------------------------------------------------------
+
+    /**
+     * Validates the configured Deep Research engine, records the user's question, creates a
+     * durable [ResearchRun], and hands off to the foreground service which owns execution.
+     */
+    private fun startDeepResearch(topic: String) {
+        viewModelScope.launch {
+            clearError()
+            if (currentResearchRun.value != null) {
+                _errorMessage.value = "A research run is already in progress in this chat."
+                return@launch
+            }
+
+            val engineId = settingsRepository.getDeepResearchModelDirect()
+            if (engineId.isBlank()) {
+                _errorMessage.value = "Pick a Deep Research engine from the model selector first."
+                return@launch
+            }
+            val isProvider = DeepResearchCatalog.isProviderEngine(engineId)
+            val maxSearches = settingsRepository.getDeepResearchMaxSearchesDirect()
+            val maxSources = settingsRepository.getDeepResearchMaxSourcesDirect()
+
+            var searchProvider: String? = null
+            val engineLabel: String
+
+            if (isProvider) {
+                val engine = DeepResearchCatalog.providerEngineById(engineId)!!
+                engineLabel = engine.name
+                if (settingsRepository.getSearchApiKeyDirect(engine.provider).isBlank()) {
+                    _errorMessage.value = "Add your ${engine.provider.replaceFirstChar { it.uppercase() }} API key in Settings → Web search."
+                    return@launch
+                }
+            } else {
+                if (settingsRepository.getApiKeyDirect().isBlank()) {
+                    _errorMessage.value = "OpenRouter API key is missing. Add it in Settings → Cloud models."
+                    return@launch
+                }
+                val chosen = settingsRepository.getDeepResearchSearchProviderDirect()
+                searchProvider = if (chosen == "auto") {
+                    listOf("exa", "parallel", "firecrawl").firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
+                } else {
+                    chosen.takeIf { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
+                }
+                if (searchProvider == null) {
+                    _errorMessage.value = "Deep Research needs a search provider. Add an Exa, Parallel or Firecrawl key in Settings → Web search."
+                    return@launch
+                }
+                engineLabel = deepResearchModelDao.getAllSync().firstOrNull { it.id == engineId }?.name ?: engineId
+            }
+
+            val now = System.currentTimeMillis()
+            var chatId = _currentChatThreadId.value
+            if (chatId == null) {
+                chatId = UUID.randomUUID().toString()
+                chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
+                _currentChatThreadId.value = chatId
+                val words = topic.split("\\s+".toRegex())
+                val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
+            }
+
+            messageDao.insertMessage(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    role = "user",
+                    content = topic,
+                    createdAt = now,
+                )
+            )
+            chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
+
+            val runId = UUID.randomUUID().toString()
+            researchRunDao.upsert(
+                ResearchRun(
+                    id = runId,
+                    chatId = chatId,
+                    topic = topic,
+                    engineId = engineId,
+                    engineKind = if (isProvider) "provider" else "agent",
+                    engineLabel = engineLabel,
+                    searchProvider = searchProvider,
+                    level = if (engineId == "exa-agent") settingsRepository.getDeepResearchExaEffortDirect() else null,
+                    maxSearches = maxSearches,
+                    maxSources = maxSources,
+                    status = ResearchRun.STATUS_QUEUED,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+            DeepResearchForegroundService.start(getApplication(), runId)
+            _deepResearchActive.value = false // deliberate, per-question opt-in
+        }
+    }
+
+    /** Start a Firecrawl Data Agent run (structured extraction). */
+    private fun startDataAgent(topic: String) {
+        viewModelScope.launch {
+            clearError()
+            if (currentResearchRun.value != null) {
+                _errorMessage.value = "A run is already in progress in this chat."
+                return@launch
+            }
+            if (!settingsRepository.getDataAgentEnabledDirect()) {
+                _errorMessage.value = "Turn on Data Agent in Settings → Data Agent first."
+                return@launch
+            }
+            if (settingsRepository.getSearchApiKeyDirect("firecrawl").isBlank()) {
+                _errorMessage.value = "Add your Firecrawl API key in Settings → Web search."
+                return@launch
+            }
+            val engine = DataAgentCatalog.byId(settingsRepository.getDataAgentEngineDirect())
+                ?: DataAgentCatalog.engines.first()
+
+            val now = System.currentTimeMillis()
+            var chatId = _currentChatThreadId.value
+            if (chatId == null) {
+                chatId = UUID.randomUUID().toString()
+                chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
+                _currentChatThreadId.value = chatId
+                val words = topic.split("\\s+".toRegex())
+                val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
+            }
+            messageDao.insertMessage(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    role = "user",
+                    content = topic,
+                    createdAt = now,
+                )
+            )
+            chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
+
+            val runId = UUID.randomUUID().toString()
+            researchRunDao.upsert(
+                ResearchRun(
+                    id = runId,
+                    chatId = chatId,
+                    topic = topic,
+                    engineId = engine.id,
+                    engineKind = "data-agent",
+                    engineLabel = engine.name,
+                    maxCredits = settingsRepository.getDataAgentMaxCreditsDirect(),
+                    status = ResearchRun.STATUS_QUEUED,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+            DeepResearchForegroundService.start(getApplication(), runId)
+            _dataAgentActive.value = false
+        }
+    }
+
+    /** Cancel the in-flight research for the open conversation (keeps any partial result). */
+    fun cancelResearch() {
+        currentResearchRun.value?.let { DeepResearchForegroundService.cancel(getApplication(), it.id) }
     }
 
     private suspend fun persistAssistantMessage(
@@ -724,11 +945,16 @@ class ChatViewModel(
             chatDao: ChatDao,
             messageDao: MessageDao,
             settingsRepository: SettingsRepository,
-            localModelDao: LocalModelDao
+            localModelDao: LocalModelDao,
+            researchRunDao: ResearchRunDao,
+            deepResearchModelDao: DeepResearchModelDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(application, chatDao, messageDao, settingsRepository, localModelDao) as T
+                return ChatViewModel(
+                    application, chatDao, messageDao, settingsRepository, localModelDao,
+                    researchRunDao, deepResearchModelDao
+                ) as T
             }
         }
     }

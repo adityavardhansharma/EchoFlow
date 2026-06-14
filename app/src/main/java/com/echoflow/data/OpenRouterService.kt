@@ -154,6 +154,50 @@ class OpenRouterService(private val context: Context) {
         }
     }
 
+    /**
+     * Single non-streaming completion from a system + user prompt. Used by Deep Research's
+     * planner and synthesis stages, which need a whole answer at once rather than a stream.
+     */
+    suspend fun complete(
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        userPrompt: String
+    ): String = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            throw Exception("API key is missing! Please configure it in your Settings.")
+        }
+        val requestMap = mutableMapOf<String, Any>(
+            "model" to model,
+            "messages" to listOf(
+                mapOf("role" to "system", "content" to systemPrompt),
+                mapOf("role" to "user", "content" to userPrompt)
+            ),
+            "stream" to false
+        )
+        val jsonPayload = dynamicAdapter.toJson(requestMap)
+        val request = buildHttpRequest(apiKey, jsonPayload)
+
+        client.newCall(request).execute().use { response ->
+            val responseString = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val parsedErrorMsg = parseErrorMessage(responseString)
+                val statusMessage = when (response.code) {
+                    401 -> "Unauthorized — verify your OpenRouter API key in Settings."
+                    404 -> "Model \"$model\" is unavailable."
+                    403 -> "Action forbidden — your OpenRouter credit might be depleted."
+                    else -> parsedErrorMsg ?: "HTTP ${response.code}"
+                }
+                throw Exception("API Failure: $statusMessage")
+            }
+            val responseMap = dynamicAdapter.fromJson(responseString) as? Map<*, *>
+            val choices = responseMap?.get("choices") as? List<*>
+            val choice = choices?.firstOrNull() as? Map<*, *>
+            val message = choice?.get("message") as? Map<*, *>
+            (message?.get("content") as? String) ?: throw Exception("No response content received.")
+        }
+    }
+
     // ---------------------------------------------------------------------------------
     // Streaming internals
     // ---------------------------------------------------------------------------------

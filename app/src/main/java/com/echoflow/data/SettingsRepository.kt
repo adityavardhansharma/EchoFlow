@@ -46,6 +46,32 @@ class SettingsRepository(context: Context) {
     private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
     val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
 
+    // Deep Research
+    private val _deepResearchModel = MutableStateFlow(getDeepResearchModelDirect())
+    val deepResearchModel: StateFlow<String> = _deepResearchModel.asStateFlow()
+
+    private val _deepResearchSearchProvider = MutableStateFlow(getDeepResearchSearchProviderDirect())
+    val deepResearchSearchProvider: StateFlow<String> = _deepResearchSearchProvider.asStateFlow() // "auto"|"exa"|"parallel"|"firecrawl"
+
+    private val _deepResearchMaxSearches = MutableStateFlow(getDeepResearchMaxSearchesDirect())
+    val deepResearchMaxSearches: StateFlow<Int> = _deepResearchMaxSearches.asStateFlow()
+
+    private val _deepResearchMaxSources = MutableStateFlow(getDeepResearchMaxSourcesDirect())
+    val deepResearchMaxSources: StateFlow<Int> = _deepResearchMaxSources.asStateFlow()
+
+    private val _deepResearchExaEffort = MutableStateFlow(getDeepResearchExaEffortDirect())
+    val deepResearchExaEffort: StateFlow<String> = _deepResearchExaEffort.asStateFlow() // auto|low|medium|high|xhigh
+
+    // Data Agent (Firecrawl-only extraction mode; off by default)
+    private val _dataAgentEnabled = MutableStateFlow(getDataAgentEnabledDirect())
+    val dataAgentEnabled: StateFlow<Boolean> = _dataAgentEnabled.asStateFlow()
+
+    private val _dataAgentEngine = MutableStateFlow(getDataAgentEngineDirect())
+    val dataAgentEngine: StateFlow<String> = _dataAgentEngine.asStateFlow()
+
+    private val _dataAgentMaxCredits = MutableStateFlow(getDataAgentMaxCreditsDirect())
+    val dataAgentMaxCredits: StateFlow<Int> = _dataAgentMaxCredits.asStateFlow()
+
     private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
     val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
 
@@ -95,6 +121,26 @@ class SettingsRepository(context: Context) {
     fun saveWebSearchProvider(provider: String) {
         prefs.edit().putString(KEY_SEARCH_PROVIDER, provider).apply()
         _webSearchProvider.value = provider
+        // Remember the last real provider so the in-chat "+ → Web Search" toggle can turn
+        // search on without the user reopening Settings.
+        if (provider != "off") {
+            prefs.edit().putString(KEY_LAST_SEARCH_PROVIDER, provider).apply()
+        }
+    }
+
+    /**
+     * The provider the in-chat Web Search toggle should use: the active provider when one
+     * is on, otherwise the last one the user picked, otherwise any client provider that
+     * still has a key saved. Returns null when nothing is configured.
+     */
+    fun resolveChipSearchProvider(): String? {
+        val active = getWebSearchProviderDirect()
+        if (active != "off") return active
+        val last = prefs.getString(KEY_LAST_SEARCH_PROVIDER, null)
+        if (!last.isNullOrBlank()) {
+            if (last == "openrouter" || getSearchApiKeyDirect(last).isNotBlank()) return last
+        }
+        return listOf("exa", "parallel", "firecrawl").firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
     }
 
     fun getWebSearchScopeDirect(): String {
@@ -149,9 +195,78 @@ class SettingsRepository(context: Context) {
         _hfAccessToken.value = token
     }
 
+    // ── Deep Research ────────────────────────────────────────────────────────────────
+
+    fun getDeepResearchModelDirect(): String =
+        prefs.getString("deep_research_model", "").orEmpty()
+
+    fun saveDeepResearchModel(id: String) {
+        prefs.edit().putString("deep_research_model", id).apply()
+        _deepResearchModel.value = id
+    }
+
+    fun getDeepResearchSearchProviderDirect(): String =
+        prefs.getString("deep_research_search_provider", "auto").orEmpty()
+
+    fun saveDeepResearchSearchProvider(provider: String) {
+        prefs.edit().putString("deep_research_search_provider", provider).apply()
+        _deepResearchSearchProvider.value = provider
+    }
+
+    fun getDeepResearchMaxSearchesDirect(): Int =
+        prefs.getInt("deep_research_max_searches", 5)
+
+    fun saveDeepResearchMaxSearches(value: Int) {
+        prefs.edit().putInt("deep_research_max_searches", value).apply()
+        _deepResearchMaxSearches.value = value
+    }
+
+    fun getDeepResearchMaxSourcesDirect(): Int =
+        prefs.getInt("deep_research_max_sources", 20)
+
+    fun saveDeepResearchMaxSources(value: Int) {
+        prefs.edit().putInt("deep_research_max_sources", value).apply()
+        _deepResearchMaxSources.value = value
+    }
+
+    fun getDeepResearchExaEffortDirect(): String =
+        prefs.getString("deep_research_exa_effort", "auto").orEmpty()
+
+    fun saveDeepResearchExaEffort(value: String) {
+        prefs.edit().putString("deep_research_exa_effort", value).apply()
+        _deepResearchExaEffort.value = value
+    }
+
+    // ── Data Agent ───────────────────────────────────────────────────────────────────
+
+    fun getDataAgentEnabledDirect(): Boolean =
+        prefs.getBoolean("data_agent_enabled", false)
+
+    fun saveDataAgentEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("data_agent_enabled", enabled).apply()
+        _dataAgentEnabled.value = enabled
+    }
+
+    fun getDataAgentEngineDirect(): String =
+        prefs.getString("data_agent_engine", "").orEmpty()
+
+    fun saveDataAgentEngine(id: String) {
+        prefs.edit().putString("data_agent_engine", id).apply()
+        _dataAgentEngine.value = id
+    }
+
+    fun getDataAgentMaxCreditsDirect(): Int =
+        prefs.getInt("data_agent_max_credits", 2500)
+
+    fun saveDataAgentMaxCredits(value: Int) {
+        prefs.edit().putInt("data_agent_max_credits", value).apply()
+        _dataAgentMaxCredits.value = value
+    }
+
     companion object {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
+        private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
         const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
     }
 }

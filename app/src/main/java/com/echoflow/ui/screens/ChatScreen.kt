@@ -59,12 +59,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.ChatMessage
+import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.DeepResearchCatalog
+import com.echoflow.data.DeepResearchModel
+import com.echoflow.data.DrEngine
+import com.echoflow.data.ResearchRun
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.BrandMark
+import com.echoflow.ui.components.CapabilityChip
+import com.echoflow.ui.components.DataResultCard
+import com.echoflow.ui.components.EffortPill
 import com.echoflow.ui.components.MarkdownText
+import com.echoflow.ui.components.ReportCard
+import com.echoflow.ui.components.ResearchProgressCard
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
@@ -104,8 +114,31 @@ fun ChatScreen(
     val localModelsEnabled by settingsViewModel.localModelsEnabled.collectAsState()
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
 
+    val deepResearchActive by chatViewModel.deepResearchActive.collectAsState()
+    val webSearchChipOn by chatViewModel.webSearchChipOn.collectAsState()
+    val dataAgentActive by chatViewModel.dataAgentActive.collectAsState()
+    val researchRun by chatViewModel.currentResearchRun.collectAsState()
+    val drModelId by settingsViewModel.deepResearchModelId.collectAsState()
+    val drModels by settingsViewModel.deepResearchModels.collectAsState()
+    val exaKey by settingsViewModel.exaApiKey.collectAsState()
+    val parallelKey by settingsViewModel.parallelApiKey.collectAsState()
+    val firecrawlKey by settingsViewModel.firecrawlApiKey.collectAsState()
+    val exaEffort by settingsViewModel.deepResearchExaEffort.collectAsState()
+    val dataAgentEnabled by settingsViewModel.dataAgentEnabled.collectAsState()
+    val dataAgentEngineId by settingsViewModel.dataAgentEngine.collectAsState()
+
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
+
+    val drEngineLabel = remember(drModelId, drModels) {
+        DeepResearchCatalog.providerEngineById(drModelId)?.name
+            ?: drModels.firstOrNull { it.id == drModelId }?.name
+            ?: if (drModelId.isBlank()) "Choose engine" else drModelId
+    }
+    val dataAgentLabel = remember(dataAgentEngineId) {
+        DataAgentCatalog.byId(dataAgentEngineId)?.name ?: "Choose agent"
+    }
+    val dataAgentAvailable = dataAgentEnabled && firecrawlKey.isNotBlank()
 
     val activeModelList = remember(customModelsList) {
         val list = mutableListOf(DEFAULT_MODEL)
@@ -154,6 +187,8 @@ fun ChatScreen(
                         statusNote = statusNote,
                         progressLoading = progressLoading,
                         modelLoading = localModelLoading,
+                        researchRun = researchRun,
+                        onCancelResearch = { chatViewModel.cancelResearch() },
                         topInset = topBarInset,
                         bottomInset = messageBottomInset,
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
@@ -164,7 +199,12 @@ fun ChatScreen(
             // Floating, transparent top bar (chat scrolls behind it).
             ChatTopBar(
                 modifier = Modifier.align(Alignment.TopCenter),
-                modelName = modelShortName,
+                modelName = when {
+                    dataAgentActive -> dataAgentLabel
+                    deepResearchActive -> drEngineLabel
+                    else -> modelShortName
+                },
+                researchMode = deepResearchActive || dataAgentActive,
                 onMenu = onMenuClicked,
                 onModel = { showModelMenu = true },
                 onNewChat = { chatViewModel.startNewChat() },
@@ -182,7 +222,24 @@ fun ChatScreen(
                 onClearAttachment = { chatViewModel.clearPendingAttachment() },
                 onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 isStreaming = isStreaming,
-                blockedReason = if (localSendBlocked) "On-device model is busy in another chat" else null,
+                deepResearchActive = deepResearchActive,
+                webSearchChipOn = webSearchChipOn,
+                dataAgentActive = dataAgentActive,
+                dataAgentAvailable = dataAgentAvailable,
+                onToggleDeepResearch = { chatViewModel.toggleDeepResearch() },
+                onToggleWebSearch = { chatViewModel.toggleWebSearchChip() },
+                onToggleDataAgent = { chatViewModel.toggleDataAgent() },
+                researchInProgress = researchRun != null,
+                researchEngineLabel = drEngineLabel,
+                dataAgentLabel = dataAgentLabel,
+                showEffortPill = deepResearchActive && drModelId == "exa-agent",
+                exaEffort = exaEffort,
+                onSelectEffort = { settingsViewModel.saveDeepResearchExaEffort(it) },
+                blockedReason = when {
+                    researchRun != null -> "A run is in progress — see the card above"
+                    localSendBlocked -> "On-device model is busy in another chat"
+                    else -> null
+                },
                 onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
             )
 
@@ -199,14 +256,50 @@ fun ChatScreen(
     }
 
     if (showModelMenu) {
-        ModelPickerSheet(
-            models = activeModelList,
-            localModels = localModelEntries,
-            selectedId = selectedModelID,
-            onSelect = { settingsViewModel.saveSelectedModel(it); showModelMenu = false },
-            onManage = { showModelMenu = false; onSettingsClicked() },
-            onDismiss = { showModelMenu = false },
-        )
+        if (dataAgentActive) {
+            val dataEngines = remember(firecrawlKey) {
+                if (firecrawlKey.isNotBlank()) DataAgentCatalog.engines else emptyList()
+            }
+            DeepResearchModelSheet(
+                title = "Data Agent engine",
+                subtitle = "Firecrawl agents that extract data from the web",
+                providerEngines = dataEngines,
+                agentModels = emptyList(),
+                showAgentSection = false,
+                selectedId = dataAgentEngineId,
+                onSelect = { settingsViewModel.saveDataAgentEngine(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (deepResearchActive) {
+            val availableProviderEngines = remember(exaKey, parallelKey, firecrawlKey) {
+                DeepResearchCatalog.providerEngines.filter { eng ->
+                    when (eng.provider) {
+                        "exa" -> exaKey.isNotBlank()
+                        "parallel" -> parallelKey.isNotBlank()
+                        "firecrawl" -> firecrawlKey.isNotBlank()
+                        else -> false
+                    }
+                }
+            }
+            DeepResearchModelSheet(
+                providerEngines = availableProviderEngines,
+                agentModels = drModels,
+                selectedId = drModelId,
+                onSelect = { settingsViewModel.saveDeepResearchModel(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else {
+            ModelPickerSheet(
+                models = activeModelList,
+                localModels = localModelEntries,
+                selectedId = selectedModelID,
+                onSelect = { settingsViewModel.saveSelectedModel(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        }
     }
 }
 
@@ -223,6 +316,8 @@ private fun MessagesPane(
     statusNote: String?,
     progressLoading: Boolean,
     modelLoading: Boolean,
+    researchRun: ResearchRun?,
+    onCancelResearch: () -> Unit,
     topInset: Dp = Spacing.l,
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
@@ -264,6 +359,9 @@ private fun MessagesPane(
     ) {
         items(messages, key = { it.id }) { msg ->
             MessageBubble(msg) { onCopy(msg.content) }
+        }
+        researchRun?.let { run ->
+            item(key = "research") { ResearchProgressCard(run = run, onCancel = onCancelResearch) }
         }
         if (modelLoading && segments.isEmpty()) {
             item { ModelLoadingRow() }
@@ -359,7 +457,7 @@ private fun StreamingAssistantBubble(
 }
 
 @Composable
-private fun ChatTopBar(modelName: String, onMenu: () -> Unit, onModel: () -> Unit, onNewChat: () -> Unit, modifier: Modifier = Modifier) {
+private fun ChatTopBar(modelName: String, researchMode: Boolean, onMenu: () -> Unit, onModel: () -> Unit, onNewChat: () -> Unit, modifier: Modifier = Modifier) {
     CenterAlignedTopAppBar(
         modifier = modifier,
         navigationIcon = {
@@ -372,9 +470,14 @@ private fun ChatTopBar(modelName: String, onMenu: () -> Unit, onModel: () -> Uni
         },
         title = {
             // Model selector as a Material 3 Expressive split button — both halves open the picker.
+            // In Deep Research mode it selects the research engine instead of the chat model.
             SplitButtonLayout(
                 leadingButton = {
                     SplitButtonDefaults.LeadingButton(onClick = onModel) {
+                        if (researchMode) {
+                            Icon(Icons.Default.Science, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(Spacing.xs))
+                        }
                         Text(
                             modelName,
                             style = MaterialTheme.typography.titleSmall,
@@ -463,6 +566,11 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                     if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
                 }
                 persistedSegments.isNotEmpty() -> {
+                    val planSteps = remember(message.id) {
+                        persistedSegments.firstOrNull { it.type == "plan" }?.text
+                            ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+                    }
+                    val reportCitations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
                     persistedSegments.forEachIndexed { index, segment ->
                         when (segment.type) {
                             "reasoning" -> {
@@ -472,6 +580,25 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                             "search" -> {
                                 SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
                                 Spacer(Modifier.height(Spacing.s))
+                            }
+                            // The plan is rendered as a disclosure inside the report card.
+                            "plan" -> Unit
+                            "report" -> {
+                                ReportCard(
+                                    report = segment.text.orEmpty(),
+                                    citations = reportCitations,
+                                    planSteps = planSteps,
+                                    onCopy = onCopy,
+                                )
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                            "data" -> {
+                                DataResultCard(
+                                    json = segment.text.orEmpty(),
+                                    citations = reportCitations,
+                                    onCopy = onCopy,
+                                )
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                             }
                             else -> {
                                 RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
@@ -700,6 +827,19 @@ private fun InputToolbar(
     onClearAttachment: () -> Unit,
     onAttach: () -> Unit,
     isStreaming: Boolean,
+    deepResearchActive: Boolean,
+    webSearchChipOn: Boolean,
+    dataAgentActive: Boolean,
+    dataAgentAvailable: Boolean,
+    onToggleDeepResearch: () -> Unit,
+    onToggleWebSearch: () -> Unit,
+    onToggleDataAgent: () -> Unit,
+    researchInProgress: Boolean,
+    researchEngineLabel: String?,
+    dataAgentLabel: String,
+    showEffortPill: Boolean,
+    exaEffort: String,
+    onSelectEffort: (String) -> Unit,
     blockedReason: String? = null,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
@@ -726,9 +866,48 @@ private fun InputToolbar(
                 }
             }
         }
+
+        // Active capability chips — always show what's on so behaviour is never hidden.
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                modifier = Modifier.padding(start = Spacing.s, bottom = Spacing.s),
+            ) {
+                if (webSearchChipOn) {
+                    CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+                }
+                if (deepResearchActive) {
+                    CapabilityChip(
+                        Icons.Default.Science,
+                        researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
+                        onRemove = onToggleDeepResearch,
+                    )
+                    // Exa Agent's depth/cost dial lives here, not in the engine list.
+                    if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+                }
+                if (dataAgentActive) {
+                    CapabilityChip(
+                        Icons.Default.Science,
+                        dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
+                        onRemove = onToggleDataAgent,
+                    )
+                }
+            }
+        }
+
         AnimatedVisibility(visible = blockedReason != null) {
             Text(
                 blockedReason.orEmpty(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
+            )
+        }
+        AnimatedVisibility(visible = (deepResearchActive || dataAgentActive) && blockedReason == null) {
+            Text(
+                if (dataAgentActive) "Collects data into a table · runs in the background"
+                else "Runs in the background · multiple searches · a few minutes",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
@@ -743,22 +922,45 @@ private fun InputToolbar(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                ShapedIconButton(
-                    onClick = onAttach,
-                    enabled = true,
-                    size = 44.dp,
-                    restShape = MaterialShapes.Cookie6Sided,
-                    pressedShape = MaterialShapes.Flower,
-                    container = MaterialTheme.colorScheme.tertiaryContainer,
-                    pulseOnClick = true,
-                ) {
-                    Icon(Icons.Outlined.AddPhotoAlternate, "Attach image", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                var plusMenuOpen by remember { mutableStateOf(false) }
+                Box {
+                    ShapedIconButton(
+                        onClick = { plusMenuOpen = true },
+                        enabled = true,
+                        size = 44.dp,
+                        restShape = MaterialShapes.Cookie6Sided,
+                        pressedShape = MaterialShapes.Flower,
+                        container = MaterialTheme.colorScheme.tertiaryContainer,
+                        pulseOnClick = true,
+                    ) {
+                        Icon(Icons.Default.Add, "Add context or capability", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                    PlusMenu(
+                        expanded = plusMenuOpen,
+                        onDismiss = { plusMenuOpen = false },
+                        webSearchOn = webSearchChipOn,
+                        deepResearchOn = deepResearchActive,
+                        dataAgentOn = dataAgentActive,
+                        dataAgentAvailable = dataAgentAvailable,
+                        onImage = { plusMenuOpen = false; onAttach() },
+                        onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
+                        onToggleDeepResearch = { plusMenuOpen = false; onToggleDeepResearch() },
+                        onToggleDataAgent = { plusMenuOpen = false; onToggleDataAgent() },
+                    )
                 }
 
                 TextField(
                     value = text,
                     onValueChange = onText,
-                    placeholder = { Text("Ask anything…") },
+                    placeholder = {
+                        Text(
+                            when {
+                                dataAgentActive -> "Describe the data to extract…"
+                                deepResearchActive -> "Research a topic…"
+                                else -> "Ask anything…"
+                            }
+                        )
+                    },
                     maxLines = 6,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -772,9 +974,10 @@ private fun InputToolbar(
                     modifier = Modifier.weight(1f).testTag("chat_input_field"),
                 )
 
-                val hasContent = text.trim().isNotEmpty() || pendingUri != null
-                val canSend = hasContent && !isStreaming && blockedReason == null
-                SendButton(enabled = canSend, isStreaming = isStreaming) {
+                val researchMode = deepResearchActive || dataAgentActive
+                val hasContent = text.trim().isNotEmpty() || (pendingUri != null && !researchMode)
+                val canSend = hasContent && !isStreaming && !researchInProgress && blockedReason == null
+                SendButton(enabled = canSend, isStreaming = isStreaming, research = researchMode) {
                     if (canSend) onSend()
                 }
             }
@@ -782,8 +985,52 @@ private fun InputToolbar(
     }
 }
 
+/** The unified "+" menu: add context (image) or turn on a capability (search / research). */
 @Composable
-private fun SendButton(enabled: Boolean, isStreaming: Boolean, onClick: () -> Unit) {
+private fun PlusMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    webSearchOn: Boolean,
+    deepResearchOn: Boolean,
+    dataAgentOn: Boolean,
+    dataAgentAvailable: Boolean,
+    onImage: () -> Unit,
+    onToggleWebSearch: () -> Unit,
+    onToggleDeepResearch: () -> Unit,
+    onToggleDataAgent: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text("Image") },
+            leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
+            onClick = onImage,
+        )
+        DropdownMenuItem(
+            text = { Text("Web search") },
+            leadingIcon = { Icon(Icons.Default.TravelExplore, null) },
+            trailingIcon = { if (webSearchOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleWebSearch,
+        )
+        DropdownMenuItem(
+            text = { Text("Deep Research") },
+            leadingIcon = { Icon(Icons.Default.Science, null) },
+            trailingIcon = { if (deepResearchOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleDeepResearch,
+        )
+        // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
+        if (dataAgentAvailable) {
+            DropdownMenuItem(
+                text = { Text("Data Agent") },
+                leadingIcon = { Icon(Icons.Default.Dataset, null) },
+                trailingIcon = { if (dataAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+                onClick = onToggleDataAgent,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onClick: () -> Unit) {
     if (isStreaming) {
         Box(
             Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
@@ -791,7 +1038,7 @@ private fun SendButton(enabled: Boolean, isStreaming: Boolean, onClick: () -> Un
         ) { LoadingIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
     } else {
         // The hero action gets the boldest shape — a "Sunny" that morphs to a rounder cookie on
-        // press with an expressive (bouncy) spring.
+        // press with an expressive (bouncy) spring. In research mode it starts the investigation.
         ShapedIconButton(
             onClick = onClick,
             enabled = enabled,
@@ -801,7 +1048,9 @@ private fun SendButton(enabled: Boolean, isStreaming: Boolean, onClick: () -> Un
             container = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.Send, "Send", Modifier.size(20.dp),
+                if (research) Icons.Default.Science else Icons.AutoMirrored.Filled.Send,
+                if (research) "Start research" else "Send",
+                Modifier.size(20.dp),
                 tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -926,6 +1175,121 @@ private fun ModelPickerSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Engine picker shown in Deep Research mode. Lists built-in provider-native engines (only
+ * those whose API key is configured) plus the user's added agentic chat models. Selecting
+ * one stores it as the active Deep Research engine.
+ */
+@Composable
+private fun DeepResearchModelSheet(
+    providerEngines: List<DrEngine>,
+    agentModels: List<DeepResearchModel>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+    title: String = "Deep Research engine",
+    subtitle: String = "Providers run research themselves; chat models orchestrate it",
+    showAgentSection: Boolean = true,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onManage) {
+                    Icon(Icons.Default.Tune, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(Spacing.s))
+                    Text("Manage")
+                }
+            }
+
+            if (providerEngines.isEmpty() && (!showAgentSection || agentModels.isEmpty())) {
+                Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Science, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "Nothing set up yet.\nAdd a provider key (or model) in Settings.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+
+            LazyColumn(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                contentPadding = PaddingValues(bottom = Spacing.xl),
+            ) {
+                if (providerEngines.isNotEmpty()) {
+                    item(key = "provider-section") { Box(Modifier.padding(top = Spacing.s)) { SectionLabel(if (showAgentSection) "Provider research" else "Agents") } }
+                    items(providerEngines, key = { it.id }) { engine ->
+                        DrEngineRow(engine.name, engine.description, engine.id == selectedId) { onSelect(engine.id) }
+                    }
+                }
+                if (showAgentSection && agentModels.isNotEmpty()) {
+                    item(key = "agent-section") { Box(Modifier.padding(top = Spacing.m)) { SectionLabel("Your research models") } }
+                    items(agentModels, key = { it.id }) { model ->
+                        DrEngineRow(model.name, "Orchestrates searches into a report", model.id == selectedId) { onSelect(model.id) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrEngineRow(name: String, description: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(
+                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Science, null, Modifier.size(20.dp),
+                    tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    name,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }
