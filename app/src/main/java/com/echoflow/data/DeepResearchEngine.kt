@@ -500,22 +500,12 @@ class DeepResearchEngine(
         apiKey: String,
         topic: String,
         sources: List<SearchSource>,
-    ): String {
-        // Cap what we feed the model: many chat models (especially free ones) have small
-        // context windows, so an un-trimmed 20×4000-char source dump 400s the request. We
-        // trim each snippet and bound the total so synthesis stays within budget.
-        val trimmed = sources.take(MAX_SYNTHESIS_SOURCES).map { src ->
-            src.copy(snippet = src.snippet?.take(MAX_SNIPPET_CHARS))
-        }
-        var block = formatSearchResultsForModel(trimmed)
-        if (block.length > MAX_SYNTHESIS_CHARS) block = block.take(MAX_SYNTHESIS_CHARS)
-        return openRouterService.complete(
-            apiKey = apiKey,
-            model = model,
-            systemPrompt = SystemPrompts.deepResearchSynthesis(topic),
-            userPrompt = "Numbered search results:\n\n$block",
-        )
-    }
+    ): String = openRouterService.complete(
+        apiKey = apiKey,
+        model = model,
+        systemPrompt = SystemPrompts.deepResearchSynthesis(topic),
+        userPrompt = "Numbered search results:\n\n" + formatSearchResultsForModel(sources),
+    )
 
     private fun parsePlan(raw: String, max: Int): List<String> =
         raw.lineSequence()
@@ -560,9 +550,5 @@ class DeepResearchEngine(
     companion object {
         private const val POLL_INTERVAL_MS = 5000L
         private const val EXA_AGENT_BETA = "agent-2026-05-07"
-        // Synthesis context budget (chars) so small/free model context windows aren't exceeded.
-        private const val MAX_SYNTHESIS_SOURCES = 16
-        private const val MAX_SNIPPET_CHARS = 800
-        private const val MAX_SYNTHESIS_CHARS = 14000
     }
 }

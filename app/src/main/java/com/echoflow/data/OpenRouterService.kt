@@ -194,12 +194,7 @@ class OpenRouterService(private val context: Context) {
             val choices = responseMap?.get("choices") as? List<*>
             val choice = choices?.firstOrNull() as? Map<*, *>
             val message = choice?.get("message") as? Map<*, *>
-            // Some reasoning models leave `content` empty and put the answer in a reasoning
-            // field — fall back to it so synthesis/planning never fails on those models.
-            val content = (message?.get("content") as? String)?.takeIf { it.isNotBlank() }
-                ?: (message?.get("reasoning_content") as? String)?.takeIf { it.isNotBlank() }
-                ?: (message?.get("reasoning") as? String)?.takeIf { it.isNotBlank() }
-            content ?: throw Exception("No response content received.")
+            (message?.get("content") as? String) ?: throw Exception("No response content received.")
         }
     }
 
