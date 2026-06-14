@@ -78,13 +78,13 @@ import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.DeepResearchCatalog
-import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DownloadState
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
 import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
+import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
@@ -966,6 +966,7 @@ private fun ProviderRow(
 
 @Composable
 private fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val selectedEngineId by viewModel.deepResearchModelId.collectAsState()
     val searchProvider by viewModel.deepResearchSearchProvider.collectAsState()
     val maxSearches by viewModel.deepResearchMaxSearches.collectAsState()
     val maxSources by viewModel.deepResearchMaxSources.collectAsState()
@@ -980,74 +981,36 @@ private fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
     var showDirectory by remember { mutableStateOf(false) }
 
-    val detected = buildList {
-        if (exaKey.isNotBlank()) add("Exa")
-        if (parallelKey.isNotBlank()) add("Parallel")
-        if (firecrawlKey.isNotBlank()) add("Firecrawl")
+    fun keyFor(provider: String): String = when (provider) {
+        "exa" -> exaKey
+        "parallel" -> parallelKey
+        "firecrawl" -> firecrawlKey
+        else -> ""
     }
+    // Provider-native engines appear purely based on which provider keys exist — never tied
+    // to the chat-model search-provider choice below.
+    val providerEngines = DeepResearchCatalog.providerEngines.filter { keyFor(it.provider).isNotBlank() }
 
     SettingsPageScaffold(title = "Deep Research", subtitle = "Multi-step investigation mode", onBack = onBack) {
         FormCard {
-            Text("What it is", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Text("Two ways to research", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text(
-                "An opt-in mode for questions that need real investigation. Turn it on from the " +
-                    "“+” menu in chat, then pick an engine: a provider (Exa, Parallel, Firecrawl) " +
-                    "that researches on its own, or one of your chat models that plans searches and " +
-                    "writes a cited report. It runs in the background and can take a few minutes.",
+                "1. A provider (Exa, Parallel, Firecrawl) researches on its own — add that " +
+                    "provider's key in Web search and its engines show up below.\n" +
+                    "2. A chat model orchestrates — it plans searches, runs them through a search " +
+                    "provider, and writes a cited report.\n\n" +
+                    "Pick a default engine below. You can also switch it from the “+” menu in chat. " +
+                    "Runs happen in the background and can take a few minutes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         Spacer(Modifier.height(Spacing.xl))
-        PageSection(
-            "Search provider",
-            "Used when a chat model orchestrates the research. Auto-detected from your Web search keys.",
-        )
-        ConnectedToggleRow(
-            options = listOf("auto" to "Auto", "exa" to "Exa", "parallel" to "Parallel", "firecrawl" to "Firecrawl"),
-            selected = searchProvider,
-            onSelect = viewModel::saveDeepResearchSearchProvider,
-        )
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            if (detected.isEmpty()) "No search keys saved yet — add one in Settings → Web search."
-            else "Detected: ${detected.joinToString(", ")}",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (detected.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Spacing.xs),
-        )
+        PageSection("Default engine", "What runs when you start Deep Research")
 
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Maximum searches", "More searches = deeper, slower, and pricier")
-        ConnectedToggleRow(
-            options = listOf("3" to "3", "5" to "5", "10" to "10"),
-            selected = maxSearches.toString(),
-            onSelect = { viewModel.saveDeepResearchMaxSearches(it.toInt()) },
-        )
-
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Maximum sources", "How many sources to gather before writing")
-        ConnectedToggleRow(
-            options = listOf("10" to "10", "20" to "20", "50" to "50"),
-            selected = maxSources.toString(),
-            onSelect = { viewModel.saveDeepResearchMaxSources(it.toInt()) },
-        )
-
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Research models", "Chat models allowed to orchestrate Deep Research — choose strong, tool-capable ones")
-        Button(
-            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(Spacing.s))
-            Text("Add a research model")
-        }
-        Spacer(Modifier.height(Spacing.m))
-        if (drModels.isEmpty()) {
+        if (providerEngines.isEmpty() && drModels.isEmpty()) {
             Surface(
                 shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -1057,25 +1020,96 @@ private fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     Icon(Icons.Default.Science, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "No research models yet.\nProvider engines still work without one.",
+                        "Nothing available yet.\nAdd an Exa, Parallel or Firecrawl key in Web search,\nor add a research model below.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
                 }
             }
-        } else {
+        }
+
+        if (providerEngines.isNotEmpty()) {
+            SectionLabel("Run directly by a provider")
             Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-                drModels.forEachIndexed { index, model ->
-                    DeepResearchModelRow(
-                        model = model,
-                        index = index,
-                        count = drModels.size,
+                providerEngines.forEach { engine ->
+                    DrEngineSelectRow(
+                        name = engine.name,
+                        subtitle = engine.description,
+                        selected = engine.id == selectedEngineId,
+                        onClick = { viewModel.saveDeepResearchModel(engine.id) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.m))
+        }
+
+        SectionLabel("Run by a chat model")
+        if (drModels.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                drModels.forEach { model ->
+                    DrEngineSelectRow(
+                        name = model.name,
+                        subtitle = model.id,
+                        selected = model.id == selectedEngineId,
+                        onClick = { viewModel.saveDeepResearchModel(model.id) },
                         onDelete = { viewModel.deleteDeepResearchModel(model.id) },
                     )
                 }
             }
+            Spacer(Modifier.height(Spacing.s))
         }
+        FilledTonalButton(
+            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Add a research model")
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Chat-model options", "Only used when a chat model runs the research")
+
+        SectionLabel("Search provider")
+        ConnectedToggleRow(
+            options = listOf("auto" to "Auto", "exa" to "Exa", "parallel" to "Parallel", "firecrawl" to "Firecrawl"),
+            selected = searchProvider,
+            onSelect = viewModel::saveDeepResearchSearchProvider,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        // Per-selection feedback: show whether the *chosen* provider actually has a key.
+        val autoResolved = listOf("exa", "parallel", "firecrawl").firstOrNull { keyFor(it).isNotBlank() }
+        val searchMissing = if (searchProvider == "auto") autoResolved == null else keyFor(searchProvider).isBlank()
+        val searchStatus = when {
+            searchProvider == "auto" && autoResolved == null -> "No search keys yet — add one in Settings → Web search"
+            searchProvider == "auto" -> "Using ${autoResolved!!.replaceFirstChar { it.uppercase() }} — first key found"
+            searchMissing -> "No ${searchProvider.replaceFirstChar { it.uppercase() }} key — add it in Settings → Web search"
+            else -> "${searchProvider.replaceFirstChar { it.uppercase() }} key found"
+        }
+        Text(
+            searchStatus,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (searchMissing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+
+        Spacer(Modifier.height(Spacing.base))
+        SectionLabel("Maximum searches")
+        ConnectedToggleRow(
+            options = listOf("3" to "3", "5" to "5", "10" to "10"),
+            selected = maxSearches.toString(),
+            onSelect = { viewModel.saveDeepResearchMaxSearches(it.toInt()) },
+        )
+
+        Spacer(Modifier.height(Spacing.base))
+        SectionLabel("Maximum sources")
+        ConnectedToggleRow(
+            options = listOf("10" to "10", "20" to "20", "50" to "50"),
+            selected = maxSources.toString(),
+            onSelect = { viewModel.saveDeepResearchMaxSources(it.toInt()) },
+        )
 
         Spacer(Modifier.height(Spacing.xl))
         PageSection("On-device")
@@ -1126,16 +1160,22 @@ private fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
+/**
+ * A selectable Deep Research engine row (provider engine or chat model). Tapping it makes
+ * that engine the default; the optional trash affordance removes an added chat model.
+ */
 @Composable
-private fun DeepResearchModelRow(
-    model: DeepResearchModel,
-    index: Int,
-    count: Int,
-    onDelete: () -> Unit,
+private fun DrEngineSelectRow(
+    name: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     Surface(
-        shape = groupedItemShape(index, count),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -1143,21 +1183,38 @@ private fun DeepResearchModelRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie4Sided)).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie4Sided)).background(
+                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+                ),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Default.Science, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            ) {
+                Icon(
+                    Icons.Default.Science, null, Modifier.size(20.dp),
+                    tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
-                Text(model.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    model.id,
+                    name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+            if (selected) {
+                Icon(Icons.Default.CheckCircle, "Selected", Modifier.padding(horizontal = Spacing.xs), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            if (onDelete != null) {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
