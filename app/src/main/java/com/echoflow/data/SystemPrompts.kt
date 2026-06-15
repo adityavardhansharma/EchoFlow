@@ -229,7 +229,8 @@ object SystemPrompts {
         append(
             "## Style\n" +
                 "Use markdown when it helps. Match the user's language and tone. Be direct — lead with the answer, " +
-                "then add detail."
+                "then add detail. When writing math, use LaTeX: `${'$'}...${'$'}` for short inline expressions and " +
+                "`${'$'}${'$'}...${'$'}${'$'}` for important equations or multi-step derivations. Do not leave unmatched `${'$'}` delimiters."
         )
         if (isLocalModel) {
             append(" Do not prefix replies with \"User:\" or \"Assistant:\".")

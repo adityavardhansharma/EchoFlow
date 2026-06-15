@@ -93,6 +93,7 @@ dependencies {
   implementation(libs.markdown.renderer.m3)
   implementation(libs.markdown.renderer.code)
   implementation(libs.highlights)
+  implementation(libs.latex.renderer)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)

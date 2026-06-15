@@ -10,6 +10,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -20,8 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -36,11 +41,17 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.BoldHighlight
 import dev.snipme.highlights.model.ColorHighlight
 import dev.snipme.highlights.model.SyntaxLanguage
 import dev.snipme.highlights.model.SyntaxThemes
+import com.hrm.latex.renderer.Latex
+import com.hrm.latex.renderer.LatexAutoWrap
+import com.hrm.latex.renderer.measure.rememberLatexMeasurer
+import com.hrm.latex.renderer.model.LatexConfig
+import com.hrm.latex.renderer.model.LatexTheme
 
 /**
  * One markdown renderer for the whole app — used identically while a message streams and once it is
@@ -49,7 +60,8 @@ import dev.snipme.highlights.model.SyntaxThemes
  * child composable taking only stable params, so during streaming only the final, still-growing
  * block re-renders each frame. Supports headers, ordered/bulleted (nested) lists, blockquotes,
  * horizontal rules, GFM tables (wrapping cells — never truncated), fenced code blocks with real
- * syntax highlighting, and inline bold/italic/strikethrough/code/links.
+ * syntax highlighting, LaTeX math (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`), and inline
+ * bold/italic/strikethrough/code/links.
  */
 @Composable
 fun RichMarkdown(text: String, modifier: Modifier = Modifier) {
@@ -71,6 +83,7 @@ fun MarkdownText(
             when (block) {
                 is MarkdownBlock.Header -> MdHeader(block.text, block.level, textColor, linkColor)
                 is MarkdownBlock.CodeBlock -> CodeBlockItem(code = block.code, language = block.language)
+                is MarkdownBlock.MathBlock -> MdMathBlock(block, textColor, linkColor, style)
                 is MarkdownBlock.BulletItem -> MdBullet(block.text, block.indent, block.ordinal, textColor, linkColor, style)
                 is MarkdownBlock.Quote -> MdQuote(block.text, textColor, linkColor, style)
                 is MarkdownBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -83,27 +96,54 @@ fun MarkdownText(
 
 @Composable
 private fun MdHeader(text: String, level: Int, color: Color, linkColor: Color) {
-    val annotated = remember(text, color, linkColor) { parseInlineStyles(text, linkColor) }
     val base = when (level) {
         1 -> MaterialTheme.typography.headlineMedium
         2 -> MaterialTheme.typography.titleLarge
         3 -> MaterialTheme.typography.titleMedium
         else -> MaterialTheme.typography.titleSmall
     }
-    Text(annotated, style = base.copy(fontWeight = FontWeight.Bold, color = color), modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+    InlineMarkdownText(
+        text = text,
+        color = color,
+        linkColor = linkColor,
+        style = base.copy(fontWeight = FontWeight.Bold, color = color),
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+    )
 }
 
 @Composable
 private fun MdParagraph(text: String, color: Color, linkColor: Color, style: TextStyle) {
-    val annotated = remember(text, color, linkColor) { parseInlineStyles(text, linkColor) }
     SelectionContainer {
-        Text(annotated, style = style.copy(color = color), modifier = Modifier.fillMaxWidth())
+        InlineMarkdownText(
+            text = text,
+            color = color,
+            linkColor = linkColor,
+            style = style.copy(color = color),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
 @Composable
+private fun MdMathBlock(block: MarkdownBlock.MathBlock, color: Color, linkColor: Color, style: TextStyle) {
+    if (!block.complete || block.latex.isBlank()) {
+        MdParagraph(block.raw, color, linkColor, style)
+        return
+    }
+
+    val config = latexConfigFor(style, scale = 1.05f)
+    LatexAutoWrap(
+        latex = block.latex,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        config = config,
+        isDarkTheme = isSystemInDarkTheme()
+    )
+}
+
+@Composable
 private fun MdBullet(text: String, indent: Int, ordinal: Int?, color: Color, linkColor: Color, style: TextStyle) {
-    val annotated = remember(text, color, linkColor) { parseInlineStyles(text, linkColor) }
     val marker = if (ordinal != null) "$ordinal." else "•"
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = (8 + indent * 16).dp),
@@ -115,14 +155,19 @@ private fun MdBullet(text: String, indent: Int, ordinal: Int?, color: Color, lin
             modifier = Modifier.widthIn(min = 18.dp)
         )
         SelectionContainer {
-            Text(annotated, style = style.copy(color = color), modifier = Modifier.weight(1f))
+            InlineMarkdownText(
+                text = text,
+                color = color,
+                linkColor = linkColor,
+                style = style.copy(color = color),
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
 
 @Composable
 private fun MdQuote(text: String, color: Color, linkColor: Color, style: TextStyle) {
-    val annotated = remember(text, color, linkColor) { parseInlineStyles(text, linkColor) }
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
         Box(
             Modifier
@@ -133,8 +178,10 @@ private fun MdQuote(text: String, color: Color, linkColor: Color, style: TextSty
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(2.dp))
         )
         SelectionContainer {
-            Text(
-                annotated,
+            InlineMarkdownText(
+                text = text,
+                color = color.copy(alpha = 0.85f),
+                linkColor = linkColor,
                 style = style.copy(color = color.copy(alpha = 0.85f), fontStyle = FontStyle.Italic),
                 modifier = Modifier.weight(1f)
             )
@@ -189,9 +236,10 @@ private fun TableRow(
         for (c in 0 until columnCount) {
             val cellText = cells.getOrNull(c).orEmpty()
             val align = aligns.getOrNull(c) ?: TextAlign.Start
-            val annotated = remember(cellText, linkColor) { parseInlineStyles(cellText, linkColor) }
-            Text(
-                annotated,
+            InlineMarkdownText(
+                text = cellText,
+                color = color,
+                linkColor = linkColor,
                 style = style.copy(color = color, textAlign = align),
                 modifier = Modifier
                     .weight(1f)
@@ -204,6 +252,7 @@ private fun TableRow(
 sealed class MarkdownBlock {
     data class Header(val text: String, val level: Int) : MarkdownBlock()
     data class CodeBlock(val code: String, val language: String?) : MarkdownBlock()
+    data class MathBlock(val latex: String, val raw: String, val complete: Boolean) : MarkdownBlock()
     /** A list item. [ordinal] is null for bullets, the number for ordered items. */
     data class BulletItem(val text: String, val indent: Int, val ordinal: Int?) : MarkdownBlock()
     data class Quote(val text: String) : MarkdownBlock()
@@ -260,6 +309,13 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
         if (insideCodeBlock) {
             codeAccumulator.append(line).append('\n')
             i++
+            continue
+        }
+
+        parseDisplayMathBlock(lines, i)?.let { parsed ->
+            flushParagraph()
+            blocks.add(parsed.block)
+            i = parsed.nextIndex
             continue
         }
 
@@ -349,6 +405,281 @@ private fun parseTableAligns(separator: String): List<TextAlign> =
             else -> TextAlign.Start
         }
     }
+
+private data class ParsedDisplayMath(val block: MarkdownBlock.MathBlock, val nextIndex: Int)
+
+private fun parseDisplayMathBlock(lines: List<String>, index: Int): ParsedDisplayMath? {
+    val line = lines[index]
+    val trimmed = line.trim()
+    val delimiter = when {
+        trimmed.startsWith("$$") -> "$$"
+        trimmed.startsWith("\\[") -> "\\]"
+        else -> return null
+    }
+    val open = if (delimiter == "$$") "$$" else "\\["
+    val close = delimiter
+    val firstContent = trimmed.removePrefix(open)
+
+    if (firstContent.contains(close)) {
+        val latex = firstContent.substringBefore(close).trim()
+        val tail = firstContent.substringAfter(close)
+        if (tail.isBlank()) {
+            return ParsedDisplayMath(
+                MarkdownBlock.MathBlock(latex = latex, raw = line, complete = latex.isNotBlank()),
+                index + 1
+            )
+        }
+        return null
+    }
+
+    val raw = StringBuilder(line)
+    val latex = StringBuilder(firstContent.trimStart())
+    var i = index + 1
+    while (i < lines.size) {
+        val current = lines[i]
+        raw.append('\n').append(current)
+        val closeAt = current.indexOf(close)
+        if (closeAt != -1) {
+            if (latex.isNotEmpty()) latex.append('\n')
+            latex.append(current.substring(0, closeAt).trimEnd())
+            return ParsedDisplayMath(
+                MarkdownBlock.MathBlock(
+                    latex = latex.toString().trim(),
+                    raw = raw.toString(),
+                    complete = true
+                ),
+                i + 1
+            )
+        }
+        if (latex.isNotEmpty()) latex.append('\n')
+        latex.append(current)
+        i++
+    }
+
+    return ParsedDisplayMath(
+        MarkdownBlock.MathBlock(
+            latex = latex.toString().trim(),
+            raw = raw.toString(),
+            complete = false
+        ),
+        lines.size
+    )
+}
+
+private sealed class InlineSegment {
+    data class Text(val text: String) : InlineSegment()
+    data class Math(val latex: String, val raw: String) : InlineSegment()
+}
+
+private fun parseInlineMathSegments(text: String): List<InlineSegment> {
+    val segments = mutableListOf<InlineSegment>()
+    val plain = StringBuilder()
+    var i = 0
+
+    fun flushPlain() {
+        if (plain.isNotEmpty()) {
+            segments.add(InlineSegment.Text(plain.toString()))
+            plain.setLength(0)
+        }
+    }
+
+    while (i < text.length) {
+        when {
+            text.startsWith("\\(", i) -> {
+                val end = text.indexOf("\\)", i + 2)
+                if (end == -1) {
+                    plain.append(text.substring(i))
+                    break
+                }
+                val raw = text.substring(i, end + 2)
+                val latex = text.substring(i + 2, end).trim()
+                if (latex.isNotEmpty()) {
+                    flushPlain()
+                    segments.add(InlineSegment.Math(latex, raw))
+                } else {
+                    plain.append(raw)
+                }
+                i = end + 2
+            }
+
+            text.startsWith("\\[", i) -> {
+                val end = text.indexOf("\\]", i + 2)
+                if (end == -1) {
+                    plain.append(text.substring(i))
+                    break
+                }
+                val raw = text.substring(i, end + 2)
+                val latex = text.substring(i + 2, end).trim()
+                if (latex.isNotEmpty()) {
+                    flushPlain()
+                    segments.add(InlineSegment.Math(latex, raw))
+                } else {
+                    plain.append(raw)
+                }
+                i = end + 2
+            }
+
+            text.startsWith("$$", i) && !isEscaped(text, i) -> {
+                val end = text.indexOf("$$", i + 2)
+                if (end == -1) {
+                    plain.append(text.substring(i))
+                    break
+                }
+                val raw = text.substring(i, end + 2)
+                val latex = text.substring(i + 2, end).trim()
+                if (latex.isNotEmpty()) {
+                    flushPlain()
+                    segments.add(InlineSegment.Math(latex, raw))
+                } else {
+                    plain.append(raw)
+                }
+                i = end + 2
+            }
+
+            text[i] == '$' && !isEscaped(text, i) -> {
+                val end = findInlineDollarClose(text, i + 1)
+                if (end == -1) {
+                    plain.append(text[i])
+                    i++
+                    continue
+                }
+                val raw = text.substring(i, end + 1)
+                val latex = text.substring(i + 1, end).trim()
+                if (looksLikeMath(latex, text.getOrNull(i - 1), text.getOrNull(end + 1))) {
+                    flushPlain()
+                    segments.add(InlineSegment.Math(latex, raw))
+                } else {
+                    plain.append(raw)
+                }
+                i = end + 1
+            }
+
+            else -> {
+                plain.append(text[i])
+                i++
+            }
+        }
+    }
+
+    flushPlain()
+    return segments
+}
+
+private fun findInlineDollarClose(text: String, from: Int): Int {
+    var i = from
+    while (i < text.length) {
+        if (text[i] == '$' && !isEscaped(text, i) && text.getOrNull(i + 1) != '$') return i
+        i++
+    }
+    return -1
+}
+
+private fun isEscaped(text: String, index: Int): Boolean {
+    var slashCount = 0
+    var i = index - 1
+    while (i >= 0 && text[i] == '\\') {
+        slashCount++
+        i--
+    }
+    return slashCount % 2 == 1
+}
+
+private fun looksLikeMath(content: String, before: Char?, after: Char?): Boolean {
+    if (content.isBlank()) return false
+    if (content.first().isWhitespace() || content.last().isWhitespace()) return false
+    if (content.length > 160) return false
+    if (before?.isLetterOrDigit() == true && after?.isLetterOrDigit() == true) return false
+    val lower = content.lowercase()
+    val hasMathSignal = content.any { it in "\\^_=+-*/()[]{}<>|'" } ||
+        listOf("frac", "sqrt", "lim", "sum", "int", "text", "sin", "cos", "tan", "log", "ln").any { it in lower }
+    val isTinyVariable = content.length <= 4 && content.any { it.isLetter() } && content.none { it.isDigit() }
+    return hasMathSignal || isTinyVariable
+}
+
+@Composable
+private fun InlineMarkdownText(
+    text: String,
+    color: Color,
+    linkColor: Color,
+    style: TextStyle,
+    modifier: Modifier = Modifier
+) {
+    val segments = remember(text) { parseInlineMathSegments(text) }
+    val hasMath = segments.any { it is InlineSegment.Math }
+    if (!hasMath) {
+        val annotated = remember(text, linkColor) { parseInlineStyles(text, linkColor) }
+        Text(annotated, style = style.copy(color = color), modifier = modifier)
+        return
+    }
+
+    val config = latexConfigFor(style, scale = 0.92f)
+    val measurer = rememberLatexMeasurer(config)
+    val density = LocalDensity.current
+    val darkTheme = isSystemInDarkTheme()
+    val measured = remember(segments, config, darkTheme) {
+        segments.map { segment ->
+            if (segment is InlineSegment.Math) measurer.measure(segment.latex, config, darkTheme) else null
+        }
+    }
+    val annotated = remember(segments, measured, linkColor) {
+        buildAnnotatedString {
+            segments.forEachIndexed { index, segment ->
+                when (segment) {
+                    is InlineSegment.Text -> appendInline(segment.text, linkColor)
+                    is InlineSegment.Math -> {
+                        if (measured[index] != null) {
+                            appendInlineContent("math_$index", segment.raw)
+                        } else {
+                            appendInline(segment.raw, linkColor)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val inlineContent = remember(segments, measured, config, density, darkTheme) {
+        buildMap {
+            segments.forEachIndexed { index, segment ->
+                val dims = measured[index] ?: return@forEachIndexed
+                if (segment is InlineSegment.Math) {
+                    put(
+                        "math_$index",
+                        InlineTextContent(
+                            placeholder = Placeholder(
+                                width = with(density) { dims.widthPx.toSp() },
+                                height = with(density) { dims.heightPx.toSp() },
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                            )
+                        ) {
+                            Latex(
+                                latex = segment.latex,
+                                config = config,
+                                isDarkTheme = darkTheme
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    Text(
+        text = annotated,
+        inlineContent = inlineContent,
+        style = style.copy(color = color),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun latexConfigFor(style: TextStyle, scale: Float): LatexConfig {
+    val baseSize = if (style.fontSize == TextUnit.Unspecified) 16.sp else style.fontSize
+    return LatexConfig(
+        fontSize = baseSize * scale,
+        theme = LatexTheme.material3(),
+        accessibilityEnabled = true
+    )
+}
 
 /**
  * Parses inline markdown — **bold**, *italic*, ~~strikethrough~~, `code`, and [text](url) links —
