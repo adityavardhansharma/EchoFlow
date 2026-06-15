@@ -1315,6 +1315,7 @@ private fun DrEngineRow(name: String, description: String, selected: Boolean, on
 
 @Composable
 private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: Boolean = false, onClick: () -> Unit) {
+    val displayName = remember(name, isLocal) { modelPickerDisplayName(name, isLocal) }
     val provider = when {
         isLocal -> "Runs on this device — private & offline"
         modelId.contains("/") -> modelId.substringBefore("/").replaceFirstChar { it.uppercase() }
@@ -1332,10 +1333,12 @@ private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: 
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        name,
+                        displayName,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     if (isLocal) {
                         Spacer(Modifier.width(Spacing.s))
@@ -1351,9 +1354,44 @@ private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: 
                         }
                     }
                 }
-                Text(provider, style = MaterialTheme.typography.bodySmall, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    provider,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
+}
+
+private fun modelPickerDisplayName(name: String, isLocal: Boolean): String {
+    if (!isLocal || name.length <= 24) return name
+
+    var clean = name
+        .removeSuffix(".gguf")
+        .removeSuffix(".GGUF")
+        .removeSuffix(".task")
+        .removeSuffix(".TASK")
+        .removeSuffix(".litertlm")
+        .removeSuffix(".LITERTLM")
+        .trim()
+
+    val quantOrPrecisionSuffix = Regex(
+        pattern = """(?i)(?:[-_](?:q[2-8](?:[-_][a-z0-9]+){0,5}|iq[1-4](?:[-_][a-z0-9]+){0,5}|mixed[-_]?int[48]|int[48]|f16|fp16|bf16))+$"""
+    )
+    clean = clean.replace(quantOrPrecisionSuffix, "")
+
+    if (clean.length > 24) {
+        clean = clean.replace(Regex("""(?i)[-_](?:20\d{2}|2[0-9]{3}|[0-9]{4})(?=$|[-_])"""), "")
+    }
+    if (clean.length > 30) {
+        clean = clean
+            .replace(Regex("""(?i)[-_](?:gguf|k[-_]?m|instruct[-_]?gguf)$"""), "")
+            .trim('-', '_', ' ')
+    }
+
+    return clean.ifBlank { name }.takeIf { it.length >= 8 } ?: name
 }
