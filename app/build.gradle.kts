@@ -19,10 +19,11 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    // MediaPipe LLM inference ships large native libs per ABI; limit to the ABIs we
-    // actually target (arm64 devices + x86_64 emulator) to keep the APK size sane.
+    // Local AI runtimes ship large native libs per ABI. Release APKs target modern
+    // Android phones, so package arm64 only; emulator/x86 builds should use a debug
+    // override if needed.
     ndk {
-      abiFilters += listOf("arm64-v8a", "x86_64")
+      abiFilters += listOf("arm64-v8a")
     }
   }
 
