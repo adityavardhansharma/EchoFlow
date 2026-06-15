@@ -87,9 +87,26 @@ class HuggingFaceModelSearch {
             url = "https://huggingface.co/$repoId/resolve/main/$file",
             approxSizeBytes = size,
             requiresAuth = requiresAuth,
-            maxTokens = if (file.contains("4096")) 4096 else 2048,
+            maxTokens = inferredMaxTokens(repoId, file),
             description = "Hugging Face mobile bundle from $repoId. File: ${file.substringAfterLast("/")}"
         )
+    }
+
+    private fun inferredMaxTokens(repoId: String, fileName: String): Int {
+        val combined = "$repoId/$fileName"
+        if (fileName.endsWith(".litertlm", ignoreCase = true) && combined.contains("gemma-4", ignoreCase = true)) {
+            return 32768
+        }
+        val contextHint = Regex("""(?i)(?:ekv|ctx|context|nctx)[-_]?(\d+k?|\d+)""")
+            .find(combined)
+            ?.groupValues
+            ?.get(1)
+            ?.let { raw ->
+                if (raw.endsWith("k", ignoreCase = true)) raw.dropLast(1).toIntOrNull()?.times(1024)
+                else raw.toIntOrNull()
+            }
+        return contextHint?.coerceIn(512, 32768)
+            ?: if (fileName.contains("4096")) 4096 else 2048
     }
 
     private fun resolveSize(repoId: String, fileName: String, hfToken: String?): Long {

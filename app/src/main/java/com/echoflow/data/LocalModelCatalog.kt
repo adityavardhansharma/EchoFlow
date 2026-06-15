@@ -67,7 +67,7 @@ object LocalModelCatalog {
             url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
             approxSizeBytes = 2_588_147_712L,
             requiresAuth = false,
-            maxTokens = 4096,
+            maxTokens = 32768,
             description = "Latest Gemma generation with an effective 2B footprint. Strong quality on flagship phones, no login needed (~3.5 GB RAM)."
         ),
         CatalogEntry(
@@ -87,7 +87,7 @@ object LocalModelCatalog {
             url = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
             approxSizeBytes = 3_659_530_240L,
             requiresAuth = false,
-            maxTokens = 4096,
+            maxTokens = 32768,
             description = "Largest Gemma 4 mobile bundle — best answers, needs a high-end phone (~5 GB RAM), no login needed."
         )
     )
@@ -102,7 +102,16 @@ object LocalModelCatalog {
     /** Supported on-device model file extensions, for the import picker and validation. */
     val supportedExtensions = listOf(".task", ".litertlm", ".gguf")
 
-    private val ekvHint = Regex("ekv(\\d+)", RegexOption.IGNORE_CASE)
+    private val contextHint = Regex("""(?:ekv|ctx|context|nctx)[-_]?(\d+k?|\d+)""", RegexOption.IGNORE_CASE)
+
+    private fun parseContextHint(fileName: String): Int? {
+        val raw = contextHint.find(fileName)?.groupValues?.get(1) ?: return null
+        return if (raw.endsWith("k", ignoreCase = true)) {
+            raw.dropLast(1).toIntOrNull()?.times(1024)
+        } else {
+            raw.toIntOrNull()
+        }
+    }
 
     /**
      * Safe context budget for a model. Catalog entries know their value; imported or
@@ -113,8 +122,11 @@ object LocalModelCatalog {
         entryById(modelId)?.let { return it.maxTokens }
         val file = fileName ?: return 1280
         entries.firstOrNull { it.fileName.equals(file, ignoreCase = true) }?.let { return it.maxTokens }
-        ekvHint.find(file)?.groupValues?.get(1)?.toIntOrNull()?.let { return it.coerceIn(512, 4096) }
+        val combined = "$modelId/$file"
+        parseContextHint(combined)?.let { return it.coerceIn(512, 32768) }
         return when {
+            // Gemma 4 LiteRT-LM mobile bundles advertise up to 32K context in LiteRT-LM.
+            isLiteRtLm(file) && combined.contains("gemma-4", ignoreCase = true) -> 32768
             // GGUF files carry no kv-cache marker in the name; llama.cpp lets us size the
             // context window ourselves, so use a comfortable mobile default.
             isGguf(file) -> 4096
