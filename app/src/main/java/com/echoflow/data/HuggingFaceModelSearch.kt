@@ -95,7 +95,7 @@ class HuggingFaceModelSearch {
     private fun inferredMaxTokens(repoId: String, fileName: String): Int {
         val combined = "$repoId/$fileName"
         if (fileName.endsWith(".litertlm", ignoreCase = true) && combined.contains("gemma-4", ignoreCase = true)) {
-            return 32768
+            return InferenceLimits.LOCAL_MAX_TOKENS_CEIL
         }
         val contextHint = Regex("""(?i)(?:ekv|ctx|context|nctx)[-_]?(\d+k?|\d+)""")
             .find(combined)
@@ -105,7 +105,7 @@ class HuggingFaceModelSearch {
                 if (raw.endsWith("k", ignoreCase = true)) raw.dropLast(1).toIntOrNull()?.times(1024)
                 else raw.toIntOrNull()
             }
-        return contextHint?.coerceIn(512, 32768)
+        return contextHint?.coerceIn(512, InferenceLimits.LOCAL_MAX_TOKENS_CEIL)
             ?: if (fileName.contains("4096")) 4096 else 2048
     }
 

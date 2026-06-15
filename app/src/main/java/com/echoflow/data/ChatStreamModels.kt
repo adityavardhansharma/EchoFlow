@@ -26,6 +26,58 @@ sealed class StreamChunk {
 
     /** Transient status line, not persisted (e.g. "Search limit reached"). */
     data class StatusNote(val text: String) : StreamChunk()
+
+    // ── Echo Adviser (openrouter:advisor) ──────────────────────────────────────────
+    /** The answering model consulted its advisor; the question is known, advice pending. */
+    data class AdvisorStarted(val advisorName: String, val advisorModel: String, val prompt: String) : StreamChunk()
+
+    /** The advisor replied. [advice] may be blank if the result body could not be parsed. */
+    data class AdvisorResolved(val advice: AdvisorAdvice) : StreamChunk()
+
+    // ── Echo Fusion (openrouter:fusion) ────────────────────────────────────────────
+    /** A fusion panel started deliberating; the roster is known, analysis pending. */
+    data class FusionStarted(val panelName: String, val models: List<String>) : StreamChunk()
+
+    /** The fusion judge returned its structured analysis (and per-model responses). */
+    data class FusionResolved(val analysis: FusionAnalysis) : StreamChunk()
+}
+
+// ── Echo Adviser / Echo Fusion result records ──────────────────────────────────────
+
+/** One advisor consultation: what the model asked and what the advisor (a stronger model) said. */
+data class AdvisorAdvice(
+    val advisorName: String, // the profile name, e.g. "Coding"
+    val advisorModel: String, // the OpenRouter model id that served as advisor
+    val prompt: String, // the question the answering model asked
+    val advice: String, // the advice text (may be blank if not captured from the stream)
+)
+
+/** One panel model's full answer in a fusion deliberation. */
+data class FusionResponse(val model: String, val content: String)
+
+/** A point where the panel models disagreed, with each model's stance. */
+data class FusionContradiction(val topic: String, val stances: List<String>)
+
+/** An observation only one model made. */
+data class FusionInsight(val model: String, val insight: String)
+
+/** The fusion judge's structured comparison of the panel plus the raw per-model answers. */
+data class FusionAnalysis(
+    val panelName: String,
+    val judgeModel: String?,
+    val models: List<String>, // the panel roster (OpenRouter ids)
+    val consensus: List<String> = emptyList(),
+    val contradictions: List<FusionContradiction> = emptyList(),
+    val partialCoverage: List<String> = emptyList(),
+    val uniqueInsights: List<FusionInsight> = emptyList(),
+    val blindSpots: List<String> = emptyList(),
+    val responses: List<FusionResponse> = emptyList(),
+    val failedModels: List<String> = emptyList(),
+) {
+    /** True when the judge produced no structured analysis (only raw panel responses, or nothing). */
+    val isEmpty: Boolean
+        get() = consensus.isEmpty() && contradictions.isEmpty() && partialCoverage.isEmpty() &&
+            uniqueInsights.isEmpty() && blindSpots.isEmpty()
 }
 
 /**
@@ -63,10 +115,12 @@ data class Citation(
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion"
     val text: String? = null,
     val query: String? = null,
-    val sources: List<SearchSource>? = null
+    val sources: List<SearchSource>? = null,
+    val advisor: AdvisorAdvice? = null, // present when type == "advisor"
+    val fusion: FusionAnalysis? = null // present when type == "fusion"
 )
 
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */

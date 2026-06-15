@@ -217,9 +217,25 @@ class OpenRouterService(private val context: Context) {
         val args = StringBuilder()
         var announced = false
 
-        fun looksLikeWebSearch(): Boolean =
-            (type?.contains("web_search") == true) || (name?.contains("web_search") == true)
+        private fun mentions(token: String): Boolean =
+            (type?.contains(token) == true) || (name?.contains(token) == true)
+
+        fun looksLikeWebSearch(): Boolean = mentions("web_search")
+        fun looksLikeWebFetch(): Boolean = mentions("web_fetch")
+        fun looksLikeAdvisor(): Boolean = mentions("advisor")
+        fun looksLikeFusion(): Boolean = mentions("fusion")
     }
+
+    /**
+     * Labels for the active Echo Adviser/Fusion server tool so the stream can tag its chunks
+     * with the user-facing profile/panel names (the raw stream only carries model ids).
+     */
+    data class EchoContext(
+        val advisorName: String? = null,
+        val advisorModel: String? = null,
+        val fusionPanelName: String? = null,
+        val fusionModels: List<String> = emptyList(),
+    )
 
     private data class TurnResult(
         val content: String,
@@ -236,6 +252,118 @@ class OpenRouterService(private val context: Context) {
         null
     }
 
+    private fun parsePromptArgument(argsJson: String): String? = try {
+        val map = dynamicAdapter.fromJson(argsJson) as? Map<*, *>
+        (map?.get("prompt") as? String)?.takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun parseUrlArgument(argsJson: String): String? = try {
+        val map = dynamicAdapter.fromJson(argsJson) as? Map<*, *>
+        (map?.get("url") as? String)?.takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Parse a string only if it looks like a JSON object/array (some tool results are stringified). */
+    private fun parseMaybeJson(s: String): Any? {
+        val t = s.trim()
+        if (!(t.startsWith("{") || t.startsWith("["))) return null
+        return try { dynamicAdapter.fromJson(t) } catch (e: Exception) { null }
+    }
+
+    /** Walks an SSE chunk for an advisor result `{model?, advice}`. Returns (advisorModel, advice). */
+    private fun scanForAdvisorResult(node: Any?, depth: Int = 0): Pair<String?, String>? {
+        if (depth > 8) return null
+        when (node) {
+            is Map<*, *> -> {
+                (node["advice"] as? String)?.takeIf { it.isNotBlank() }?.let { advice ->
+                    return (node["model"] as? String) to advice
+                }
+                (node["content"] as? String)?.let { c ->
+                    parseMaybeJson(c)?.let { scanForAdvisorResult(it, depth + 1)?.let { r -> return r } }
+                }
+                for (v in node.values) scanForAdvisorResult(v, depth + 1)?.let { return it }
+            }
+            is List<*> -> for (v in node) scanForAdvisorResult(v, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private fun isFusionResponseList(list: List<*>?): Boolean =
+        list != null && list.isNotEmpty() && list.all {
+            (it as? Map<*, *>)?.containsKey("content") == true && (it as? Map<*, *>)?.containsKey("model") == true
+        }
+
+    /** Walks an SSE chunk for a fusion result `{analysis?, responses?, failed_models?}`. */
+    private fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? {
+        if (depth > 8) return null
+        when (node) {
+            is Map<*, *> -> {
+                val analysisObj = node["analysis"] as? Map<*, *>
+                val responses = node["responses"] as? List<*>
+                if (analysisObj != null || isFusionResponseList(responses)) {
+                    return buildFusionAnalysis(node)
+                }
+                (node["content"] as? String)?.let { c ->
+                    parseMaybeJson(c)?.let { scanForFusionResult(it, depth + 1)?.let { r -> return r } }
+                }
+                for (v in node.values) scanForFusionResult(v, depth + 1)?.let { return it }
+            }
+            is List<*> -> for (v in node) scanForFusionResult(v, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private fun buildFusionAnalysis(result: Map<*, *>): FusionAnalysis {
+        val analysis = result["analysis"] as? Map<*, *>
+        fun strList(key: String): List<String> =
+            (analysis?.get(key) as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+
+        val contradictions = (analysis?.get("contradictions") as? List<*>)?.mapNotNull { raw ->
+            val m = raw as? Map<*, *> ?: return@mapNotNull null
+            val topic = m["topic"] as? String ?: return@mapNotNull null
+            val stances = (m["stances"] as? List<*>)?.map { it.toString() } ?: emptyList()
+            FusionContradiction(topic, stances)
+        } ?: emptyList()
+
+        val partial = (analysis?.get("partial_coverage") as? List<*>)?.mapNotNull { raw ->
+            when (raw) {
+                is Map<*, *> -> raw["point"] as? String
+                is String -> raw
+                else -> null
+            }
+        } ?: emptyList()
+
+        val insights = (analysis?.get("unique_insights") as? List<*>)?.mapNotNull { raw ->
+            val m = raw as? Map<*, *> ?: return@mapNotNull null
+            val insight = m["insight"] as? String ?: return@mapNotNull null
+            FusionInsight((m["model"] as? String).orEmpty(), insight)
+        } ?: emptyList()
+
+        val responses = (result["responses"] as? List<*>)?.mapNotNull { raw ->
+            val m = raw as? Map<*, *> ?: return@mapNotNull null
+            val content = m["content"] as? String ?: return@mapNotNull null
+            FusionResponse((m["model"] as? String).orEmpty(), content)
+        } ?: emptyList()
+
+        val failed = (result["failed_models"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+
+        return FusionAnalysis(
+            panelName = "",
+            judgeModel = null,
+            models = responses.map { it.model }.filter { it.isNotBlank() },
+            consensus = strList("consensus"),
+            contradictions = contradictions,
+            partialCoverage = partial,
+            uniqueInsights = insights,
+            blindSpots = strList("blind_spots"),
+            responses = responses,
+            failedModels = failed,
+        )
+    }
+
     /**
      * Executes one streaming chat completion, emitting chunks as they arrive and returning
      * the accumulated turn. Handles plain content/reasoning deltas, OpenRouter server-tool
@@ -249,6 +377,8 @@ class OpenRouterService(private val context: Context) {
         payloadMessages: List<Map<String, Any>>,
         tools: List<Map<String, Any>>?,
         params: InferenceParams?,
+        toolChoice: String? = null,
+        echo: EchoContext? = null,
         onChunk: suspend (StreamChunk) -> Unit
     ): TurnResult {
         val requestMap = mutableMapOf<String, Any>(
@@ -262,6 +392,11 @@ class OpenRouterService(private val context: Context) {
         )
         if (tools != null) {
             requestMap["tools"] = tools
+        }
+        // For Echo Adviser/Fusion the user made a deliberate, cost-heavy choice from the "+"
+        // menu — so we force the tool to actually run rather than leaving it to the model.
+        if (toolChoice != null) {
+            requestMap["tool_choice"] = toolChoice
         }
         // The user's global cloud sampler settings. top_k / max_tokens are only sent when set
         // (0 means "leave it to the model"); temperature / top_p always apply.
@@ -282,6 +417,14 @@ class OpenRouterService(private val context: Context) {
         val seenSourceUrls = mutableSetOf<String>()
         var finishReason: String? = null
         var lastAnnouncedQuery: String? = null
+
+        // Echo Adviser / Fusion: announce the consult/deliberation the moment its tool call
+        // appears, then resolve once the (beta, undocumented-shape) result is seen in the stream.
+        var advisorAnnounced = false
+        var advisorResolved = false
+        var advisorPrompt: String? = null
+        var fusionAnnounced = false
+        var fusionResolved = false
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -348,6 +491,28 @@ class OpenRouterService(private val context: Context) {
                                 onChunk(StreamChunk.SearchStarted(query))
                             }
                         }
+                        // web_fetch reads a specific URL: surface it on the same search timeline
+                        // as a one-URL "search" so citations and the activity card just work.
+                        if (!builder.announced && builder.looksLikeWebFetch()) {
+                            val url = parseUrlArgument(builder.args.toString())
+                            if (url != null) {
+                                builder.announced = true
+                                lastAnnouncedQuery = url
+                                onChunk(StreamChunk.SearchStarted(url))
+                            }
+                        }
+                        if (echo?.advisorName != null && !advisorAnnounced && builder.looksLikeAdvisor()) {
+                            val prompt = parsePromptArgument(builder.args.toString())
+                            if (prompt != null) {
+                                advisorAnnounced = true
+                                advisorPrompt = prompt
+                                onChunk(StreamChunk.AdvisorStarted(echo.advisorName, echo.advisorModel.orEmpty(), prompt))
+                            }
+                        }
+                        if (echo?.fusionPanelName != null && !fusionAnnounced && builder.looksLikeFusion()) {
+                            fusionAnnounced = true
+                            onChunk(StreamChunk.FusionStarted(echo.fusionPanelName, echo.fusionModels))
+                        }
                     }
 
                     // url_citation annotations may arrive on the delta or on a message object.
@@ -371,6 +536,41 @@ class OpenRouterService(private val context: Context) {
                         }
                         if (fresh.isNotEmpty()) {
                             onChunk(StreamChunk.SearchSources(lastAnnouncedQuery.orEmpty(), fresh))
+                        }
+                    }
+
+                    // Echo Adviser/Fusion results arrive as a tool result somewhere in the chunk
+                    // tree. The exact shape is beta/undocumented, so we walk the whole chunk
+                    // defensively for the signature keys and degrade to "consulted, no body" if
+                    // nothing parses — never a crash. (Verify shapes against a live key.)
+                    if (echo != null && map != null) {
+                        if (echo.advisorName != null && !advisorResolved) {
+                            scanForAdvisorResult(map)?.let { (advisorModel, advice) ->
+                                advisorResolved = true
+                                onChunk(
+                                    StreamChunk.AdvisorResolved(
+                                        AdvisorAdvice(
+                                            advisorName = echo.advisorName,
+                                            advisorModel = advisorModel ?: echo.advisorModel.orEmpty(),
+                                            prompt = advisorPrompt.orEmpty(),
+                                            advice = advice,
+                                        )
+                                    )
+                                )
+                            }
+                        }
+                        if (echo.fusionPanelName != null && !fusionResolved) {
+                            scanForFusionResult(map)?.let { analysis ->
+                                fusionResolved = true
+                                onChunk(
+                                    StreamChunk.FusionResolved(
+                                        analysis.copy(
+                                            panelName = echo.fusionPanelName,
+                                            models = echo.fusionModels.ifEmpty { analysis.models },
+                                        )
+                                    )
+                                )
+                            }
                         }
                     }
 
@@ -418,21 +618,103 @@ class OpenRouterService(private val context: Context) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
 
-        val tools = if (serverWebSearch) {
-            listOf(
-                mapOf(
-                    "type" to "openrouter:web_search",
-                    // max_total_results backs up the prompt's "at most 3 searches" rule:
-                    // 3 searches × 5 results caps what OpenRouter will return overall.
-                    "parameters" to mapOf(
-                        "max_results" to 5,
-                        "max_total_results" to 15
-                    )
-                )
-            )
-        } else null
+        val tools = if (serverWebSearch) openRouterWebTools() else null
 
         streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params) { emit(it) }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * The OpenRouter server-side web toolset: `web_search` (the model searches the web zero,
+     * one or many times) plus `web_fetch` (the model pulls a specific URL's full content).
+     * Both run on OpenRouter's side and surface here as SearchStarted/SearchSources chunks.
+     */
+    private fun openRouterWebTools(): List<Map<String, Any>> = listOf(
+        mapOf(
+            "type" to "openrouter:web_search",
+            // max_total_results backs up the prompt's "at most 3 searches" rule:
+            // 3 searches × 5 results caps what OpenRouter will return overall.
+            "parameters" to mapOf(
+                "max_results" to 5,
+                "max_total_results" to 15
+            )
+        ),
+        mapOf(
+            "type" to "openrouter:web_fetch",
+            "parameters" to mapOf(
+                "engine" to "auto",
+                "max_uses" to 3
+            )
+        )
+    )
+
+    /** Config for one Echo Adviser consult: which profile (display name) and advisor model. */
+    data class AdvisorRequest(val name: String, val model: String)
+
+    /** Config for one Echo Fusion deliberation: the panel (display name + roster) and judge. */
+    data class FusionRequest(val panelName: String, val models: List<String>, val judge: String?)
+
+    /**
+     * Streaming completion with an Echo Adviser or Echo Fusion server tool attached. Both are
+     * OpenRouter-only and forced via `tool_choice: "required"` because the user opted into the
+     * (cost-heavy) mode from the "+" menu. OpenRouter web_search/web_fetch are enabled too:
+     * the advisor sub-agent gets them, and fusion panels/judge run them server-side natively.
+     *
+     * The model resolves as: advisor mode → the answering model (the user's selected cloud
+     * model); fusion mode → the judge (or the first panel model). Exactly one of
+     * [advisor]/[fusion] should be non-null.
+     */
+    fun sendWithEchoTools(
+        apiKey: String,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        advisor: AdvisorRequest? = null,
+        fusion: FusionRequest? = null,
+        params: InferenceParams? = null,
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) {
+            throw Exception("API key is missing! Please configure it in your Settings.")
+        }
+
+        val tools = mutableListOf<Map<String, Any>>()
+        var echo = EchoContext()
+
+        if (advisor != null) {
+            // Advisor first so `tool_choice: "required"` targets it; it may itself web-search/fetch.
+            val advisorParams = mutableMapOf<String, Any>(
+                "model" to advisor.model,
+                "name" to advisor.name,
+                "forward_transcript" to true,
+                "tools" to listOf(
+                    mapOf("type" to "openrouter:web_search"),
+                    mapOf("type" to "openrouter:web_fetch"),
+                ),
+            )
+            tools.add(mapOf("type" to "openrouter:advisor", "parameters" to advisorParams))
+            tools.addAll(openRouterWebTools())
+            echo = echo.copy(advisorName = advisor.name, advisorModel = advisor.model)
+        }
+
+        if (fusion != null) {
+            // Fusion panels/judge run web_search/web_fetch natively, so we don't attach them
+            // at the outer level — fusion is the only outer tool, forced via tool_choice.
+            val fusionParams = mutableMapOf<String, Any>(
+                "analysis_models" to fusion.models,
+            )
+            fusion.judge?.takeIf { it.isNotBlank() }?.let { fusionParams["model"] = it }
+            tools.add(mapOf("type" to "openrouter:fusion", "parameters" to fusionParams))
+            echo = echo.copy(fusionPanelName = fusion.panelName, fusionModels = fusion.models)
+        }
+
+        streamCompletion(
+            apiKey = apiKey,
+            model = model,
+            payloadMessages = buildMessagesPayload(history, systemPrompt),
+            tools = tools,
+            params = params,
+            toolChoice = "required",
+            echo = echo,
+        ) { emit(it) }
     }.flowOn(Dispatchers.IO)
 
     /**

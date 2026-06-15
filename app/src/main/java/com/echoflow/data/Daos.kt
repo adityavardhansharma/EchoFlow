@@ -74,6 +74,42 @@ interface DeepResearchModelDao {
 }
 
 @Dao
+interface AdvisorProfileDao {
+    @Query("SELECT * FROM advisor_profiles ORDER BY createdAt ASC")
+    fun getAll(): Flow<List<AdvisorProfile>>
+
+    @Query("SELECT * FROM advisor_profiles ORDER BY createdAt ASC")
+    suspend fun getAllSync(): List<AdvisorProfile>
+
+    @Query("SELECT * FROM advisor_profiles WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AdvisorProfile?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(profile: AdvisorProfile)
+
+    @Query("DELETE FROM advisor_profiles WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface FusionPanelDao {
+    @Query("SELECT * FROM fusion_panels ORDER BY createdAt ASC")
+    fun getAll(): Flow<List<FusionPanel>>
+
+    @Query("SELECT * FROM fusion_panels ORDER BY createdAt ASC")
+    suspend fun getAllSync(): List<FusionPanel>
+
+    @Query("SELECT * FROM fusion_panels WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): FusionPanel?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(panel: FusionPanel)
+
+    @Query("DELETE FROM fusion_panels WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
 interface ResearchRunDao {
     @Query("SELECT * FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled') ORDER BY createdAt DESC LIMIT 1")
     fun observeActiveForChat(chatId: String): Flow<ResearchRun?>

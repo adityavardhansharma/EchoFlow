@@ -156,6 +156,54 @@ object SystemPrompts {
         """.trimIndent()
     }
 
+    // ── Echo Adviser / Echo Fusion (OpenRouter server tools, cloud only) ─────────────
+
+    /**
+     * Echo Adviser: the answering model (any cloud model) escalates hard parts to a stronger,
+     * domain-specific advisor model. Web search/fetch are also available. Cloud only.
+     */
+    fun buildEchoAdviser(advisorName: String, currentDate: String = currentDate()): String =
+        listOf(
+            identity(false),
+            "Current date: $currentDate.",
+            adviserGuidance(advisorName),
+            openRouterServerSearch(),
+            formatting(false),
+        ).joinToString("\n\n")
+
+    /**
+     * Echo Fusion: the outer model acts as the judge of a multi-model panel, invoking the
+     * fusion tool to deliberate, then synthesizing one answer. Cloud only.
+     */
+    fun buildEchoFusion(panelName: String, currentDate: String = currentDate()): String =
+        listOf(
+            identity(false),
+            "Current date: $currentDate.",
+            fusionGuidance(panelName),
+            formatting(false),
+        ).joinToString("\n\n")
+
+    private fun adviserGuidance(advisorName: String): String =
+        """
+        ## Echo Adviser
+        A higher-intelligence advisor — "$advisorName" — is available through your advisor tool. Consult it before committing to a non-obvious approach, when you are stuck or uncertain, or before declaring a hard task complete.
+
+        - Ask one focused question that describes exactly what guidance you need; the advisor can also search the web.
+        - Fold the advice into your own answer. You do not need to announce that you consulted it unless it genuinely helps the user.
+        - Do not consult for trivial steps. One good consultation usually beats several shallow ones.
+        """.trimIndent()
+
+    private fun fusionGuidance(panelName: String): String =
+        """
+        ## Echo Fusion
+        You are the judge of a multi-model panel — "$panelName". Invoke your fusion tool so the panel deliberates on the user's request, then write the single best answer yourself.
+
+        - Treat points of consensus as high-confidence.
+        - Surface genuine disagreements honestly instead of hiding them; note which view is better supported.
+        - Preserve insights only one model raised, and flag gaps the whole panel missed.
+        - Write a clean, well-structured markdown answer. The app shows the structured panel comparison and each model's full response separately, so do NOT paste the raw analysis JSON.
+        """.trimIndent()
+
     // ── Deep Research (agentic, cloud only) ──────────────────────────────────────────
 
     /**
