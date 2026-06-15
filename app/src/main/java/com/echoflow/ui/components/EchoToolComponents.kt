@@ -24,9 +24,11 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,20 +42,38 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.echoflow.data.FusionAnalysis
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 
 /** Short, human label for an OpenRouter model id, e.g. "anthropic/claude-opus-4.8" → "claude-opus-4.8". */
 private fun shortModel(id: String): String = id.substringAfterLast('/').ifBlank { id }
 
+/** A tiny uppercase brand chip ("ECHO ADVISER" / "ECHO FUSION") so the mode is unmistakable. */
+@Composable
+private fun ModeBadge(label: String, container: Color, onContainer: Color) {
+    Surface(shape = CircleShape, color = container) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp),
+            color = onContainer,
+            modifier = Modifier.padding(horizontal = Spacing.s, vertical = 3.dp),
+        )
+    }
+}
+
 // ── Echo Adviser ────────────────────────────────────────────────────────────────────────
 
 /**
- * One Echo Adviser consultation in the reply timeline: a tertiary-tinted side-channel card.
- * While [active] it pulses "Consulting <name>"; once resolved it collapses to a tap-to-expand
- * card revealing the question the model asked and the advisor's advice. This is the
- * transparency win — the user watches the answering model escalate to a stronger mind.
+ * One Echo Adviser consultation in the reply timeline — a tertiary-accented side-channel that
+ * is visually unmistakable from a normal reasoning trace. While [active] it shows a branded
+ * "consulting…" header with a wavy indicator; once resolved it reveals (expanded by default)
+ * the question the answering model asked and the advisor's full advice. This is the
+ * transparency win: the user watches a model escalate to a stronger mind and sees what it said.
  */
 @Composable
 fun AdvisorCard(
@@ -64,70 +84,98 @@ fun AdvisorCard(
     active: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val hasAdvice = !advice.isNullOrBlank()
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
-    val expanded = userToggled ?: active
+    // Default: open while consulting and once advice lands (the advice is the whole point).
+    val expanded = userToggled ?: (active || hasAdvice)
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "advisor-chevron")
-    val hasBody = !prompt.isBlank() || !advice.isNullOrBlank()
+    val canToggle = hasAdvice || prompt.isNotBlank()
 
     Surface(
-        onClick = { if (hasBody) userToggled = !expanded },
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.38f),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(30.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie7Sided))
-                        .background(MaterialTheme.colorScheme.tertiary),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Psychology, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onTertiary) }
-                Spacer(Modifier.width(Spacing.s))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (active) "Consulting $advisorName" else "$advisorName advised",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (advisorModel.isNotBlank()) {
+        Column(Modifier.padding(Spacing.base)) {
+            Surface(
+                onClick = { if (canToggle) userToggled = !expanded },
+                color = Color.Transparent,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(38.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie7Sided))
+                            .background(MaterialTheme.colorScheme.tertiary),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Default.Psychology, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiary) }
+                    Spacer(Modifier.width(Spacing.m))
+                    Column(Modifier.weight(1f)) {
+                        ModeBadge("ECHO ADVISER", MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
+                        Spacer(Modifier.height(3.dp))
                         Text(
-                            shortModel(advisorModel),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            if (active) "Consulting $advisorName…" else "$advisorName advised",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (advisorModel.isNotBlank()) {
+                            Text(
+                                shortModel(advisorModel),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (!active && canToggle) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown, if (expanded) "Collapse" else "Expand",
+                            Modifier.size(22.dp).rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                if (active) {
-                    LoadingIndicator(color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
-                } else if (hasBody) {
-                    Icon(
-                        Icons.Default.KeyboardArrowDown, if (expanded) "Collapse" else "Expand",
-                        Modifier.size(20.dp).rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
-            AnimatedVisibility(visible = expanded && hasBody, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                Column(Modifier.padding(top = Spacing.s)) {
+
+            if (active) {
+                Spacer(Modifier.height(Spacing.m))
+                LinearWavyProgressIndicator(
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            AnimatedVisibility(visible = expanded && canToggle, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Column(Modifier.padding(top = Spacing.m)) {
                     if (prompt.isNotBlank()) {
                         Surface(
-                            shape = MaterialTheme.shapes.medium,
+                            shape = MaterialTheme.shapes.large,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(Modifier.padding(Spacing.m)) {
-                                Icon(Icons.Default.CompareArrows, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                Icon(Icons.Default.QuestionAnswer, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                                 Spacer(Modifier.width(Spacing.s))
                                 Column {
-                                    Text("Asked", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("What the model asked", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.height(2.dp))
                                     Text(prompt, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                         }
                     }
-                    if (!advice.isNullOrBlank()) {
-                        Spacer(Modifier.height(Spacing.s))
-                        RichMarkdown(advice, Modifier.fillMaxWidth())
+                    if (hasAdvice) {
+                        if (prompt.isNotBlank()) Spacer(Modifier.height(Spacing.m))
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = Spacing.xs)) {
+                            Icon(Icons.Default.AutoAwesome, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.tertiary)
+                            Spacer(Modifier.width(Spacing.xs))
+                            Text("Advice", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
+                        }
+                        RichMarkdown(advice!!, Modifier.fillMaxWidth())
+                    } else if (!active) {
+                        Text(
+                            "The advisor was consulted; its written advice wasn't returned separately.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -138,11 +186,12 @@ fun AdvisorCard(
 // ── Echo Fusion ─────────────────────────────────────────────────────────────────────────
 
 /**
- * One Echo Fusion deliberation in the reply timeline. While [active] it shows the (real) panel
- * roster shimmering under a staged "deliberating → synthesizing" header — we can't observe
- * per-model completion, so the roster is honest but the timing is indeterminate. Once resolved
- * it morphs into the structured analysis: consensus, contradictions (opposing stances),
- * unique insights, blind spots, and an accordion of each model's full response.
+ * One Echo Fusion deliberation in the reply timeline. While [active] it shows the real panel
+ * roster as a travelling shimmer wave under a branded "deliberating" header. Once resolved it
+ * becomes the headline ("synthesized from N models by <judge>") plus the judge's structured
+ * comparison — consensus, disagreements, unique insights, blind spots — and an accordion of
+ * every model's full answer. Fusion never picks a single winner; the judge blends them, which
+ * the framing makes explicit.
  */
 @Composable
 fun FusionCard(
@@ -153,33 +202,35 @@ fun FusionCard(
     modifier: Modifier = Modifier,
 ) {
     val roster = analysis?.models?.takeIf { it.isNotEmpty() } ?: models
+    val judge = analysis?.judgeModel
 
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.34f),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(Spacing.base)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(34.dp).clip(RoundedPolygonShape(MaterialShapes.Clover4Leaf))
+                    Modifier.size(38.dp).clip(RoundedPolygonShape(MaterialShapes.Clover4Leaf))
                         .background(MaterialTheme.colorScheme.secondary),
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.AccountTree, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondary) }
+                ) { Icon(Icons.Default.AccountTree, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondary) }
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
+                    ModeBadge("ECHO FUSION", MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.onSecondary)
+                    Spacer(Modifier.height(3.dp))
                     Text(
-                        if (panelName.isNotBlank()) "Fusion · $panelName" else "Echo Fusion",
-                        style = MaterialTheme.typography.labelLarge,
+                        if (panelName.isNotBlank()) panelName else "Fusion panel",
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        if (active) "Deliberating across ${roster.size} models" else "${roster.size} models · judged",
+                        if (active) "${roster.size} models deliberating…" else "Synthesized from ${roster.size} models",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (active) LoadingIndicator(color = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
             }
 
             Spacer(Modifier.height(Spacing.m))
@@ -193,42 +244,67 @@ fun FusionCard(
                 )
                 Spacer(Modifier.height(Spacing.s))
                 Text(
-                    "Panel deliberating → judge synthesizing…",
+                    "Panel deliberating in parallel · the judge will synthesize their answers",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else if (analysis != null) {
-                FusionAnalysisBody(analysis)
+                Spacer(Modifier.height(Spacing.m))
+                // Honest framing: the final answer below is a synthesis, not one model's reply.
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Gavel, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Spacer(Modifier.width(Spacing.s))
+                        Text(
+                            buildString {
+                                append("Final answer synthesized from ${roster.size} models")
+                                judge?.takeIf { it.isNotBlank() }?.let { append(" by ${shortModel(it)}") }
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                FusionDeliberation(analysis)
             }
         }
     }
 }
 
-/** The panel members as a horizontal strip of model chips; [shimmer] pulses them while deliberating. */
+/**
+ * The panel members as a horizontal strip of model chips. While [shimmer] they pulse as a
+ * travelling wave (each chip phase-offset) so the panel reads as alive; once done each shows
+ * a check. We can't observe true per-model completion in one request, so the wave is honest
+ * "work in progress", not a fake per-model clock.
+ */
 @Composable
 private fun PanelRoster(models: List<String>, shimmer: Boolean) {
     val transition = rememberInfiniteTransition(label = "roster")
-    val pulse by transition.animateFloat(
-        initialValue = 0.45f,
+    val phase by transition.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "roster-pulse",
+        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Restart),
+        label = "roster-phase",
     )
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
-        models.forEach { model ->
+        models.forEachIndexed { index, model ->
+            val wave = 0.4f + 0.6f * abs(sin(PI * (phase + index * 0.18f)).toFloat())
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.alpha(if (shimmer) pulse else 1f),
+                modifier = Modifier.alpha(if (shimmer) wave else 1f),
             ) {
                 Row(
                     Modifier.padding(start = Spacing.s, end = Spacing.m, top = 5.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.Bolt, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+                    Icon(
+                        if (shimmer) Icons.Default.Bolt else Icons.Default.CheckCircle,
+                        null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary,
+                    )
                     Spacer(Modifier.width(4.dp))
                     Text(shortModel(model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
@@ -237,50 +313,73 @@ private fun PanelRoster(models: List<String>, shimmer: Boolean) {
     }
 }
 
+/** The resolved fusion body: a collapsible deliberation digest + a per-model answers accordion. */
 @Composable
-private fun FusionAnalysisBody(analysis: FusionAnalysis) {
-    Column(Modifier.padding(top = Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-        if (analysis.consensus.isNotEmpty()) {
-            FusionSection("Consensus", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) {
-                BulletList(analysis.consensus, MaterialTheme.colorScheme.onPrimaryContainer)
+private fun FusionDeliberation(analysis: FusionAnalysis) {
+    Column(Modifier.padding(top = Spacing.m), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        if (!analysis.isEmpty) {
+            var open by remember { mutableStateOf(true) }
+            val chevron by animateFloatAsState(if (open) 180f else 0f, label = "fusion-delib-chevron")
+            Surface(
+                onClick = { open = !open },
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CompareArrows, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                    Spacer(Modifier.width(Spacing.s))
+                    Text("How the panel compared", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    Icon(Icons.Default.KeyboardArrowDown, if (open) "Collapse" else "Expand", Modifier.size(20.dp).rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-        }
-        if (analysis.contradictions.isNotEmpty()) {
-            FusionSection("Disagreements", Icons.Default.CompareArrows, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) {
+            AnimatedVisibility(visible = open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    analysis.contradictions.forEach { c ->
-                        Column {
-                            Text(c.topic, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onErrorContainer)
-                            c.stances.forEach { stance ->
-                                Row(Modifier.padding(top = 2.dp)) {
-                                    Text("⟂ ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                    Text(stance, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    if (analysis.consensus.isNotEmpty()) {
+                        FusionSection("Consensus", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer) {
+                            BulletList(analysis.consensus, MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                    if (analysis.contradictions.isNotEmpty()) {
+                        FusionSection("Disagreements", Icons.Default.CompareArrows, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                                analysis.contradictions.forEach { c ->
+                                    Column {
+                                        Text(c.topic, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onErrorContainer)
+                                        c.stances.forEach { stance ->
+                                            Row(Modifier.padding(top = 2.dp)) {
+                                                Text("⟂  ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                                Text(stance, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-        if (analysis.uniqueInsights.isNotEmpty()) {
-            FusionSection("Unique insights", Icons.Default.Lightbulb, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer) {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    analysis.uniqueInsights.forEach { i ->
-                        Column {
-                            if (i.model.isNotBlank()) {
-                                Text(shortModel(i.model), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                    if (analysis.uniqueInsights.isNotEmpty()) {
+                        FusionSection("Unique insights", Icons.Default.Lightbulb, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                                analysis.uniqueInsights.forEach { i ->
+                                    Column {
+                                        if (i.model.isNotBlank()) {
+                                            Text(shortModel(i.model), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                                        }
+                                        Text(i.insight, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                    }
+                                }
                             }
-                            Text(i.insight, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        }
+                    }
+                    if (analysis.blindSpots.isNotEmpty()) {
+                        FusionSection("Blind spots", Icons.Default.VisibilityOff, MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurface) {
+                            BulletList(analysis.blindSpots, MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
         }
-        if (analysis.blindSpots.isNotEmpty()) {
-            FusionSection("Blind spots", Icons.Default.VisibilityOff, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface) {
-                BulletList(analysis.blindSpots, MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+
         if (analysis.responses.isNotEmpty()) {
             ModelResponsesDisclosure(analysis)
         }
@@ -290,9 +389,6 @@ private fun FusionAnalysisBody(analysis: FusionAnalysis) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )
-        }
-        analysis.judgeModel?.takeIf { it.isNotBlank() }?.let {
-            Text("Judged by ${shortModel(it)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -354,15 +450,24 @@ private fun ModelResponsesDisclosure(analysis: FusionAnalysis) {
                 Icon(Icons.Default.KeyboardArrowDown, if (expanded) "Collapse" else "Expand", Modifier.size(20.dp).rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                Column(Modifier.padding(top = Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    analysis.responses.forEach { resp ->
+                Column(Modifier.padding(top = Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                    analysis.responses.forEachIndexed { index, resp ->
                         Column {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp)) {
-                                Icon(Icons.Default.Bolt, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(Modifier.width(4.dp))
-                                Text(shortModel(resp.model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Row(
+                                    Modifier.padding(start = Spacing.s, end = Spacing.m, top = 4.dp, bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Default.Bolt, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(shortModel(resp.model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                }
                             }
+                            Spacer(Modifier.height(Spacing.xs))
                             RichMarkdown(resp.content, Modifier.fillMaxWidth())
+                        }
+                        if (index != analysis.responses.lastIndex) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
