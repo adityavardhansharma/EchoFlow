@@ -25,6 +25,12 @@ class HuggingFaceModelSearch {
     private val resultType = Types.newParameterizedType(List::class.java, HfModel::class.java)
     private val resultAdapter = moshi.adapter<List<HfModel>>(resultType)
 
+    /**
+     * Searches Hugging Face for mobile-runnable model bundles. Deliberately limited to the
+     * first-class on-device formats — LiteRT-LM `.litertlm` and MediaPipe `.task` from
+     * litert-community. GGUF is intentionally **not** searchable: it's a community format
+     * with variable quality, so it's import-only (and behind the "Allow GGUF" toggle).
+     */
     suspend fun search(query: String, hfToken: String?): List<CatalogEntry> = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim().ifEmpty { "qwen3 gemma" }
         val url = "https://huggingface.co/api/models".toHttpUrl().newBuilder()

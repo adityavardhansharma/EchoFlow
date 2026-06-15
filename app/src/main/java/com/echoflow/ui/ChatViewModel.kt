@@ -464,19 +464,41 @@ class ChatViewModel(
             // Load updated dialog history
             val fullHistory = messageDao.getMessagesForChatSync(chatId)
 
+            // Resolve the user's global sampler settings for whichever model is about to run,
+            // clamped to that model's limits (so a budget set for a big model can't break a
+            // smaller one — it falls back to the shipped default instead).
+            val inferenceParams = if (isLocal) {
+                val lm = localModel!!
+                InferenceLimits.coerce(
+                    settingsRepository.getInferenceParamsDirect(local = true),
+                    ModelCapabilities(
+                        maxContextTokens = LocalModelCatalog.maxTokensFor(lm.id, lm.fileName),
+                        maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
+                    ),
+                    InferenceLimits.LOCAL_DEFAULTS,
+                )
+            } else {
+                InferenceLimits.coerce(
+                    settingsRepository.getInferenceParamsDirect(local = false),
+                    // Cloud context length isn't known here; OpenRouter clamps server-side.
+                    ModelCapabilities(maxContextTokens = 0, maxTopK = InferenceLimits.CLOUD_TOP_K_MAX),
+                    InferenceLimits.CLOUD_DEFAULTS,
+                )
+            }
+
             val responseFlow: Flow<StreamChunk> = when {
                 isLocal && clientSearchReady ->
-                    localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey)
+                    localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey, inferenceParams)
                 isLocal ->
-                    localLlmService.generate(localModel!!, chatId, fullHistory, systemPrompt)
+                    localLlmService.generate(localModel!!, chatId, fullHistory, systemPrompt, inferenceParams)
                 provider == "openrouter" ->
-                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = true)
+                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = true, params = inferenceParams)
                 clientSearchReady ->
-                    openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt) { query ->
+                    openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
                 else ->
-                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false)
+                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false, params = inferenceParams)
             }
 
             // Begin Streaming Assistant response
@@ -816,7 +838,8 @@ class ChatViewModel(
         history: List<ChatMessage>,
         systemPrompt: String,
         provider: String,
-        searchKey: String
+        searchKey: String,
+        params: InferenceParams
     ): Flow<StreamChunk> = flow {
         var round = 0
         var continuation = false
@@ -826,7 +849,7 @@ class ChatViewModel(
             val upstream = if (continuation) {
                 localLlmService.continueGeneration()
             } else {
-                localLlmService.generate(model, chatId, history, systemPrompt)
+                localLlmService.generate(model, chatId, history, systemPrompt, params)
             }
 
             val buf = StringBuilder()
