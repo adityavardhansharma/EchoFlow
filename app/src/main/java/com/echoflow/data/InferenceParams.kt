@@ -61,9 +61,10 @@ object InferenceLimits {
     const val CLOUD_TOP_K_MAX = 200
 
     // Max-tokens sliders run from 0 ("model default") up to these ceilings, stepped.
-    // LiteRT-LM Gemma 4 mobile bundles support up to 32K context, so expose that full
-    // range while still clamping each selected model to its own catalog/filename limit.
-    const val LOCAL_MAX_TOKENS_CEIL = 32768
+    // Some LiteRT-LM bundles advertise larger windows, but 32K can crash on phones due
+    // to KV/cache allocation. Keep a hard mobile safety cap of 8K; smaller models keep
+    // their own lower max.
+    const val LOCAL_MAX_TOKENS_CEIL = 8192
     const val CLOUD_MAX_TOKENS_CEIL = 32768
     const val MAX_TOKENS_STEP = 256
 
@@ -99,10 +100,15 @@ object InferenceLimits {
             else -> params.topK
         }
 
-        val modelDefaultTokens = if (caps.maxContextTokens > 0) caps.maxContextTokens else params.maxTokens
+        val contextCap = if (caps.maxContextTokens > 0) {
+            caps.maxContextTokens.coerceAtMost(LOCAL_MAX_TOKENS_CEIL)
+        } else {
+            params.maxTokens
+        }
+        val modelDefaultTokens = contextCap
         val maxTokens = when {
             params.maxTokens <= 0 -> modelDefaultTokens
-            caps.maxContextTokens > 0 && params.maxTokens > caps.maxContextTokens -> modelDefaultTokens
+            caps.maxContextTokens > 0 && params.maxTokens > contextCap -> modelDefaultTokens
             else -> params.maxTokens
         }
 

@@ -24,6 +24,23 @@ sealed class StreamSegment {
         val sources: List<SearchSource>,
         val active: Boolean
     ) : StreamSegment()
+
+    /** Echo Adviser consultation: the question asked and the advice (null while pending). */
+    data class Advisor(
+        val advisorName: String,
+        val advisorModel: String,
+        val prompt: String,
+        val advice: String?,
+        val active: Boolean
+    ) : StreamSegment()
+
+    /** Echo Fusion deliberation: the panel roster and the judge's analysis (null while pending). */
+    data class Fusion(
+        val panelName: String,
+        val models: List<String>,
+        val analysis: FusionAnalysis?,
+        val active: Boolean
+    ) : StreamSegment()
 }
 
 private data class ActiveStreamState(
@@ -40,7 +57,9 @@ class ChatViewModel(
     private val settingsRepository: SettingsRepository,
     private val localModelDao: LocalModelDao,
     private val researchRunDao: ResearchRunDao,
-    private val deepResearchModelDao: DeepResearchModelDao
+    private val deepResearchModelDao: DeepResearchModelDao,
+    private val advisorProfileDao: AdvisorProfileDao,
+    private val fusionPanelDao: FusionPanelDao
 ) : AndroidViewModel(application) {
 
     private val openRouterService = OpenRouterService(application)
@@ -181,6 +200,14 @@ class ChatViewModel(
     private val _dataAgentActive = MutableStateFlow(false)
     val dataAgentActive: StateFlow<Boolean> = _dataAgentActive.asStateFlow()
 
+    // Echo Adviser / Echo Fusion: OpenRouter-only modes chosen from the "+" menu. Persist
+    // across messages (a deliberate, cost-heavy choice) until the user turns them off.
+    private val _echoAdviserActive = MutableStateFlow(false)
+    val echoAdviserActive: StateFlow<Boolean> = _echoAdviserActive.asStateFlow()
+
+    private val _echoFusionActive = MutableStateFlow(false)
+    val echoFusionActive: StateFlow<Boolean> = _echoFusionActive.asStateFlow()
+
     /** The Deep Research engine/model the user has added (built-in provider engines + agentic). */
     val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -193,23 +220,42 @@ class ChatViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Web Search, Deep Research and Data Agent are mutually exclusive capabilities.
+    // Web Search, Deep Research, Data Agent, Echo Adviser and Echo Fusion are mutually
+    // exclusive capabilities — turning one on clears the rest.
+    private fun clearCapabilitiesExcept(keep: MutableStateFlow<Boolean>) {
+        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive)
+            .filter { it !== keep }
+            .forEach { it.value = false }
+    }
+
     fun toggleDeepResearch() {
         val next = !_deepResearchActive.value
         _deepResearchActive.value = next
-        if (next) { _webSearchChipOn.value = false; _dataAgentActive.value = false }
+        if (next) clearCapabilitiesExcept(_deepResearchActive)
     }
 
     fun toggleWebSearchChip() {
         val next = !_webSearchChipOn.value
         _webSearchChipOn.value = next
-        if (next) { _deepResearchActive.value = false; _dataAgentActive.value = false }
+        if (next) clearCapabilitiesExcept(_webSearchChipOn)
     }
 
     fun toggleDataAgent() {
         val next = !_dataAgentActive.value
         _dataAgentActive.value = next
-        if (next) { _deepResearchActive.value = false; _webSearchChipOn.value = false }
+        if (next) clearCapabilitiesExcept(_dataAgentActive)
+    }
+
+    fun toggleEchoAdviser() {
+        val next = !_echoAdviserActive.value
+        _echoAdviserActive.value = next
+        if (next) clearCapabilitiesExcept(_echoAdviserActive)
+    }
+
+    fun toggleEchoFusion() {
+        val next = !_echoFusionActive.value
+        _echoFusionActive.value = next
+        if (next) clearCapabilitiesExcept(_echoFusionActive)
     }
 
     fun selectThread(chatId: String?) {
@@ -315,6 +361,69 @@ class ChatViewModel(
             is StreamChunk.StatusNote -> {
                 return chunk.text
             }
+            is StreamChunk.AdvisorStarted -> {
+                segments.add(
+                    StreamSegment.Advisor(
+                        advisorName = chunk.advisorName,
+                        advisorModel = chunk.advisorModel,
+                        prompt = chunk.prompt,
+                        advice = null,
+                        active = true,
+                    )
+                )
+            }
+            is StreamChunk.AdvisorResolved -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Advisor && it.active }
+                if (idx >= 0) {
+                    val seg = segments[idx] as StreamSegment.Advisor
+                    segments[idx] = seg.copy(
+                        advisorModel = chunk.advice.advisorModel.ifBlank { seg.advisorModel },
+                        prompt = seg.prompt.ifBlank { chunk.advice.prompt },
+                        advice = chunk.advice.advice,
+                        active = false,
+                    )
+                } else {
+                    segments.add(
+                        StreamSegment.Advisor(
+                            advisorName = chunk.advice.advisorName,
+                            advisorModel = chunk.advice.advisorModel,
+                            prompt = chunk.advice.prompt,
+                            advice = chunk.advice.advice,
+                            active = false,
+                        )
+                    )
+                }
+            }
+            is StreamChunk.FusionStarted -> {
+                segments.add(
+                    StreamSegment.Fusion(
+                        panelName = chunk.panelName,
+                        models = chunk.models,
+                        analysis = null,
+                        active = true,
+                    )
+                )
+            }
+            is StreamChunk.FusionResolved -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Fusion && it.active }
+                if (idx >= 0) {
+                    val seg = segments[idx] as StreamSegment.Fusion
+                    segments[idx] = seg.copy(
+                        models = seg.models.ifEmpty { chunk.analysis.models },
+                        analysis = chunk.analysis,
+                        active = false,
+                    )
+                } else {
+                    segments.add(
+                        StreamSegment.Fusion(
+                            panelName = chunk.analysis.panelName,
+                            models = chunk.analysis.models,
+                            analysis = chunk.analysis,
+                            active = false,
+                        )
+                    )
+                }
+            }
         }
         return null
     }
@@ -363,7 +472,9 @@ class ChatViewModel(
             val chipProvider = if (_webSearchChipOn.value) settingsRepository.resolveChipSearchProvider() else null
             val provider = chipProvider ?: settingsRepository.getWebSearchProviderDirect()
             val searchScope = if (chipProvider != null) "both" else settingsRepository.getWebSearchScopeDirect()
-            val isLocal = selectedModel.startsWith("local/")
+            // Echo Fusion always runs cloud models (the panel + judge), so it never uses the
+            // on-device engine even if a local model is the global selection.
+            val isLocal = selectedModel.startsWith("local/") && !_echoFusionActive.value
 
             if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
@@ -401,7 +512,38 @@ class ChatViewModel(
                 clientSearchReady -> provider
                 else -> "off"
             }
-            val systemPrompt = SystemPrompts.build(isLocal, effectiveProvider)
+
+            // Echo Adviser / Echo Fusion: OpenRouter-only modes. Resolve the active profile/panel
+            // here; both override the model, system prompt and response flow. Cloud models only.
+            var advisorReq: OpenRouterService.AdvisorRequest? = null
+            var fusionReq: OpenRouterService.FusionRequest? = null
+            var echoModel = selectedModel
+            var echoSystemPrompt: String? = null
+            if (_echoAdviserActive.value) {
+                if (isLocal) {
+                    _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
+                    return@launch
+                }
+                val profile = advisorProfileDao.getById(settingsRepository.getEchoAdviserProfileIdDirect())
+                if (profile == null) {
+                    _errorMessage.value = "Pick an advisor first — set one up in Settings → Echo Adviser."
+                    return@launch
+                }
+                advisorReq = OpenRouterService.AdvisorRequest(profile.name, profile.modelId)
+                echoSystemPrompt = SystemPrompts.buildEchoAdviser(profile.name)
+            } else if (_echoFusionActive.value) {
+                val panel = fusionPanelDao.getById(settingsRepository.getEchoFusionPanelIdDirect())
+                if (panel == null || panel.models.isEmpty()) {
+                    _errorMessage.value = "Set up a Fusion panel first in Settings → Echo Fusion, then pick it."
+                    return@launch
+                }
+                val judge = panel.judgeModelId?.takeIf { it.isNotBlank() } ?: panel.models.first()
+                echoModel = judge
+                fusionReq = OpenRouterService.FusionRequest(panel.name, panel.models, panel.judgeModelId)
+                echoSystemPrompt = SystemPrompts.buildEchoFusion(panel.name)
+            }
+
+            val systemPrompt = echoSystemPrompt ?: SystemPrompts.build(isLocal, effectiveProvider)
 
             var isFirstMsgInChat = false
             var chatId = _currentChatThreadId.value
@@ -472,7 +614,8 @@ class ChatViewModel(
                 InferenceLimits.coerce(
                     settingsRepository.getInferenceParamsDirect(local = true),
                     ModelCapabilities(
-                        maxContextTokens = lm.maxTokens ?: LocalModelCatalog.maxTokensFor(lm.id, lm.fileName),
+                        maxContextTokens = (lm.maxTokens ?: LocalModelCatalog.maxTokensFor(lm.id, lm.fileName))
+                            .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
                         maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
                     ),
                     InferenceLimits.LOCAL_DEFAULTS,
@@ -487,6 +630,16 @@ class ChatViewModel(
             }
 
             val responseFlow: Flow<StreamChunk> = when {
+                advisorReq != null || fusionReq != null ->
+                    openRouterService.sendWithEchoTools(
+                        apiKey = apiKey,
+                        model = echoModel,
+                        history = fullHistory,
+                        systemPrompt = systemPrompt,
+                        advisor = advisorReq,
+                        fusion = fusionReq,
+                        params = inferenceParams,
+                    )
                 isLocal && clientSearchReady ->
                     localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey, inferenceParams)
                 isLocal ->
@@ -514,8 +667,20 @@ class ChatViewModel(
 
             val segments = mutableListOf<StreamSegment>()
             var statusNote: String? = null
+            // Echo Adviser/Fusion are cost-heavy and can take a while; label the keep-alive
+            // notification and ping the user when they finish in the background (like research).
+            val echoLabel = when {
+                advisorReq != null -> "Echo Adviser"
+                fusionReq != null -> "Echo Fusion"
+                else -> null
+            }
+            val keepAliveText = when {
+                fusionReq != null -> "Echo Fusion — the panel is deliberating…"
+                advisorReq != null -> "Echo Adviser — consulting your advisor…"
+                else -> "Generating a reply…"
+            }
             // Keep the process unfrozen so the reply keeps streaming while minimized.
-            KeepAliveService.acquire(getApplication(), "Generating a reply…")
+            KeepAliveService.acquire(getApplication(), keepAliveText)
             try {
                 responseFlow.collect { chunk ->
                     val note = reduceSegments(segments, chunk)
@@ -531,10 +696,24 @@ class ChatViewModel(
                     )
                 }
                 persistAssistantMessage(chatId, segments, interrupted = null)
+                if (echoLabel != null) {
+                    ReplyNotifications.notifyReplyReady(
+                        getApplication(), chatId,
+                        title = "$echoLabel reply is ready",
+                        text = "Tap to read the answer in EchoFlow.",
+                    )
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
                 persistAssistantMessage(chatId, segments, interrupted = e.message)
+                if (echoLabel != null) {
+                    ReplyNotifications.notifyReplyReady(
+                        getApplication(), chatId,
+                        title = "$echoLabel couldn't finish",
+                        text = e.message ?: "The reply was interrupted. Tap to reopen.",
+                    )
+                }
             } finally {
                 KeepAliveService.release(getApplication())
                 streamJobs.remove(chatId)
@@ -714,7 +893,10 @@ class ChatViewModel(
         val normalizedSegments = normalizeAssistantSegmentsForPersistence(segments)
         val contentText = normalizedSegments.filterIsInstance<StreamSegment.Text>()
             .joinToString("\n\n") { it.text }.trim()
-        if (contentText.isEmpty()) return
+        // Keep a turn that produced only an Echo Adviser/Fusion artifact (no prose answer) so
+        // the consultation/deliberation card still persists and re-renders.
+        val hasEchoArtifact = normalizedSegments.any { it is StreamSegment.Advisor || it is StreamSegment.Fusion }
+        if (contentText.isEmpty() && !hasEchoArtifact) return
 
         val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim()
@@ -740,6 +922,22 @@ class ChatViewModel(
                     ?.let { PersistedSegment(type = "reasoning", text = it) }
                 is StreamSegment.Search ->
                     PersistedSegment(type = "search", query = seg.query, sources = seg.sources)
+                is StreamSegment.Advisor ->
+                    PersistedSegment(
+                        type = "advisor",
+                        advisor = AdvisorAdvice(
+                            advisorName = seg.advisorName,
+                            advisorModel = seg.advisorModel,
+                            prompt = seg.prompt,
+                            advice = seg.advice.orEmpty(),
+                        ),
+                    )
+                is StreamSegment.Fusion ->
+                    PersistedSegment(
+                        type = "fusion",
+                        fusion = (seg.analysis ?: FusionAnalysis(panelName = seg.panelName, judgeModel = null, models = seg.models))
+                            .copy(panelName = seg.panelName, models = seg.models.ifEmpty { seg.analysis?.models ?: emptyList() }),
+                    )
                 is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
                     ?.let { PersistedSegment(type = "text", text = it) }
             }
@@ -970,13 +1168,15 @@ class ChatViewModel(
             settingsRepository: SettingsRepository,
             localModelDao: LocalModelDao,
             researchRunDao: ResearchRunDao,
-            deepResearchModelDao: DeepResearchModelDao
+            deepResearchModelDao: DeepResearchModelDao,
+            advisorProfileDao: AdvisorProfileDao,
+            fusionPanelDao: FusionPanelDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
-                    researchRunDao, deepResearchModelDao
+                    researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao
                 ) as T
             }
         }

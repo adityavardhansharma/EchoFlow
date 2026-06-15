@@ -80,6 +80,13 @@ class SettingsRepository(context: Context) {
     private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
     val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
 
+    // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
+    private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
+    val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
+
+    private val _echoFusionPanelId = MutableStateFlow(getEchoFusionPanelIdDirect())
+    val echoFusionPanelId: StateFlow<String> = _echoFusionPanelId.asStateFlow()
+
     // Inference parameters: one global set for on-device models, one for OpenRouter models.
     private val _localInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = true))
     val localInferenceParams: StateFlow<InferenceParams> = _localInferenceParams.asStateFlow()
@@ -214,6 +221,24 @@ class SettingsRepository(context: Context) {
     fun saveHfAccessToken(token: String) {
         prefs.edit().putString("hf_access_token", token).apply()
         _hfAccessToken.value = token
+    }
+
+    // ── Echo Adviser / Echo Fusion selection ───────────────────────────────────────────
+
+    fun getEchoAdviserProfileIdDirect(): String =
+        prefs.getString("echo_adviser_profile_id", "").orEmpty()
+
+    fun saveEchoAdviserProfileId(id: String) {
+        prefs.edit().putString("echo_adviser_profile_id", id).apply()
+        _echoAdviserProfileId.value = id
+    }
+
+    fun getEchoFusionPanelIdDirect(): String =
+        prefs.getString("echo_fusion_panel_id", "").orEmpty()
+
+    fun saveEchoFusionPanelId(id: String) {
+        prefs.edit().putString("echo_fusion_panel_id", id).apply()
+        _echoFusionPanelId.value = id
     }
 
     // ── Inference parameters ───────────────────────────────────────────────────────────

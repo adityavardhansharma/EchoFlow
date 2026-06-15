@@ -58,19 +58,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
+import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
+import com.echoflow.ui.components.AdvisorCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.DataResultCard
+import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
 import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.ReportCard
@@ -126,6 +130,15 @@ fun ChatScreen(
     val exaEffort by settingsViewModel.deepResearchExaEffort.collectAsState()
     val dataAgentEnabled by settingsViewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngineId by settingsViewModel.dataAgentEngine.collectAsState()
+
+    val echoAdviserActive by chatViewModel.echoAdviserActive.collectAsState()
+    val echoFusionActive by chatViewModel.echoFusionActive.collectAsState()
+    val advisorProfiles by settingsViewModel.advisorProfiles.collectAsState()
+    val fusionPanels by settingsViewModel.fusionPanels.collectAsState()
+    val echoAdviserProfileId by settingsViewModel.echoAdviserProfileId.collectAsState()
+    val echoFusionPanelId by settingsViewModel.echoFusionPanelId.collectAsState()
+    val activeAdvisor = advisorProfiles.firstOrNull { it.id == echoAdviserProfileId }
+    val activePanel = fusionPanels.firstOrNull { it.id == echoFusionPanelId }
 
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
@@ -212,6 +225,8 @@ fun ChatScreen(
             ChatTopBar(
                 modifier = Modifier.align(Alignment.TopCenter),
                 modelName = when {
+                    echoFusionActive -> activePanel?.name ?: "Choose panel"
+                    echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
                     dataAgentActive -> dataAgentLabel
                     deepResearchActive -> drEngineLabel
                     else -> modelShortName
@@ -239,9 +254,15 @@ fun ChatScreen(
                 webSearchChipOn = webSearchChipOn,
                 dataAgentActive = dataAgentActive,
                 dataAgentAvailable = dataAgentAvailable,
+                echoAdviserActive = echoAdviserActive,
+                echoFusionActive = echoFusionActive,
+                advisorChipLabel = activeAdvisor?.name,
+                fusionChipLabel = activePanel?.name,
                 onToggleDeepResearch = { chatViewModel.toggleDeepResearch() },
                 onToggleWebSearch = { chatViewModel.toggleWebSearchChip() },
                 onToggleDataAgent = { chatViewModel.toggleDataAgent() },
+                onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
+                onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
                 researchInProgress = researchRun != null,
                 researchEngineLabel = drEngineLabel,
                 dataAgentLabel = dataAgentLabel,
@@ -269,7 +290,26 @@ fun ChatScreen(
     }
 
     if (showModelMenu) {
-        if (dataAgentActive) {
+        if (echoFusionActive) {
+            FusionPickerSheet(
+                panels = fusionPanels,
+                selectedId = echoFusionPanelId,
+                onSelect = { settingsViewModel.saveEchoFusionPanel(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (echoAdviserActive) {
+            AdvisorPickerSheet(
+                models = activeModelList,
+                selectedModelId = selectedModelID,
+                profiles = advisorProfiles,
+                selectedProfileId = echoAdviserProfileId,
+                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectProfile = { settingsViewModel.saveEchoAdviserProfile(it) },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (dataAgentActive) {
             val dataEngines = remember(firecrawlKey) {
                 if (firecrawlKey.isNotBlank()) DataAgentCatalog.engines else emptyList()
             }
@@ -450,6 +490,25 @@ private fun StreamingAssistantBubble(
                         SearchActivityCard(query = segment.query, sources = segment.sources, active = segment.active)
                         Spacer(Modifier.height(Spacing.s))
                     }
+                    is StreamSegment.Advisor -> {
+                        AdvisorCard(
+                            advisorName = segment.advisorName,
+                            advisorModel = segment.advisorModel,
+                            prompt = segment.prompt,
+                            advice = segment.advice,
+                            active = segment.active,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    is StreamSegment.Fusion -> {
+                        FusionCard(
+                            panelName = segment.panelName,
+                            models = segment.models,
+                            analysis = segment.analysis,
+                            active = segment.active,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
                     is StreamSegment.Text -> {
                         SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
                         if (!isLast) Spacer(Modifier.height(Spacing.s))
@@ -593,6 +652,29 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                             "search" -> {
                                 SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
                                 Spacer(Modifier.height(Spacing.s))
+                            }
+                            "advisor" -> {
+                                segment.advisor?.let { a ->
+                                    AdvisorCard(
+                                        advisorName = a.advisorName,
+                                        advisorModel = a.advisorModel,
+                                        prompt = a.prompt,
+                                        advice = a.advice,
+                                        active = false,
+                                    )
+                                    Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                            "fusion" -> {
+                                segment.fusion?.let { f ->
+                                    FusionCard(
+                                        panelName = f.panelName,
+                                        models = f.models,
+                                        analysis = f,
+                                        active = false,
+                                    )
+                                    Spacer(Modifier.height(Spacing.s))
+                                }
                             }
                             // The plan is rendered as a disclosure inside the report card.
                             "plan" -> Unit
@@ -845,9 +927,15 @@ private fun InputToolbar(
     webSearchChipOn: Boolean,
     dataAgentActive: Boolean,
     dataAgentAvailable: Boolean,
+    echoAdviserActive: Boolean,
+    echoFusionActive: Boolean,
+    advisorChipLabel: String?,
+    fusionChipLabel: String?,
     onToggleDeepResearch: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
+    onToggleEchoAdviser: () -> Unit,
+    onToggleEchoFusion: () -> Unit,
     researchInProgress: Boolean,
     researchEngineLabel: String?,
     dataAgentLabel: String,
@@ -882,7 +970,7 @@ private fun InputToolbar(
         }
 
         // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive) {
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -890,6 +978,20 @@ private fun InputToolbar(
             ) {
                 if (webSearchChipOn) {
                     CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+                }
+                if (echoAdviserActive) {
+                    CapabilityChip(
+                        Icons.Default.Psychology,
+                        advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
+                        onRemove = onToggleEchoAdviser,
+                    )
+                }
+                if (echoFusionActive) {
+                    CapabilityChip(
+                        Icons.Default.AccountTree,
+                        fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
+                        onRemove = onToggleEchoFusion,
+                    )
                 }
                 if (deepResearchActive) {
                     CapabilityChip(
@@ -927,6 +1029,15 @@ private fun InputToolbar(
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
             )
         }
+        AnimatedVisibility(visible = (echoAdviserActive || echoFusionActive) && blockedReason == null) {
+            Text(
+                if (echoFusionActive) "Runs a panel of models + a judge every message · cost-heavy"
+                else "Consults a stronger advisor model each message · adds cost",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
+            )
+        }
 
         Surface(
             shape = CircleShape,
@@ -957,10 +1068,14 @@ private fun InputToolbar(
                         deepResearchOn = deepResearchActive,
                         dataAgentOn = dataAgentActive,
                         dataAgentAvailable = dataAgentAvailable,
+                        echoAdviserOn = echoAdviserActive,
+                        echoFusionOn = echoFusionActive,
                         onImage = { plusMenuOpen = false; onAttach() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
                         onToggleDeepResearch = { plusMenuOpen = false; onToggleDeepResearch() },
                         onToggleDataAgent = { plusMenuOpen = false; onToggleDataAgent() },
+                        onToggleEchoAdviser = { plusMenuOpen = false; onToggleEchoAdviser() },
+                        onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
                     )
                 }
 
@@ -1010,10 +1125,14 @@ private fun PlusMenu(
     deepResearchOn: Boolean,
     dataAgentOn: Boolean,
     dataAgentAvailable: Boolean,
+    echoAdviserOn: Boolean,
+    echoFusionOn: Boolean,
     onImage: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDeepResearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
+    onToggleEchoAdviser: () -> Unit,
+    onToggleEchoFusion: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
@@ -1045,6 +1164,21 @@ private fun PlusMenu(
                 onClick = onToggleDataAgent,
             )
         }
+        HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+        // Echo Adviser / Echo Fusion — OpenRouter-only, cost-heavy modes. Always shown; if the
+        // key or a profile/panel is missing, sending surfaces a "set it up" message.
+        DropdownMenuItem(
+            text = { Text("Echo Adviser") },
+            leadingIcon = { Icon(Icons.Default.Psychology, null) },
+            trailingIcon = { if (echoAdviserOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleEchoAdviser,
+        )
+        DropdownMenuItem(
+            text = { Text("Echo Fusion") },
+            leadingIcon = { Icon(Icons.Default.AccountTree, null) },
+            trailingIcon = { if (echoFusionOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleEchoFusion,
+        )
     }
 }
 
@@ -1193,6 +1327,114 @@ private fun ModelPickerSheet(
                         ModelRow(name, id, id == selectedId, isLocal = true) { onSelect(id) }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Echo Fusion panel picker: each saved panel (a named roster of 2–8 models) is a selectable
+ * card showing its members. The chosen panel deliberates on every message until turned off.
+ */
+@Composable
+private fun FusionPickerSheet(
+    panels: List<FusionPanel>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Choose a fusion panel", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Models answer in parallel, a judge compares them", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onManage) {
+                    Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Manage")
+                }
+            }
+            if (panels.isEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.AccountTree, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text("No panels yet.\nTap Manage to build one in Settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
+            LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.xl)) {
+                items(panels, key = { it.id }) { panel ->
+                    DrEngineRow(
+                        name = panel.name,
+                        description = panel.names.joinToString(" · ").ifBlank { "${panel.models.size} models" },
+                        selected = panel.id == selectedId,
+                    ) { onSelect(panel.id) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Echo Adviser picker: two zones — the answering model (any cloud model) and which advisor
+ * profile it escalates to. Both persist immediately; the sheet stays open so the user can set
+ * both before dismissing.
+ */
+@Composable
+private fun AdvisorPickerSheet(
+    models: List<Pair<String, String>>,
+    selectedModelId: String,
+    profiles: List<AdvisorProfile>,
+    selectedProfileId: String,
+    onSelectModel: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Adviser setup", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("A cloud model answers and consults your advisor", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onManage) {
+                    Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Manage")
+                }
+            }
+
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Advisor") }
+            if (profiles.isEmpty()) {
+                Text(
+                    "No advisors yet — tap Manage to set one up.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = Spacing.s),
+                )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.padding(bottom = Spacing.m)) {
+                    profiles.forEach { profile ->
+                        FilterChip(
+                            selected = profile.id == selectedProfileId,
+                            onClick = { onSelectProfile(profile.id) },
+                            label = { Text(profile.name) },
+                            leadingIcon = { Icon(Icons.Default.Psychology, null, Modifier.size(16.dp)) },
+                        )
+                    }
+                }
+            }
+
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Answering model") }
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.m)) {
+                items(models, key = { it.first }) { (id, name) ->
+                    ModelRow(name, id, id == selectedModelId, isLocal = false) { onSelectModel(id) }
+                }
+            }
+
+            Button(onClick = onDismiss, shape = CircleShape, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xl)) {
+                Text("Done")
             }
         }
     }

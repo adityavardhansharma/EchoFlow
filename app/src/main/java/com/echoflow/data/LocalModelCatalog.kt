@@ -67,7 +67,7 @@ object LocalModelCatalog {
             url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
             approxSizeBytes = 2_588_147_712L,
             requiresAuth = false,
-            maxTokens = 32768,
+            maxTokens = 8192,
             description = "Latest Gemma generation with an effective 2B footprint. Strong quality on flagship phones, no login needed (~3.5 GB RAM)."
         ),
         CatalogEntry(
@@ -87,7 +87,7 @@ object LocalModelCatalog {
             url = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
             approxSizeBytes = 3_659_530_240L,
             requiresAuth = false,
-            maxTokens = 32768,
+            maxTokens = 8192,
             description = "Largest Gemma 4 mobile bundle — best answers, needs a high-end phone (~5 GB RAM), no login needed."
         )
     )
@@ -123,10 +123,11 @@ object LocalModelCatalog {
         val file = fileName ?: return 1280
         entries.firstOrNull { it.fileName.equals(file, ignoreCase = true) }?.let { return it.maxTokens }
         val combined = "$modelId/$file"
-        parseContextHint(combined)?.let { return it.coerceIn(512, 32768) }
+        parseContextHint(combined)?.let { return it.coerceIn(512, InferenceLimits.LOCAL_MAX_TOKENS_CEIL) }
         return when {
-            // Gemma 4 LiteRT-LM mobile bundles advertise up to 32K context in LiteRT-LM.
-            isLiteRtLm(file) && combined.contains("gemma-4", ignoreCase = true) -> 32768
+            // Gemma 4 LiteRT-LM mobile bundles advertise larger windows, but EchoFlow
+            // caps local inference at 8K to avoid native OOM/crashes on phones.
+            isLiteRtLm(file) && combined.contains("gemma-4", ignoreCase = true) -> InferenceLimits.LOCAL_MAX_TOKENS_CEIL
             // GGUF files carry no kv-cache marker in the name; llama.cpp lets us size the
             // context window ourselves, so use a comfortable mobile default.
             isGguf(file) -> 4096

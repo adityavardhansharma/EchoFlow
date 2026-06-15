@@ -30,7 +30,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -48,6 +50,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.RestartAlt
@@ -80,8 +83,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
+import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.FusionPanel
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
 import com.echoflow.data.InferenceLimits
@@ -131,6 +136,8 @@ private const val PageWebSearch = "web_search"
 private const val PageLocalModels = "local_models"
 private const val PageDeepResearch = "deep_research"
 private const val PageDataAgent = "data_agent"
+private const val PageEchoAdviser = "echo_adviser"
+private const val PageEchoFusion = "echo_fusion"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -182,6 +189,8 @@ fun SettingsScreen(
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageHome })
+            PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageHome })
+            PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageHome })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -207,6 +216,8 @@ private fun SettingsHomePage(
     val deepResearchModels by viewModel.deepResearchModels.collectAsState()
     val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
+    val advisorProfiles by viewModel.advisorProfiles.collectAsState()
+    val fusionPanels by viewModel.fusionPanels.collectAsState()
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -247,6 +258,14 @@ private fun SettingsHomePage(
         !dataAgentEnabled -> "Off"
         else -> DataAgentCatalog.byId(dataAgentEngine)?.name ?: "On"
     }
+    val echoAdviserSubtitle = when {
+        advisorProfiles.isEmpty() -> "Escalate to a stronger model · none set up"
+        else -> "${advisorProfiles.size} advisor" + (if (advisorProfiles.size == 1) "" else "s")
+    }
+    val echoFusionSubtitle = when {
+        fusionPanels.isEmpty() -> "A panel deliberates · no panels yet"
+        else -> "${fusionPanels.size} panel" + (if (fusionPanels.size == 1) "" else "s")
+    }
 
     SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
@@ -257,7 +276,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 6,
+                index = 0, count = 8,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -267,7 +286,7 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 6,
+                index = 1, count = 8,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -277,7 +296,7 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 6,
+                index = 2, count = 8,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -287,7 +306,7 @@ private fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 6,
+                index = 3, count = 8,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -297,8 +316,28 @@ private fun SettingsHomePage(
                 subtitle = dataAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 4, count = 6,
+                index = 4, count = 8,
                 onClick = { onOpen(PageDataAgent) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Psychology,
+                polygon = MaterialShapes.Cookie7Sided,
+                title = "Echo Adviser",
+                subtitle = echoAdviserSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 5, count = 8,
+                onClick = { onOpen(PageEchoAdviser) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.AccountTree,
+                polygon = BrandShapes.avatarEnd, // Clover4Leaf
+                title = "Echo Fusion",
+                subtitle = echoFusionSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 6, count = 8,
+                onClick = { onOpen(PageEchoFusion) },
             )
             SettingsNavRow(
                 icon = Icons.Default.PhoneAndroid,
@@ -307,7 +346,7 @@ private fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 6,
+                index = 7, count = 8,
                 onClick = { onOpen(PageLocalModels) },
             )
         }
@@ -1343,6 +1382,324 @@ private fun DataAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
     }
+}
+
+// ── Echo Adviser ──────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EchoAdviserPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val apiKey by viewModel.apiKey.collectAsState()
+    val profiles by viewModel.advisorProfiles.collectAsState()
+    val selectedId by viewModel.echoAdviserProfileId.collectAsState()
+    val orQuery by viewModel.orModelQuery.collectAsState()
+    val orResults by viewModel.orModelResults.collectAsState()
+    val orLoading by viewModel.orDirectoryLoading.collectAsState()
+    val orError by viewModel.orDirectoryError.collectAsState()
+
+    var showDirectory by remember { mutableStateOf(false) }
+    var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
+
+    SettingsPageScaffold(title = "Echo Adviser", subtitle = "Escalate hard parts to a stronger model", onBack = onBack) {
+        FormCard {
+            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Any cloud model answers, and consults a stronger, domain-specific advisor mid-answer — before committing to an approach or finishing a hard task. Set up advisors for different jobs (coding, maths, research), then pick one per chat from the model selector. OpenRouter only; each consult adds cost.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (apiKey.isBlank()) {
+            Spacer(Modifier.height(Spacing.m))
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Adviser.", error = true)
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Your advisors", "Tap to set the default; pick per chat from the model selector")
+        if (profiles.isEmpty()) {
+            EchoNoticeCard(Icons.Default.Psychology, "No advisors yet.\nAdd one below — e.g. a strong model for coding or maths.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                profiles.forEach { profile ->
+                    DrEngineSelectRow(
+                        name = profile.name,
+                        subtitle = profile.modelName.ifBlank { profile.modelId },
+                        selected = profile.id == selectedId,
+                        onClick = { viewModel.saveEchoAdviserProfile(profile.id) },
+                        onDelete = { viewModel.deleteAdvisorProfile(profile.id) },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(Spacing.s))
+        FilledTonalButton(
+            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Add an advisor")
+        }
+    }
+
+    if (showDirectory) {
+        OpenRouterDirectorySheet(
+            query = orQuery,
+            results = orResults,
+            loading = orLoading,
+            error = orError,
+            addedIds = emptySet(),
+            onQueryChange = viewModel::updateOrModelQuery,
+            onRetry = viewModel::loadOpenRouterDirectory,
+            onAdd = { info -> pendingModel = info; showDirectory = false },
+            onRemove = {},
+            onDismiss = { showDirectory = false },
+        )
+    }
+    pendingModel?.let { model ->
+        EchoNamePromptDialog(
+            title = "Name this advisor",
+            supporting = model.name,
+            defaultName = "",
+            placeholder = "Coding, Maths, Research…",
+            onDismiss = { pendingModel = null },
+            onConfirm = { name ->
+                viewModel.addAdvisorProfile(name, model.id, model.name.substringAfter(": "))
+                pendingModel = null
+            },
+        )
+    }
+}
+
+// ── Echo Fusion ───────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EchoFusionPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val apiKey by viewModel.apiKey.collectAsState()
+    val panels by viewModel.fusionPanels.collectAsState()
+    val selectedId by viewModel.echoFusionPanelId.collectAsState()
+    val orQuery by viewModel.orModelQuery.collectAsState()
+    val orResults by viewModel.orModelResults.collectAsState()
+    val orLoading by viewModel.orDirectoryLoading.collectAsState()
+    val orError by viewModel.orDirectoryError.collectAsState()
+
+    var showDirectory by remember { mutableStateOf(false) }
+    val pendingModels = remember { mutableStateMapOf<String, String>() } // id -> display name
+    var nameDialog by remember { mutableStateOf(false) }
+
+    SettingsPageScaffold(title = "Echo Fusion", subtitle = "A panel of models deliberates", onBack = onBack) {
+        FormCard {
+            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Several models answer the same question in parallel and a judge compares them — surfacing where they agree, where they disagree, and what they all missed. Best for research, comparisons and high-stakes questions. OpenRouter only; cost-heavy — every message runs the whole panel plus a judge.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (apiKey.isBlank()) {
+            Spacer(Modifier.height(Spacing.m))
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Fusion.", error = true)
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Your panels", "Tap to set the default; pick per chat from the model selector")
+        if (panels.isEmpty()) {
+            EchoNoticeCard(Icons.Default.AccountTree, "No panels yet.\nBuild one below from 2–8 models.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                panels.forEach { panel ->
+                    DrEngineSelectRow(
+                        name = panel.name,
+                        subtitle = panel.names.joinToString(" · ").ifBlank { "${panel.models.size} models" },
+                        selected = panel.id == selectedId,
+                        onClick = { viewModel.saveEchoFusionPanel(panel.id) },
+                        onDelete = { viewModel.deleteFusionPanel(panel.id) },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(Spacing.s))
+        FilledTonalButton(
+            onClick = { pendingModels.clear(); showDirectory = true; viewModel.loadOpenRouterDirectory() },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("New panel")
+        }
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            "A panel needs 2–8 models. The first model judges unless you change it later.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+    }
+
+    if (showDirectory) {
+        OpenRouterDirectorySheet(
+            query = orQuery,
+            results = orResults,
+            loading = orLoading,
+            error = orError,
+            addedIds = pendingModels.keys.toSet(),
+            onQueryChange = viewModel::updateOrModelQuery,
+            onRetry = viewModel::loadOpenRouterDirectory,
+            onAdd = { info -> if (pendingModels.size < 8) pendingModels[info.id] = info.name.substringAfter(": ") },
+            onRemove = { id -> pendingModels.remove(id) },
+            onDismiss = { showDirectory = false; if (pendingModels.size >= 2) nameDialog = true },
+        )
+    }
+    if (nameDialog) {
+        FusionPanelDialog(
+            models = pendingModels.toList(),
+            onDismiss = { nameDialog = false; pendingModels.clear() },
+            onConfirm = { name, judgeId ->
+                viewModel.addFusionPanel(name, pendingModels.toList(), judgeModelId = judgeId)
+                nameDialog = false
+                pendingModels.clear()
+            },
+        )
+    }
+}
+
+/** Small info/empty slab used on the Echo Adviser/Fusion pages. */
+@Composable
+private fun EchoNoticeCard(icon: ImageVector, text: String, error: Boolean = false) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, Modifier.size(28.dp), tint = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                text,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Name-entry dialog used to finish creating an advisor profile or a fusion panel. */
+@Composable
+private fun EchoNamePromptDialog(
+    title: String,
+    supporting: String,
+    defaultName: String,
+    placeholder: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(defaultName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.AutoAwesome, null) },
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(Spacing.m))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text(placeholder) },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(text.trim()) },
+                enabled = text.trim().isNotEmpty(),
+            ) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Finishes a fusion panel: a name plus a **judge** picker — the model that compares the panel
+ * and writes the final answer (defaults to the first/strongest member).
+ */
+@Composable
+private fun FusionPanelDialog(
+    models: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String?) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var judgeId by remember { mutableStateOf(models.firstOrNull()?.first) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.AccountTree, null) },
+        title = { Text("New fusion panel") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    placeholder = { Text("Heavy hitters, Fast trio…") },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.m))
+                Text("Judge", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Compares the panel and writes the final answer",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.s))
+                Column(
+                    Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                ) {
+                    models.forEach { (id, label) ->
+                        val selected = judgeId == id
+                        Surface(
+                            onClick = { judgeId = id },
+                            shape = MaterialTheme.shapes.medium,
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                Modifier.padding(end = Spacing.m),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = selected, onClick = { judgeId = id })
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim(), judgeId) },
+                enabled = name.trim().isNotEmpty(),
+            ) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 // ── Local models ──────────────────────────────────────────────────────────────────────
