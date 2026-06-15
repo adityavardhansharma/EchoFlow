@@ -6,6 +6,7 @@ import android.util.Base64
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -23,6 +24,15 @@ class OpenRouterService(private val context: Context) {
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
+        .build()
+
+    // Echo Adviser/Fusion run a whole multi-model loop server-side in one (non-streaming)
+    // request, which can take well over a minute — they get a client with long timeouts.
+    private val echoClient = OkHttpClient.Builder()
+        .connectTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(360, TimeUnit.SECONDS)
         .build()
 
     private val moshi = Moshi.Builder()
@@ -654,14 +664,17 @@ class OpenRouterService(private val context: Context) {
     data class FusionRequest(val panelName: String, val models: List<String>, val judge: String?)
 
     /**
-     * Streaming completion with an Echo Adviser or Echo Fusion server tool attached. Both are
-     * OpenRouter-only and forced via `tool_choice: "required"` because the user opted into the
-     * (cost-heavy) mode from the "+" menu. OpenRouter web_search/web_fetch are enabled too:
-     * the advisor sub-agent gets them, and fusion panels/judge run them server-side natively.
+     * Echo Adviser / Echo Fusion. Both are OpenRouter-only server tools forced via
+     * `tool_choice: "required"` (the user opted into the cost-heavy mode from "+"). Unlike
+     * normal chat these use a **non-streaming** request: the server-tool result (the advice /
+     * the panel analysis) is only delivered in the documented final response, and a single
+     * round-trip lets us lay the timeline out deterministically — Echo card → reasoning →
+     * answer — so reasoning can never trail the answer the way the streamed loop did.
      *
-     * The model resolves as: advisor mode → the answering model (the user's selected cloud
-     * model); fusion mode → the judge (or the first panel model). Exactly one of
-     * [advisor]/[fusion] should be non-null.
+     * We still drive a live experience: the consult/deliberation card is announced immediately
+     * (so the distinct "Echo is running" UI shows during the wait), then the structured result
+     * populates it, then the final answer is revealed with a paced typewriter so it reads as a
+     * live stream. The model resolves as: advisor → the answering model; fusion → the judge.
      */
     fun sendWithEchoTools(
         apiKey: String,
@@ -677,10 +690,8 @@ class OpenRouterService(private val context: Context) {
         }
 
         val tools = mutableListOf<Map<String, Any>>()
-        var echo = EchoContext()
 
         if (advisor != null) {
-            // Advisor first so `tool_choice: "required"` targets it; it may itself web-search/fetch.
             val advisorParams = mutableMapOf<String, Any>(
                 "model" to advisor.model,
                 "name" to advisor.name,
@@ -692,30 +703,132 @@ class OpenRouterService(private val context: Context) {
             )
             tools.add(mapOf("type" to "openrouter:advisor", "parameters" to advisorParams))
             tools.addAll(openRouterWebTools())
-            echo = echo.copy(advisorName = advisor.name, advisorModel = advisor.model)
+            // Announce the consult up-front so the distinct Adviser card shows during the wait.
+            emit(StreamChunk.AdvisorStarted(advisor.name, advisor.model, ""))
         }
 
         if (fusion != null) {
-            // Fusion panels/judge run web_search/web_fetch natively, so we don't attach them
-            // at the outer level — fusion is the only outer tool, forced via tool_choice.
             val fusionParams = mutableMapOf<String, Any>(
                 "analysis_models" to fusion.models,
             )
             fusion.judge?.takeIf { it.isNotBlank() }?.let { fusionParams["model"] = it }
             tools.add(mapOf("type" to "openrouter:fusion", "parameters" to fusionParams))
-            echo = echo.copy(fusionPanelName = fusion.panelName, fusionModels = fusion.models)
+            emit(StreamChunk.FusionStarted(fusion.panelName, fusion.models))
         }
 
-        streamCompletion(
-            apiKey = apiKey,
-            model = model,
-            payloadMessages = buildMessagesPayload(history, systemPrompt),
-            tools = tools,
-            params = params,
-            toolChoice = "required",
-            echo = echo,
-        ) { emit(it) }
+        val requestMap = mutableMapOf<String, Any>(
+            "model" to model,
+            "messages" to buildMessagesPayload(history, systemPrompt),
+            "stream" to false,
+            "include_reasoning" to true,
+            "reasoning" to mapOf("enabled" to true),
+            "tools" to tools,
+            "tool_choice" to "required",
+        )
+        if (params != null) {
+            requestMap["temperature"] = params.temperature
+            requestMap["top_p"] = params.topP
+            if (params.topK > 0) requestMap["top_k"] = params.topK
+            if (params.maxTokens > 0) requestMap["max_tokens"] = params.maxTokens
+        }
+
+        val response = postForResponse(apiKey, requestMap)
+        val choice = (response["choices"] as? List<*>)?.firstOrNull() as? Map<*, *>
+        val message = choice?.get("message") as? Map<*, *>
+        val answer = (message?.get("content") as? String).orEmpty().trim()
+        val reasoning = ((message?.get("reasoning") as? String)
+            ?: (message?.get("reasoning_content") as? String)).orEmpty().trim()
+
+        // Resolve the server-tool result. Scan the whole response defensively because the exact
+        // location (a `role:"tool"` message, a tool_calls entry, or inline) is beta/undocumented.
+        if (advisor != null) {
+            val asked = findAskedPrompt(message)
+            val result = scanForAdvisorResult(response)
+            emit(
+                StreamChunk.AdvisorResolved(
+                    AdvisorAdvice(
+                        advisorName = advisor.name,
+                        advisorModel = result?.first ?: advisor.model,
+                        prompt = asked,
+                        advice = result?.second.orEmpty(),
+                    )
+                )
+            )
+        }
+        if (fusion != null) {
+            val parsed = scanForFusionResult(response)
+            val analysis = (parsed ?: FusionAnalysis(panelName = fusion.panelName, judgeModel = fusion.judge, models = fusion.models))
+                .copy(
+                    panelName = fusion.panelName,
+                    judgeModel = fusion.judge ?: parsed?.judgeModel,
+                    models = fusion.models.ifEmpty { parsed?.models ?: emptyList() },
+                )
+            emit(StreamChunk.FusionResolved(analysis))
+        }
+
+        // Any url_citation annotations the answer carries become a source card.
+        (message?.get("annotations") as? List<*>)?.let { annotations ->
+            val sources = mutableListOf<SearchSource>()
+            val seen = mutableSetOf<String>()
+            annotations.forEach { rawAnn ->
+                val ann = rawAnn as? Map<*, *> ?: return@forEach
+                if ((ann["type"] as? String) != "url_citation") return@forEach
+                val cite = ann["url_citation"] as? Map<*, *> ?: return@forEach
+                val url = cite["url"] as? String ?: return@forEach
+                if (!seen.add(url)) return@forEach
+                sources.add(SearchSource((cite["title"] as? String).orEmpty().ifBlank { url }, url, cite["content"] as? String))
+            }
+            if (sources.isNotEmpty()) emit(StreamChunk.SearchSources("", sources))
+        }
+
+        // Reasoning first (so it sits above the answer), then reveal the answer as a gentle live
+        // stream — a non-streaming response with a streamed feel.
+        if (reasoning.isNotBlank()) emit(StreamChunk.Reasoning(reasoning))
+        if (answer.isNotBlank()) {
+            val step = 18
+            var idx = 0
+            while (idx < answer.length) {
+                val end = (idx + step).coerceAtMost(answer.length)
+                emit(StreamChunk.Content(answer.substring(idx, end)))
+                idx = end
+                delay(14)
+            }
+        } else if (advisor == null && fusion == null) {
+            throw Exception("No response content received.")
+        }
     }.flowOn(Dispatchers.IO)
+
+    /** One blocking non-streaming POST for the Echo modes; returns the parsed response map. */
+    private fun postForResponse(apiKey: String, requestMap: Map<String, Any>): Map<*, *> {
+        val jsonPayload = dynamicAdapter.toJson(requestMap)
+        val request = buildHttpRequest(apiKey, jsonPayload)
+        echoClient.newCall(request).execute().use { response ->
+            val responseString = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val parsedErrorMsg = parseErrorMessage(responseString)
+                val statusMessage = when (response.code) {
+                    401 -> "Unauthorized keys. Verify your OpenRouter API key."
+                    402, 403 -> "Your OpenRouter balance might be too low for this mode."
+                    404 -> "Model is unavailable."
+                    else -> parsedErrorMsg ?: "HTTP ${response.code}"
+                }
+                throw Exception("API Failure: $statusMessage")
+            }
+            return dynamicAdapter.fromJson(responseString) as? Map<*, *>
+                ?: throw Exception("OpenRouter returned an unreadable response.")
+        }
+    }
+
+    /** The prompt the answering model sent its advisor, from the assistant message's tool_calls. */
+    private fun findAskedPrompt(message: Map<*, *>?): String {
+        val calls = message?.get("tool_calls") as? List<*> ?: return ""
+        for (raw in calls) {
+            val fn = (raw as? Map<*, *>)?.get("function") as? Map<*, *> ?: continue
+            val args = fn["arguments"] as? String ?: continue
+            parsePromptArgument(args)?.let { return it }
+        }
+        return ""
+    }
 
     /**
      * Streaming completion with a client-executed `web_search` function tool (Exa, Parallel
