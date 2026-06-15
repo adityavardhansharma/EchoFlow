@@ -4,11 +4,15 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.echoflow.data.AdvisorProfile
+import com.echoflow.data.AdvisorProfileDao
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DeepResearchModelDao
+import com.echoflow.data.FusionPanel
+import com.echoflow.data.FusionPanelDao
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.InferenceParams
@@ -31,7 +35,9 @@ class SettingsViewModel(
     private val customModelDao: CustomModelDao,
     private val localModelDao: LocalModelDao,
     private val downloadManager: ModelDownloadManager,
-    private val deepResearchModelDao: DeepResearchModelDao
+    private val deepResearchModelDao: DeepResearchModelDao,
+    private val advisorProfileDao: AdvisorProfileDao,
+    private val fusionPanelDao: FusionPanelDao
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
 
@@ -70,6 +76,14 @@ class SettingsViewModel(
     val dataAgentEnabled: StateFlow<Boolean> = repository.dataAgentEnabled
     val dataAgentEngine: StateFlow<String> = repository.dataAgentEngine
     val dataAgentMaxCredits: StateFlow<Int> = repository.dataAgentMaxCredits
+
+    // Echo Adviser / Echo Fusion
+    val echoAdviserProfileId: StateFlow<String> = repository.echoAdviserProfileId
+    val echoFusionPanelId: StateFlow<String> = repository.echoFusionPanelId
+    val advisorProfiles: StateFlow<List<AdvisorProfile>> = advisorProfileDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val fusionPanels: StateFlow<List<FusionPanel>> = fusionPanelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
@@ -196,6 +210,76 @@ class SettingsViewModel(
     fun saveDataAgentEnabled(enabled: Boolean) = repository.saveDataAgentEnabled(enabled)
     fun saveDataAgentEngine(id: String) = repository.saveDataAgentEngine(id)
     fun saveDataAgentMaxCredits(value: Int) = repository.saveDataAgentMaxCredits(value)
+
+    // ── Echo Adviser ───────────────────────────────────────────────────────────────────
+
+    fun saveEchoAdviserProfile(id: String) = repository.saveEchoAdviserProfileId(id)
+
+    fun addAdvisorProfile(name: String, modelId: String, modelName: String) {
+        viewModelScope.launch {
+            val cleanName = name.trim().ifEmpty { "Advisor" }
+            val cleanModel = modelId.trim()
+            if (cleanModel.isEmpty()) return@launch
+            val id = java.util.UUID.randomUUID().toString()
+            advisorProfileDao.insert(
+                AdvisorProfile(
+                    id = id,
+                    name = cleanName,
+                    modelId = cleanModel,
+                    modelName = modelName.trim().ifEmpty { cleanModel.substringAfterLast("/") },
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+            // First profile becomes the active selection automatically.
+            if (repository.getEchoAdviserProfileIdDirect().isBlank()) {
+                repository.saveEchoAdviserProfileId(id)
+            }
+        }
+    }
+
+    fun deleteAdvisorProfile(id: String) {
+        viewModelScope.launch {
+            advisorProfileDao.delete(id)
+            if (repository.getEchoAdviserProfileIdDirect() == id) {
+                repository.saveEchoAdviserProfileId(advisorProfileDao.getAllSync().firstOrNull()?.id.orEmpty())
+            }
+        }
+    }
+
+    // ── Echo Fusion ────────────────────────────────────────────────────────────────────
+
+    fun saveEchoFusionPanel(id: String) = repository.saveEchoFusionPanelId(id)
+
+    fun addFusionPanel(name: String, models: List<Pair<String, String>>, judgeModelId: String?) {
+        viewModelScope.launch {
+            val cleanName = name.trim().ifEmpty { "Panel" }
+            val ids = models.map { it.first.trim() }.filter { it.isNotEmpty() }
+            if (ids.size < 2) return@launch // a panel needs at least two models
+            val id = java.util.UUID.randomUUID().toString()
+            fusionPanelDao.upsert(
+                FusionPanel(
+                    id = id,
+                    name = cleanName,
+                    modelIds = ids.joinToString("\n"),
+                    modelNames = models.map { it.second.trim().ifEmpty { it.first.substringAfterLast("/") } }.joinToString("\n"),
+                    judgeModelId = judgeModelId?.trim()?.takeIf { it.isNotEmpty() && it in ids },
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+            if (repository.getEchoFusionPanelIdDirect().isBlank()) {
+                repository.saveEchoFusionPanelId(id)
+            }
+        }
+    }
+
+    fun deleteFusionPanel(id: String) {
+        viewModelScope.launch {
+            fusionPanelDao.delete(id)
+            if (repository.getEchoFusionPanelIdDirect() == id) {
+                repository.saveEchoFusionPanelId(fusionPanelDao.getAllSync().firstOrNull()?.id.orEmpty())
+            }
+        }
+    }
 
     fun addDeepResearchModel(id: String, name: String) {
         viewModelScope.launch {
@@ -356,11 +440,13 @@ class SettingsViewModel(
             customModelDao: CustomModelDao,
             localModelDao: LocalModelDao,
             downloadManager: ModelDownloadManager,
-            deepResearchModelDao: DeepResearchModelDao
+            deepResearchModelDao: DeepResearchModelDao,
+            advisorProfileDao: AdvisorProfileDao,
+            fusionPanelDao: FusionPanelDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao) as T
             }
         }
     }

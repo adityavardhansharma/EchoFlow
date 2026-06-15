@@ -70,6 +70,38 @@ data class DeepResearchModel(
 )
 
 /**
+ * One Echo Adviser profile: a named, domain-specific advisor (e.g. "Coding", "Maths") backed
+ * by a single strong OpenRouter model. In chat, any cloud model answers and consults the
+ * selected profile's [modelId] mid-generation via the `openrouter:advisor` server tool.
+ */
+@Entity(tableName = "advisor_profiles")
+data class AdvisorProfile(
+    @PrimaryKey val id: String, // UUID
+    val name: String, // "Coding", "Maths", "Research", …
+    val modelId: String, // the advisor OpenRouter model id
+    val modelName: String, // human label for the advisor model
+    val createdAt: Long,
+)
+
+/**
+ * One Echo Fusion panel: a named set of OpenRouter models that answer in parallel, plus an
+ * optional judge that compares them, via the `openrouter:fusion` server tool. Model ids and
+ * their display names are stored newline-joined (ids never contain newlines).
+ */
+@Entity(tableName = "fusion_panels")
+data class FusionPanel(
+    @PrimaryKey val id: String, // UUID
+    val name: String, // "Heavy hitters", "Fast trio", …
+    val modelIds: String, // newline-joined OpenRouter ids (2–8)
+    val modelNames: String, // newline-joined display names, parallel to modelIds
+    val judgeModelId: String? = null, // judge model; null = use the first panel model
+    val createdAt: Long,
+) {
+    val models: List<String> get() = modelIds.split("\n").filter { it.isNotBlank() }
+    val names: List<String> get() = modelNames.split("\n").filter { it.isNotBlank() }
+}
+
+/**
  * The durable record of one Deep Research run. This is the single source of truth: the
  * foreground service writes progress here and the UI observes it, so a run survives the
  * Activity/ViewModel being destroyed and can be resumed after the app is force-killed

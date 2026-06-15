@@ -1,6 +1,7 @@
 package com.echoflow
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -26,7 +27,9 @@ import androidx.compose.material.icons.filled.Settings
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.DeepResearchForegroundService
 import com.echoflow.data.ModelDownloadManager
+import com.echoflow.data.ReplyNotifications
 import com.echoflow.data.SettingsRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.ChatDrawerContent
@@ -39,9 +42,19 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
 
+    // A chat id to open, set when launched/resumed from a reply-ready notification tap.
+    private val openChatRequest = MutableStateFlow<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        openChatRequest.value = intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
         // foreground-service progress notification to appear in the status bar.
@@ -72,7 +85,9 @@ class MainActivity : ComponentActivity() {
                     database.customModelDao(),
                     database.localModelDao(),
                     modelDownloadManager,
-                    database.deepResearchModelDao()
+                    database.deepResearchModelDao(),
+                    database.advisorProfileDao(),
+                    database.fusionPanelDao()
                 )
             )
 
@@ -84,9 +99,20 @@ class MainActivity : ComponentActivity() {
                     settingsRepo,
                     database.localModelDao(),
                     database.researchRunDao(),
-                    database.deepResearchModelDao()
+                    database.deepResearchModelDao(),
+                    database.advisorProfileDao(),
+                    database.fusionPanelDao()
                 )
             )
+
+            // Notification tap → jump to that conversation once the ViewModel is ready.
+            val pendingChat by openChatRequest.collectAsState()
+            LaunchedEffect(pendingChat) {
+                pendingChat?.let { chatId ->
+                    chatVm.selectThread(chatId)
+                    openChatRequest.value = null
+                }
+            }
 
             // 3. Reacting to global themes selections
             val userThemeColor by settingsVm.themeColor.collectAsState()

@@ -7,16 +7,16 @@ import org.junit.Test
 class LocalModelCatalogTest {
 
     @Test
-    fun gemma4LiteRtModelsUseFullThirtyTwoKContext() {
+    fun gemma4LiteRtModelsUseEightKMobileContextCap() {
         assertEquals(
-            32768,
+            8192,
             LocalModelCatalog.maxTokensFor(
                 "local/gemma-4-e2b-it",
                 "gemma-4-E2B-it.litertlm"
             )
         )
         assertEquals(
-            32768,
+            8192,
             LocalModelCatalog.maxTokensFor(
                 "local/recovered-gemma-4-e2b",
                 "gemma-4-E2B-it.litertlm"
@@ -27,7 +27,7 @@ class LocalModelCatalogTest {
     @Test
     fun contextHintsCanExposeLargerImportedModelWindows() {
         assertEquals(
-            32768,
+            8192,
             LocalModelCatalog.maxTokensFor(
                 "local/imported",
                 "Some-Model-ctx32k.litertlm"
