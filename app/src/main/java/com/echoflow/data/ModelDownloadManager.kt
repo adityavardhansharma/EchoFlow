@@ -150,8 +150,8 @@ class ModelDownloadManager(
         setState(entryId, null)
     }
 
-    /** Copies a user-picked .task/.litertlm file into app storage with progress. */
-    suspend fun importFromUri(uri: Uri): LocalModel = withContext(Dispatchers.IO) {
+    /** Display name + declared byte size for a picked document (size 0 when unknown). */
+    private fun queryNameAndSize(uri: Uri): Pair<String, Long> {
         var displayName = "model.task"
         var declaredSize = 0L
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -162,15 +162,53 @@ class ModelDownloadManager(
                 if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) declaredSize = cursor.getLong(sizeIdx)
             }
         }
+        return displayName to declaredSize
+    }
+
+    private fun deviceTotalRamBytes(): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.totalMem
+    }
+
+    /**
+     * Pre-import sizing check for a picked file. Weights peak RAM at ~1.8× the file size
+     * (the same factor [LocalLlmService] uses to refuse loads) so the warning predicts the
+     * actual failure rather than letting a multi-GB copy finish first.
+     */
+    data class ImportAssessment(
+        val displayName: String,
+        val sizeBytes: Long,
+        val isGguf: Boolean,
+        val tooBig: Boolean,
+        val estimatedPeakBytes: Long,
+        val deviceTotalRamBytes: Long,
+    )
+
+    suspend fun assessImport(uri: Uri): ImportAssessment = withContext(Dispatchers.IO) {
+        val (name, size) = queryNameAndSize(uri)
+        val peak = (size * 1.8).toLong()
+        val total = deviceTotalRamBytes()
+        // Warn a little before the hard ceiling: OS + app overhead means a model that barely
+        // fits total RAM still tends to fail to load.
+        val tooBig = LocalModelCatalog.isGguf(name) && size > 0 && total > 0 && peak > total * 0.85
+        ImportAssessment(name, size, LocalModelCatalog.isGguf(name), tooBig, peak, total)
+    }
+
+    /** Copies a user-picked .task/.litertlm/.gguf file into app storage with progress. */
+    suspend fun importFromUri(uri: Uri, allowGguf: Boolean): LocalModel = withContext(Dispatchers.IO) {
+        val (displayName, declaredSize) = queryNameAndSize(uri)
 
         val lower = displayName.lowercase()
-        if (!lower.endsWith(".task") && !lower.endsWith(".litertlm")) {
-            throw Exception("Unsupported file. Pick a .task or .litertlm model file.")
+        if (LocalModelCatalog.isGguf(lower) && !allowGguf) {
+            throw Exception("GGUF support is off. Turn on “Allow GGUF models” in Local models settings to import .gguf files.")
+        }
+        if (LocalModelCatalog.supportedExtensions.none { lower.endsWith(it) }) {
+            throw Exception("Unsupported file. Pick a .task, .litertlm or .gguf model file.")
         }
 
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val id = "local/imported-" + safeName.lowercase()
-            .removeSuffix(".task").removeSuffix(".litertlm")
+            .removeSuffix(".task").removeSuffix(".litertlm").removeSuffix(".gguf")
         val finalFile = File(modelsDir, safeName)
         val partFile = File(modelsDir, "$safeName.part")
 
@@ -203,7 +241,7 @@ class ModelDownloadManager(
             }
             val model = LocalModel(
                 id = id,
-                name = displayName.removeSuffix(".task").removeSuffix(".litertlm"),
+                name = displayName.removeSuffix(".task").removeSuffix(".litertlm").removeSuffix(".gguf"),
                 fileName = safeName,
                 sizeBytes = finalFile.length(),
                 source = "imported",
@@ -245,17 +283,18 @@ class ModelDownloadManager(
                 // Already represented by a DB row — don't create a duplicate "recovered" entry.
                 file.name.lowercase() in trackedFileNames -> Unit
                 file.isFile &&
-                    (file.name.endsWith(".task", ignoreCase = true) ||
-                        file.name.endsWith(".litertlm", ignoreCase = true)) -> {
+                    LocalModelCatalog.supportedExtensions.any { file.name.endsWith(it, ignoreCase = true) } -> {
                     val catalogEntry = LocalModelCatalog.entries.firstOrNull { it.fileName == file.name }
                     val safeId = catalogEntry?.id ?: "local/recovered-" + file.name.lowercase()
                         .removeSuffix(".task")
                         .removeSuffix(".litertlm")
+                        .removeSuffix(".gguf")
                         .replace(Regex("[^a-z0-9]+"), "-")
                         .trim('-')
                     val displayName = catalogEntry?.name ?: file.name
                         .removeSuffix(".task")
                         .removeSuffix(".litertlm")
+                        .removeSuffix(".gguf")
                         .replace('_', ' ')
                         .replace('-', ' ')
                     localModelDao.insertLocalModel(

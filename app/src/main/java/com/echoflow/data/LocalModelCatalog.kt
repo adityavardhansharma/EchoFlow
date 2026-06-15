@@ -94,6 +94,14 @@ object LocalModelCatalog {
 
     fun entryById(id: String): CatalogEntry? = entries.firstOrNull { it.id == id }
 
+    /** File-name based runtime detection — kept here so every layer agrees on the rules. */
+    fun isGguf(fileName: String): Boolean = fileName.endsWith(".gguf", ignoreCase = true)
+    fun isLiteRtLm(fileName: String): Boolean = fileName.endsWith(".litertlm", ignoreCase = true)
+    fun isTask(fileName: String): Boolean = fileName.endsWith(".task", ignoreCase = true)
+
+    /** Supported on-device model file extensions, for the import picker and validation. */
+    val supportedExtensions = listOf(".task", ".litertlm", ".gguf")
+
     private val ekvHint = Regex("ekv(\\d+)", RegexOption.IGNORE_CASE)
 
     /**
@@ -106,6 +114,12 @@ object LocalModelCatalog {
         val file = fileName ?: return 1280
         entries.firstOrNull { it.fileName.equals(file, ignoreCase = true) }?.let { return it.maxTokens }
         ekvHint.find(file)?.groupValues?.get(1)?.toIntOrNull()?.let { return it.coerceIn(512, 4096) }
-        return if (file.endsWith(".litertlm", ignoreCase = true)) 2048 else 1280
+        return when {
+            // GGUF files carry no kv-cache marker in the name; llama.cpp lets us size the
+            // context window ourselves, so use a comfortable mobile default.
+            isGguf(file) -> 4096
+            isLiteRtLm(file) -> 2048
+            else -> 1280
+        }
     }
 }

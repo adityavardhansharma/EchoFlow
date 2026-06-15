@@ -50,8 +50,10 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -70,6 +72,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +84,8 @@ import com.echoflow.data.CatalogEntry
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
+import com.echoflow.data.InferenceLimits
+import com.echoflow.data.InferenceParams
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
 import com.echoflow.data.OpenRouterModelInfo
@@ -93,6 +98,7 @@ import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberMorph
+import kotlin.math.roundToInt
 
 private data class Accent(val id: String, val label: String, val swatch: Color)
 
@@ -457,6 +463,7 @@ private fun MorphSwatch(
 private fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val apiKey by viewModel.apiKey.collectAsState()
     val customModels by viewModel.customModels.collectAsState()
+    val cloudParams by viewModel.cloudInferenceParams.collectAsState()
     val orQuery by viewModel.orModelQuery.collectAsState()
     val orResults by viewModel.orModelResults.collectAsState()
     val orLoading by viewModel.orDirectoryLoading.collectAsState()
@@ -564,6 +571,15 @@ private fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 }
             }
         }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Tuning", "Sampler settings applied to every OpenRouter model")
+        InferenceParamsCard(
+            local = false,
+            params = cloudParams,
+            onChange = { viewModel.saveInferenceParams(local = false, params = it) },
+            onReset = { viewModel.resetInferenceParams(local = false) },
+        )
     }
 
     if (showModelDirectory) {
@@ -1334,10 +1350,13 @@ private fun DataAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 @Composable
 private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val localModelsEnabled by viewModel.localModelsEnabled.collectAsState()
+    val ggufEnabled by viewModel.ggufEnabled.collectAsState()
     val hfToken by viewModel.hfAccessToken.collectAsState()
+    val localParams by viewModel.localInferenceParams.collectAsState()
     val localModels by viewModel.localModels.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
     val importError by viewModel.importError.collectAsState()
+    val importWarning by viewModel.importWarning.collectAsState()
     val hfModelQuery by viewModel.hfModelQuery.collectAsState()
     val hfSearchResults by viewModel.hfSearchResults.collectAsState()
     val hfSearchLoading by viewModel.hfSearchLoading.collectAsState()
@@ -1413,6 +1432,13 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         Text("Import")
                     }
                 }
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    "Search lists LiteRT models (.task / .litertlm). GGUF (.gguf) is import-only — enable it below first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = Spacing.xs),
+                )
                 importError?.let { error ->
                     Spacer(Modifier.height(Spacing.s))
                     Text(
@@ -1421,6 +1447,32 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(start = Spacing.xs),
                     )
+                }
+
+                Spacer(Modifier.height(Spacing.m))
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Gem))
+                                .background(MaterialTheme.colorScheme.tertiaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Memory, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+                        Spacer(Modifier.width(Spacing.base))
+                        Column(Modifier.weight(1f)) {
+                            Text("Allow GGUF models", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                "Experimental llama.cpp format. Off by default — runs CPU-only and quality varies. Lets you import .gguf files (search stays LiteRT/.task only).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(Spacing.s))
+                        Switch(checked = ggufEnabled, onCheckedChange = viewModel::saveGgufEnabled)
+                    }
                 }
 
                 Spacer(Modifier.height(Spacing.m))
@@ -1520,8 +1572,28 @@ private fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         }
                     }
                 }
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Tuning", "Sampler settings applied to every on-device model")
+                InferenceParamsCard(
+                    local = true,
+                    params = localParams,
+                    onChange = { viewModel.saveInferenceParams(local = true, params = it) },
+                    onReset = { viewModel.resetInferenceParams(local = true) },
+                )
             }
         }
+    }
+
+    importWarning?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissImportWarning,
+            icon = { Icon(Icons.Default.Memory, null) },
+            title = { Text("This model may be too large") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = viewModel::confirmImport) { Text("Import anyway") } },
+            dismissButton = { TextButton(onClick = viewModel::dismissImportWarning) { Text("Cancel") } },
+        )
     }
 
     if (showHfModelSearch) {
@@ -1603,6 +1675,250 @@ private fun PageSection(title: String, supporting: String? = null) {
             )
         }
     }
+}
+
+/**
+ * Collapsible "generation parameters" card used on both the Cloud and Local model pages.
+ * One global set of sampler knobs per side; values persist as the user releases each slider.
+ * Out-of-range values are clamped per model at generation time, so the sliders here are the
+ * user's *preferences*, not necessarily what a given small model will run with.
+ */
+@Composable
+private fun InferenceParamsCard(
+    local: Boolean,
+    params: InferenceParams,
+    onChange: (InferenceParams) -> Unit,
+    onReset: () -> Unit,
+) {
+    var open by rememberSaveable(local) { mutableStateOf(false) }
+    // Live draft so dragging is smooth; persisted only when a slider is released.
+    var draft by remember(params) { mutableStateOf(params) }
+
+    val defaults = if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS
+    val isDefault = params == defaults
+    val topKMax = if (local) InferenceLimits.LOCAL_TOP_K_MAX else InferenceLimits.CLOUD_TOP_K_MAX
+    val maxTokCeil = if (local) InferenceLimits.LOCAL_MAX_TOKENS_CEIL else InferenceLimits.CLOUD_MAX_TOKENS_CEIL
+    val tokenSteps = (maxTokCeil / InferenceLimits.MAX_TOKENS_STEP) - 1
+
+    val chevron by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        label = "paramsChevron",
+    )
+
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column {
+            Surface(onClick = { open = !open }, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie4Sided))
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Default.Tune, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+                    Spacer(Modifier.width(Spacing.base))
+                    Column(Modifier.weight(1f)) {
+                        Text("Generation parameters", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if (isDefault) "Shipped defaults" else "Customized",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isDefault) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Icon(
+                        Icons.Default.ExpandMore, if (open) "Collapse" else "Expand",
+                        Modifier.rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            AnimatedVisibility(visible = open, enter = sectionEnter(), exit = sectionExit()) {
+                Column(Modifier.padding(start = Spacing.base, end = Spacing.base, bottom = Spacing.base)) {
+                    ParamSliderRow(
+                        label = "Temperature",
+                        value = draft.temperature,
+                        valueRange = InferenceLimits.TEMP_MIN..InferenceLimits.TEMP_MAX,
+                        steps = 39,
+                        display = { "%.2f".format(it) },
+                        editPrefill = { "%.2f".format(it) },
+                        editHint = "0.00 – 2.00",
+                        editDecimals = true,
+                        onValueChange = { draft = draft.copy(temperature = (it * 100).roundToInt() / 100f) },
+                        onCommit = { onChange(draft) },
+                    )
+                    ParamSliderRow(
+                        label = "Top P",
+                        value = draft.topP,
+                        valueRange = InferenceLimits.TOP_P_MIN..InferenceLimits.TOP_P_MAX,
+                        steps = 19,
+                        display = { "%.2f".format(it) },
+                        editPrefill = { "%.2f".format(it) },
+                        editHint = "0.00 – 1.00",
+                        editDecimals = true,
+                        onValueChange = { draft = draft.copy(topP = (it * 100).roundToInt() / 100f) },
+                        onCommit = { onChange(draft) },
+                    )
+                    ParamSliderRow(
+                        label = "Top K",
+                        value = draft.topK.toFloat(),
+                        valueRange = 0f..topKMax.toFloat(),
+                        steps = 0,
+                        display = { if (it < 1f) "Off" else it.roundToInt().toString() },
+                        editPrefill = { it.roundToInt().toString() },
+                        editHint = "0 (off) – $topKMax",
+                        editDecimals = false,
+                        onValueChange = { draft = draft.copy(topK = it.roundToInt()) },
+                        onCommit = { onChange(draft) },
+                    )
+                    ParamSliderRow(
+                        label = "Max tokens",
+                        value = draft.maxTokens.coerceIn(0, maxTokCeil).toFloat(),
+                        valueRange = 0f..maxTokCeil.toFloat(),
+                        steps = tokenSteps,
+                        display = {
+                            val v = it.roundToInt()
+                            if (v <= 0) (if (local) "Model default" else "Unlimited") else v.toString()
+                        },
+                        editPrefill = { it.roundToInt().toString() },
+                        editHint = "0 (${if (local) "model default" else "unlimited"}) – $maxTokCeil",
+                        editDecimals = false,
+                        onValueChange = { draft = draft.copy(maxTokens = it.roundToInt()) },
+                        onCommit = { onChange(draft) },
+                    )
+                    Text(
+                        if (local)
+                            "Applied to every on-device model. If a value exceeds what the running model supports, it falls back to the default for that model."
+                        else
+                            "Applied to every OpenRouter model. Top K and Max tokens are only sent when set above their off position.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Spacing.xs),
+                    )
+                    Spacer(Modifier.height(Spacing.s))
+                    TextButton(
+                        onClick = onReset,
+                        enabled = !isDefault,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Icon(Icons.Default.RestartAlt, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text("Reset to defaults")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One labeled slider row with a value chip that's both a readout and a tap target: tapping
+ * it opens a small dialog for typing an exact number. Either way the value is snapped to the
+ * slider's step grid and clamped to [valueRange] before [onCommit] persists it.
+ */
+@Composable
+private fun ParamSliderRow(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    display: (Float) -> String,
+    editPrefill: (Float) -> String,
+    editHint: String,
+    editDecimals: Boolean,
+    onValueChange: (Float) -> Unit,
+    onCommit: () -> Unit,
+) {
+    var editing by remember { mutableStateOf(false) }
+
+    Column(Modifier.padding(top = Spacing.s)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            Surface(
+                onClick = { editing = true },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Text(
+                    display(value),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = Spacing.m, vertical = 4.dp),
+                )
+            }
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onCommit,
+            valueRange = valueRange,
+            steps = steps,
+        )
+    }
+
+    if (editing) {
+        ParamValueDialog(
+            label = label,
+            initial = editPrefill(value),
+            hint = "Allowed: $editHint",
+            decimals = editDecimals,
+            onDismiss = { editing = false },
+            onConfirm = { typed ->
+                editing = false
+                typed.trim().toFloatOrNull()?.let { raw ->
+                    val clamped = raw.coerceIn(valueRange.start, valueRange.endInclusive)
+                    onValueChange(snapToStep(clamped, valueRange, steps))
+                    onCommit()
+                }
+            },
+        )
+    }
+}
+
+/** Snaps a value to the slider's discrete grid (a no-op for continuous sliders). */
+private fun snapToStep(value: Float, range: ClosedFloatingPointRange<Float>, steps: Int): Float {
+    if (steps <= 0) return value
+    val stepSize = (range.endInclusive - range.start) / (steps + 1)
+    if (stepSize <= 0f) return value
+    return range.start + ((value - range.start) / stepSize).roundToInt() * stepSize
+}
+
+/** Numeric entry dialog for a single parameter; accepts integers or decimals per [decimals]. */
+@Composable
+private fun ParamValueDialog(
+    label: String,
+    initial: String,
+    hint: String,
+    decimals: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(label) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (decimals) KeyboardType.Decimal else KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { onConfirm(text) }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.s))
+                Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(text) }) { Text("Set") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -1831,7 +2147,7 @@ private fun HfModelSearchSheet(
             Text("Search mobile models", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                "LiteRT-LM bundles from Hugging Face (.task / .litertlm) that run fully on-device.",
+                "LiteRT-LM bundles from Hugging Face (.task / .litertlm) that run fully on-device. GGUF models are import-only.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

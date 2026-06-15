@@ -140,6 +140,18 @@ fun ChatScreen(
     }
     val dataAgentAvailable = dataAgentEnabled && firecrawlKey.isNotBlank()
 
+    // Image attachments work for cloud models and for on-device .litertlm bundles (which
+    // support vision); .task models are text-only, so the Image option is hidden for them.
+    val imageAttachAllowed = remember(selectedModelID, localModelsList) {
+        if (selectedModelID.startsWith("local/")) {
+            localModelsList.firstOrNull { it.id == selectedModelID }
+                ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
+        } else true
+    }
+    LaunchedEffect(imageAttachAllowed) {
+        if (!imageAttachAllowed) chatViewModel.clearPendingAttachment()
+    }
+
     val activeModelList = remember(customModelsList) {
         val list = mutableListOf(DEFAULT_MODEL)
         customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
@@ -221,6 +233,7 @@ fun ChatScreen(
                 pendingName = pendingName,
                 onClearAttachment = { chatViewModel.clearPendingAttachment() },
                 onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                imageAttachEnabled = imageAttachAllowed,
                 isStreaming = isStreaming,
                 deepResearchActive = deepResearchActive,
                 webSearchChipOn = webSearchChipOn,
@@ -826,6 +839,7 @@ private fun InputToolbar(
     pendingName: String?,
     onClearAttachment: () -> Unit,
     onAttach: () -> Unit,
+    imageAttachEnabled: Boolean,
     isStreaming: Boolean,
     deepResearchActive: Boolean,
     webSearchChipOn: Boolean,
@@ -938,6 +952,7 @@ private fun InputToolbar(
                     PlusMenu(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
+                        showImage = imageAttachEnabled,
                         webSearchOn = webSearchChipOn,
                         deepResearchOn = deepResearchActive,
                         dataAgentOn = dataAgentActive,
@@ -990,6 +1005,7 @@ private fun InputToolbar(
 private fun PlusMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
+    showImage: Boolean,
     webSearchOn: Boolean,
     deepResearchOn: Boolean,
     dataAgentOn: Boolean,
@@ -1000,11 +1016,14 @@ private fun PlusMenu(
     onToggleDataAgent: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(
-            text = { Text("Image") },
-            leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
-            onClick = onImage,
-        )
+        // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
+        if (showImage) {
+            DropdownMenuItem(
+                text = { Text("Image") },
+                leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
+                onClick = onImage,
+            )
+        }
         DropdownMenuItem(
             text = { Text("Web search") },
             leadingIcon = { Icon(Icons.Default.TravelExplore, null) },

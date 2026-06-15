@@ -248,6 +248,7 @@ class OpenRouterService(private val context: Context) {
         model: String,
         payloadMessages: List<Map<String, Any>>,
         tools: List<Map<String, Any>>?,
+        params: InferenceParams?,
         onChunk: suspend (StreamChunk) -> Unit
     ): TurnResult {
         val requestMap = mutableMapOf<String, Any>(
@@ -261,6 +262,14 @@ class OpenRouterService(private val context: Context) {
         )
         if (tools != null) {
             requestMap["tools"] = tools
+        }
+        // The user's global cloud sampler settings. top_k / max_tokens are only sent when set
+        // (0 means "leave it to the model"); temperature / top_p always apply.
+        if (params != null) {
+            requestMap["temperature"] = params.temperature
+            requestMap["top_p"] = params.topP
+            if (params.topK > 0) requestMap["top_k"] = params.topK
+            if (params.maxTokens > 0) requestMap["max_tokens"] = params.maxTokens
         }
 
         val jsonPayload = dynamicAdapter.toJson(requestMap)
@@ -402,7 +411,8 @@ class OpenRouterService(private val context: Context) {
         model: String,
         history: List<ChatMessage>,
         systemPrompt: String? = null,
-        serverWebSearch: Boolean = false
+        serverWebSearch: Boolean = false,
+        params: InferenceParams? = null
     ): Flow<StreamChunk> = flow {
         if (apiKey.isBlank()) {
             throw Exception("API key is missing! Please configure it in your Settings.")
@@ -422,7 +432,7 @@ class OpenRouterService(private val context: Context) {
             )
         } else null
 
-        streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools) { emit(it) }
+        streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params) { emit(it) }
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -436,6 +446,7 @@ class OpenRouterService(private val context: Context) {
         model: String,
         history: List<ChatMessage>,
         systemPrompt: String,
+        params: InferenceParams? = null,
         runSearch: suspend (String) -> List<SearchSource>
     ): Flow<StreamChunk> = flow {
         if (apiKey.isBlank()) {
@@ -474,7 +485,7 @@ class OpenRouterService(private val context: Context) {
             // Once the budget is spent (or on the last round) drop the tool so the model
             // is forced to answer with what it has.
             val tools = if (searchesUsed >= maxSearches || round == maxRounds - 1) null else toolSpec
-            val result = streamCompletion(apiKey, model, messages, tools) { emit(it) }
+            val result = streamCompletion(apiKey, model, messages, tools, params) { emit(it) }
 
             val searchCalls = result.toolCalls
             if (result.finishReason != "tool_calls" || searchCalls.isEmpty()) break

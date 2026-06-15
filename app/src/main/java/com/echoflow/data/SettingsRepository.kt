@@ -46,6 +46,11 @@ class SettingsRepository(context: Context) {
     private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
     val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
 
+    // GGUF (llama.cpp) is opt-in: it's a community format with variable quality and a
+    // separate CPU-only runtime, so it stays off until the user enables it.
+    private val _ggufEnabled = MutableStateFlow(getGgufEnabledDirect())
+    val ggufEnabled: StateFlow<Boolean> = _ggufEnabled.asStateFlow()
+
     // Deep Research
     private val _deepResearchModel = MutableStateFlow(getDeepResearchModelDirect())
     val deepResearchModel: StateFlow<String> = _deepResearchModel.asStateFlow()
@@ -74,6 +79,13 @@ class SettingsRepository(context: Context) {
 
     private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
     val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
+
+    // Inference parameters: one global set for on-device models, one for OpenRouter models.
+    private val _localInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = true))
+    val localInferenceParams: StateFlow<InferenceParams> = _localInferenceParams.asStateFlow()
+
+    private val _cloudInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = false))
+    val cloudInferenceParams: StateFlow<InferenceParams> = _cloudInferenceParams.asStateFlow()
 
     fun getApiKeyDirect(): String {
         return prefs.getString("openrouter_api_key", "").orEmpty()
@@ -186,6 +198,15 @@ class SettingsRepository(context: Context) {
         _localModelsEnabled.value = enabled
     }
 
+    fun getGgufEnabledDirect(): Boolean {
+        return prefs.getBoolean("gguf_enabled", false)
+    }
+
+    fun saveGgufEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("gguf_enabled", enabled).apply()
+        _ggufEnabled.value = enabled
+    }
+
     fun getHfAccessTokenDirect(): String {
         return prefs.getString("hf_access_token", "").orEmpty()
     }
@@ -193,6 +214,38 @@ class SettingsRepository(context: Context) {
     fun saveHfAccessToken(token: String) {
         prefs.edit().putString("hf_access_token", token).apply()
         _hfAccessToken.value = token
+    }
+
+    // ── Inference parameters ───────────────────────────────────────────────────────────
+
+    /**
+     * Reads the stored sampler params for one side, falling back to the shipped defaults for
+     * any value never set. [local] picks the on-device set; otherwise the OpenRouter set.
+     */
+    fun getInferenceParamsDirect(local: Boolean): InferenceParams {
+        val defaults = if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS
+        val p = if (local) "local" else "cloud"
+        return InferenceParams(
+            temperature = prefs.getFloat("ip_${p}_temperature", defaults.temperature),
+            topK = prefs.getInt("ip_${p}_top_k", defaults.topK),
+            topP = prefs.getFloat("ip_${p}_top_p", defaults.topP),
+            maxTokens = prefs.getInt("ip_${p}_max_tokens", defaults.maxTokens),
+        )
+    }
+
+    fun saveInferenceParams(local: Boolean, params: InferenceParams) {
+        val p = if (local) "local" else "cloud"
+        prefs.edit()
+            .putFloat("ip_${p}_temperature", params.temperature)
+            .putInt("ip_${p}_top_k", params.topK)
+            .putFloat("ip_${p}_top_p", params.topP)
+            .putInt("ip_${p}_max_tokens", params.maxTokens)
+            .apply()
+        if (local) _localInferenceParams.value = params else _cloudInferenceParams.value = params
+    }
+
+    fun resetInferenceParams(local: Boolean) {
+        saveInferenceParams(local, if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS)
     }
 
     // ── Deep Research ────────────────────────────────────────────────────────────────

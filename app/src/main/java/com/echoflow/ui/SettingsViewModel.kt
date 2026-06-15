@@ -11,6 +11,7 @@ import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DeepResearchModelDao
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
+import com.echoflow.data.InferenceParams
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelDao
 import com.echoflow.data.ModelDownloadManager
@@ -48,8 +49,13 @@ class SettingsViewModel(
 
     // Local models
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
+    val ggufEnabled: StateFlow<Boolean> = repository.ggufEnabled
     val hfAccessToken: StateFlow<String> = repository.hfAccessToken
     val downloadStates: StateFlow<Map<String, DownloadState>> = downloadManager.states
+
+    // Inference parameters (global, one set per side)
+    val localInferenceParams: StateFlow<InferenceParams> = repository.localInferenceParams
+    val cloudInferenceParams: StateFlow<InferenceParams> = repository.cloudInferenceParams
 
     // Deep Research
     val deepResearchModelId: StateFlow<String> = repository.deepResearchModel
@@ -67,6 +73,11 @@ class SettingsViewModel(
 
     private val _importError = MutableStateFlow<String?>(null)
     val importError: StateFlow<String?> = _importError.asStateFlow()
+
+    // A picked file the user must confirm before we copy it (too big to load on this device).
+    private var pendingImportUri: Uri? = null
+    private val _importWarning = MutableStateFlow<String?>(null)
+    val importWarning: StateFlow<String?> = _importWarning.asStateFlow()
 
     // Starts empty on purpose: the search sheet must open idle, never replaying a stale
     // query or kicking off a search by itself.
@@ -158,8 +169,20 @@ class SettingsViewModel(
         repository.saveLocalModelsEnabled(enabled)
     }
 
+    fun saveGgufEnabled(enabled: Boolean) {
+        repository.saveGgufEnabled(enabled)
+    }
+
     fun saveHfAccessToken(token: String) {
         repository.saveHfAccessToken(token.trim())
+    }
+
+    fun saveInferenceParams(local: Boolean, params: InferenceParams) {
+        repository.saveInferenceParams(local, params)
+    }
+
+    fun resetInferenceParams(local: Boolean) {
+        repository.resetInferenceParams(local)
     }
 
     // ── Deep Research ────────────────────────────────────────────────────────────────
@@ -250,13 +273,48 @@ class SettingsViewModel(
     fun importModel(uri: Uri) {
         viewModelScope.launch {
             _importError.value = null
+            val allow = repository.getGgufEnabledDirect()
+            val assessment = downloadManager.assessImport(uri)
+            if (assessment.isGguf && !allow) {
+                _importError.value = "GGUF support is off. Turn on “Allow GGUF models” below to import .gguf files."
+                return@launch
+            }
+            if (assessment.tooBig) {
+                // Hold the file and ask first — don't copy multiple GB only to fail at load.
+                pendingImportUri = uri
+                _importWarning.value = "“${assessment.displayName}” needs roughly ${gb(assessment.estimatedPeakBytes)} " +
+                    "of RAM to run — more than this device's ${gb(assessment.deviceTotalRamBytes)}. " +
+                    "It will very likely fail to load. Import anyway?"
+                return@launch
+            }
+            runImport(uri, allow)
+        }
+    }
+
+    /** User chose to import despite the size warning. */
+    fun confirmImport() {
+        val uri = pendingImportUri ?: return
+        pendingImportUri = null
+        _importWarning.value = null
+        runImport(uri, repository.getGgufEnabledDirect())
+    }
+
+    fun dismissImportWarning() {
+        pendingImportUri = null
+        _importWarning.value = null
+    }
+
+    private fun runImport(uri: Uri, allowGguf: Boolean) {
+        viewModelScope.launch {
             try {
-                downloadManager.importFromUri(uri)
+                downloadManager.importFromUri(uri, allowGguf)
             } catch (e: Exception) {
                 _importError.value = e.message ?: "Import failed."
             }
         }
     }
+
+    private fun gb(bytes: Long): String = "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
 
     fun clearImportError() {
         _importError.value = null
