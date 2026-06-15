@@ -127,7 +127,7 @@ class LocalLlmService(private val context: Context) {
 
     /** Resolves the effective token budget: the coerced param, or the model's own default. */
     private fun effectiveMaxTokens(model: LocalModel, params: InferenceParams): Int =
-        params.maxTokens.takeIf { it > 0 } ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName)
+        params.maxTokens.takeIf { it > 0 } ?: model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName)
 
     /**
      * Native OOM during weight loading aborts the whole process and is uncatchable, so

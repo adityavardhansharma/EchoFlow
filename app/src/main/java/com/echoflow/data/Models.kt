@@ -53,7 +53,8 @@ data class LocalModel(
     val fileName: String, // file name inside filesDir/models/
     val sizeBytes: Long,
     val source: String, // "curated" | "imported"
-    val addedAt: Long
+    val addedAt: Long,
+    val maxTokens: Int? = null // known context window, when catalog/search/import can infer it
 )
 
 /**

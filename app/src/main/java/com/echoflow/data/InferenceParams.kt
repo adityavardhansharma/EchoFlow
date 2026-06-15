@@ -61,7 +61,9 @@ object InferenceLimits {
     const val CLOUD_TOP_K_MAX = 200
 
     // Max-tokens sliders run from 0 ("model default") up to these ceilings, stepped.
-    const val LOCAL_MAX_TOKENS_CEIL = 8192
+    // LiteRT-LM Gemma 4 mobile bundles support up to 32K context, so expose that full
+    // range while still clamping each selected model to its own catalog/filename limit.
+    const val LOCAL_MAX_TOKENS_CEIL = 32768
     const val CLOUD_MAX_TOKENS_CEIL = 32768
     const val MAX_TOKENS_STEP = 256
 

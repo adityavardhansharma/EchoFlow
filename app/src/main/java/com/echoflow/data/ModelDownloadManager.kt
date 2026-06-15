@@ -122,7 +122,8 @@ class ModelDownloadManager(
                             fileName = entry.fileName,
                             sizeBytes = finalFile.length(),
                             source = "curated",
-                            addedAt = System.currentTimeMillis()
+                            addedAt = System.currentTimeMillis(),
+                            maxTokens = entry.maxTokens
                         )
                     )
                     setState(entry.id, DownloadState.Done)
@@ -245,7 +246,8 @@ class ModelDownloadManager(
                 fileName = safeName,
                 sizeBytes = finalFile.length(),
                 source = "imported",
-                addedAt = System.currentTimeMillis()
+                addedAt = System.currentTimeMillis(),
+                maxTokens = LocalModelCatalog.maxTokensFor(id, safeName)
             )
             localModelDao.insertLocalModel(model)
             setState(id, DownloadState.Done)
@@ -304,7 +306,8 @@ class ModelDownloadManager(
                             fileName = file.name,
                             sizeBytes = file.length(),
                             source = catalogEntry?.let { "curated" } ?: "recovered",
-                            addedAt = file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis()
+                            addedAt = file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis(),
+                            maxTokens = catalogEntry?.maxTokens ?: LocalModelCatalog.maxTokensFor(safeId, file.name)
                         )
                     )
                 }

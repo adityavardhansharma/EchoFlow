@@ -472,7 +472,7 @@ class ChatViewModel(
                 InferenceLimits.coerce(
                     settingsRepository.getInferenceParamsDirect(local = true),
                     ModelCapabilities(
-                        maxContextTokens = LocalModelCatalog.maxTokensFor(lm.id, lm.fileName),
+                        maxContextTokens = lm.maxTokens ?: LocalModelCatalog.maxTokensFor(lm.id, lm.fileName),
                         maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
                     ),
                     InferenceLimits.LOCAL_DEFAULTS,
