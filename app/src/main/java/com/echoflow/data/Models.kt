@@ -102,6 +102,23 @@ data class FusionPanel(
 }
 
 /**
+ * One Echo Agent profile: a named orchestration setup whose **worker model** is the cheap,
+ * fast model that the answering (orchestrator) model delegates self-contained subtasks to via
+ * the `openrouter:subagent` server tool. The orchestrator itself is whichever cloud model is
+ * selected in chat; this profile only pins the worker and how many tool-calling steps it may
+ * take per delegation.
+ */
+@Entity(tableName = "agent_profiles")
+data class AgentProfile(
+    @PrimaryKey val id: String, // UUID
+    val name: String, // "Fast worker", "Cheap drone", …
+    val workerModelId: String, // the worker OpenRouter model id
+    val workerModelName: String, // human label for the worker model
+    val maxToolCalls: Int = 8, // worker tool-calling budget per delegation (1–25)
+    val createdAt: Long,
+)
+
+/**
  * The durable record of one Deep Research run. This is the single source of truth: the
  * foreground service writes progress here and the UI observes it, so a run survives the
  * Activity/ViewModel being destroyed and can be resumed after the app is force-killed
@@ -135,6 +152,9 @@ data class ResearchRun(
     val report: String? = null, // final report markdown (or partial on cancel)
     val error: String? = null,
     val assistantMessageId: String? = null, // the chat_messages row holding the final report
+    val localAttachmentUri: String? = null,
+    val localAttachmentMimeType: String? = null,
+    val localAttachmentName: String? = null,
     val createdAt: Long,
     val updatedAt: Long
 ) {

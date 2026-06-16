@@ -72,10 +72,11 @@ class DeepResearchEngine(
         existing: ResearchRun?,
     ): Flow<ResearchEvent> = flow {
         try {
+            val attachment = existing?.localAttachmentForOpenRouter()
             when (config.engineKind) {
                 "provider" -> runProvider(config, topic, searchKey, existing)
                 "data-agent" -> runDataAgent(config, topic, searchKey, existing)
-                else -> runAgent(config, topic, openRouterKey, searchKey, existing)
+                else -> runAgent(config, topic, openRouterKey, searchKey, existing, attachment)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -433,6 +434,7 @@ class DeepResearchEngine(
         openRouterKey: String,
         searchKey: String,
         existing: ResearchRun?,
+        attachment: OpenRouterService.LocalAttachment?,
     ) {
         if (openRouterKey.isBlank()) {
             emit(ResearchEvent.Failed("OpenRouter API key is missing — add it in Settings → Cloud models."))
@@ -448,16 +450,20 @@ class DeepResearchEngine(
         val resumedSources = ResearchJson.sourcesFromJson(existing?.sourcesJson)
         if (existing != null && resumedSources.isNotEmpty() && existing.report.isNullOrBlank()) {
             emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
-            emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, resumedSources)))
+            emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, resumedSources, attachment)))
             return
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_PLANNING, "Planning the research…"))
+        val planningPrompt = if (attachment != null) {
+            "User research request: $topic\n\nUse the attached PDF as primary context while planning the research."
+        } else topic
         val planRaw = openRouterService.complete(
             apiKey = openRouterKey,
             model = config.provider,
             systemPrompt = SystemPrompts.deepResearchPlanner(topic, config.maxSearches),
-            userPrompt = topic,
+            userPrompt = planningPrompt,
+            attachment = attachment,
         )
         val steps = parsePlan(planRaw, config.maxSearches)
         if (steps.isEmpty()) {
@@ -492,7 +498,7 @@ class DeepResearchEngine(
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
-        emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, gathered.values.toList())))
+        emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, gathered.values.toList(), attachment)))
     }
 
     private suspend fun synthesize(
@@ -500,12 +506,29 @@ class DeepResearchEngine(
         apiKey: String,
         topic: String,
         sources: List<SearchSource>,
+        attachment: OpenRouterService.LocalAttachment?,
     ): String = openRouterService.complete(
         apiKey = apiKey,
         model = model,
         systemPrompt = SystemPrompts.deepResearchSynthesis(topic),
-        userPrompt = "Numbered search results:\n\n" + formatSearchResultsForModel(sources),
+        userPrompt = buildString {
+            append("User research request: ")
+            append(topic)
+            append("\n\n")
+            if (attachment != null) {
+                append("Use the attached PDF as primary context and combine it with these numbered search results.\n\n")
+            }
+            append("Numbered search results:\n\n")
+            append(formatSearchResultsForModel(sources))
+        },
+        attachment = attachment,
     )
+
+    private fun ResearchRun.localAttachmentForOpenRouter(): OpenRouterService.LocalAttachment? {
+        val uri = localAttachmentUri ?: return null
+        if (!localAttachmentMimeType.equals("application/pdf", ignoreCase = true)) return null
+        return OpenRouterService.LocalAttachment(uri, localAttachmentMimeType, localAttachmentName)
+    }
 
     private fun parsePlan(raw: String, max: Int): List<String> =
         raw.lineSequence()

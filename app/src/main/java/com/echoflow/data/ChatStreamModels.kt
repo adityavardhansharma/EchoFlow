@@ -40,6 +40,14 @@ sealed class StreamChunk {
 
     /** The fusion judge returned its structured analysis (and per-model responses). */
     data class FusionResolved(val analysis: FusionAnalysis) : StreamChunk()
+
+    // ── Echo Agent (openrouter:subagent) ───────────────────────────────────────────
+    /** The orchestrator delegated a self-contained task to its worker; the brief is known,
+     *  the worker's outcome is pending. Fires once per delegation (there may be several). */
+    data class SubagentStarted(val taskName: String, val taskDescription: String, val workerModel: String) : StreamChunk()
+
+    /** The worker finished a delegated task. [result] carries the outcome (or an error). */
+    data class SubagentResolved(val result: SubagentResult) : StreamChunk()
 }
 
 // ── Echo Adviser / Echo Fusion result records ──────────────────────────────────────
@@ -50,6 +58,15 @@ data class AdvisorAdvice(
     val advisorModel: String, // the OpenRouter model id that served as advisor
     val prompt: String, // the question the answering model asked
     val advice: String, // the advice text (may be blank if not captured from the stream)
+)
+
+/** One Echo Agent delegation: the task the orchestrator handed off and what the worker returned. */
+data class SubagentResult(
+    val taskName: String, // the orchestrator's short label for the task
+    val taskDescription: String = "", // the full brief the worker was given (worker sees only this)
+    val workerModel: String, // the OpenRouter model id that did the work
+    val outcome: String, // the worker's result text (blank on error)
+    val error: String? = null, // present when the delegation failed
 )
 
 /** One panel model's full answer in a fusion deliberation. */
@@ -115,12 +132,13 @@ data class Citation(
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,
     val advisor: AdvisorAdvice? = null, // present when type == "advisor"
-    val fusion: FusionAnalysis? = null // present when type == "fusion"
+    val fusion: FusionAnalysis? = null, // present when type == "fusion"
+    val subagent: SubagentResult? = null // present when type == "subagent"
 )
 
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */
