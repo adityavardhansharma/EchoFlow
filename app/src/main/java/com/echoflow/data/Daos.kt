@@ -110,6 +110,24 @@ interface FusionPanelDao {
 }
 
 @Dao
+interface AgentProfileDao {
+    @Query("SELECT * FROM agent_profiles ORDER BY createdAt ASC")
+    fun getAll(): Flow<List<AgentProfile>>
+
+    @Query("SELECT * FROM agent_profiles ORDER BY createdAt ASC")
+    suspend fun getAllSync(): List<AgentProfile>
+
+    @Query("SELECT * FROM agent_profiles WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AgentProfile?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(profile: AgentProfile)
+
+    @Query("DELETE FROM agent_profiles WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
 interface ResearchRunDao {
     @Query("SELECT * FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled') ORDER BY createdAt DESC LIMIT 1")
     fun observeActiveForChat(chatId: String): Flow<ResearchRun?>

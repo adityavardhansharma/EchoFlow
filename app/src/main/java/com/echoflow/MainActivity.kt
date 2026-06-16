@@ -87,7 +87,8 @@ class MainActivity : ComponentActivity() {
                     modelDownloadManager,
                     database.deepResearchModelDao(),
                     database.advisorProfileDao(),
-                    database.fusionPanelDao()
+                    database.fusionPanelDao(),
+                    database.agentProfileDao()
                 )
             )
 
@@ -101,7 +102,8 @@ class MainActivity : ComponentActivity() {
                     database.researchRunDao(),
                     database.deepResearchModelDao(),
                     database.advisorProfileDao(),
-                    database.fusionPanelDao()
+                    database.fusionPanelDao(),
+                    database.agentProfileDao()
                 )
             )
 

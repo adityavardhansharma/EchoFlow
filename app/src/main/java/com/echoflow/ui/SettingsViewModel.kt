@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.AdvisorProfileDao
+import com.echoflow.data.AgentProfile
+import com.echoflow.data.AgentProfileDao
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
@@ -37,7 +39,8 @@ class SettingsViewModel(
     private val downloadManager: ModelDownloadManager,
     private val deepResearchModelDao: DeepResearchModelDao,
     private val advisorProfileDao: AdvisorProfileDao,
-    private val fusionPanelDao: FusionPanelDao
+    private val fusionPanelDao: FusionPanelDao,
+    private val agentProfileDao: AgentProfileDao
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
 
@@ -83,6 +86,11 @@ class SettingsViewModel(
     val advisorProfiles: StateFlow<List<AdvisorProfile>> = advisorProfileDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val fusionPanels: StateFlow<List<FusionPanel>> = fusionPanelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Echo Agent
+    val echoAgentProfileId: StateFlow<String> = repository.echoAgentProfileId
+    val agentProfiles: StateFlow<List<AgentProfile>> = agentProfileDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _importError = MutableStateFlow<String?>(null)
@@ -281,6 +289,42 @@ class SettingsViewModel(
         }
     }
 
+    // ── Echo Agent ───────────────────────────────────────────────────────────────────────
+
+    fun saveEchoAgentProfile(id: String) = repository.saveEchoAgentProfileId(id)
+
+    fun addAgentProfile(name: String, workerModelId: String, workerModelName: String, maxToolCalls: Int) {
+        viewModelScope.launch {
+            val cleanName = name.trim().ifEmpty { "Agent" }
+            val cleanModel = workerModelId.trim()
+            if (cleanModel.isEmpty()) return@launch
+            val id = java.util.UUID.randomUUID().toString()
+            agentProfileDao.insert(
+                AgentProfile(
+                    id = id,
+                    name = cleanName,
+                    workerModelId = cleanModel,
+                    workerModelName = workerModelName.trim().ifEmpty { cleanModel.substringAfterLast("/") },
+                    maxToolCalls = maxToolCalls.coerceIn(1, 25),
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+            // First profile becomes the active selection automatically.
+            if (repository.getEchoAgentProfileIdDirect().isBlank()) {
+                repository.saveEchoAgentProfileId(id)
+            }
+        }
+    }
+
+    fun deleteAgentProfile(id: String) {
+        viewModelScope.launch {
+            agentProfileDao.delete(id)
+            if (repository.getEchoAgentProfileIdDirect() == id) {
+                repository.saveEchoAgentProfileId(agentProfileDao.getAllSync().firstOrNull()?.id.orEmpty())
+            }
+        }
+    }
+
     fun addDeepResearchModel(id: String, name: String) {
         viewModelScope.launch {
             val cleanId = id.trim()
@@ -442,11 +486,12 @@ class SettingsViewModel(
             downloadManager: ModelDownloadManager,
             deepResearchModelDao: DeepResearchModelDao,
             advisorProfileDao: AdvisorProfileDao,
-            fusionPanelDao: FusionPanelDao
+            fusionPanelDao: FusionPanelDao,
+            agentProfileDao: AgentProfileDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao) as T
             }
         }
     }

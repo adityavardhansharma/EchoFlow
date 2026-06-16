@@ -87,6 +87,9 @@ class SettingsRepository(context: Context) {
     private val _echoFusionPanelId = MutableStateFlow(getEchoFusionPanelIdDirect())
     val echoFusionPanelId: StateFlow<String> = _echoFusionPanelId.asStateFlow()
 
+    private val _echoAgentProfileId = MutableStateFlow(getEchoAgentProfileIdDirect())
+    val echoAgentProfileId: StateFlow<String> = _echoAgentProfileId.asStateFlow()
+
     // Inference parameters: one global set for on-device models, one for OpenRouter models.
     private val _localInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = true))
     val localInferenceParams: StateFlow<InferenceParams> = _localInferenceParams.asStateFlow()
@@ -239,6 +242,14 @@ class SettingsRepository(context: Context) {
     fun saveEchoFusionPanelId(id: String) {
         prefs.edit().putString("echo_fusion_panel_id", id).apply()
         _echoFusionPanelId.value = id
+    }
+
+    fun getEchoAgentProfileIdDirect(): String =
+        prefs.getString("echo_agent_profile_id", "").orEmpty()
+
+    fun saveEchoAgentProfileId(id: String) {
+        prefs.edit().putString("echo_agent_profile_id", id).apply()
+        _echoAgentProfileId.value = id
     }
 
     // ── Inference parameters ───────────────────────────────────────────────────────────

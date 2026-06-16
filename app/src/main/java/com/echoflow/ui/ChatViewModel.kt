@@ -1,6 +1,7 @@
 package com.echoflow.ui
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
@@ -41,6 +42,16 @@ sealed class StreamSegment {
         val analysis: FusionAnalysis?,
         val active: Boolean
     ) : StreamSegment()
+
+    /** Echo Agent delegation: a task handed to the worker and its outcome (null while running). */
+    data class Subagent(
+        val taskName: String,
+        val taskDescription: String,
+        val workerModel: String,
+        val outcome: String?,
+        val error: String?,
+        val active: Boolean
+    ) : StreamSegment()
 }
 
 private data class ActiveStreamState(
@@ -59,7 +70,8 @@ class ChatViewModel(
     private val researchRunDao: ResearchRunDao,
     private val deepResearchModelDao: DeepResearchModelDao,
     private val advisorProfileDao: AdvisorProfileDao,
-    private val fusionPanelDao: FusionPanelDao
+    private val fusionPanelDao: FusionPanelDao,
+    private val agentProfileDao: AgentProfileDao
 ) : AndroidViewModel(application) {
 
     private val openRouterService = OpenRouterService(application)
@@ -208,6 +220,9 @@ class ChatViewModel(
     private val _echoFusionActive = MutableStateFlow(false)
     val echoFusionActive: StateFlow<Boolean> = _echoFusionActive.asStateFlow()
 
+    private val _echoAgentActive = MutableStateFlow(false)
+    val echoAgentActive: StateFlow<Boolean> = _echoAgentActive.asStateFlow()
+
     /** The Deep Research engine/model the user has added (built-in provider engines + agentic). */
     val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -223,7 +238,7 @@ class ChatViewModel(
     // Web Search, Deep Research, Data Agent, Echo Adviser and Echo Fusion are mutually
     // exclusive capabilities — turning one on clears the rest.
     private fun clearCapabilitiesExcept(keep: MutableStateFlow<Boolean>) {
-        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive)
+        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive)
             .filter { it !== keep }
             .forEach { it.value = false }
     }
@@ -258,6 +273,12 @@ class ChatViewModel(
         if (next) clearCapabilitiesExcept(_echoFusionActive)
     }
 
+    fun toggleEchoAgent() {
+        val next = !_echoAgentActive.value
+        _echoAgentActive.value = next
+        if (next) clearCapabilitiesExcept(_echoAgentActive)
+    }
+
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
         clearPendingAttachment()
@@ -268,14 +289,18 @@ class ChatViewModel(
         _errorMessage.value = null
     }
 
-    fun setPendingAttachment(uri: Uri) {
+    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null) {
         viewModelScope.launch {
             _pendingAttachmentUri.value = uri
             val resolver = getApplication<Application>().contentResolver
-            _pendingAttachmentMimeType.value = resolver.getType(uri) ?: "image/jpeg"
+            runCatching {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
+            _pendingAttachmentMimeType.value = mimeType
 
             // Get display name
-            var displayName = "Attached Image"
+            var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
             resolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (nameIndex != -1 && cursor.moveToFirst()) {
@@ -424,6 +449,45 @@ class ChatViewModel(
                     )
                 }
             }
+            is StreamChunk.SubagentStarted -> {
+                segments.add(
+                    StreamSegment.Subagent(
+                        taskName = chunk.taskName,
+                        taskDescription = chunk.taskDescription,
+                        workerModel = chunk.workerModel,
+                        outcome = null,
+                        error = null,
+                        active = true,
+                    )
+                )
+            }
+            is StreamChunk.SubagentResolved -> {
+                val r = chunk.result
+                // Match the running delegation by task name; fall back to the last active one.
+                val idx = segments.indexOfLast {
+                    it is StreamSegment.Subagent && it.active && (it.taskName == r.taskName || r.taskName.isBlank())
+                }.takeIf { it >= 0 } ?: segments.indexOfLast { it is StreamSegment.Subagent && it.active }
+                if (idx >= 0) {
+                    val seg = segments[idx] as StreamSegment.Subagent
+                    segments[idx] = seg.copy(
+                        workerModel = r.workerModel.ifBlank { seg.workerModel },
+                        outcome = r.outcome,
+                        error = r.error,
+                        active = false,
+                    )
+                } else {
+                    segments.add(
+                        StreamSegment.Subagent(
+                            taskName = r.taskName,
+                            taskDescription = r.taskDescription,
+                            workerModel = r.workerModel,
+                            outcome = r.outcome,
+                            error = r.error,
+                            active = false,
+                        )
+                    )
+                }
+            }
         }
         return null
     }
@@ -449,7 +513,7 @@ class ChatViewModel(
         // Deep Research and Data Agent are different pipelines (foreground service +
         // provider/agent orchestration), so they short-circuit the normal streaming send.
         if (_deepResearchActive.value && prompt.isNotEmpty()) {
-            startDeepResearch(prompt)
+            startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
             return
         }
         if (_dataAgentActive.value && prompt.isNotEmpty()) {
@@ -478,6 +542,11 @@ class ChatViewModel(
 
             if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
+                return@launch
+            }
+
+            if (isLocal && attachmentMime.equals("application/pdf", ignoreCase = true)) {
+                _errorMessage.value = "PDF files work with OpenRouter models only. Pick a cloud model to attach this PDF."
                 return@launch
             }
 
@@ -517,9 +586,22 @@ class ChatViewModel(
             // here; both override the model, system prompt and response flow. Cloud models only.
             var advisorReq: OpenRouterService.AdvisorRequest? = null
             var fusionReq: OpenRouterService.FusionRequest? = null
+            var agentReq: OpenRouterService.AgentRequest? = null
             var echoModel = selectedModel
             var echoSystemPrompt: String? = null
-            if (_echoAdviserActive.value) {
+            if (_echoAgentActive.value) {
+                if (isLocal) {
+                    _errorMessage.value = "Echo Agents needs a cloud main model. Pick one from the model selector."
+                    return@launch
+                }
+                val profile = agentProfileDao.getById(settingsRepository.getEchoAgentProfileIdDirect())
+                if (profile == null) {
+                    _errorMessage.value = "Set up an Echo Agent first in Settings → Echo Agents, then pick it."
+                    return@launch
+                }
+                agentReq = OpenRouterService.AgentRequest(profile.workerModelId, profile.workerModelName, profile.maxToolCalls)
+                echoSystemPrompt = SystemPrompts.buildEchoAgent(profile.name)
+            } else if (_echoAdviserActive.value) {
                 if (isLocal) {
                     _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
                     return@launch
@@ -630,6 +712,15 @@ class ChatViewModel(
             }
 
             val responseFlow: Flow<StreamChunk> = when {
+                agentReq != null ->
+                    openRouterService.sendWithAgentTools(
+                        apiKey = apiKey,
+                        model = echoModel,
+                        history = fullHistory,
+                        systemPrompt = systemPrompt,
+                        agent = agentReq,
+                        params = inferenceParams,
+                    )
                 advisorReq != null || fusionReq != null ->
                     openRouterService.sendWithEchoTools(
                         apiKey = apiKey,
@@ -670,11 +761,13 @@ class ChatViewModel(
             // Echo Adviser/Fusion are cost-heavy and can take a while; label the keep-alive
             // notification and ping the user when they finish in the background (like research).
             val echoLabel = when {
+                agentReq != null -> "Echo Agents"
                 advisorReq != null -> "Echo Adviser"
                 fusionReq != null -> "Echo Fusion"
                 else -> null
             }
             val keepAliveText = when {
+                agentReq != null -> "Echo Agents — handing tasks to your Echo Agent…"
                 fusionReq != null -> "Echo Fusion — the panel is deliberating…"
                 advisorReq != null -> "Echo Adviser — consulting your advisor…"
                 else -> "Generating a reply…"
@@ -730,7 +823,12 @@ class ChatViewModel(
      * Validates the configured Deep Research engine, records the user's question, creates a
      * durable [ResearchRun], and hands off to the foreground service which owns execution.
      */
-    private fun startDeepResearch(topic: String) {
+    private fun startDeepResearch(
+        topic: String,
+        attachmentUri: String?,
+        attachmentMime: String?,
+        attachmentName: String?,
+    ) {
         viewModelScope.launch {
             clearError()
             if (currentResearchRun.value != null) {
@@ -746,6 +844,15 @@ class ChatViewModel(
             val isProvider = DeepResearchCatalog.isProviderEngine(engineId)
             val maxSearches = settingsRepository.getDeepResearchMaxSearchesDirect()
             val maxSources = settingsRepository.getDeepResearchMaxSourcesDirect()
+            val hasPdfAttachment = attachmentUri != null && attachmentMime.equals("application/pdf", ignoreCase = true)
+            if (attachmentUri != null && !hasPdfAttachment) {
+                _errorMessage.value = "Deep Research can attach PDFs only."
+                return@launch
+            }
+            if (hasPdfAttachment && isProvider) {
+                _errorMessage.value = "PDF files are available for OpenRouter Deep Research models only. Pick one of your research models instead of a provider-native engine."
+                return@launch
+            }
 
             var searchProvider: String? = null
             val engineLabel: String
@@ -793,6 +900,9 @@ class ChatViewModel(
                     role = "user",
                     content = topic,
                     createdAt = now,
+                    localAttachmentUri = attachmentUri,
+                    localAttachmentMimeType = attachmentMime,
+                    localAttachmentName = attachmentName,
                 )
             )
             chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
@@ -811,11 +921,15 @@ class ChatViewModel(
                     maxSearches = maxSearches,
                     maxSources = maxSources,
                     status = ResearchRun.STATUS_QUEUED,
+                    localAttachmentUri = attachmentUri,
+                    localAttachmentMimeType = attachmentMime,
+                    localAttachmentName = attachmentName,
                     createdAt = now,
                     updatedAt = now,
                 )
             )
             DeepResearchForegroundService.start(getApplication(), runId)
+            clearPendingAttachment()
             _deepResearchActive.value = false // deliberate, per-question opt-in
         }
     }
@@ -895,7 +1009,7 @@ class ChatViewModel(
             .joinToString("\n\n") { it.text }.trim()
         // Keep a turn that produced only an Echo Adviser/Fusion artifact (no prose answer) so
         // the consultation/deliberation card still persists and re-renders.
-        val hasEchoArtifact = normalizedSegments.any { it is StreamSegment.Advisor || it is StreamSegment.Fusion }
+        val hasEchoArtifact = normalizedSegments.any { it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent }
         if (contentText.isEmpty() && !hasEchoArtifact) return
 
         val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
@@ -937,6 +1051,17 @@ class ChatViewModel(
                         type = "fusion",
                         fusion = (seg.analysis ?: FusionAnalysis(panelName = seg.panelName, judgeModel = null, models = seg.models))
                             .copy(panelName = seg.panelName, models = seg.models.ifEmpty { seg.analysis?.models ?: emptyList() }),
+                    )
+                is StreamSegment.Subagent ->
+                    PersistedSegment(
+                        type = "subagent",
+                        subagent = SubagentResult(
+                            taskName = seg.taskName,
+                            taskDescription = seg.taskDescription,
+                            workerModel = seg.workerModel,
+                            outcome = seg.outcome.orEmpty(),
+                            error = seg.error,
+                        ),
                     )
                 is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
                     ?.let { PersistedSegment(type = "text", text = it) }
@@ -1170,13 +1295,15 @@ class ChatViewModel(
             researchRunDao: ResearchRunDao,
             deepResearchModelDao: DeepResearchModelDao,
             advisorProfileDao: AdvisorProfileDao,
-            fusionPanelDao: FusionPanelDao
+            fusionPanelDao: FusionPanelDao,
+            agentProfileDao: AgentProfileDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
-                    researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao
+                    researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
+                    agentProfileDao
                 ) as T
             }
         }

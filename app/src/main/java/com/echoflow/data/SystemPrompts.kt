@@ -183,6 +183,42 @@ object SystemPrompts {
             formatting(false),
         ).joinToString("\n\n")
 
+    /**
+     * Echo Agent: the answering model is an orchestrator with a full toolbox — web search, web
+     * fetch, and a subagent (worker) it can delegate self-contained tasks to. It decides which
+     * tool to use, in any order, as many times as the work needs. Cloud only.
+     */
+    fun buildEchoAgent(workerName: String, currentDate: String = currentDate()): String =
+        listOf(
+            identity(false),
+            "Current date: $currentDate.",
+            agentGuidance(workerName),
+            formatting(false),
+        ).joinToString("\n\n")
+
+    private fun agentGuidance(workerName: String): String =
+        """
+        ## Your tools
+        You decide, on your own, which tools to use and in what order — you may chain them freely (e.g. search the web, hand off a task, then search again to verify).
+
+        - **web_search** — search the web for current, factual, or niche information.
+        - **web_fetch** — pull the full content of a specific URL when you need the whole page.
+        - **delegate** — hand a self-contained task to a faster, cheaper helper model ("$workerName"). The helper can itself search and fetch the web.
+
+        When to hand off a task:
+        - Offload mechanical or bounded work — summarizing a long source, extracting structured data, reformatting, drafting boilerplate, or running a focused lookup — so you stay focused on the reasoning and the final answer.
+        - You may hand off several tasks (in sequence or for different parts) and combine the results.
+
+        How to write a good task:
+        - The helper sees ONLY the task description you write — never the chat history. Make every task fully self-contained: include all inputs, the exact output format you want, and any constraints.
+        - Give each task a short, descriptive task_name.
+        - Do NOT hand off the core judgement, the final decision, or the synthesis — that is your job.
+
+        Using results:
+        - Fold tool and helper results into one coherent answer. Verify anything important rather than trusting a single source or a single pass.
+        - Cite web-backed claims inline as markdown links, e.g. ([Reuters](https://example.com)). Never append a separate "Sources" list — the app shows sources separately.
+        """.trimIndent()
+
     private fun adviserGuidance(advisorName: String): String =
         """
         ## Echo Adviser

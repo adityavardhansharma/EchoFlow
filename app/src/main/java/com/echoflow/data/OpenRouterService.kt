@@ -41,8 +41,14 @@ class OpenRouterService(private val context: Context) {
 
     private val dynamicAdapter = moshi.adapter(Any::class.java)
 
+    data class LocalAttachment(
+        val uri: String,
+        val mimeType: String?,
+        val name: String?,
+    )
+
     /**
-     * Converts an image URI to standard raw Base64 string.
+     * Converts a local attachment URI to standard raw Base64 string.
      */
     private fun getBase64FromUri(uriString: String?): String? {
         if (uriString == null) return null
@@ -60,6 +66,22 @@ class OpenRouterService(private val context: Context) {
         }
     }
 
+    private fun isPdfMime(mime: String?): Boolean = mime.equals("application/pdf", ignoreCase = true)
+
+    private fun pdfPlugins(): List<Map<String, Any>> = listOf(
+        mapOf(
+            "id" to "file-parser",
+            "pdf" to mapOf("engine" to "cloudflare-ai"),
+        )
+    )
+
+    private fun historyHasPdfAttachment(history: List<ChatMessage>): Boolean =
+        history.any { it.role == "user" && it.localAttachmentUri != null && isPdfMime(it.localAttachmentMimeType) }
+
+    private fun addPdfPluginIfNeeded(requestMap: MutableMap<String, Any>, hasPdf: Boolean) {
+        if (hasPdf) requestMap["plugins"] = pdfPlugins()
+    }
+
     /**
      * Transforms database messages into OpenRouter compliant multi-modal format structure.
      * The system prompt (when present) is prepended for the request only — never persisted.
@@ -74,14 +96,25 @@ class OpenRouterService(private val context: Context) {
             payload.add(
                 if (base64 != null && msg.role == "user") {
                     val mime = msg.localAttachmentMimeType ?: "image/jpeg"
+                    val attachmentPart = if (isPdfMime(mime)) {
+                        mapOf(
+                            "type" to "file",
+                            "file" to mapOf(
+                                "filename" to (msg.localAttachmentName?.takeIf { it.isNotBlank() } ?: "document.pdf"),
+                                "file_data" to "data:application/pdf;base64,$base64",
+                            )
+                        )
+                    } else {
+                        mapOf(
+                            "type" to "image_url",
+                            "image_url" to mapOf("url" to "data:$mime;base64,$base64")
+                        )
+                    }
                     mapOf(
                         "role" to msg.role,
                         "content" to listOf(
                             mapOf("type" to "text", "text" to msg.content),
-                            mapOf(
-                                "type" to "image_url",
-                                "image_url" to mapOf("url" to "data:$mime;base64,$base64")
-                            )
+                            attachmentPart
                         )
                     )
                 } else {
@@ -134,6 +167,7 @@ class OpenRouterService(private val context: Context) {
             "messages" to buildMessagesPayload(history),
             "stream" to false
         )
+        addPdfPluginIfNeeded(requestMap, historyHasPdfAttachment(history))
 
         val jsonPayload = dynamicAdapter.toJson(requestMap)
         val request = buildHttpRequest(apiKey, jsonPayload)
@@ -172,19 +206,30 @@ class OpenRouterService(private val context: Context) {
         apiKey: String,
         model: String,
         systemPrompt: String,
-        userPrompt: String
+        userPrompt: String,
+        attachment: LocalAttachment? = null,
     ): String = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
+        val promptHistory = listOf(
+            ChatMessage(
+                id = "completion_user",
+                chatId = "completion",
+                role = "user",
+                content = userPrompt,
+                createdAt = System.currentTimeMillis(),
+                localAttachmentUri = attachment?.uri,
+                localAttachmentMimeType = attachment?.mimeType,
+                localAttachmentName = attachment?.name,
+            )
+        )
         val requestMap = mutableMapOf<String, Any>(
             "model" to model,
-            "messages" to listOf(
-                mapOf("role" to "system", "content" to systemPrompt),
-                mapOf("role" to "user", "content" to userPrompt)
-            ),
+            "messages" to buildMessagesPayload(promptHistory, systemPrompt),
             "stream" to false
         )
+        addPdfPluginIfNeeded(requestMap, attachment != null && isPdfMime(attachment.mimeType))
         val jsonPayload = dynamicAdapter.toJson(requestMap)
         val request = buildHttpRequest(apiKey, jsonPayload)
 
@@ -234,6 +279,7 @@ class OpenRouterService(private val context: Context) {
         fun looksLikeWebFetch(): Boolean = mentions("web_fetch")
         fun looksLikeAdvisor(): Boolean = mentions("advisor")
         fun looksLikeFusion(): Boolean = mentions("fusion")
+        fun looksLikeSubagent(): Boolean = mentions("subagent")
     }
 
     /**
@@ -276,6 +322,16 @@ class OpenRouterService(private val context: Context) {
         null
     }
 
+    /** Parse a subagent tool call's arguments `{task_name, task_description}`. */
+    private fun parseTaskArgs(argsJson: String): Pair<String, String>? = try {
+        val map = dynamicAdapter.fromJson(argsJson) as? Map<*, *>
+        val name = (map?.get("task_name") as? String)?.takeIf { it.isNotBlank() }
+        val desc = (map?.get("task_description") as? String).orEmpty()
+        if (name != null) name to desc else null
+    } catch (e: Exception) {
+        null
+    }
+
     /** Parse a string only if it looks like a JSON object/array (some tool results are stringified). */
     private fun parseMaybeJson(s: String): Any? {
         val t = s.trim()
@@ -299,6 +355,36 @@ class OpenRouterService(private val context: Context) {
             is List<*> -> for (v in node) scanForAdvisorResult(v, depth + 1)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * Walks an SSE chunk for subagent results `{status, model, task_name, outcome}` (or an
+     * `{status:"error", task_name, error}`). Appends every distinct one found to [out]; the
+     * caller dedupes by task_name. The shape is documented (unlike advisor/fusion), so this is
+     * a straightforward keyed scan rather than a guess.
+     */
+    private fun scanForSubagentResults(node: Any?, depth: Int = 0, out: MutableList<SubagentResult>) {
+        if (depth > 8) return
+        when (node) {
+            is Map<*, *> -> {
+                val taskName = (node["task_name"] as? String)?.takeIf { it.isNotBlank() }
+                val hasOutcome = node.containsKey("outcome")
+                val errorMsg = (node["error"] as? String)?.takeIf { it.isNotBlank() }
+                if (taskName != null && (hasOutcome || errorMsg != null)) {
+                    out.add(
+                        SubagentResult(
+                            taskName = taskName,
+                            workerModel = (node["model"] as? String).orEmpty(),
+                            outcome = (node["outcome"] as? String).orEmpty(),
+                            error = errorMsg?.takeIf { (node["status"] as? String) == "error" || !hasOutcome },
+                        )
+                    )
+                }
+                (node["content"] as? String)?.let { c -> parseMaybeJson(c)?.let { scanForSubagentResults(it, depth + 1, out) } }
+                for (v in node.values) scanForSubagentResults(v, depth + 1, out)
+            }
+            is List<*> -> for (v in node) scanForSubagentResults(v, depth + 1, out)
+        }
     }
 
     private fun isFusionResponseList(list: List<*>?): Boolean =
@@ -389,6 +475,9 @@ class OpenRouterService(private val context: Context) {
         params: InferenceParams?,
         toolChoice: String? = null,
         echo: EchoContext? = null,
+        agentWorkerModel: String? = null,
+        pdfPluginEnabled: Boolean = false,
+        httpClient: OkHttpClient = client,
         onChunk: suspend (StreamChunk) -> Unit
     ): TurnResult {
         val requestMap = mutableMapOf<String, Any>(
@@ -400,6 +489,7 @@ class OpenRouterService(private val context: Context) {
             "include_reasoning" to true,
             "reasoning" to mapOf("enabled" to true)
         )
+        addPdfPluginIfNeeded(requestMap, pdfPluginEnabled)
         if (tools != null) {
             requestMap["tools"] = tools
         }
@@ -436,7 +526,12 @@ class OpenRouterService(private val context: Context) {
         var fusionAnnounced = false
         var fusionResolved = false
 
-        client.newCall(request).execute().use { response ->
+        // Echo Agent: the orchestrator may delegate several tasks per turn, so these track
+        // per-tool-call (announce) and per-task-name (resolve) rather than a single flag.
+        val subagentAnnounced = mutableMapOf<Int, Boolean>()
+        val subagentResolved = mutableSetOf<String>()
+
+        httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val errorString = response.body?.string().orEmpty()
                 val parsedErrorMsg = parseErrorMessage(errorString)
@@ -523,6 +618,14 @@ class OpenRouterService(private val context: Context) {
                             fusionAnnounced = true
                             onChunk(StreamChunk.FusionStarted(echo.fusionPanelName, echo.fusionModels))
                         }
+                        // Echo Agent delegation: announce the moment the task brief parses, then
+                        // the worker runs server-side and its outcome arrives as a tool result.
+                        if (agentWorkerModel != null && subagentAnnounced[index] != true && builder.looksLikeSubagent()) {
+                            parseTaskArgs(builder.args.toString())?.let { (name, desc) ->
+                                subagentAnnounced[index] = true
+                                onChunk(StreamChunk.SubagentStarted(name, desc, agentWorkerModel))
+                            }
+                        }
                     }
 
                     // url_citation annotations may arrive on the delta or on a message object.
@@ -584,6 +687,18 @@ class OpenRouterService(private val context: Context) {
                         }
                     }
 
+                    // Echo Agent: a worker delegation finished somewhere in this chunk. Emit each
+                    // distinct result once (keyed by task_name) so its card flips from running.
+                    if (agentWorkerModel != null && map != null) {
+                        val found = mutableListOf<SubagentResult>()
+                        scanForSubagentResults(map, out = found)
+                        found.forEach { r ->
+                            if (subagentResolved.add(r.taskName)) {
+                                onChunk(StreamChunk.SubagentResolved(r.copy(workerModel = r.workerModel.ifBlank { agentWorkerModel })))
+                            }
+                        }
+                    }
+
                     (choice?.get("finish_reason") as? String)?.let { finishReason = it }
                 } catch (e: Exception) {
                     // Resilient inline SSE fail ignores
@@ -629,8 +744,9 @@ class OpenRouterService(private val context: Context) {
         }
 
         val tools = if (serverWebSearch) openRouterWebTools() else null
+        val hasPdf = historyHasPdfAttachment(history)
 
-        streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params) { emit(it) }
+        streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -656,6 +772,56 @@ class OpenRouterService(private val context: Context) {
             )
         )
     )
+
+    /** Config for one Echo Agent turn: the worker (subagent) model and its tool-call budget. */
+    data class AgentRequest(val workerModel: String, val workerModelName: String, val maxToolCalls: Int)
+
+    /**
+     * Echo Agent. The selected cloud model orchestrates a full toolbox on the **streaming** path:
+     * `openrouter:web_search`, `openrouter:web_fetch`, and `openrouter:subagent` (a cheaper worker
+     * model it can delegate self-contained tasks to). tool_choice is left to the model (auto): it
+     * decides which tools to use and in what order, possibly several times, chaining them freely.
+     * All three execute server-side and surface here as SearchStarted/SearchSources and
+     * SubagentStarted/SubagentResolved chunks. Uses the long-timeout [echoClient] because a worker
+     * delegation can stall the stream for a while. Unlike advisor/fusion, the subagent result shape
+     * is documented (`{status, model, task_name, outcome}`), so its parsing is exact.
+     */
+    fun sendWithAgentTools(
+        apiKey: String,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        agent: AgentRequest,
+        params: InferenceParams? = null,
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) {
+            throw Exception("API key is missing! Please configure it in your Settings.")
+        }
+        val tools = mutableListOf<Map<String, Any>>()
+        tools.addAll(openRouterWebTools()) // the orchestrator's own web_search + web_fetch
+        val subagentParams = mutableMapOf<String, Any>(
+            "model" to agent.workerModel,
+            "max_tool_calls" to agent.maxToolCalls.coerceIn(1, 25),
+            // The worker gets its own web toolbox so it can research while doing the task.
+            "tools" to listOf(
+                mapOf("type" to "openrouter:web_search"),
+                mapOf("type" to "openrouter:web_fetch"),
+            ),
+        )
+        tools.add(mapOf("type" to "openrouter:subagent", "parameters" to subagentParams))
+
+        val hasPdf = historyHasPdfAttachment(history)
+        streamCompletion(
+            apiKey = apiKey,
+            model = model,
+            payloadMessages = buildMessagesPayload(history, systemPrompt),
+            tools = tools,
+            params = params,
+            agentWorkerModel = agent.workerModel,
+            pdfPluginEnabled = hasPdf,
+            httpClient = echoClient,
+        ) { emit(it) }
+    }.flowOn(Dispatchers.IO)
 
     /** Config for one Echo Adviser consult: which profile (display name) and advisor model. */
     data class AdvisorRequest(val name: String, val model: String)
@@ -716,6 +882,7 @@ class OpenRouterService(private val context: Context) {
             emit(StreamChunk.FusionStarted(fusion.panelName, fusion.models))
         }
 
+        val hasPdf = historyHasPdfAttachment(history)
         val requestMap = mutableMapOf<String, Any>(
             "model" to model,
             "messages" to buildMessagesPayload(history, systemPrompt),
@@ -725,6 +892,7 @@ class OpenRouterService(private val context: Context) {
             "tools" to tools,
             "tool_choice" to "required",
         )
+        addPdfPluginIfNeeded(requestMap, hasPdf)
         if (params != null) {
             requestMap["temperature"] = params.temperature
             requestMap["top_p"] = params.topP
@@ -848,6 +1016,7 @@ class OpenRouterService(private val context: Context) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
 
+        val hasPdf = historyHasPdfAttachment(history)
         val messages: MutableList<Map<String, Any>> = buildMessagesPayload(history, systemPrompt)
         val toolSpec = listOf(
             mapOf(
@@ -880,7 +1049,7 @@ class OpenRouterService(private val context: Context) {
             // Once the budget is spent (or on the last round) drop the tool so the model
             // is forced to answer with what it has.
             val tools = if (searchesUsed >= maxSearches || round == maxRounds - 1) null else toolSpec
-            val result = streamCompletion(apiKey, model, messages, tools, params) { emit(it) }
+            val result = streamCompletion(apiKey, model, messages, tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
 
             val searchCalls = result.toolCalls
             if (result.finishReason != "tool_calls" || searchCalls.isEmpty()) break

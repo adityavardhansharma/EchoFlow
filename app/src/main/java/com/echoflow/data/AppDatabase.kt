@@ -10,9 +10,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         ChatThread::class, ChatMessage::class, CustomModel::class, LocalModel::class,
-        DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class
+        DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
+        AgentProfile::class
     ],
-    version = 8, // v8: advisor_profiles + fusion_panels — Echo Adviser / Echo Fusion (MIGRATION_7_8)
+    version = 10, // v10: Echo Agent profiles (MIGRATION_9_10)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun researchRunDao(): ResearchRunDao
     abstract fun advisorProfileDao(): AdvisorProfileDao
     abstract fun fusionPanelDao(): FusionPanelDao
+    abstract fun agentProfileDao(): AgentProfileDao
 
     companion object {
         @Volatile
@@ -124,6 +126,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE research_runs ADD COLUMN localAttachmentUri TEXT")
+                db.execSQL("ALTER TABLE research_runs ADD COLUMN localAttachmentMimeType TEXT")
+                db.execSQL("ALTER TABLE research_runs ADD COLUMN localAttachmentName TEXT")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS agent_profiles (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "name TEXT NOT NULL, " +
+                        "workerModelId TEXT NOT NULL, " +
+                        "workerModelName TEXT NOT NULL, " +
+                        "maxToolCalls INTEGER NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -131,7 +155,16 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "local_chat_database"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                )
                 // Only pre-v2 installs (no migration path defined) fall back destructively.
                 .fallbackToDestructiveMigration()
                 .build()
