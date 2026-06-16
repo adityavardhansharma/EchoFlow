@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.AdvisorProfile
+import com.echoflow.data.AgentProfile
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.DeepResearchCatalog
@@ -82,6 +83,7 @@ import com.echoflow.ui.components.ResearchProgressCard
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
+import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
@@ -111,6 +113,7 @@ fun ChatScreen(
     val errorMessage by chatViewModel.errorMessage.collectAsState()
 
     val pendingUri by chatViewModel.pendingAttachmentUri.collectAsState()
+    val pendingMime by chatViewModel.pendingAttachmentMimeType.collectAsState()
     val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
     val selectedModelID by settingsViewModel.selectedModel.collectAsState()
     val customModelsList by settingsViewModel.customModels.collectAsState()
@@ -140,6 +143,11 @@ fun ChatScreen(
     val activeAdvisor = advisorProfiles.firstOrNull { it.id == echoAdviserProfileId }
     val activePanel = fusionPanels.firstOrNull { it.id == echoFusionPanelId }
 
+    val echoAgentActive by chatViewModel.echoAgentActive.collectAsState()
+    val agentProfiles by settingsViewModel.agentProfiles.collectAsState()
+    val echoAgentProfileId by settingsViewModel.echoAgentProfileId.collectAsState()
+    val activeAgent = agentProfiles.firstOrNull { it.id == echoAgentProfileId }
+
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
@@ -161,8 +169,36 @@ fun ChatScreen(
                 ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
         } else true
     }
-    LaunchedEffect(imageAttachAllowed) {
-        if (!imageAttachAllowed) chatViewModel.clearPendingAttachment()
+    val imageAttachAvailable = imageAttachAllowed && !deepResearchActive && !dataAgentActive
+    val selectedModelIsOpenRouter = remember(selectedModelID) { !selectedModelID.startsWith("local/") }
+    val deepResearchUsesOpenRouter = remember(deepResearchActive, drModelId) {
+        deepResearchActive && drModelId.isNotBlank() && !DeepResearchCatalog.isProviderEngine(drModelId)
+    }
+    val pdfAttachAllowed = remember(
+        selectedModelIsOpenRouter,
+        deepResearchActive,
+        deepResearchUsesOpenRouter,
+        dataAgentActive,
+        echoAdviserActive,
+        echoFusionActive,
+        echoAgentActive,
+    ) {
+        when {
+            dataAgentActive -> false
+            deepResearchActive -> deepResearchUsesOpenRouter
+            echoFusionActive -> true
+            echoAdviserActive -> selectedModelIsOpenRouter
+            echoAgentActive -> selectedModelIsOpenRouter
+            else -> selectedModelIsOpenRouter
+        }
+    }
+    LaunchedEffect(pendingUri, pendingMime, imageAttachAvailable, pdfAttachAllowed) {
+        if (pendingUri != null) {
+            val pendingIsPdf = pendingMime.equals("application/pdf", ignoreCase = true)
+            if ((pendingIsPdf && !pdfAttachAllowed) || (!pendingIsPdf && !imageAttachAvailable)) {
+                chatViewModel.clearPendingAttachment()
+            }
+        }
     }
 
     val activeModelList = remember(customModelsList) {
@@ -182,6 +218,10 @@ fun ChatScreen(
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri) },
+    )
+    val pdfPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri, "application/pdf") },
     )
 
     // Measure the floating input's height so the message list always pads exactly enough to clear
@@ -227,6 +267,7 @@ fun ChatScreen(
                 modelName = when {
                     echoFusionActive -> activePanel?.name ?: "Choose panel"
                     echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
+                    echoAgentActive -> activeAgent?.let { "$modelShortName · ${it.name}" } ?: "Pick an Echo Agent"
                     dataAgentActive -> dataAgentLabel
                     deepResearchActive -> drEngineLabel
                     else -> modelShortName
@@ -245,10 +286,13 @@ fun ChatScreen(
                 text = textInput,
                 onText = { textInput = it },
                 pendingUri = pendingUri?.toString(),
+                pendingMime = pendingMime,
                 pendingName = pendingName,
                 onClearAttachment = { chatViewModel.clearPendingAttachment() },
                 onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                imageAttachEnabled = imageAttachAllowed,
+                onAttachPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
+                imageAttachEnabled = imageAttachAvailable,
+                pdfAttachEnabled = pdfAttachAllowed,
                 isStreaming = isStreaming,
                 deepResearchActive = deepResearchActive,
                 webSearchChipOn = webSearchChipOn,
@@ -256,13 +300,16 @@ fun ChatScreen(
                 dataAgentAvailable = dataAgentAvailable,
                 echoAdviserActive = echoAdviserActive,
                 echoFusionActive = echoFusionActive,
+                echoAgentActive = echoAgentActive,
                 advisorChipLabel = activeAdvisor?.name,
                 fusionChipLabel = activePanel?.name,
+                agentChipLabel = activeAgent?.name,
                 onToggleDeepResearch = { chatViewModel.toggleDeepResearch() },
                 onToggleWebSearch = { chatViewModel.toggleWebSearchChip() },
                 onToggleDataAgent = { chatViewModel.toggleDataAgent() },
                 onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
                 onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
+                onToggleEchoAgent = { chatViewModel.toggleEchoAgent() },
                 researchInProgress = researchRun != null,
                 researchEngineLabel = drEngineLabel,
                 dataAgentLabel = dataAgentLabel,
@@ -306,6 +353,17 @@ fun ChatScreen(
                 selectedProfileId = echoAdviserProfileId,
                 onSelectModel = { settingsViewModel.saveSelectedModel(it) },
                 onSelectProfile = { settingsViewModel.saveEchoAdviserProfile(it) },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (echoAgentActive) {
+            AgentPickerSheet(
+                models = activeModelList,
+                selectedModelId = selectedModelID,
+                profiles = agentProfiles,
+                selectedProfileId = echoAgentProfileId,
+                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectProfile = { settingsViewModel.saveEchoAgentProfile(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
             )
@@ -509,6 +567,17 @@ private fun StreamingAssistantBubble(
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
+                    is StreamSegment.Subagent -> {
+                        SubagentCard(
+                            taskName = segment.taskName,
+                            taskDescription = segment.taskDescription,
+                            workerModel = segment.workerModel,
+                            outcome = segment.outcome,
+                            error = segment.error,
+                            active = segment.active,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
                     is StreamSegment.Text -> {
                         SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
                         if (!isLast) Spacer(Modifier.height(Spacing.s))
@@ -601,8 +670,13 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
     if (isUser) {
         Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 320.dp)) {
-                message.localAttachmentUri?.let {
-                    AsyncImage(it, null, Modifier.padding(bottom = Spacing.s).size(200.dp).clip(MaterialTheme.shapes.large), contentScale = ContentScale.Crop)
+                message.localAttachmentUri?.let { uri ->
+                    MessageAttachmentPreview(
+                        uri = uri,
+                        mimeType = message.localAttachmentMimeType,
+                        name = message.localAttachmentName,
+                        modifier = Modifier.padding(bottom = Spacing.s),
+                    )
                 }
                 Surface(
                     shape = RoundedCornerShape(26.dp, 26.dp, 8.dp, 26.dp),
@@ -628,8 +702,13 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
             // streamed with instead of merging all reasoning into one block.
             val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
 
-            message.localAttachmentUri?.let {
-                AsyncImage(it, null, Modifier.padding(bottom = Spacing.s).size(200.dp).clip(MaterialTheme.shapes.large), contentScale = ContentScale.Crop)
+            message.localAttachmentUri?.let { uri ->
+                MessageAttachmentPreview(
+                    uri = uri,
+                    mimeType = message.localAttachmentMimeType,
+                    name = message.localAttachmentName,
+                    modifier = Modifier.padding(bottom = Spacing.s),
+                )
             }
 
             when {
@@ -671,6 +750,19 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                                         panelName = f.panelName,
                                         models = f.models,
                                         analysis = f,
+                                        active = false,
+                                    )
+                                    Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                            "subagent" -> {
+                                segment.subagent?.let { s ->
+                                    SubagentCard(
+                                        taskName = s.taskName,
+                                        taskDescription = s.taskDescription,
+                                        workerModel = s.workerModel,
+                                        outcome = s.outcome,
+                                        error = s.error,
                                         active = false,
                                     )
                                     Spacer(Modifier.height(Spacing.s))
@@ -914,14 +1006,58 @@ private fun AssistPill(icon: ImageVector, label: String, container: Color, onCon
 }
 
 @Composable
+private fun MessageAttachmentPreview(
+    uri: String,
+    mimeType: String?,
+    name: String?,
+    modifier: Modifier = Modifier,
+) {
+    if (mimeType.equals("application/pdf", ignoreCase = true)) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = modifier.widthIn(max = 280.dp),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.PictureAsPdf,
+                    null,
+                    Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Spacer(Modifier.width(Spacing.s))
+                Text(
+                    name ?: "PDF file",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    } else {
+        AsyncImage(
+            uri,
+            null,
+            modifier.size(200.dp).clip(MaterialTheme.shapes.large),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+@Composable
 private fun InputToolbar(
     text: String,
     onText: (String) -> Unit,
     pendingUri: String?,
+    pendingMime: String?,
     pendingName: String?,
     onClearAttachment: () -> Unit,
     onAttach: () -> Unit,
+    onAttachPdf: () -> Unit,
     imageAttachEnabled: Boolean,
+    pdfAttachEnabled: Boolean,
     isStreaming: Boolean,
     deepResearchActive: Boolean,
     webSearchChipOn: Boolean,
@@ -929,13 +1065,16 @@ private fun InputToolbar(
     dataAgentAvailable: Boolean,
     echoAdviserActive: Boolean,
     echoFusionActive: Boolean,
+    echoAgentActive: Boolean,
     advisorChipLabel: String?,
     fusionChipLabel: String?,
+    agentChipLabel: String?,
     onToggleDeepResearch: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
     onToggleEchoAdviser: () -> Unit,
     onToggleEchoFusion: () -> Unit,
+    onToggleEchoAgent: () -> Unit,
     researchInProgress: Boolean,
     researchEngineLabel: String?,
     dataAgentLabel: String,
@@ -960,7 +1099,16 @@ private fun InputToolbar(
                     modifier = Modifier.padding(bottom = Spacing.s),
                 ) {
                     Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                        AsyncImage(uri, null, Modifier.size(40.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+                        if (pendingMime.equals("application/pdf", ignoreCase = true)) {
+                            Icon(
+                                Icons.Default.PictureAsPdf,
+                                null,
+                                Modifier.size(40.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        } else {
+                            AsyncImage(uri, null, Modifier.size(40.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+                        }
                         Spacer(Modifier.width(Spacing.m))
                         Text(pendingName ?: "Attachment", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
                         IconButton(onClick = onClearAttachment, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
@@ -970,7 +1118,7 @@ private fun InputToolbar(
         }
 
         // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive) {
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -991,6 +1139,13 @@ private fun InputToolbar(
                         Icons.Default.AccountTree,
                         fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
                         onRemove = onToggleEchoFusion,
+                    )
+                }
+                if (echoAgentActive) {
+                    CapabilityChip(
+                        Icons.Default.Hub,
+                        agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
+                        onRemove = onToggleEchoAgent,
                     )
                 }
                 if (deepResearchActive) {
@@ -1029,10 +1184,13 @@ private fun InputToolbar(
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
             )
         }
-        AnimatedVisibility(visible = (echoAdviserActive || echoFusionActive) && blockedReason == null) {
+        AnimatedVisibility(visible = (echoAdviserActive || echoFusionActive || echoAgentActive) && blockedReason == null) {
             Text(
-                if (echoFusionActive) "Runs a panel of models + a judge every message · cost-heavy"
-                else "Consults a stronger advisor model each message · adds cost",
+                when {
+                    echoFusionActive -> "Runs a panel of models + a judge every message · cost-heavy"
+                    echoAgentActive -> "The main model hands tasks to your Echo Agent each message · adds cost"
+                    else -> "Consults a stronger advisor model each message · adds cost"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
@@ -1064,18 +1222,22 @@ private fun InputToolbar(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
                         showImage = imageAttachEnabled,
+                        showFiles = pdfAttachEnabled,
                         webSearchOn = webSearchChipOn,
                         deepResearchOn = deepResearchActive,
                         dataAgentOn = dataAgentActive,
                         dataAgentAvailable = dataAgentAvailable,
                         echoAdviserOn = echoAdviserActive,
                         echoFusionOn = echoFusionActive,
+                        echoAgentOn = echoAgentActive,
                         onImage = { plusMenuOpen = false; onAttach() },
+                        onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
                         onToggleDeepResearch = { plusMenuOpen = false; onToggleDeepResearch() },
                         onToggleDataAgent = { plusMenuOpen = false; onToggleDataAgent() },
                         onToggleEchoAdviser = { plusMenuOpen = false; onToggleEchoAdviser() },
                         onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
+                        onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
                     )
                 }
 
@@ -1105,7 +1267,8 @@ private fun InputToolbar(
                 )
 
                 val researchMode = deepResearchActive || dataAgentActive
-                val hasContent = text.trim().isNotEmpty() || (pendingUri != null && !researchMode)
+                val hasText = text.trim().isNotEmpty()
+                val hasContent = hasText || (pendingUri != null && !researchMode)
                 val canSend = hasContent && !isStreaming && !researchInProgress && blockedReason == null
                 SendButton(enabled = canSend, isStreaming = isStreaming, research = researchMode) {
                     if (canSend) onSend()
@@ -1121,18 +1284,22 @@ private fun PlusMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     showImage: Boolean,
+    showFiles: Boolean,
     webSearchOn: Boolean,
     deepResearchOn: Boolean,
     dataAgentOn: Boolean,
     dataAgentAvailable: Boolean,
     echoAdviserOn: Boolean,
     echoFusionOn: Boolean,
+    echoAgentOn: Boolean,
     onImage: () -> Unit,
+    onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDeepResearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
     onToggleEchoAdviser: () -> Unit,
     onToggleEchoFusion: () -> Unit,
+    onToggleEchoAgent: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
@@ -1141,6 +1308,13 @@ private fun PlusMenu(
                 text = { Text("Image") },
                 leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
                 onClick = onImage,
+            )
+        }
+        if (showFiles) {
+            DropdownMenuItem(
+                text = { Text("Files") },
+                leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                onClick = onFiles,
             )
         }
         DropdownMenuItem(
@@ -1178,6 +1352,12 @@ private fun PlusMenu(
             leadingIcon = { Icon(Icons.Default.AccountTree, null) },
             trailingIcon = { if (echoFusionOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
             onClick = onToggleEchoFusion,
+        )
+        DropdownMenuItem(
+            text = { Text("Echo Agents") },
+            leadingIcon = { Icon(Icons.Default.Hub, null) },
+            trailingIcon = { if (echoAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleEchoAgent,
         )
     }
 }
@@ -1427,6 +1607,70 @@ private fun AdvisorPickerSheet(
             }
 
             Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Answering model") }
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.m)) {
+                items(models, key = { it.first }) { (id, name) ->
+                    ModelRow(name, id, id == selectedModelId, isLocal = false) { onSelectModel(id) }
+                }
+            }
+
+            Button(onClick = onDismiss, shape = CircleShape, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xl)) {
+                Text("Done")
+            }
+        }
+    }
+}
+
+/**
+ * Echo Agent picker: two zones — the orchestrator (any cloud model, which drives the toolbox)
+ * and which agent profile (the worker model it delegates to). Both persist immediately; the
+ * sheet stays open so the user can set both before dismissing.
+ */
+@Composable
+private fun AgentPickerSheet(
+    models: List<Pair<String, String>>,
+    selectedModelId: String,
+    profiles: List<AgentProfile>,
+    selectedProfileId: String,
+    onSelectModel: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Echo Agents", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Your main model uses tools and hands tasks to your Echo Agent", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onManage) {
+                    Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Manage")
+                }
+            }
+
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Echo Agent") }
+            if (profiles.isEmpty()) {
+                Text(
+                    "No Echo Agents yet — tap Manage to set one up.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = Spacing.s),
+                )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.padding(bottom = Spacing.m)) {
+                    profiles.forEach { profile ->
+                        FilterChip(
+                            selected = profile.id == selectedProfileId,
+                            onClick = { onSelectProfile(profile.id) },
+                            label = { Text(profile.name) },
+                            leadingIcon = { Icon(Icons.Default.Hub, null, Modifier.size(16.dp)) },
+                        )
+                    }
+                }
+            }
+
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Main model") }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.m)) {
                 items(models, key = { it.first }) { (id, name) ->
                     ModelRow(name, id, id == selectedModelId, isLocal = false) { onSelectModel(id) }

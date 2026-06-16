@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
@@ -84,6 +85,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.echoflow.data.AdvisorProfile
+import com.echoflow.data.AgentProfile
 import com.echoflow.data.CatalogEntry
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.FusionPanel
@@ -138,6 +140,7 @@ private const val PageDeepResearch = "deep_research"
 private const val PageDataAgent = "data_agent"
 private const val PageEchoAdviser = "echo_adviser"
 private const val PageEchoFusion = "echo_fusion"
+private const val PageEchoAgent = "echo_agent"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -191,6 +194,7 @@ fun SettingsScreen(
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageHome })
             PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageHome })
             PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageHome })
+            PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageHome })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -218,6 +222,7 @@ private fun SettingsHomePage(
     val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
+    val agentProfiles by viewModel.agentProfiles.collectAsState()
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -266,6 +271,10 @@ private fun SettingsHomePage(
         fusionPanels.isEmpty() -> "A panel deliberates · no panels yet"
         else -> "${fusionPanels.size} panel" + (if (fusionPanels.size == 1) "" else "s")
     }
+    val echoAgentSubtitle = when {
+        agentProfiles.isEmpty() -> "Main model hands tasks to your Echo Agents · none yet"
+        else -> "${agentProfiles.size} Echo Agent" + (if (agentProfiles.size == 1) "" else "s")
+    }
 
     SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
@@ -276,7 +285,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 8,
+                index = 0, count = 9,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -286,7 +295,7 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 8,
+                index = 1, count = 9,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -296,7 +305,7 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 8,
+                index = 2, count = 9,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -306,7 +315,7 @@ private fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 8,
+                index = 3, count = 9,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -316,7 +325,7 @@ private fun SettingsHomePage(
                 subtitle = dataAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 4, count = 8,
+                index = 4, count = 9,
                 onClick = { onOpen(PageDataAgent) },
             )
             SettingsNavRow(
@@ -326,7 +335,7 @@ private fun SettingsHomePage(
                 subtitle = echoAdviserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 8,
+                index = 5, count = 9,
                 onClick = { onOpen(PageEchoAdviser) },
             )
             SettingsNavRow(
@@ -336,8 +345,18 @@ private fun SettingsHomePage(
                 subtitle = echoFusionSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 8,
+                index = 6, count = 9,
                 onClick = { onOpen(PageEchoFusion) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Hub,
+                polygon = MaterialShapes.Pentagon,
+                title = "Echo Agents",
+                subtitle = echoAgentSubtitle,
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 7, count = 9,
+                onClick = { onOpen(PageEchoAgent) },
             )
             SettingsNavRow(
                 icon = Icons.Default.PhoneAndroid,
@@ -346,7 +365,7 @@ private fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 7, count = 8,
+                index = 8, count = 9,
                 onClick = { onOpen(PageLocalModels) },
             )
         }
@@ -1695,6 +1714,155 @@ private fun FusionPanelDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(name.trim(), judgeId) },
+                enabled = name.trim().isNotEmpty(),
+            ) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+// ── Echo Agent ────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EchoAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val apiKey by viewModel.apiKey.collectAsState()
+    val profiles by viewModel.agentProfiles.collectAsState()
+    val selectedId by viewModel.echoAgentProfileId.collectAsState()
+    val orQuery by viewModel.orModelQuery.collectAsState()
+    val orResults by viewModel.orModelResults.collectAsState()
+    val orLoading by viewModel.orDirectoryLoading.collectAsState()
+    val orError by viewModel.orDirectoryError.collectAsState()
+
+    var showDirectory by remember { mutableStateOf(false) }
+    var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
+
+    SettingsPageScaffold(title = "Echo Agents", subtitle = "Your main model hands work to an Echo Agent", onBack = onBack) {
+        FormCard {
+            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Your main model gets a full toolbox — web search, web fetch, and an Echo Agent (a faster, cheaper model) it can hand self-contained tasks to. It decides which tools to use and in what order, chaining them freely. Pick the main model per chat from the model selector; choose the Echo Agent here. OpenRouter only; each message can add cost.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (apiKey.isBlank()) {
+            Spacer(Modifier.height(Spacing.m))
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Agents.", error = true)
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Your Echo Agents", "Tap to set the default; pick per chat from the model selector")
+        if (profiles.isEmpty()) {
+            EchoNoticeCard(Icons.Default.Hub, "No Echo Agents yet.\nAdd one below — a fast, cheap model works best.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                profiles.forEach { profile ->
+                    DrEngineSelectRow(
+                        name = profile.name,
+                        subtitle = "${profile.workerModelName.ifBlank { profile.workerModelId }} · up to ${profile.maxToolCalls} steps",
+                        selected = profile.id == selectedId,
+                        onClick = { viewModel.saveEchoAgentProfile(profile.id) },
+                        onDelete = { viewModel.deleteAgentProfile(profile.id) },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(Spacing.s))
+        FilledTonalButton(
+            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Add an Echo Agent")
+        }
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            "Your Echo Agent can search and fetch the web while doing its task. It never sees the chat history — only the task the main model gives it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+    }
+
+    if (showDirectory) {
+        OpenRouterDirectorySheet(
+            query = orQuery,
+            results = orResults,
+            loading = orLoading,
+            error = orError,
+            addedIds = emptySet(),
+            onQueryChange = viewModel::updateOrModelQuery,
+            onRetry = viewModel::loadOpenRouterDirectory,
+            onAdd = { info -> pendingModel = info; showDirectory = false },
+            onRemove = {},
+            onDismiss = { showDirectory = false },
+        )
+    }
+    pendingModel?.let { model ->
+        AgentProfileDialog(
+            workerName = model.name,
+            onDismiss = { pendingModel = null },
+            onConfirm = { name, maxCalls ->
+                viewModel.addAgentProfile(name, model.id, model.name.substringAfter(": "), maxCalls)
+                pendingModel = null
+            },
+        )
+    }
+}
+
+/**
+ * Finishes an Echo Agent profile: a name plus the agent's per-task tool-call budget (how many
+ * tool-calling steps the agent may take while completing one delegated task).
+ */
+@Composable
+private fun AgentProfileDialog(
+    workerName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String, Int) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var maxCalls by remember { mutableStateOf(8) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Hub, null) },
+        title = { Text("New Echo Agent") },
+        text = {
+            Column {
+                Text(workerName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(Spacing.m))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    placeholder = { Text("Fast agent, Cheap drone…") },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.m))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Echo Agent tool budget", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    Text("$maxCalls steps", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    "Max tool-calling steps the Echo Agent may take per task",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = maxCalls.toFloat(),
+                    onValueChange = { maxCalls = it.toInt().coerceIn(1, 25) },
+                    valueRange = 1f..25f,
+                    steps = 23,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim(), maxCalls) },
                 enabled = name.trim().isNotEmpty(),
             ) { Text("Create") }
         },
