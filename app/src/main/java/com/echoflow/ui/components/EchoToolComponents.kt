@@ -319,6 +319,50 @@ fun SubagentCard(
     }
 }
 
+/**
+ * Branded waiting state for an Echo Agents run. The request is non-streaming, so this card
+ * animates through the whole wait — the user sees "Echo Agents are deploying…" instead of a bare
+ * thinking row — and is replaced by the delegation cards, reasoning and answer once they arrive.
+ */
+@Composable
+fun AgentDeployingCard(modifier: Modifier = Modifier) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.40f),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(38.dp).clip(RoundedPolygonShape(MaterialShapes.Pentagon))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Hub, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary) }
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f)) {
+                    ModeBadge("ECHO AGENTS", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        "Deploying agents…",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "The main model is planning, delegating and gathering results",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.m))
+            LinearWavyProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
 // ── Echo Fusion ─────────────────────────────────────────────────────────────────────────
 
 /**

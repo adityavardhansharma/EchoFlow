@@ -72,6 +72,7 @@ import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
+import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.DataResultCard
@@ -565,6 +566,10 @@ private fun StreamingAssistantBubble(
                             analysis = segment.analysis,
                             active = segment.active,
                         )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    is StreamSegment.AgentRun -> {
+                        AgentDeployingCard()
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Subagent -> {
