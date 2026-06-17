@@ -149,6 +149,19 @@ fun ChatScreen(
     val echoAgentProfileId by settingsViewModel.echoAgentProfileId.collectAsState()
     val activeAgent = agentProfiles.firstOrNull { it.id == echoAgentProfileId }
 
+    val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
+    val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
+    val browserSession by chatViewModel.currentBrowserSession.collectAsState()
+    val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()
+    val browserStartConflict by chatViewModel.browserStartConflict.collectAsState()
+    // The owning chat is "captured" while a session is live — every message drives the browser.
+    val browserCaptured = browserSession != null
+    val browserBusy = browserSession?.let {
+        it.status == com.echoflow.data.BrowserSession.STATUS_RUNNING ||
+            it.status == com.echoflow.data.BrowserSession.STATUS_STARTING ||
+            it.status == com.echoflow.data.BrowserSession.STATUS_RESOLVING
+    } == true
+
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
@@ -311,6 +324,18 @@ fun ChatScreen(
                 onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
                 onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
                 onToggleEchoAgent = { chatViewModel.toggleEchoAgent() },
+                browserFlowActive = browserFlowActive,
+                browserFlowAvailable = browserFlowAvailable,
+                onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
+                browserSession = browserSession,
+                browserSteps = browserSteps,
+                onBrowserOpen = { browserSession?.let { chatViewModel.openBrowserWorkspace(it.chatId) } },
+                onBrowserFinish = { browserSession?.let { chatViewModel.browserFinish(it.id) } },
+                onBrowserStop = { browserSession?.let { chatViewModel.browserStop(it.id) } },
+                onBrowserPick = { url -> browserSession?.let { chatViewModel.browserResolveCandidate(it.id, url) } },
+                onBrowserConfirmDomain = { browserSession?.let { chatViewModel.browserConfirmDomain(it.id) } },
+                onBrowserConfirmSend = { browserSession?.let { chatViewModel.browserConfirmSend(it.id) } },
+                onBrowserCancel = { browserSession?.let { chatViewModel.browserCancelPending(it.id) } },
                 researchInProgress = researchRun != null,
                 researchEngineLabel = drEngineLabel,
                 dataAgentLabel = dataAgentLabel,
@@ -318,6 +343,7 @@ fun ChatScreen(
                 exaEffort = exaEffort,
                 onSelectEffort = { settingsViewModel.saveDeepResearchExaEffort(it) },
                 blockedReason = when {
+                    browserBusy -> "Browser is working — please wait…"
                     researchRun != null -> "A run is in progress — see the card above"
                     localSendBlocked -> "On-device model is busy in another chat"
                     else -> null
@@ -333,6 +359,35 @@ fun ChatScreen(
                 exit = shrinkVertically() + fadeOut(),
             ) {
                 errorMessage?.let { ErrorBanner(it) { chatViewModel.clearError() } }
+            }
+
+            // One live browser session app-wide: starting a second is blocked with a choice.
+            browserStartConflict?.let { conflict ->
+                AlertDialog(
+                    onDismissRequest = { chatViewModel.dismissBrowserConflict() },
+                    title = { Text("A browser session is already active") },
+                    text = {
+                        Text(
+                            "Browser Flow is running in \"${conflict.activeSession.goal.take(40)}\". " +
+                                "Finish it before starting another, or return to it.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { chatViewModel.browserReturnToActive() }) { Text("Return to browser") }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    textInput = ""
+                                    chatViewModel.browserFinishActiveThenStart()
+                                },
+                                enabled = conflict.pendingPrompt.isNotEmpty(),
+                            ) { Text("Finish & start new") }
+                            TextButton(onClick = { chatViewModel.dismissBrowserConflict() }) { Text("Cancel") }
+                        }
+                    },
+                )
             }
         }
     }
@@ -1080,6 +1135,18 @@ private fun InputToolbar(
     onToggleEchoAdviser: () -> Unit,
     onToggleEchoFusion: () -> Unit,
     onToggleEchoAgent: () -> Unit,
+    browserFlowActive: Boolean,
+    browserFlowAvailable: Boolean,
+    onToggleBrowserFlow: () -> Unit,
+    browserSession: com.echoflow.data.BrowserSession?,
+    browserSteps: List<com.echoflow.data.BrowserStep>,
+    onBrowserOpen: () -> Unit,
+    onBrowserFinish: () -> Unit,
+    onBrowserStop: () -> Unit,
+    onBrowserPick: (String) -> Unit,
+    onBrowserConfirmDomain: () -> Unit,
+    onBrowserConfirmSend: () -> Unit,
+    onBrowserCancel: () -> Unit,
     researchInProgress: Boolean,
     researchEngineLabel: String?,
     dataAgentLabel: String,
@@ -1096,6 +1163,22 @@ private fun InputToolbar(
             .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .padding(horizontal = Spacing.base, vertical = Spacing.m),
     ) {
+        // Persistent Browser Flow card — the in-chat anchor/control surface for the live session.
+        browserSession?.let { session ->
+            com.echoflow.ui.components.BrowserSessionCard(
+                session = session,
+                steps = browserSteps,
+                onOpen = onBrowserOpen,
+                onFinish = onBrowserFinish,
+                onStop = onBrowserStop,
+                onPickCandidate = onBrowserPick,
+                onConfirmDomain = onBrowserConfirmDomain,
+                onConfirmSend = onBrowserConfirmSend,
+                onCancel = onBrowserCancel,
+                modifier = Modifier.padding(bottom = Spacing.s),
+            )
+        }
+
         AnimatedVisibility(visible = pendingUri != null) {
             pendingUri?.let { uri ->
                 Surface(
@@ -1123,7 +1206,7 @@ private fun InputToolbar(
         }
 
         // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive) {
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -1131,6 +1214,9 @@ private fun InputToolbar(
             ) {
                 if (webSearchChipOn) {
                     CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+                }
+                if (browserFlowActive) {
+                    CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
                 }
                 if (echoAdviserActive) {
                     CapabilityChip(
@@ -1204,7 +1290,9 @@ private fun InputToolbar(
 
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            // Tint the composer while the chat is captured by a live browser session.
+            color = if (browserSession != null) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 3.dp,
             shadowElevation = 8.dp,
             modifier = Modifier.fillMaxWidth(),
@@ -1235,6 +1323,8 @@ private fun InputToolbar(
                         echoAdviserOn = echoAdviserActive,
                         echoFusionOn = echoFusionActive,
                         echoAgentOn = echoAgentActive,
+                        browserFlowOn = browserFlowActive,
+                        browserFlowAvailable = browserFlowAvailable,
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
@@ -1243,6 +1333,7 @@ private fun InputToolbar(
                         onToggleEchoAdviser = { plusMenuOpen = false; onToggleEchoAdviser() },
                         onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
                         onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
+                        onToggleBrowserFlow = { plusMenuOpen = false; onToggleBrowserFlow() },
                     )
                 }
 
@@ -1252,6 +1343,8 @@ private fun InputToolbar(
                     placeholder = {
                         Text(
                             when {
+                                browserSession != null -> "Command the browser…"
+                                browserFlowActive -> "Open a site & say what to do…"
                                 dataAgentActive -> "Describe the data to extract…"
                                 deepResearchActive -> "Research a topic…"
                                 else -> "Ask anything…"
@@ -1297,6 +1390,8 @@ private fun PlusMenu(
     echoAdviserOn: Boolean,
     echoFusionOn: Boolean,
     echoAgentOn: Boolean,
+    browserFlowOn: Boolean,
+    browserFlowAvailable: Boolean,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -1305,6 +1400,7 @@ private fun PlusMenu(
     onToggleEchoAdviser: () -> Unit,
     onToggleEchoFusion: () -> Unit,
     onToggleEchoAgent: () -> Unit,
+    onToggleBrowserFlow: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
@@ -1341,6 +1437,15 @@ private fun PlusMenu(
                 leadingIcon = { Icon(Icons.Default.Dataset, null) },
                 trailingIcon = { if (dataAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
                 onClick = onToggleDataAgent,
+            )
+        }
+        // Browser Flow — a live, stateful browser controlled through chat (needs a Firecrawl key).
+        if (browserFlowAvailable) {
+            DropdownMenuItem(
+                text = { Text("Browser Flow") },
+                leadingIcon = { Icon(Icons.Default.Language, null) },
+                trailingIcon = { if (browserFlowOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+                onClick = onToggleBrowserFlow,
             )
         }
         HorizontalDivider(Modifier.padding(vertical = Spacing.xs))

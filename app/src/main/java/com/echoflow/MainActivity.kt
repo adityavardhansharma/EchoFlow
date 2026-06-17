@@ -15,6 +15,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -103,7 +104,9 @@ class MainActivity : ComponentActivity() {
                     database.deepResearchModelDao(),
                     database.advisorProfileDao(),
                     database.fusionPanelDao(),
-                    database.agentProfileDao()
+                    database.agentProfileDao(),
+                    database.browserSessionDao(),
+                    database.browserStepDao()
                 )
             )
 
@@ -149,6 +152,9 @@ fun MainNavigationHub(
 ) {
     var activeTab by remember { mutableStateOf("chat") }
 
+    val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
+    val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
             // Intercept the system back gesture/button so it returns to chat
@@ -163,6 +169,26 @@ fun MainNavigationHub(
                 chatViewModel = chatViewModel,
                 settingsViewModel = settingsViewModel,
                 onSettingsClicked = { activeTab = "settings" }
+            )
+        }
+
+        // Global "remote browser active" pill — visible across tabs while a session is live and
+        // the workspace is closed. Tapping it returns to the owning chat's workspace.
+        val pillSession = activeBrowserSession
+        if (pillSession != null && browserWorkspaceChatId == null) {
+            com.echoflow.ui.components.GlobalBrowserPill(
+                session = pillSession,
+                onClick = { chatViewModel.openBrowserWorkspace(pillSession.chatId) },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp),
+            )
+        }
+
+        // Fullscreen Browser Workspace overlay (the native mini-browser).
+        if (browserWorkspaceChatId != null) {
+            BackHandler { chatViewModel.closeBrowserWorkspace() }
+            com.echoflow.ui.screens.BrowserWorkspaceScreen(
+                chatViewModel = chatViewModel,
+                onClose = { chatViewModel.closeBrowserWorkspace() },
             )
         }
     }

@@ -80,6 +80,13 @@ class SettingsRepository(context: Context) {
     private val _hfAccessToken = MutableStateFlow(getHfAccessTokenDirect())
     val hfAccessToken: StateFlow<String> = _hfAccessToken.asStateFlow()
 
+    // Browser Flow (Firecrawl Interact stateful browser; gated additionally on a Firecrawl key)
+    private val _browserFlowEnabled = MutableStateFlow(getBrowserFlowEnabledDirect())
+    val browserFlowEnabled: StateFlow<Boolean> = _browserFlowEnabled.asStateFlow()
+
+    private val _browserIdleMinutes = MutableStateFlow(getBrowserIdleMinutesDirect())
+    val browserIdleMinutes: StateFlow<Int> = _browserIdleMinutes.asStateFlow()
+
     // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
     private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
     val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
@@ -350,6 +357,25 @@ class SettingsRepository(context: Context) {
     fun saveDataAgentMaxCredits(value: Int) {
         prefs.edit().putInt("data_agent_max_credits", value).apply()
         _dataAgentMaxCredits.value = value
+    }
+
+    // ── Browser Flow ───────────────────────────────────────────────────────────────────
+
+    fun getBrowserFlowEnabledDirect(): Boolean =
+        prefs.getBoolean("browser_flow_enabled", false)
+
+    fun saveBrowserFlowEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("browser_flow_enabled", enabled).apply()
+        _browserFlowEnabled.value = enabled
+    }
+
+    /** Minutes of inactivity before Browser Flow auto-stops the session (cost guard). 0 = off. */
+    fun getBrowserIdleMinutesDirect(): Int =
+        prefs.getInt("browser_idle_minutes", 3)
+
+    fun saveBrowserIdleMinutes(value: Int) {
+        prefs.edit().putInt("browser_idle_minutes", value).apply()
+        _browserIdleMinutes.value = value
     }
 
     companion object {
