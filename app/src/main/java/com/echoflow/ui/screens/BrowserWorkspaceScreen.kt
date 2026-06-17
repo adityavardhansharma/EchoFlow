@@ -154,7 +154,7 @@ fun BrowserWorkspaceScreen(
                 }
 
                 // Transient phase overlay while the agent is driving.
-                AnimatedVisibility(visible = busy, modifier = Modifier.align(Alignment.TopCenter)) {
+                androidx.compose.animation.AnimatedVisibility(visible = busy, modifier = Modifier.align(Alignment.TopCenter)) {
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.inverseSurface,
