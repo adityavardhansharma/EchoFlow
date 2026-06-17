@@ -42,6 +42,10 @@ sealed class StreamChunk {
     data class FusionResolved(val analysis: FusionAnalysis) : StreamChunk()
 
     // ── Echo Agent (openrouter:subagent) ───────────────────────────────────────────
+    /** Echo Agents run kicked off — a branded "deploying agents" banner shows while the
+     *  (non-streaming) request is in flight, before any delegation/reasoning/answer arrives. */
+    object AgentRunStarted : StreamChunk()
+
     /** The orchestrator delegated a self-contained task to its worker; the brief is known,
      *  the worker's outcome is pending. Fires once per delegation (there may be several). */
     data class SubagentStarted(val taskName: String, val taskDescription: String, val workerModel: String) : StreamChunk()

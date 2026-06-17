@@ -207,7 +207,9 @@ object SystemPrompts {
 
         When to hand off a task:
         - Offload mechanical or bounded work — summarizing a long source, extracting structured data, reformatting, drafting boilerplate, or running a focused lookup — so you stay focused on the reasoning and the final answer.
-        - You may hand off several tasks (in sequence or for different parts) and combine the results.
+        - When a request breaks into several independent, self-contained parts (write N items, summarize N sources, draft N variations), prefer to hand off each part as its own task, then combine the results.
+
+        Actually use the tool — this is critical: when you decide to delegate, you MUST make a real call to the delegate tool. Never just write in your reasoning that you are "delegating" or "sending to a subagent" and then produce the content yourself. If you did not make a tool call, no delegation happened. Saying it is not doing it.
 
         How to write a good task:
         - The helper sees ONLY the task description you write — never the chat history. Make every task fully self-contained: include all inputs, the exact output format you want, and any constraints.

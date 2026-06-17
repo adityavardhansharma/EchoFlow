@@ -43,6 +43,9 @@ sealed class StreamSegment {
         val active: Boolean
     ) : StreamSegment()
 
+    /** Transient "Echo Agents are deploying…" banner shown while the non-streaming request runs. */
+    object AgentRun : StreamSegment()
+
     /** Echo Agent delegation: a task handed to the worker and its outcome (null while running). */
     data class Subagent(
         val taskName: String,
@@ -350,7 +353,15 @@ class ChatViewModel(
     // -------------------------------------------------------------------------------
 
     private fun reduceSegments(segments: MutableList<StreamSegment>, chunk: StreamChunk): String? {
+        // The "deploying agents" banner is only a waiting indicator: clear it the moment any real
+        // reply content (a delegation, reasoning, the answer, …) starts to arrive.
+        if (chunk !is StreamChunk.AgentRunStarted && chunk !is StreamChunk.StatusNote) {
+            segments.removeAll { it is StreamSegment.AgentRun }
+        }
         when (chunk) {
+            is StreamChunk.AgentRunStarted -> {
+                if (segments.none { it is StreamSegment.AgentRun }) segments.add(StreamSegment.AgentRun)
+            }
             is StreamChunk.Reasoning -> {
                 val last = segments.lastOrNull()
                 if (last is StreamSegment.Reasoning) {
@@ -1063,6 +1074,8 @@ class ChatViewModel(
                             error = seg.error,
                         ),
                     )
+                // Transient waiting indicator — never persisted.
+                is StreamSegment.AgentRun -> null
                 is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
                     ?.let { PersistedSegment(type = "text", text = it) }
             }
