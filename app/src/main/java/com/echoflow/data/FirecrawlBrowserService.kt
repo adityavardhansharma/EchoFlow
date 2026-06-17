@@ -59,13 +59,13 @@ class FirecrawlBrowserService {
             ),
         )
         val data = json["data"] as? Map<*, *>
-        val scrapeId = firstString(json, data, listOf("scrapeId", "id", "sessionId"))
-            ?: throw Exception("Firecrawl did not return a browser session id.")
         val metadata = data?.get("metadata") as? Map<*, *>
+        val scrapeId = firstString(json, data, metadata, listOf("scrapeId", "id", "sessionId"))
+            ?: throw Exception("Firecrawl did not return a browser session id.")
         StartResult(
             scrapeId = scrapeId,
-            liveViewUrl = firstString(json, data, listOf("liveViewUrl")),
-            interactiveLiveViewUrl = firstString(json, data, listOf("interactiveLiveViewUrl")),
+            liveViewUrl = firstString(json, data, metadata, listOf("liveViewUrl")),
+            interactiveLiveViewUrl = firstString(json, data, metadata, listOf("interactiveLiveViewUrl")),
             title = (metadata?.get("title") as? String),
         )
     }
@@ -82,12 +82,13 @@ class FirecrawlBrowserService {
                 ),
             )
             val data = json["data"] as? Map<*, *>
-            val output = firstString(json, data, listOf("output", "result", "stdout"))?.trim().orEmpty()
+            val metadata = data?.get("metadata") as? Map<*, *>
+            val output = firstString(json, data, metadata, listOf("output", "result", "stdout"))?.trim().orEmpty()
             InteractResult(
                 success = (json["success"] as? Boolean) ?: output.isNotBlank(),
                 output = output,
-                liveViewUrl = firstString(json, data, listOf("liveViewUrl")),
-                interactiveLiveViewUrl = firstString(json, data, listOf("interactiveLiveViewUrl")),
+                liveViewUrl = firstString(json, data, metadata, listOf("liveViewUrl")),
+                interactiveLiveViewUrl = firstString(json, data, metadata, listOf("interactiveLiveViewUrl")),
             )
         }
 
@@ -129,11 +130,12 @@ class FirecrawlBrowserService {
         }
     }
 
-    /** First non-blank string for any of [keys], checking the top-level then the nested data map. */
-    private fun firstString(top: Map<*, *>, data: Map<*, *>?, keys: List<String>): String? {
+    /** First non-blank string for any of [keys], checking top-level, data, then metadata. */
+    private fun firstString(top: Map<*, *>, data: Map<*, *>?, metadata: Map<*, *>?, keys: List<String>): String? {
         for (k in keys) {
             (top[k] as? String)?.takeIf { it.isNotBlank() }?.let { return it }
             (data?.get(k) as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+            (metadata?.get(k) as? String)?.takeIf { it.isNotBlank() }?.let { return it }
         }
         return null
     }

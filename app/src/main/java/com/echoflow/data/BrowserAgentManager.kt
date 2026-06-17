@@ -97,7 +97,7 @@ class BrowserAgentManager(
     fun sendCommand(chatId: String, text: String) {
         scope.launch {
             val session = sessionDao.getActiveForChat(chatId) ?: return@launch
-            if (session.status == STATUS_RESOLVING || session.status == STATUS_STARTING || session.status == STATUS_RUNNING) {
+            if (session.status == STATUS_STARTING || session.status == STATUS_RUNNING) {
                 addStep(session.id, "system", "Still working on the previous command.")
                 return@launch
             }
