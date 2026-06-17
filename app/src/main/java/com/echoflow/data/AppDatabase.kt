@@ -11,9 +11,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ChatThread::class, ChatMessage::class, CustomModel::class, LocalModel::class,
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
-        AgentProfile::class
+        AgentProfile::class, BrowserSession::class, BrowserStep::class
     ],
-    version = 10, // v10: Echo Agent profiles (MIGRATION_9_10)
+    version = 11, // v11: Browser Flow sessions + steps (MIGRATION_10_11)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +26,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun advisorProfileDao(): AdvisorProfileDao
     abstract fun fusionPanelDao(): FusionPanelDao
     abstract fun agentProfileDao(): AgentProfileDao
+    abstract fun browserSessionDao(): BrowserSessionDao
+    abstract fun browserStepDao(): BrowserStepDao
 
     companion object {
         @Volatile
@@ -148,6 +150,46 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS browser_sessions (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "chatId TEXT NOT NULL, " +
+                        "goal TEXT NOT NULL, " +
+                        "resolvedUrl TEXT, " +
+                        "scrapeId TEXT, " +
+                        "liveViewUrl TEXT, " +
+                        "interactiveLiveViewUrl TEXT, " +
+                        "status TEXT NOT NULL, " +
+                        "phase TEXT, " +
+                        "pendingKind TEXT, " +
+                        "pendingInstruction TEXT, " +
+                        "pendingDraft TEXT, " +
+                        "candidatesJson TEXT, " +
+                        "lastOutput TEXT, " +
+                        "error TEXT, " +
+                        "openedAt INTEGER, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "lastActivityAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(chatId) REFERENCES chat_threads(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_browser_sessions_chatId ON browser_sessions (chatId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_browser_sessions_status ON browser_sessions (status)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS browser_steps (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "sessionId TEXT NOT NULL, " +
+                        "role TEXT NOT NULL, " +
+                        "text TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(sessionId) REFERENCES browser_sessions(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_browser_steps_sessionId ON browser_steps (sessionId)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -164,6 +206,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 // Only pre-v2 installs (no migration path defined) fall back destructively.
                 .fallbackToDestructiveMigration()

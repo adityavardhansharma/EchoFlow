@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -138,6 +139,7 @@ private const val PageWebSearch = "web_search"
 private const val PageLocalModels = "local_models"
 private const val PageDeepResearch = "deep_research"
 private const val PageDataAgent = "data_agent"
+private const val PageBrowserFlow = "browser_flow"
 private const val PageEchoAdviser = "echo_adviser"
 private const val PageEchoFusion = "echo_fusion"
 private const val PageEchoAgent = "echo_agent"
@@ -192,6 +194,7 @@ fun SettingsScreen(
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageHome })
+            PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageHome })
             PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageHome })
             PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageHome })
             PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageHome })
@@ -220,6 +223,8 @@ private fun SettingsHomePage(
     val deepResearchModels by viewModel.deepResearchModels.collectAsState()
     val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
+    val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
+    val firecrawlKeyHome by viewModel.firecrawlApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
@@ -263,6 +268,11 @@ private fun SettingsHomePage(
         !dataAgentEnabled -> "Off"
         else -> DataAgentCatalog.byId(dataAgentEngine)?.name ?: "On"
     }
+    val browserFlowSubtitle = when {
+        !browserFlowEnabled -> "Off"
+        firecrawlKeyHome.isBlank() -> "On · add a Firecrawl key"
+        else -> "Live browser · controlled by chat"
+    }
     val echoAdviserSubtitle = when {
         advisorProfiles.isEmpty() -> "Escalate to a stronger model · none set up"
         else -> "${advisorProfiles.size} advisor" + (if (advisorProfiles.size == 1) "" else "s")
@@ -285,7 +295,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 9,
+                index = 0, count = 10,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -295,7 +305,7 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 9,
+                index = 1, count = 10,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -305,7 +315,7 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 9,
+                index = 2, count = 10,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -315,7 +325,7 @@ private fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 9,
+                index = 3, count = 10,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -325,7 +335,7 @@ private fun SettingsHomePage(
                 subtitle = dataAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 4, count = 9,
+                index = 4, count = 10,
                 onClick = { onOpen(PageDataAgent) },
             )
             SettingsNavRow(
@@ -335,7 +345,7 @@ private fun SettingsHomePage(
                 subtitle = echoAdviserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 9,
+                index = 5, count = 10,
                 onClick = { onOpen(PageEchoAdviser) },
             )
             SettingsNavRow(
@@ -345,7 +355,7 @@ private fun SettingsHomePage(
                 subtitle = echoFusionSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 9,
+                index = 6, count = 10,
                 onClick = { onOpen(PageEchoFusion) },
             )
             SettingsNavRow(
@@ -355,7 +365,7 @@ private fun SettingsHomePage(
                 subtitle = echoAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 9,
+                index = 7, count = 10,
                 onClick = { onOpen(PageEchoAgent) },
             )
             SettingsNavRow(
@@ -365,8 +375,18 @@ private fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 8, count = 9,
+                index = 8, count = 10,
                 onClick = { onOpen(PageLocalModels) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Language,
+                polygon = MaterialShapes.Cookie4Sided,
+                title = "Browser Flow",
+                subtitle = browserFlowSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 9, count = 10,
+                onClick = { onOpen(PageBrowserFlow) },
             )
         }
     }
@@ -1397,6 +1417,82 @@ private fun DataAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     options = listOf("1000" to "Low", "2500" to "Standard", "10000" to "High"),
                     selected = maxCredits.toString(),
                     onSelect = { viewModel.saveDataAgentMaxCredits(it.toInt()) },
+                )
+            }
+        }
+    }
+}
+
+// ── Browser Flow ──────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val enabled by viewModel.browserFlowEnabled.collectAsState()
+    val idleMinutes by viewModel.browserIdleMinutes.collectAsState()
+    val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+
+    SettingsPageScaffold(title = "Browser Flow", subtitle = "A live browser, controlled by chat", onBack = onBack) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Browser Flow", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Open a real website and steer it with chat messages",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Switch(checked = enabled, onCheckedChange = viewModel::saveBrowserFlowEnabled)
+            }
+        }
+
+        AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
+            Column {
+                Spacer(Modifier.height(Spacing.xl))
+                FormCard {
+                    Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "Tell it to open a site, then keep sending instructions — it controls the same live " +
+                            "Firecrawl browser until you Finish or Stop. You can watch and take over any time. " +
+                            "Sessions are temporary (no saved logins). It never automates payments or checkout, " +
+                            "and asks before sending messages. Uses Firecrawl credits (~${com.echoflow.data.BrowserSession.CREDITS_PER_MINUTE} per minute while open).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (firecrawlKey.isBlank()) {
+                    Spacer(Modifier.height(Spacing.xl))
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Key, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(Spacing.s))
+                            Text(
+                                "Add your Firecrawl API key in Settings → Web search to use Browser Flow.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Auto-close when idle", "Closes the session after this long with no activity (saves credits)")
+                ConnectedToggleRow(
+                    options = listOf("2" to "2 min", "3" to "3 min", "5" to "5 min", "0" to "Off"),
+                    selected = idleMinutes.toString(),
+                    onSelect = { viewModel.saveBrowserIdleMinutes(it.toInt()) },
                 )
             }
         }

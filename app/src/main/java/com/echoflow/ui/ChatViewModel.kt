@@ -64,6 +64,12 @@ private data class ActiveStreamState(
     val isLocal: Boolean = false
 )
 
+data class BrowserStartConflict(
+    val activeSession: BrowserSession,
+    val targetChatId: String?,
+    val pendingPrompt: String,
+)
+
 class ChatViewModel(
     application: Application,
     private val chatDao: ChatDao,
@@ -74,12 +80,20 @@ class ChatViewModel(
     private val deepResearchModelDao: DeepResearchModelDao,
     private val advisorProfileDao: AdvisorProfileDao,
     private val fusionPanelDao: FusionPanelDao,
-    private val agentProfileDao: AgentProfileDao
+    private val agentProfileDao: AgentProfileDao,
+    private val browserSessionDao: BrowserSessionDao,
+    private val browserStepDao: BrowserStepDao
 ) : AndroidViewModel(application) {
 
     private val openRouterService = OpenRouterService(application)
     private val webSearchService = WebSearchService()
     private val localLlmService = LocalLlmService(application)
+
+    // Browser Flow: stateful Firecrawl browser controlled through chat. The manager owns all
+    // orchestration and writes session/step rows; the UI observes them.
+    private val browserAgent = BrowserAgentManager(
+        chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
+    )
 
     val allThreads: StateFlow<List<ChatThread>> = chatDao.getAllThreads()
         .stateIn(
@@ -226,6 +240,53 @@ class ChatViewModel(
     private val _echoAgentActive = MutableStateFlow(false)
     val echoAgentActive: StateFlow<Boolean> = _echoAgentActive.asStateFlow()
 
+    // Browser Flow igniter chip. Unlike Echo modes it is NOT sticky: it only *starts* a session;
+    // once a session exists, the session row (not this flag) captures the owning chat's routing.
+    private val _browserFlowActive = MutableStateFlow(false)
+    val browserFlowActive: StateFlow<Boolean> = _browserFlowActive.asStateFlow()
+
+    /** The single app-wide live browser session (start-lock + global pill). */
+    val activeBrowserSession: StateFlow<BrowserSession?> = browserAgent.activeSession
+
+    /** The live browser session owning the open chat, if any (drives the in-chat card/capture). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentBrowserSession: StateFlow<BrowserSession?> = _currentChatThreadId
+        .flatMapLatest { chatId -> if (chatId == null) flowOf(null) else browserAgent.observeForChat(chatId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Timeline steps for the open chat's session. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentBrowserSteps: StateFlow<List<BrowserStep>> = currentBrowserSession
+        .flatMapLatest { s -> if (s == null) flowOf(emptyList()) else browserAgent.observeSteps(s.id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Browser Flow is offered when enabled in Settings and a Firecrawl key exists. */
+    val browserFlowAvailable: StateFlow<Boolean> = combine(
+        settingsRepository.browserFlowEnabled, settingsRepository.firecrawlApiKey
+    ) { enabled, key -> enabled && key.isNotBlank() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** Which chat's Browser Workspace should be open fullscreen (null = closed). */
+    private val _browserWorkspaceChatId = MutableStateFlow<String?>(null)
+    val browserWorkspaceChatId: StateFlow<String?> = _browserWorkspaceChatId.asStateFlow()
+
+    /** Set when the user tries to start a 2nd session while one is already live elsewhere. */
+    private val _browserStartConflict = MutableStateFlow<BrowserStartConflict?>(null)
+    val browserStartConflict: StateFlow<BrowserStartConflict?> = _browserStartConflict.asStateFlow()
+
+    init {
+        // Auto-open the workspace when a session goes live (the manager requests it).
+        viewModelScope.launch {
+            browserAgent.openWorkspaceFor.collect { chatId ->
+                if (chatId != null) {
+                    _currentChatThreadId.value = chatId
+                    _browserWorkspaceChatId.value = chatId
+                    browserAgent.clearWorkspaceRequest()
+                }
+            }
+        }
+    }
+
     /** The Deep Research engine/model the user has added (built-in provider engines + agentic). */
     val deepResearchModels: StateFlow<List<DeepResearchModel>> = deepResearchModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -241,7 +302,7 @@ class ChatViewModel(
     // Web Search, Deep Research, Data Agent, Echo Adviser and Echo Fusion are mutually
     // exclusive capabilities — turning one on clears the rest.
     private fun clearCapabilitiesExcept(keep: MutableStateFlow<Boolean>) {
-        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive)
+        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive, _browserFlowActive)
             .filter { it !== keep }
             .forEach { it.value = false }
     }
@@ -280,6 +341,52 @@ class ChatViewModel(
         val next = !_echoAgentActive.value
         _echoAgentActive.value = next
         if (next) clearCapabilitiesExcept(_echoAgentActive)
+    }
+
+    fun toggleBrowserFlow() {
+        val next = !_browserFlowActive.value
+        _browserFlowActive.value = next
+        if (next) clearCapabilitiesExcept(_browserFlowActive)
+    }
+
+    // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
+
+    fun openBrowserWorkspace(chatId: String) {
+        _currentChatThreadId.value = chatId
+        clearError()
+        _browserWorkspaceChatId.value = chatId
+    }
+
+    fun closeBrowserWorkspace() {
+        _browserWorkspaceChatId.value = null
+        browserAgent.clearWorkspaceRequest()
+    }
+
+    fun browserResolveCandidate(sessionId: String, url: String) = browserAgent.resolveCandidate(sessionId, url)
+    fun browserConfirmDomain(sessionId: String) = browserAgent.confirmDomain(sessionId)
+    fun browserConfirmSend(sessionId: String) = browserAgent.confirmSend(sessionId)
+    fun browserCancelPending(sessionId: String) = browserAgent.cancelPending(sessionId)
+    fun browserStop(sessionId: String) {
+        browserAgent.stop(sessionId)
+        if (_browserWorkspaceChatId.value != null) closeBrowserWorkspace()
+    }
+    fun browserFinish(sessionId: String) = browserAgent.finish(sessionId)
+
+    fun dismissBrowserConflict() { _browserStartConflict.value = null }
+
+    fun browserReturnToActive() {
+        _browserStartConflict.value?.let { openBrowserWorkspace(it.activeSession.chatId) }
+        _browserStartConflict.value = null
+    }
+
+    /** Finish the currently-active session, then start a new one in the chat that requested it. */
+    fun browserFinishActiveThenStart() {
+        val conflict = _browserStartConflict.value ?: return
+        _browserStartConflict.value = null
+        viewModelScope.launch {
+            browserAgent.finishNow(conflict.activeSession.id)
+            startBrowserSession(conflict.pendingPrompt, force = true, targetChatId = conflict.targetChatId)
+        }
     }
 
     fun selectThread(chatId: String?) {
@@ -529,6 +636,18 @@ class ChatViewModel(
         }
         if (_dataAgentActive.value && prompt.isNotEmpty()) {
             startDataAgent(prompt)
+            return
+        }
+        // Browser Flow: the owning chat is captured — every message drives the same live browser.
+        val activeBrowser = currentBrowserSession.value
+        if (activeBrowser != null && prompt.isNotEmpty()) {
+            clearPendingAttachment()
+            browserAgent.sendCommand(activeBrowser.chatId, prompt)
+            return
+        }
+        // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
+        if (_browserFlowActive.value && prompt.isNotEmpty()) {
+            startBrowserSession(prompt)
             return
         }
 
@@ -946,6 +1065,51 @@ class ChatViewModel(
     }
 
     /** Start a Firecrawl Data Agent run (structured extraction). */
+    private fun startBrowserSession(prompt: String, force: Boolean = false, targetChatId: String? = null) {
+        viewModelScope.launch {
+            clearError()
+            if (!settingsRepository.getBrowserFlowEnabledDirect()) {
+                _errorMessage.value = "Turn on Browser Flow in Settings first."
+                return@launch
+            }
+            if (settingsRepository.getSearchApiKeyDirect("firecrawl").isBlank()) {
+                _errorMessage.value = "Add your Firecrawl API key in Settings → Web search."
+                return@launch
+            }
+            // One live browser session app-wide — block starting a second.
+            if (!force) {
+                browserAgent.activeSession.value?.let { existing ->
+                    _browserStartConflict.value = BrowserStartConflict(
+                        activeSession = existing,
+                        targetChatId = _currentChatThreadId.value,
+                        pendingPrompt = prompt,
+                    )
+                    return@launch
+                }
+            }
+
+            val now = System.currentTimeMillis()
+            var chatId = targetChatId ?: _currentChatThreadId.value
+            if (chatId == null) {
+                chatId = UUID.randomUUID().toString()
+                chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
+                _currentChatThreadId.value = chatId
+            } else {
+                _currentChatThreadId.value = chatId
+            }
+            // Title a fresh thread from the instruction (manager writes the message rows).
+            chatDao.getThreadById(chatId)?.let { thread ->
+                if (thread.title == "New Conversation") {
+                    val words = prompt.split("\\s+".toRegex())
+                    val title = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                    chatDao.updateThread(thread.copy(title = title.ifBlank { "Browser session" }))
+                }
+            }
+            _browserFlowActive.value = false // igniter consumed
+            browserAgent.startSession(chatId, prompt)
+        }
+    }
+
     private fun startDataAgent(topic: String) {
         viewModelScope.launch {
             clearError()
@@ -1309,14 +1473,16 @@ class ChatViewModel(
             deepResearchModelDao: DeepResearchModelDao,
             advisorProfileDao: AdvisorProfileDao,
             fusionPanelDao: FusionPanelDao,
-            agentProfileDao: AgentProfileDao
+            agentProfileDao: AgentProfileDao,
+            browserSessionDao: BrowserSessionDao,
+            browserStepDao: BrowserStepDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
-                    agentProfileDao
+                    agentProfileDao, browserSessionDao, browserStepDao
                 ) as T
             }
         }
