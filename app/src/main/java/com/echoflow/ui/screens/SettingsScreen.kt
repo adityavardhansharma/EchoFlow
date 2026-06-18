@@ -1593,7 +1593,6 @@ private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
 // ── Echo Adviser ──────────────────────────────────────────────────────────────────────
 
-@Composable
 /** Master on/off card shown at the top of each Echo Labs feature page. */
 @Composable
 private fun LabMasterToggle(title: String, subtitle: String, enabled: Boolean, onToggle: (Boolean) -> Unit) {
