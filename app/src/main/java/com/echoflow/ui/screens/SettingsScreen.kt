@@ -140,6 +140,7 @@ private const val PageLocalModels = "local_models"
 private const val PageDeepResearch = "deep_research"
 private const val PageDataAgent = "data_agent"
 private const val PageBrowserFlow = "browser_flow"
+private const val PageEchoLabs = "echo_labs"
 private const val PageEchoAdviser = "echo_adviser"
 private const val PageEchoFusion = "echo_fusion"
 private const val PageEchoAgent = "echo_agent"
@@ -193,11 +194,12 @@ fun SettingsScreen(
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
-            PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageHome })
-            PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageHome })
-            PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageHome })
-            PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageHome })
-            PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageHome })
+            PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = { page = PageHome })
+            PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageEchoLabs })
+            PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageEchoLabs })
+            PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageEchoLabs })
+            PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageEchoLabs })
+            PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageEchoLabs })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -224,6 +226,9 @@ private fun SettingsHomePage(
     val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
     val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
+    val echoAdviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
+    val echoFusionEnabled by viewModel.echoFusionEnabled.collectAsState()
+    val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
     val firecrawlKeyHome by viewModel.firecrawlApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
@@ -273,6 +278,9 @@ private fun SettingsHomePage(
         firecrawlKeyHome.isBlank() -> "On · add a Firecrawl key"
         else -> "Live browser · controlled by chat"
     }
+    val labsOnCount = listOf(dataAgentEnabled, echoAdviserEnabled, echoFusionEnabled, echoAgentEnabled, browserFlowEnabled).count { it }
+    val echoLabsSubtitle =
+        if (labsOnCount == 0) "Experimental modes · all off" else "Experimental modes · $labsOnCount on"
     val echoAdviserSubtitle = when {
         advisorProfiles.isEmpty() -> "Escalate to a stronger model · none set up"
         else -> "${advisorProfiles.size} advisor" + (if (advisorProfiles.size == 1) "" else "s")
@@ -295,7 +303,7 @@ private fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 10,
+                index = 0, count = 6,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -305,8 +313,18 @@ private fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 10,
+                index = 1, count = 6,
                 onClick = { onOpen(PageCloudModels) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.PhoneAndroid,
+                polygon = BrandShapes.avatarStart, // Cookie9Sided
+                title = "Local models",
+                subtitle = localSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 2, count = 6,
+                onClick = { onOpen(PageLocalModels) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Search,
@@ -315,7 +333,7 @@ private fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 2, count = 10,
+                index = 3, count = 6,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -325,68 +343,18 @@ private fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 10,
+                index = 4, count = 6,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
-                icon = Icons.Default.Dataset,
-                polygon = BrandShapes.avatarEnd, // Clover4Leaf
-                title = "Data Agent",
-                subtitle = dataAgentSubtitle,
-                container = MaterialTheme.colorScheme.tertiaryContainer,
-                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 4, count = 10,
-                onClick = { onOpen(PageDataAgent) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Psychology,
-                polygon = MaterialShapes.Cookie7Sided,
-                title = "Echo Adviser",
-                subtitle = echoAdviserSubtitle,
-                container = MaterialTheme.colorScheme.primaryContainer,
-                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 10,
-                onClick = { onOpen(PageEchoAdviser) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.AccountTree,
-                polygon = BrandShapes.avatarEnd, // Clover4Leaf
-                title = "Echo Fusion",
-                subtitle = echoFusionSubtitle,
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 10,
-                onClick = { onOpen(PageEchoFusion) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Hub,
+                icon = Icons.Default.AutoAwesome,
                 polygon = MaterialShapes.Pentagon,
-                title = "Echo Agents",
-                subtitle = echoAgentSubtitle,
+                title = "Echo Labs",
+                subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 10,
-                onClick = { onOpen(PageEchoAgent) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.PhoneAndroid,
-                polygon = BrandShapes.avatarStart, // Cookie9Sided
-                title = "Local models",
-                subtitle = localSubtitle,
-                container = MaterialTheme.colorScheme.primaryContainer,
-                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 8, count = 10,
-                onClick = { onOpen(PageLocalModels) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Language,
-                polygon = MaterialShapes.Cookie4Sided,
-                title = "Browser Flow",
-                subtitle = browserFlowSubtitle,
-                container = MaterialTheme.colorScheme.primaryContainer,
-                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 9, count = 10,
-                onClick = { onOpen(PageBrowserFlow) },
+                index = 5, count = 6,
+                onClick = { onOpen(PageEchoLabs) },
             )
         }
     }
@@ -1334,6 +1302,92 @@ private fun DrEngineSelectRow(
     }
 }
 
+// ── Echo Labs (hub) ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit, onBack: () -> Unit) {
+    val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
+    val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
+    val echoAdviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
+    val echoFusionEnabled by viewModel.echoFusionEnabled.collectAsState()
+    val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
+    val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
+    val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+    val advisorProfiles by viewModel.advisorProfiles.collectAsState()
+    val fusionPanels by viewModel.fusionPanels.collectAsState()
+    val agentProfiles by viewModel.agentProfiles.collectAsState()
+
+    val dataAgentSubtitle = if (!dataAgentEnabled) "Off" else DataAgentCatalog.byId(dataAgentEngine)?.name ?: "On"
+    val adviserSubtitle = if (!echoAdviserEnabled) "Off" else "${advisorProfiles.size} advisor" + (if (advisorProfiles.size == 1) "" else "s")
+    val fusionSubtitle = if (!echoFusionEnabled) "Off" else "${fusionPanels.size} panel" + (if (fusionPanels.size == 1) "" else "s")
+    val agentSubtitle = if (!echoAgentEnabled) "Off" else "${agentProfiles.size} Echo Agent" + (if (agentProfiles.size == 1) "" else "s")
+    val browserSubtitle = when {
+        !browserFlowEnabled -> "Off"
+        firecrawlKey.isBlank() -> "On · add a Firecrawl key"
+        else -> "Live browser · chat-controlled"
+    }
+
+    SettingsPageScaffold(title = "Echo Labs", subtitle = "Experimental modes · turn on what you need", onBack = onBack) {
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SettingsNavRow(
+                icon = Icons.Default.Dataset,
+                polygon = BrandShapes.avatarEnd,
+                title = "Data Agent",
+                subtitle = dataAgentSubtitle,
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 0, count = 4,
+                onClick = { onOpen(PageDataAgent) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Psychology,
+                polygon = MaterialShapes.Cookie7Sided,
+                title = "Echo Adviser",
+                subtitle = adviserSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 1, count = 4,
+                onClick = { onOpen(PageEchoAdviser) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.AccountTree,
+                polygon = BrandShapes.avatarEnd,
+                title = "Echo Fusion",
+                subtitle = fusionSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 2, count = 4,
+                onClick = { onOpen(PageEchoFusion) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Hub,
+                polygon = MaterialShapes.Pentagon,
+                title = "Echo Agents",
+                subtitle = agentSubtitle,
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 3, count = 4,
+                onClick = { onOpen(PageEchoAgent) },
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Beta", "Experimental · may break · uses Firecrawl credits while open")
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SettingsNavRow(
+                icon = Icons.Default.Language,
+                polygon = MaterialShapes.Cookie4Sided,
+                title = "Browser Flow",
+                subtitle = browserSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 0, count = 1,
+                onClick = { onOpen(PageBrowserFlow) },
+            )
+        }
+    }
+}
+
 // ── Data Agent ────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -1430,6 +1484,7 @@ private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val enabled by viewModel.browserFlowEnabled.collectAsState()
     val idleMinutes by viewModel.browserIdleMinutes.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+    var showBetaWarning by remember { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "Browser Flow", subtitle = "A live browser, controlled by chat", onBack = onBack) {
         Surface(
@@ -1439,7 +1494,18 @@ private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         ) {
             Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Browser Flow", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Browser Flow", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.width(Spacing.s))
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Text(
+                                "BETA",
+                                Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                        }
+                    }
                     Text(
                         "Open a real website and steer it with chat messages",
                         style = MaterialTheme.typography.bodySmall,
@@ -1447,8 +1513,34 @@ private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.width(Spacing.s))
-                Switch(checked = enabled, onCheckedChange = viewModel::saveBrowserFlowEnabled)
+                Switch(
+                    checked = enabled,
+                    // Turning it on is a beta opt-in — confirm first; off is immediate.
+                    onCheckedChange = { on -> if (on) showBetaWarning = true else viewModel.saveBrowserFlowEnabled(false) },
+                )
             }
+        }
+
+        if (showBetaWarning) {
+            AlertDialog(
+                onDismissRequest = { showBetaWarning = false },
+                icon = { Icon(Icons.Default.Science, null) },
+                title = { Text("Browser Flow is in beta") },
+                text = {
+                    Text(
+                        "This drives a real remote browser through Firecrawl. It's experimental and may " +
+                            "break or behave unexpectedly, and it uses Firecrawl credits (~7 per minute while " +
+                            "a session is open). It never automates payments or checkout, and asks before " +
+                            "sending messages. Turn it on?",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.saveBrowserFlowEnabled(true); showBetaWarning = false }) {
+                        Text("Turn on")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { showBetaWarning = false }) { Text("Cancel") } },
+            )
         }
 
         AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
@@ -1502,6 +1594,26 @@ private fun BrowserFlowPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 // ── Echo Adviser ──────────────────────────────────────────────────────────────────────
 
 @Composable
+/** Master on/off card shown at the top of each Echo Labs feature page. */
+@Composable
+private fun LabMasterToggle(title: String, subtitle: String, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+@Composable
 private fun EchoAdviserPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val apiKey by viewModel.apiKey.collectAsState()
     val profiles by viewModel.advisorProfiles.collectAsState()
@@ -1515,6 +1627,9 @@ private fun EchoAdviserPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
 
     SettingsPageScaffold(title = "Echo Adviser", subtitle = "Escalate hard parts to a stronger model", onBack = onBack) {
+        val adviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
+        LabMasterToggle("Echo Adviser", "Show this mode in the chat + menu", adviserEnabled, viewModel::saveEchoAdviserEnabled)
+        Spacer(Modifier.height(Spacing.m))
         FormCard {
             Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
@@ -1605,6 +1720,9 @@ private fun EchoFusionPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var nameDialog by remember { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "Echo Fusion", subtitle = "A panel of models deliberates", onBack = onBack) {
+        val fusionEnabled by viewModel.echoFusionEnabled.collectAsState()
+        LabMasterToggle("Echo Fusion", "Show this mode in the chat + menu", fusionEnabled, viewModel::saveEchoFusionEnabled)
+        Spacer(Modifier.height(Spacing.m))
         FormCard {
             Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
@@ -1833,6 +1951,9 @@ private fun EchoAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
 
     SettingsPageScaffold(title = "Echo Agents", subtitle = "Your main model hands work to an Echo Agent", onBack = onBack) {
+        val agentEnabled by viewModel.echoAgentEnabled.collectAsState()
+        LabMasterToggle("Echo Agents", "Show this mode in the chat + menu", agentEnabled, viewModel::saveEchoAgentEnabled)
+        Spacer(Modifier.height(Spacing.m))
         FormCard {
             Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
