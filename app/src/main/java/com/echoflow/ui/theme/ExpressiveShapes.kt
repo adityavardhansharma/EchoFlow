@@ -49,7 +49,12 @@ class RoundedPolygonShape(private val polygon: RoundedPolygon) : Shape {
         matrix.reset()
         val b = polygon.bounds()
         val maxDim = max(b.width, b.height).takeIf { it > 0f } ?: 1f
-        matrix.scale(size.width / maxDim, size.height / maxDim)
+        val scaleX = size.width / maxDim
+        val scaleY = size.height / maxDim
+        // Centre the (uniformly scaled) shape: a non-square polygon would otherwise sit flush to
+        // the top-left, making centred content (e.g. an icon) look off-centre.
+        matrix.translate((size.width - b.width * scaleX) / 2f, (size.height - b.height * scaleY) / 2f)
+        matrix.scale(scaleX, scaleY)
         matrix.translate(-b.left, -b.top)
         path.transform(matrix)
         return Outline.Generic(path)
@@ -94,8 +99,13 @@ class MorphPolygonShape(
         val path: Path = morph.toPath(progress = progress).asComposePath()
         val b = path.getBounds()
         val maxDim = max(b.width, b.height).takeIf { it > 0f } ?: 1f
+        val scaleX = size.width / maxDim
+        val scaleY = size.height / maxDim
         matrix.reset()
-        matrix.scale(size.width / maxDim, size.height / maxDim)
+        // Centre the morphed shape so centred content (the icon) stays visually centred even when
+        // the morph's bounds aren't square.
+        matrix.translate((size.width - b.width * scaleX) / 2f, (size.height - b.height * scaleY) / 2f)
+        matrix.scale(scaleX, scaleY)
         matrix.translate(-b.left, -b.top)
         path.transform(matrix)
         return Outline.Generic(path)
