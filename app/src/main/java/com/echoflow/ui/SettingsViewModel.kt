@@ -80,7 +80,12 @@ class SettingsViewModel(
     val dataAgentEngine: StateFlow<String> = repository.dataAgentEngine
     val dataAgentMaxCredits: StateFlow<Int> = repository.dataAgentMaxCredits
 
-    // Browser Flow
+    // Echo Labs master switches
+    val echoAdviserEnabled: StateFlow<Boolean> = repository.echoAdviserEnabled
+    val echoFusionEnabled: StateFlow<Boolean> = repository.echoFusionEnabled
+    val echoAgentEnabled: StateFlow<Boolean> = repository.echoAgentEnabled
+
+    // Browser Flow (beta)
     val browserFlowEnabled: StateFlow<Boolean> = repository.browserFlowEnabled
     val browserIdleMinutes: StateFlow<Int> = repository.browserIdleMinutes
 
@@ -222,6 +227,9 @@ class SettingsViewModel(
     fun saveDataAgentEnabled(enabled: Boolean) = repository.saveDataAgentEnabled(enabled)
     fun saveBrowserFlowEnabled(enabled: Boolean) = repository.saveBrowserFlowEnabled(enabled)
     fun saveBrowserIdleMinutes(value: Int) = repository.saveBrowserIdleMinutes(value)
+    fun saveEchoAdviserEnabled(enabled: Boolean) = repository.saveEchoAdviserEnabled(enabled)
+    fun saveEchoFusionEnabled(enabled: Boolean) = repository.saveEchoFusionEnabled(enabled)
+    fun saveEchoAgentEnabled(enabled: Boolean) = repository.saveEchoAgentEnabled(enabled)
     fun saveDataAgentEngine(id: String) = repository.saveDataAgentEngine(id)
     fun saveDataAgentMaxCredits(value: Int) = repository.saveDataAgentMaxCredits(value)
 

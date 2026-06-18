@@ -97,6 +97,17 @@ class SettingsRepository(context: Context) {
     private val _echoAgentProfileId = MutableStateFlow(getEchoAgentProfileIdDirect())
     val echoAgentProfileId: StateFlow<String> = _echoAgentProfileId.asStateFlow()
 
+    // Echo Labs master switches: each experimental mode can be turned off entirely (hides it
+    // from the in-chat "+" menu). Stable modes default on; the beta one (Browser Flow) is opt-in.
+    private val _echoAdviserEnabled = MutableStateFlow(getEchoAdviserEnabledDirect())
+    val echoAdviserEnabled: StateFlow<Boolean> = _echoAdviserEnabled.asStateFlow()
+
+    private val _echoFusionEnabled = MutableStateFlow(getEchoFusionEnabledDirect())
+    val echoFusionEnabled: StateFlow<Boolean> = _echoFusionEnabled.asStateFlow()
+
+    private val _echoAgentEnabled = MutableStateFlow(getEchoAgentEnabledDirect())
+    val echoAgentEnabled: StateFlow<Boolean> = _echoAgentEnabled.asStateFlow()
+
     // Inference parameters: one global set for on-device models, one for OpenRouter models.
     private val _localInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = true))
     val localInferenceParams: StateFlow<InferenceParams> = _localInferenceParams.asStateFlow()
@@ -359,10 +370,30 @@ class SettingsRepository(context: Context) {
         _dataAgentMaxCredits.value = value
     }
 
-    // ── Browser Flow ───────────────────────────────────────────────────────────────────
+    // ── Echo Labs master switches ──────────────────────────────────────────────────────
+
+    fun getEchoAdviserEnabledDirect(): Boolean = prefs.getBoolean("echo_adviser_enabled", true)
+    fun saveEchoAdviserEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("echo_adviser_enabled", enabled).apply()
+        _echoAdviserEnabled.value = enabled
+    }
+
+    fun getEchoFusionEnabledDirect(): Boolean = prefs.getBoolean("echo_fusion_enabled", true)
+    fun saveEchoFusionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("echo_fusion_enabled", enabled).apply()
+        _echoFusionEnabled.value = enabled
+    }
+
+    fun getEchoAgentEnabledDirect(): Boolean = prefs.getBoolean("echo_agent_enabled", true)
+    fun saveEchoAgentEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("echo_agent_enabled", enabled).apply()
+        _echoAgentEnabled.value = enabled
+    }
+
+    // ── Browser Flow (beta) ────────────────────────────────────────────────────────────
 
     fun getBrowserFlowEnabledDirect(): Boolean =
-        prefs.getBoolean("browser_flow_enabled", false)
+        prefs.getBoolean("browser_flow_enabled", false) // beta — opt-in
 
     fun saveBrowserFlowEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("browser_flow_enabled", enabled).apply()

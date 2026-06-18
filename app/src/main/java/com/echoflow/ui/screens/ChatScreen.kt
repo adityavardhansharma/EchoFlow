@@ -149,6 +149,11 @@ fun ChatScreen(
     val echoAgentProfileId by settingsViewModel.echoAgentProfileId.collectAsState()
     val activeAgent = agentProfiles.firstOrNull { it.id == echoAgentProfileId }
 
+    // Echo Labs master switches gate which experimental modes appear in the "+" menu.
+    val echoAdviserEnabled by settingsViewModel.echoAdviserEnabled.collectAsState()
+    val echoFusionEnabled by settingsViewModel.echoFusionEnabled.collectAsState()
+    val echoAgentEnabled by settingsViewModel.echoAgentEnabled.collectAsState()
+
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
@@ -324,6 +329,9 @@ fun ChatScreen(
                 onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
                 onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
                 onToggleEchoAgent = { chatViewModel.toggleEchoAgent() },
+                echoAdviserAvailable = echoAdviserEnabled,
+                echoFusionAvailable = echoFusionEnabled,
+                echoAgentAvailable = echoAgentEnabled,
                 browserFlowActive = browserFlowActive,
                 browserFlowAvailable = browserFlowAvailable,
                 onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
@@ -1135,6 +1143,9 @@ private fun InputToolbar(
     onToggleEchoAdviser: () -> Unit,
     onToggleEchoFusion: () -> Unit,
     onToggleEchoAgent: () -> Unit,
+    echoAdviserAvailable: Boolean,
+    echoFusionAvailable: Boolean,
+    echoAgentAvailable: Boolean,
     browserFlowActive: Boolean,
     browserFlowAvailable: Boolean,
     onToggleBrowserFlow: () -> Unit,
@@ -1266,28 +1277,6 @@ private fun InputToolbar(
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
             )
         }
-        AnimatedVisibility(visible = (deepResearchActive || dataAgentActive) && blockedReason == null) {
-            Text(
-                if (dataAgentActive) "Collects data into a table · runs in the background"
-                else "Runs in the background · multiple searches · a few minutes",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
-            )
-        }
-        AnimatedVisibility(visible = (echoAdviserActive || echoFusionActive || echoAgentActive) && blockedReason == null) {
-            Text(
-                when {
-                    echoFusionActive -> "Runs a panel of models + a judge every message · cost-heavy"
-                    echoAgentActive -> "The main model hands tasks to your Echo Agent each message · adds cost"
-                    else -> "Consults a stronger advisor model each message · adds cost"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
-            )
-        }
-
         Surface(
             shape = CircleShape,
             // Tint the composer while the chat is captured by a live browser session.
@@ -1323,6 +1312,9 @@ private fun InputToolbar(
                         echoAdviserOn = echoAdviserActive,
                         echoFusionOn = echoFusionActive,
                         echoAgentOn = echoAgentActive,
+                        echoAdviserAvailable = echoAdviserAvailable,
+                        echoFusionAvailable = echoFusionAvailable,
+                        echoAgentAvailable = echoAgentAvailable,
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         onImage = { plusMenuOpen = false; onAttach() },
@@ -1390,6 +1382,9 @@ private fun PlusMenu(
     echoAdviserOn: Boolean,
     echoFusionOn: Boolean,
     echoAgentOn: Boolean,
+    echoAdviserAvailable: Boolean,
+    echoFusionAvailable: Boolean,
+    echoAgentAvailable: Boolean,
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
     onImage: () -> Unit,
@@ -1448,27 +1443,35 @@ private fun PlusMenu(
                 onClick = onToggleBrowserFlow,
             )
         }
-        HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
-        // Echo Adviser / Echo Fusion — OpenRouter-only, cost-heavy modes. Always shown; if the
-        // key or a profile/panel is missing, sending surfaces a "set it up" message.
-        DropdownMenuItem(
-            text = { Text("Echo Adviser") },
-            leadingIcon = { Icon(Icons.Default.Psychology, null) },
-            trailingIcon = { if (echoAdviserOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleEchoAdviser,
-        )
-        DropdownMenuItem(
-            text = { Text("Echo Fusion") },
-            leadingIcon = { Icon(Icons.Default.AccountTree, null) },
-            trailingIcon = { if (echoFusionOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleEchoFusion,
-        )
-        DropdownMenuItem(
-            text = { Text("Echo Agents") },
-            leadingIcon = { Icon(Icons.Default.Hub, null) },
-            trailingIcon = { if (echoAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleEchoAgent,
-        )
+        // Echo Labs modes — only shown when enabled in Settings → Echo Labs. If the key or a
+        // profile/panel is missing, sending surfaces a "set it up" message.
+        if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
+            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+        }
+        if (echoAdviserAvailable) {
+            DropdownMenuItem(
+                text = { Text("Echo Adviser") },
+                leadingIcon = { Icon(Icons.Default.Psychology, null) },
+                trailingIcon = { if (echoAdviserOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+                onClick = onToggleEchoAdviser,
+            )
+        }
+        if (echoFusionAvailable) {
+            DropdownMenuItem(
+                text = { Text("Echo Fusion") },
+                leadingIcon = { Icon(Icons.Default.AccountTree, null) },
+                trailingIcon = { if (echoFusionOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+                onClick = onToggleEchoFusion,
+            )
+        }
+        if (echoAgentAvailable) {
+            DropdownMenuItem(
+                text = { Text("Echo Agents") },
+                leadingIcon = { Icon(Icons.Default.Hub, null) },
+                trailingIcon = { if (echoAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+                onClick = onToggleEchoAgent,
+            )
+        }
     }
 }
 
