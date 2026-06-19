@@ -89,6 +89,9 @@ class SettingsViewModel(
     val browserFlowEnabled: StateFlow<Boolean> = repository.browserFlowEnabled
     val browserIdleMinutes: StateFlow<Int> = repository.browserIdleMinutes
 
+    // Artifacts
+    val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
+
     // Echo Adviser / Echo Fusion
     val echoAdviserProfileId: StateFlow<String> = repository.echoAdviserProfileId
     val echoFusionPanelId: StateFlow<String> = repository.echoFusionPanelId
@@ -227,6 +230,7 @@ class SettingsViewModel(
     fun saveDataAgentEnabled(enabled: Boolean) = repository.saveDataAgentEnabled(enabled)
     fun saveBrowserFlowEnabled(enabled: Boolean) = repository.saveBrowserFlowEnabled(enabled)
     fun saveBrowserIdleMinutes(value: Int) = repository.saveBrowserIdleMinutes(value)
+    fun saveArtifactsOffline(enabled: Boolean) = repository.saveArtifactsOffline(enabled)
     fun saveEchoAdviserEnabled(enabled: Boolean) = repository.saveEchoAdviserEnabled(enabled)
     fun saveEchoFusionEnabled(enabled: Boolean) = repository.saveEchoFusionEnabled(enabled)
     fun saveEchoAgentEnabled(enabled: Boolean) = repository.saveEchoAgentEnabled(enabled)

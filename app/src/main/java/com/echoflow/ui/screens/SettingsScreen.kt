@@ -1385,6 +1385,32 @@ private fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit,
                 onClick = { onOpen(PageBrowserFlow) },
             )
         }
+
+        val artifactsOffline by viewModel.artifactsOffline.collectAsState()
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Artifacts", "How generated web artifacts handle the network")
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Offline artifacts", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Build HTML artifacts with no CDN so they render without a connection. " +
+                            "Reports and documents already work offline.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Switch(
+                    checked = artifactsOffline,
+                    onCheckedChange = { viewModel.saveArtifactsOffline(it) },
+                )
+            }
+        }
     }
 }
 
