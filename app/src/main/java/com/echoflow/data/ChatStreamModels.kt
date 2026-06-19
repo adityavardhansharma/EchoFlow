@@ -130,19 +130,28 @@ data class Citation(
     val url: String
 )
 
+/** A reference to a persisted [com.echoflow.data.Artifact] version, embedded in a reply's timeline. */
+data class ArtifactRef(
+    val artifactId: String,
+    val title: String,
+    val type: String, // Artifact.TYPE_* — selects the render view
+    val version: Int,
+)
+
 /**
  * One block of a finished reply, persisted in arrival order so the rendered timeline
  * (reason → search → reason → search → answer) survives exactly as it streamed instead
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,
     val advisor: AdvisorAdvice? = null, // present when type == "advisor"
     val fusion: FusionAnalysis? = null, // present when type == "fusion"
-    val subagent: SubagentResult? = null // present when type == "subagent"
+    val subagent: SubagentResult? = null, // present when type == "subagent"
+    val artifact: ArtifactRef? = null // present when type == "artifact"
 )
 
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */
