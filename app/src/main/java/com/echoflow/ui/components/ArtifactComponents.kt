@@ -119,6 +119,43 @@ fun ArtifactCard(
     }
 }
 
+/**
+ * Floating pill shown across the app while an artifact exists in the open chat and the workspace is
+ * closed — a quick way back into the fullscreen viewer. Mirrors the Browser Flow global pill.
+ */
+@Composable
+fun GlobalArtifactPill(
+    title: String,
+    artifactType: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val (icon, _) = artifactGlyph(artifactType)
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.tertiary,
+        shadowElevation = 8.dp,
+        modifier = modifier,
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.base, end = Spacing.m, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onTertiary)
+            Text(
+                title.ifBlank { "Artifact" },
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 private fun artifactGlyph(type: String): Pair<ImageVector, String> = when (type) {
     Artifact.TYPE_MARKDOWN -> Icons.AutoMirrored.Filled.Article to "Document"
     Artifact.TYPE_LATEX -> Icons.Default.PictureAsPdf to "Report"

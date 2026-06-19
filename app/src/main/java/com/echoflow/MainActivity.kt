@@ -156,6 +156,8 @@ fun MainNavigationHub(
 
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
+    val currentArtifact by chatViewModel.currentArtifact.collectAsState()
+    val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
@@ -191,6 +193,26 @@ fun MainNavigationHub(
             com.echoflow.ui.screens.BrowserWorkspaceScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeBrowserWorkspace() },
+            )
+        }
+
+        // Global "artifact ready" pill — tap to reopen the workspace for the open chat's artifact.
+        val artifact = currentArtifact
+        if (artifact != null && !artifactWorkspaceOpen && browserWorkspaceChatId == null) {
+            com.echoflow.ui.components.GlobalArtifactPill(
+                title = artifact.title,
+                artifactType = artifact.type,
+                onClick = { chatViewModel.openArtifactWorkspace() },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 110.dp),
+            )
+        }
+
+        // Fullscreen Artifact Workspace overlay (preview / code / version switcher).
+        if (artifactWorkspaceOpen) {
+            BackHandler { chatViewModel.closeArtifactWorkspace() }
+            com.echoflow.ui.screens.ArtifactWorkspaceScreen(
+                chatViewModel = chatViewModel,
+                onClose = { chatViewModel.closeArtifactWorkspace() },
             )
         }
     }
