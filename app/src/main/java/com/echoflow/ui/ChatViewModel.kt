@@ -55,6 +55,20 @@ sealed class StreamSegment {
         val error: String?,
         val active: Boolean
     ) : StreamSegment()
+
+    /**
+     * Artifact card: shown while the model builds an artifact ([building] = true, with a live
+     * [charCount]) and afterwards as a finished card carrying the persisted [artifactId]/[version].
+     */
+    data class Artifact(
+        val artifactId: String?,
+        val title: String,
+        val artifactType: String,
+        val version: Int,
+        val charCount: Int,
+        val building: Boolean,
+        val truncated: Boolean,
+    ) : StreamSegment()
 }
 
 private data class ActiveStreamState(
@@ -82,8 +96,13 @@ class ChatViewModel(
     private val fusionPanelDao: FusionPanelDao,
     private val agentProfileDao: AgentProfileDao,
     private val browserSessionDao: BrowserSessionDao,
-    private val browserStepDao: BrowserStepDao
+    private val browserStepDao: BrowserStepDao,
+    private val artifactDao: ArtifactDao,
+    private val artifactVersionDao: ArtifactVersionDao
 ) : AndroidViewModel(application) {
+
+    // Artifacts: model-built, rendered content (web page / document / report) with version history.
+    private val artifactManager = ArtifactManager(artifactDao, artifactVersionDao)
 
     private val openRouterService = OpenRouterService(application)
     private val webSearchService = WebSearchService()
@@ -240,6 +259,30 @@ class ChatViewModel(
     private val _echoAgentActive = MutableStateFlow(false)
     val echoAgentActive: StateFlow<Boolean> = _echoAgentActive.asStateFlow()
 
+    // Artifact mode: sticky like the Echo modes. While on, every turn builds/updates an artifact;
+    // follow-ups iterate the chat's current artifact (full version history).
+    private val _artifactActive = MutableStateFlow(false)
+    val artifactActive: StateFlow<Boolean> = _artifactActive.asStateFlow()
+
+    /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentArtifact: StateFlow<Artifact?> = _currentChatThreadId
+        .flatMapLatest { id -> if (id == null) flowOf(null) else artifactManager.observeForChat(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** All versions of the current artifact (drives the workspace version switcher). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentArtifactVersions: StateFlow<List<ArtifactVersion>> = currentArtifact
+        .flatMapLatest { a -> if (a == null) flowOf(emptyList()) else artifactManager.observeVersions(a.id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** True while the fullscreen Artifact Workspace overlay is open. */
+    private val _artifactWorkspaceOpen = MutableStateFlow(false)
+    val artifactWorkspaceOpen: StateFlow<Boolean> = _artifactWorkspaceOpen.asStateFlow()
+
+    fun openArtifactWorkspace() { if (currentArtifact.value != null) _artifactWorkspaceOpen.value = true }
+    fun closeArtifactWorkspace() { _artifactWorkspaceOpen.value = false }
+
     // Browser Flow igniter chip. Unlike Echo modes it is NOT sticky: it only *starts* a session;
     // once a session exists, the session row (not this flag) captures the owning chat's routing.
     private val _browserFlowActive = MutableStateFlow(false)
@@ -302,9 +345,15 @@ class ChatViewModel(
     // Web Search, Deep Research, Data Agent, Echo Adviser and Echo Fusion are mutually
     // exclusive capabilities — turning one on clears the rest.
     private fun clearCapabilitiesExcept(keep: MutableStateFlow<Boolean>) {
-        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive, _browserFlowActive)
+        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive, _browserFlowActive, _artifactActive)
             .filter { it !== keep }
             .forEach { it.value = false }
+    }
+
+    fun toggleArtifact() {
+        val next = !_artifactActive.value
+        _artifactActive.value = next
+        if (next) clearCapabilitiesExcept(_artifactActive)
     }
 
     fun toggleDeepResearch() {
@@ -606,6 +655,39 @@ class ChatViewModel(
                     )
                 }
             }
+            is StreamChunk.ArtifactStarted -> {
+                segments.add(
+                    StreamSegment.Artifact(
+                        artifactId = null,
+                        title = chunk.title,
+                        artifactType = chunk.artifactType,
+                        version = 0,
+                        charCount = 0,
+                        building = true,
+                        truncated = false,
+                    )
+                )
+            }
+            is StreamChunk.ArtifactProgress -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }
+                if (idx >= 0) {
+                    val seg = segments[idx] as StreamSegment.Artifact
+                    segments[idx] = seg.copy(charCount = chunk.charCount)
+                }
+            }
+            is StreamChunk.ArtifactCompleted -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }
+                val finished = StreamSegment.Artifact(
+                    artifactId = chunk.artifactId,
+                    title = chunk.title,
+                    artifactType = chunk.artifactType,
+                    version = chunk.version,
+                    charCount = chunk.content.length,
+                    building = false,
+                    truncated = chunk.truncated,
+                )
+                if (idx >= 0) segments[idx] = finished else segments.add(finished)
+            }
         }
         return null
     }
@@ -755,7 +837,16 @@ class ChatViewModel(
                 echoSystemPrompt = SystemPrompts.buildEchoFusion(panel.name)
             }
 
-            val systemPrompt = echoSystemPrompt ?: SystemPrompts.build(isLocal, effectiveProvider)
+            // Artifact mode: override the system prompt with the artifact builder. Feed the chat's
+            // current artifact back so a follow-up revises it. On-device implies offline (no CDN).
+            val artifactMode = _artifactActive.value
+            val artifactSystemPrompt = if (artifactMode) {
+                val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
+                val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
+                SystemPrompts.buildArtifact(isLocal, offline, prior)
+            } else null
+
+            val systemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: SystemPrompts.build(isLocal, effectiveProvider)
 
             var isFirstMsgInChat = false
             var chatId = _currentChatThreadId.value
@@ -841,7 +932,7 @@ class ChatViewModel(
                 )
             }
 
-            val responseFlow: Flow<StreamChunk> = when {
+            val baseResponseFlow: Flow<StreamChunk> = when {
                 agentReq != null ->
                     openRouterService.sendWithAgentTools(
                         apiKey = apiKey,
@@ -851,6 +942,12 @@ class ChatViewModel(
                         agent = agentReq,
                         params = inferenceParams,
                     )
+                // Artifact mode runs the plain streaming path (no search); the parser extracts the
+                // <echo:artifact> block from the content stream.
+                artifactMode && isLocal ->
+                    localLlmService.generate(localModel!!, chatId, fullHistory, systemPrompt, inferenceParams)
+                artifactMode ->
+                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false, params = inferenceParams)
                 advisorReq != null || fusionReq != null ->
                     openRouterService.sendWithEchoTools(
                         apiKey = apiKey,
@@ -874,6 +971,11 @@ class ChatViewModel(
                 else ->
                     openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false, params = inferenceParams)
             }
+
+            // In artifact mode, route the <echo:artifact> block out of the chat bubble into
+            // artifact events; otherwise pass the stream through untouched.
+            val responseFlow: Flow<StreamChunk> =
+                if (artifactMode) baseResponseFlow.extractArtifacts() else baseResponseFlow
 
             // Begin Streaming Assistant response
             setStreamState(
@@ -905,7 +1007,19 @@ class ChatViewModel(
             // Keep the process unfrozen so the reply keeps streaming while minimized.
             KeepAliveService.acquire(getApplication(), keepAliveText)
             try {
-                responseFlow.collect { chunk ->
+                responseFlow.collect { rawChunk ->
+                    // Persist a completed artifact version before reducing, so the card/segment
+                    // carry a real artifactId/version to deep-link the workspace.
+                    val chunk = if (rawChunk is StreamChunk.ArtifactCompleted && rawChunk.content.isNotBlank()) {
+                        val ref = artifactManager.saveVersion(
+                            chatId = chatId,
+                            title = rawChunk.title,
+                            type = rawChunk.artifactType,
+                            content = rawChunk.content,
+                            sourcePrompt = prompt,
+                        )
+                        rawChunk.copy(artifactId = ref.artifactId, artifactType = ref.type, version = ref.version)
+                    } else rawChunk
                     val note = reduceSegments(segments, chunk)
                     if (note != null) statusNote = note
                     setStreamState(
@@ -1184,7 +1298,10 @@ class ChatViewModel(
             .joinToString("\n\n") { it.text }.trim()
         // Keep a turn that produced only an Echo Adviser/Fusion artifact (no prose answer) so
         // the consultation/deliberation card still persists and re-renders.
-        val hasEchoArtifact = normalizedSegments.any { it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent }
+        val hasEchoArtifact = normalizedSegments.any {
+            it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
+                (it is StreamSegment.Artifact && it.artifactId != null)
+        }
         if (contentText.isEmpty() && !hasEchoArtifact) return
 
         val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
@@ -1238,6 +1355,17 @@ class ChatViewModel(
                             error = seg.error,
                         ),
                     )
+                is StreamSegment.Artifact -> seg.artifactId?.let { id ->
+                    PersistedSegment(
+                        type = "artifact",
+                        artifact = ArtifactRef(
+                            artifactId = id,
+                            title = seg.title,
+                            type = seg.artifactType,
+                            version = seg.version,
+                        ),
+                    )
+                }
                 // Transient waiting indicator — never persisted.
                 is StreamSegment.AgentRun -> null
                 is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
@@ -1475,14 +1603,16 @@ class ChatViewModel(
             fusionPanelDao: FusionPanelDao,
             agentProfileDao: AgentProfileDao,
             browserSessionDao: BrowserSessionDao,
-            browserStepDao: BrowserStepDao
+            browserStepDao: BrowserStepDao,
+            artifactDao: ArtifactDao,
+            artifactVersionDao: ArtifactVersionDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
-                    agentProfileDao, browserSessionDao, browserStepDao
+                    agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao
                 ) as T
             }
         }

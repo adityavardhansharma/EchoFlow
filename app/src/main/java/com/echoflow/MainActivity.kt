@@ -106,7 +106,9 @@ class MainActivity : ComponentActivity() {
                     database.fusionPanelDao(),
                     database.agentProfileDao(),
                     database.browserSessionDao(),
-                    database.browserStepDao()
+                    database.browserStepDao(),
+                    database.artifactDao(),
+                    database.artifactVersionDao()
                 )
             )
 
