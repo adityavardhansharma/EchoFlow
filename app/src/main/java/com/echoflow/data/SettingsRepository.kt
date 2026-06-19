@@ -87,6 +87,10 @@ class SettingsRepository(context: Context) {
     private val _browserIdleMinutes = MutableStateFlow(getBrowserIdleMinutesDirect())
     val browserIdleMinutes: StateFlow<Int> = _browserIdleMinutes.asStateFlow()
 
+    // Artifacts: when on, the artifact prompt forbids CDNs so generated HTML renders fully offline.
+    private val _artifactsOffline = MutableStateFlow(getArtifactsOfflineDirect())
+    val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
+
     // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
     private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
     val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
@@ -398,6 +402,17 @@ class SettingsRepository(context: Context) {
     fun saveBrowserFlowEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("browser_flow_enabled", enabled).apply()
         _browserFlowEnabled.value = enabled
+    }
+
+    // ── Artifacts ──────────────────────────────────────────────────────────────────────
+
+    /** When true, artifact HTML must be fully self-contained (no CDN) so it renders offline. */
+    fun getArtifactsOfflineDirect(): Boolean =
+        prefs.getBoolean("artifacts_offline", false)
+
+    fun saveArtifactsOffline(enabled: Boolean) {
+        prefs.edit().putBoolean("artifacts_offline", enabled).apply()
+        _artifactsOffline.value = enabled
     }
 
     /** Minutes of inactivity before Browser Flow auto-stops the session (cost guard). 0 = off. */

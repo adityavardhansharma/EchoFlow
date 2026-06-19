@@ -74,6 +74,7 @@ import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
 import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
+import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
@@ -154,6 +155,7 @@ fun ChatScreen(
     val echoFusionEnabled by settingsViewModel.echoFusionEnabled.collectAsState()
     val echoAgentEnabled by settingsViewModel.echoAgentEnabled.collectAsState()
 
+    val artifactActive by chatViewModel.artifactActive.collectAsState()
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
@@ -276,6 +278,7 @@ fun ChatScreen(
                         topInset = topBarInset,
                         bottomInset = messageBottomInset,
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
+                        onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
                     )
                 }
             }
@@ -335,6 +338,8 @@ fun ChatScreen(
                 browserFlowActive = browserFlowActive,
                 browserFlowAvailable = browserFlowAvailable,
                 onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
+                artifactActive = artifactActive,
+                onToggleArtifact = { chatViewModel.toggleArtifact() },
                 browserSession = browserSession,
                 browserSteps = browserSteps,
                 onBrowserOpen = { browserSession?.let { chatViewModel.openBrowserWorkspace(it.chatId) } },
@@ -496,6 +501,7 @@ private fun MessagesPane(
     topInset: Dp = Spacing.l,
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
+    onArtifactOpen: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     var autoFollow by remember { mutableStateOf(true) }
@@ -533,7 +539,7 @@ private fun MessagesPane(
         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = topInset, bottom = bottomInset),
     ) {
         items(messages, key = { it.id }) { msg ->
-            MessageBubble(msg) { onCopy(msg.content) }
+            MessageBubble(msg, onCopy = { onCopy(msg.content) }, onArtifactOpen = onArtifactOpen)
         }
         researchRun?.let { run ->
             item(key = "research") { ResearchProgressCard(run = run, onCancel = onCancelResearch) }
@@ -544,7 +550,7 @@ private fun MessagesPane(
             item { ThinkingRow() }
         }
         if (segments.isNotEmpty()) item(key = "streaming") {
-            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming)
+            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen)
         }
     }
 }
@@ -591,6 +597,7 @@ private fun StreamingAssistantBubble(
     segments: List<StreamSegment>,
     statusNote: String?,
     isStreaming: Boolean,
+    onArtifactOpen: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -643,6 +650,18 @@ private fun StreamingAssistantBubble(
                             outcome = segment.outcome,
                             error = segment.error,
                             active = segment.active,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    is StreamSegment.Artifact -> {
+                        ArtifactCard(
+                            title = segment.title,
+                            artifactType = segment.artifactType,
+                            version = segment.version,
+                            building = segment.building,
+                            charCount = segment.charCount,
+                            truncated = segment.truncated,
+                            onOpen = onArtifactOpen,
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
@@ -733,7 +752,7 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, streaming: Boolean = false, onCopy: () -> Unit) {
+private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, streaming: Boolean = false, onArtifactOpen: () -> Unit = {}, onCopy: () -> Unit) {
     val isUser = message.role == "user"
     if (isUser) {
         Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -834,6 +853,20 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                                         active = false,
                                     )
                                     Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                            "artifact" -> {
+                                segment.artifact?.let { a ->
+                                    ArtifactCard(
+                                        title = a.title,
+                                        artifactType = a.type,
+                                        version = a.version,
+                                        building = false,
+                                        charCount = 0,
+                                        truncated = false,
+                                        onOpen = onArtifactOpen,
+                                    )
+                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
                             }
                             // The plan is rendered as a disclosure inside the report card.
@@ -1149,6 +1182,8 @@ private fun InputToolbar(
     browserFlowActive: Boolean,
     browserFlowAvailable: Boolean,
     onToggleBrowserFlow: () -> Unit,
+    artifactActive: Boolean,
+    onToggleArtifact: () -> Unit,
     browserSession: com.echoflow.data.BrowserSession?,
     browserSteps: List<com.echoflow.data.BrowserStep>,
     onBrowserOpen: () -> Unit,
@@ -1217,7 +1252,7 @@ private fun InputToolbar(
         }
 
         // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive) {
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive || artifactActive) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -1228,6 +1263,9 @@ private fun InputToolbar(
                 }
                 if (browserFlowActive) {
                     CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
+                }
+                if (artifactActive) {
+                    CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
                 }
                 if (echoAdviserActive) {
                     CapabilityChip(
@@ -1317,6 +1355,7 @@ private fun InputToolbar(
                         echoAgentAvailable = echoAgentAvailable,
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
+                        artifactOn = artifactActive,
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
@@ -1326,6 +1365,7 @@ private fun InputToolbar(
                         onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
                         onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
                         onToggleBrowserFlow = { plusMenuOpen = false; onToggleBrowserFlow() },
+                        onToggleArtifact = { plusMenuOpen = false; onToggleArtifact() },
                     )
                 }
 
@@ -1339,6 +1379,7 @@ private fun InputToolbar(
                                 browserFlowActive -> "Open a site & say what to do…"
                                 dataAgentActive -> "Describe the data to extract…"
                                 deepResearchActive -> "Research a topic…"
+                                artifactActive -> "Describe an artifact to build…"
                                 else -> "Ask anything…"
                             }
                         )
@@ -1387,6 +1428,7 @@ private fun PlusMenu(
     echoAgentAvailable: Boolean,
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
+    artifactOn: Boolean,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -1396,6 +1438,7 @@ private fun PlusMenu(
     onToggleEchoFusion: () -> Unit,
     onToggleEchoAgent: () -> Unit,
     onToggleBrowserFlow: () -> Unit,
+    onToggleArtifact: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
@@ -1424,6 +1467,13 @@ private fun PlusMenu(
             leadingIcon = { Icon(Icons.Default.Science, null) },
             trailingIcon = { if (deepResearchOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
             onClick = onToggleDeepResearch,
+        )
+        // Artifacts — build a rendered web page, document or report (model picks the type).
+        DropdownMenuItem(
+            text = { Text("Artifact") },
+            leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+            trailingIcon = { if (artifactOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleArtifact,
         )
         // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
         if (dataAgentAvailable) {

@@ -242,6 +242,151 @@ object SystemPrompts {
         - Write a clean, well-structured markdown answer. The app shows the structured panel comparison and each model's full response separately, so do NOT paste the raw analysis JSON.
         """.trimIndent()
 
+    // ── Artifacts ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Artifact mode: the model produces ONE self-contained, rendered artifact (a web page, a
+     * markdown document, or a printable LaTeX report) wrapped in a sentinel block the app extracts
+     * from the stream. Works on cloud and on-device models — the on-device variant is trimmed to
+     * fit a smaller context window. [offline] forbids any network (no CDN), used when the user
+     * wants artifacts to render without a connection. [priorArtifact] is the latest version's body,
+     * present on a follow-up so the model iterates instead of starting over.
+     */
+    fun buildArtifact(
+        isLocalModel: Boolean,
+        offline: Boolean,
+        priorArtifact: String? = null,
+        currentDate: String = currentDate(),
+    ): String {
+        val sections = mutableListOf<String>()
+        sections += identity(isLocalModel)
+        sections += "Current date: $currentDate."
+        sections += artifactContract()
+        sections += artifactTypeGuidance()
+        sections += htmlDesignGuidance(isLocalModel, offline)
+        sections += reportGuidance()
+        priorArtifact?.takeIf { it.isNotBlank() }?.let { sections += artifactIterationGuidance(it) }
+        return sections.joinToString("\n\n")
+    }
+
+    private fun artifactContract(): String =
+        """
+        ## Artifacts
+        The user wants you to build an ARTIFACT — a single, complete, self-contained piece of
+        content that the app renders in its own viewer. Produce exactly ONE artifact per reply.
+
+        Output contract (critical):
+        - First, write one short line of prose to the user (e.g. "Here's a landing page for you.").
+        - Then emit the artifact wrapped EXACTLY in this sentinel block and nothing else after it:
+
+          <echo:artifact type="TYPE" title="A short human title">
+          ...the entire artifact body...
+          </echo:artifact>
+
+        - TYPE is one of: html, markdown, latex. Put NOTHING outside the tags except that one prose
+          line before the opening tag. Do not describe the code, do not repeat it, do not add a
+          closing remark after the closing tag. Always close the tag.
+        """.trimIndent()
+
+    private fun artifactTypeGuidance(): String =
+        """
+        ## Choosing the type (decide from the request)
+        - **html** — anything interactive or visual: pages, landing pages, dashboards, widgets,
+          forms, games, charts, demos, SVG art. Use when layout or JavaScript matters.
+        - **markdown** — plain prose documents: notes, READMEs, plans, structured writeups with no
+          interactivity and no heavy math.
+        - **latex** — formal, printable reports: anything math-heavy or when the user asks for a
+          report, paper, or PDF. Rendered as Markdown + LaTeX math and exportable to PDF.
+        """.trimIndent()
+
+    private fun htmlDesignGuidance(isLocalModel: Boolean, offline: Boolean): String {
+        val header = "## When type = html"
+        val core = """
+            - Single self-contained file: ALL html, css and js inline. No build step, no imports.
+            - MOBILE-FIRST — this opens in a phone-sized viewport. Include
+              <meta name="viewport" content="width=device-width, initial-scale=1">, design for a
+              ~390px-wide screen, touch targets at least 44px, and no horizontal scroll.
+            - Complete and functional: no TODOs, no placeholder lorem, no "rest of code here".
+        """.trimIndent()
+
+        val aesthetic = if (isLocalModel) {
+            // Compact: keep the anti-default rules, drop the output-inflating detail.
+            """
+            - Commit to ONE clear aesthetic direction and keep the file focused and compact.
+            - Do NOT use the generic AI look: avoid Inter/Roboto/Arial as the headline face and
+              avoid purple-gradient-on-white. Use deliberate type sizing, weight and spacing.
+            """.trimIndent()
+        } else {
+            """
+            - Before writing, commit to ONE bold aesthetic direction and execute it precisely —
+              pick an extreme (brutalist, editorial/magazine, retro-futuristic, luxury, playful,
+              art-deco, industrial). Intentionality beats intensity.
+            - Typography: a distinctive display + body pairing. NEVER Inter, Roboto, Arial or
+              system-ui as the headline face.
+            - Color: one dominant color with sharp accents via CSS variables — not a timid, evenly
+              spread palette. NEVER the purple-gradient-on-white default.
+            - Motion: CSS-only. One well-orchestrated load with staggered reveals beats scattered
+              micro-interactions. Respect prefers-reduced-motion.
+            - Depth: atmosphere over flat fills — gradient meshes, grain, layered shadows,
+              decorative borders — where they fit the direction.
+            - Match code complexity to the vision: maximalism = elaborate; minimalism = restraint
+              and precise spacing.
+            """.trimIndent()
+        }
+
+        val network = if (offline) {
+            """
+            - OFFLINE MODE — make ZERO external requests: no CDN, no <link>/@import fonts, no remote
+              scripts or images, no analytics. The file MUST render with networking OFF.
+            - You cannot download fonts. Build identity WITHOUT custom fonts: use characterful local
+              stacks (Georgia/Charter/"Times New Roman" for serif, "Courier New"/ui-monospace for
+              technical, Palatino for refined) and lean on weight contrast, scale, letter-spacing and
+              rhythm. No CSS/JS frameworks. No math libraries — render any formula as styled text or
+              inline SVG.
+            """.trimIndent()
+        } else {
+            """
+            - Fonts may load from a CDN (e.g. Google Fonts via <link>). You may use a CDN <script>
+              for a library (React, Tailwind, charts) ONLY when it genuinely helps; prefer
+              dependency-free vanilla when you can — it is more reliable.
+            """.trimIndent()
+        }
+
+        return listOf(header, core, aesthetic, network).joinToString("\n")
+    }
+
+    private fun reportGuidance(): String =
+        """
+        ## When type = markdown or latex
+        These render through the app's native Markdown engine (which has a LaTeX MATH renderer — it
+        is NOT a LaTeX compiler). Follow this exactly:
+
+        - STRUCTURE in Markdown, never LaTeX document commands: # H1 title, ## sections, ###
+          subsections, paragraphs, **bold**, *italic*, > blockquotes, - / 1. lists, and pipe tables.
+        - NEVER emit \documentclass, \usepackage, \begin{document}, \section{}, \maketitle, tikz, or
+          any full-LaTeX document command — they will NOT render.
+        - MATH (latex type especially): inline ${'$'}...${'$'}, display ${'$'}${'$'}...${'$'}${'$'}.
+          Standard math only — \frac, exponents/subscripts, \sqrt, Greek, \sum, \int, limits,
+          vectors, \begin{matrix}, \begin{aligned}, common operators. Put each nontrivial equation
+          in its own display block so pagination cannot split it.
+        - For a latex REPORT (it exports to a paginated PDF): single column; nothing wider than the
+          page; lead with a "# Title" then an *italic subtitle/date* line; use frequent ## headings
+          (they give clean page-break points); don't rely on color to carry meaning; keep code and
+          quote blocks short. Make it complete — no placeholders.
+        """.trimIndent()
+
+    private fun artifactIterationGuidance(priorArtifact: String): String =
+        """
+        ## You are revising an existing artifact
+        Below is the current version you produced earlier. Apply the user's latest request to it and
+        output the FULL updated artifact (same sentinel block) — never a diff or a fragment. Keep
+        everything the user did not ask to change. Pick the same type unless they ask otherwise.
+
+        --- CURRENT ARTIFACT ---
+        $priorArtifact
+        --- END CURRENT ARTIFACT ---
+        """.trimIndent()
+
     // ── Deep Research (agentic, cloud only) ──────────────────────────────────────────
 
     /**

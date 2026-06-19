@@ -11,9 +11,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ChatThread::class, ChatMessage::class, CustomModel::class, LocalModel::class,
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
-        AgentProfile::class, BrowserSession::class, BrowserStep::class
+        AgentProfile::class, BrowserSession::class, BrowserStep::class,
+        Artifact::class, ArtifactVersion::class
     ],
-    version = 11, // v11: Browser Flow sessions + steps (MIGRATION_10_11)
+    version = 12, // v12: artifacts + artifact_versions (MIGRATION_11_12)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +29,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun agentProfileDao(): AgentProfileDao
     abstract fun browserSessionDao(): BrowserSessionDao
     abstract fun browserStepDao(): BrowserStepDao
+    abstract fun artifactDao(): ArtifactDao
+    abstract fun artifactVersionDao(): ArtifactVersionDao
 
     companion object {
         @Volatile
@@ -190,6 +193,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS artifacts (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "chatId TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "type TEXT NOT NULL, " +
+                        "currentVersion INTEGER NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(chatId) REFERENCES chat_threads(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_artifacts_chatId ON artifacts (chatId)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS artifact_versions (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "artifactId TEXT NOT NULL, " +
+                        "versionNumber INTEGER NOT NULL, " +
+                        "content TEXT NOT NULL, " +
+                        "sourcePrompt TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(artifactId) REFERENCES artifacts(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_artifact_versions_artifactId ON artifact_versions (artifactId)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -207,6 +238,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
+                    MIGRATION_11_12,
                 )
                 // Only pre-v2 installs (no migration path defined) fall back destructively.
                 .fallbackToDestructiveMigration()
