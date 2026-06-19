@@ -125,64 +125,16 @@ fun BrowserWorkspaceScreen(
             )
 
             // ── Live browser viewport ────────────────────────────────────────────────────
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.s)
-                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 12.dp, bottomEnd = 12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow),
-            ) {
-                if (liveUrl != null) {
-                    LiveBrowserWebView(url = liveUrl, modifier = Modifier.fillMaxSize())
-                } else {
-                    OpeningState(domain = BrowserResolver.domainOf(s.resolvedUrl), busy = busy, phase = s.phase)
-                }
-
-                // Thin browser-style load bar pinned to the top edge of the page.
-                AnimatedVisibility(busy, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
-                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                }
-
-                // Floating phase chip — the agent is driving.
-                AnimatedVisibility(
-                    visible = busy && liveUrl != null,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = Spacing.base),
-                    enter = scaleIn() + fadeIn(),
-                    exit = scaleOut() + fadeOut(),
-                ) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface, shadowElevation = 6.dp) {
-                        Row(
-                            Modifier.padding(start = Spacing.s, end = Spacing.base, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                        ) {
-                            LoadingIndicator(
-                                modifier = Modifier.size(22.dp),
-                                color = MaterialTheme.colorScheme.inversePrimary,
-                            )
-                            Text(
-                                s.phase ?: "Working…",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.inverseOnSurface,
-                            )
-                        }
-                    }
-                }
-
-                // Take-over-in-Chrome escape hatch.
-                if (liveUrl != null) {
-                    FilledTonalIconButton(
-                        onClick = { openExternal() },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        ),
-                    ) {
-                        Icon(Icons.Default.OpenInNew, "Open in external browser", Modifier.size(20.dp))
-                    }
-                }
-            }
+            // Extracted to its own composable so the enclosing ColumnScope does not leak in: the
+            // overlay AnimatedVisibility calls would otherwise resolve to ColumnScope.AnimatedVisibility
+            // (whose receiver isn't available here) instead of the plain Box-friendly overload.
+            BrowserViewport(
+                session = s,
+                busy = busy,
+                liveUrl = liveUrl,
+                onOpenExternal = { openExternal() },
+                modifier = Modifier.weight(1f),
+            )
 
             BrowserPauseBar(
                 session = s,
@@ -204,6 +156,81 @@ fun BrowserWorkspaceScreen(
                     if (t.isNotEmpty()) { command = ""; chatViewModel.sendMessage(t) }
                 },
             )
+        }
+    }
+}
+
+// ── Live viewport ────────────────────────────────────────────────────────────────────────
+
+/**
+ * The live page viewport plus its overlays (load bar, phase chip, take-over button). Kept as a
+ * standalone composable (not a ColumnScope extension) so `AnimatedVisibility` inside the [Box]
+ * resolves to the plain overload rather than the leaked-in `ColumnScope` one. The caller supplies
+ * the `weight(1f)` via [modifier] from the enclosing Column.
+ */
+@Composable
+private fun BrowserViewport(
+    session: BrowserSession,
+    busy: Boolean,
+    liveUrl: String?,
+    onOpenExternal: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.s)
+            .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 12.dp, bottomEnd = 12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        if (liveUrl != null) {
+            LiveBrowserWebView(url = liveUrl, modifier = Modifier.fillMaxSize())
+        } else {
+            OpeningState(domain = BrowserResolver.domainOf(session.resolvedUrl), busy = busy, phase = session.phase)
+        }
+
+        // Thin browser-style load bar pinned to the top edge of the page.
+        AnimatedVisibility(busy, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
+            LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+        }
+
+        // Floating phase chip — the agent is driving.
+        AnimatedVisibility(
+            visible = busy && liveUrl != null,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = Spacing.base),
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
+        ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface, shadowElevation = 6.dp) {
+                Row(
+                    Modifier.padding(start = Spacing.s, end = Spacing.base, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                ) {
+                    LoadingIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = MaterialTheme.colorScheme.inversePrimary,
+                    )
+                    Text(
+                        session.phase ?: "Working…",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
+                    )
+                }
+            }
+        }
+
+        // Take-over-in-Chrome escape hatch.
+        if (liveUrl != null) {
+            FilledTonalIconButton(
+                onClick = onOpenExternal,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ),
+            ) {
+                Icon(Icons.Default.OpenInNew, "Open in external browser", Modifier.size(20.dp))
+            }
         }
     }
 }
