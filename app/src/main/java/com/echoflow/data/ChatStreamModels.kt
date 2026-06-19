@@ -52,6 +52,27 @@ sealed class StreamChunk {
 
     /** The worker finished a delegated task. [result] carries the outcome (or an error). */
     data class SubagentResolved(val result: SubagentResult) : StreamChunk()
+
+    // ── Artifacts (sentinel-delimited, extracted from the content stream) ────────────
+    /** The model opened an artifact block; [title]/[artifactType] are known, body pending. */
+    data class ArtifactStarted(val title: String, val artifactType: String) : StreamChunk()
+
+    /** The artifact body is growing; [charCount] is how much has streamed so far (for the card). */
+    data class ArtifactProgress(val charCount: Int) : StreamChunk()
+
+    /**
+     * The artifact block closed (or the stream ended mid-artifact). [content] is the full body.
+     * [artifactId]/[version] are filled in by the ViewModel once the version is persisted, so the
+     * resulting card and timeline segment can deep-link into the workspace.
+     */
+    data class ArtifactCompleted(
+        val title: String,
+        val artifactType: String,
+        val content: String,
+        val artifactId: String? = null,
+        val version: Int = 0,
+        val truncated: Boolean = false,
+    ) : StreamChunk()
 }
 
 // ── Echo Adviser / Echo Fusion result records ──────────────────────────────────────
