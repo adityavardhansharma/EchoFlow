@@ -9,10 +9,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
@@ -1040,6 +1043,13 @@ class ChatViewModel(
                         text = "Tap to read the answer in EchoFlow.",
                     )
                 }
+            } catch (e: CancellationException) {
+                // User tapped Stop — keep whatever streamed so far and surface no error banner.
+                // The persist runs under NonCancellable so it isn't skipped by the cancellation.
+                withContext(NonCancellable) {
+                    persistAssistantMessage(chatId, segments, interrupted = null)
+                }
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
