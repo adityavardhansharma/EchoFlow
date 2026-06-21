@@ -15,6 +15,9 @@ class ArtifactManager(
 ) {
     fun observeForChat(chatId: String): Flow<Artifact?> = artifactDao.observeLatestForChat(chatId)
 
+    /** A one-shot read of the chat's latest artifact, for decisions that can't wait on the cold flow. */
+    suspend fun getLatestForChat(chatId: String): Artifact? = artifactDao.getLatestForChat(chatId)
+
     fun observeVersions(artifactId: String): Flow<List<ArtifactVersion>> =
         artifactVersionDao.observeForArtifact(artifactId)
 

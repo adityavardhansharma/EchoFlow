@@ -283,7 +283,17 @@ class ChatViewModel(
     private val _artifactWorkspaceOpen = MutableStateFlow(false)
     val artifactWorkspaceOpen: StateFlow<Boolean> = _artifactWorkspaceOpen.asStateFlow()
 
-    fun openArtifactWorkspace() { if (currentArtifact.value != null) _artifactWorkspaceOpen.value = true }
+    fun openArtifactWorkspace() {
+        // currentArtifact is a WhileSubscribed flow whose only collector is the workspace screen
+        // itself, so outside it the cached .value is a stale null. Resolve existence straight from
+        // the store instead, otherwise the guard is always false and "Open" silently does nothing.
+        viewModelScope.launch {
+            val chatId = _currentChatThreadId.value ?: return@launch
+            if (artifactManager.getLatestForChat(chatId) != null) {
+                _artifactWorkspaceOpen.value = true
+            }
+        }
+    }
     fun closeArtifactWorkspace() { _artifactWorkspaceOpen.value = false }
 
     // Browser Flow igniter chip. Unlike Echo modes it is NOT sticky: it only *starts* a session;

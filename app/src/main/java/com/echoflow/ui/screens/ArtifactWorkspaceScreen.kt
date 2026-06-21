@@ -89,8 +89,14 @@ fun ArtifactWorkspaceScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
-    // Leave if the artifact vanishes (e.g. chat deleted).
-    LaunchedEffect(artifact == null) { if (artifact == null) onClose() }
+    // Leave if the artifact vanishes (e.g. chat deleted) — but NOT on the initial null the
+    // WhileSubscribed flow caches before its first emission, which would slam the screen shut the
+    // instant it opens. Only close once we've actually shown an artifact and it later disappears.
+    var hadArtifact by remember { mutableStateOf(false) }
+    LaunchedEffect(artifact) {
+        if (artifact != null) hadArtifact = true
+        else if (hadArtifact) onClose()
+    }
     val a = artifact ?: return
 
     var mode by remember { mutableStateOf(ArtifactViewMode.PREVIEW) }
