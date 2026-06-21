@@ -6,6 +6,8 @@ import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -102,7 +105,26 @@ fun ArtifactWorkspaceScreen(
         (versions.firstOrNull { it.versionNumber == selectedVersion } ?: versions.lastOrNull())?.content.orEmpty()
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+    // Smooth open: the screen is always present (so "Open" is reliable); we just slide it up from
+    // the bottom and fade it in on first appearance via a graphics layer, then reverse none — the
+    // parent removes it on close. Driven by a flag flipped one frame after entering composition.
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val openProgress by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 320),
+        label = "artifact-open",
+    )
+
+    Surface(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationY = (1f - openProgress) * size.height
+                alpha = openProgress
+            },
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    ) {
         Column(Modifier.fillMaxSize()) {
             ArtifactTopBar(
                 artifact = a,

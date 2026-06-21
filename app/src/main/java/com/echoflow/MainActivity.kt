@@ -10,12 +10,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -201,13 +195,10 @@ fun MainNavigationHub(
             )
         }
 
-        // Fullscreen Artifact Workspace overlay (preview / code / version switcher). It slides up
-        // and fades in so tapping "Open" reads as a smooth sheet transition rather than a pop.
-        AnimatedVisibility(
-            visible = artifactWorkspaceOpen,
-            enter = slideInVertically(animationSpec = tween(320)) { it } + fadeIn(tween(220)),
-            exit = slideOutVertically(animationSpec = tween(260)) { it } + fadeOut(tween(180)),
-        ) {
+        // Fullscreen Artifact Workspace overlay (preview / code / version switcher). The smooth
+        // slide-up/fade on open is animated inside the screen itself (see ArtifactWorkspaceScreen)
+        // so its presence is never gated behind a transition — keeping "Open" reliable.
+        if (artifactWorkspaceOpen) {
             BackHandler { chatViewModel.closeArtifactWorkspace() }
             com.echoflow.ui.screens.ArtifactWorkspaceScreen(
                 chatViewModel = chatViewModel,
