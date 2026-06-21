@@ -10,6 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -156,7 +162,6 @@ fun MainNavigationHub(
 
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
-    val currentArtifact by chatViewModel.currentArtifact.collectAsState()
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -196,19 +201,13 @@ fun MainNavigationHub(
             )
         }
 
-        // Global "artifact ready" pill — tap to reopen the workspace for the open chat's artifact.
-        val artifact = currentArtifact
-        if (artifact != null && !artifactWorkspaceOpen && browserWorkspaceChatId == null) {
-            com.echoflow.ui.components.GlobalArtifactPill(
-                title = artifact.title,
-                artifactType = artifact.type,
-                onClick = { chatViewModel.openArtifactWorkspace() },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 110.dp),
-            )
-        }
-
-        // Fullscreen Artifact Workspace overlay (preview / code / version switcher).
-        if (artifactWorkspaceOpen) {
+        // Fullscreen Artifact Workspace overlay (preview / code / version switcher). It slides up
+        // and fades in so tapping "Open" reads as a smooth sheet transition rather than a pop.
+        AnimatedVisibility(
+            visible = artifactWorkspaceOpen,
+            enter = slideInVertically(animationSpec = tween(320)) { it } + fadeIn(tween(220)),
+            exit = slideOutVertically(animationSpec = tween(260)) { it } + fadeOut(tween(180)),
+        ) {
             BackHandler { chatViewModel.closeArtifactWorkspace() }
             com.echoflow.ui.screens.ArtifactWorkspaceScreen(
                 chatViewModel = chatViewModel,

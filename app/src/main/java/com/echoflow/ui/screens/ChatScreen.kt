@@ -362,6 +362,7 @@ fun ChatScreen(
                     else -> null
                 },
                 onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
+                onStop = { chatViewModel.stopStreaming() },
             )
 
             // Error banner floats just below the top bar.
@@ -1201,6 +1202,7 @@ private fun InputToolbar(
     onSelectEffort: (String) -> Unit,
     blockedReason: String? = null,
     onSend: () -> Unit,
+    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1401,7 +1403,7 @@ private fun InputToolbar(
                 val hasText = text.trim().isNotEmpty()
                 val hasContent = hasText || (pendingUri != null && !researchMode)
                 val canSend = hasContent && !isStreaming && !researchInProgress && blockedReason == null
-                SendButton(enabled = canSend, isStreaming = isStreaming, research = researchMode) {
+                SendButton(enabled = canSend, isStreaming = isStreaming, research = researchMode, onStop = onStop) {
                     if (canSend) onSend()
                 }
             }
@@ -1526,12 +1528,24 @@ private fun PlusMenu(
 }
 
 @Composable
-private fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onClick: () -> Unit) {
+private fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onStop: () -> Unit = {}, onClick: () -> Unit) {
     if (isStreaming) {
+        // Tappable Stop — cancels the in-flight reply (cloud stream or on-device generation).
         Box(
-            Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable(onClick = onStop),
             contentAlignment = Alignment.Center,
-        ) { LoadingIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp)) }
+        ) {
+            Icon(
+                Icons.Default.Stop,
+                "Stop generating",
+                Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
     } else {
         // The hero action gets the boldest shape — a "Sunny" that morphs to a rounder cookie on
         // press with an expressive (bouncy) spring. In research mode it starts the investigation.

@@ -116,7 +116,11 @@ fun BrowserWorkspaceScreen(
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+    Surface(
+        Modifier.fillMaxSize(),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    ) {
         Column(Modifier.fillMaxSize()) {
             WorkspaceTopBar(
                 session = s,
@@ -243,7 +247,10 @@ private fun WorkspaceTopBar(
     onClose: () -> Unit,
     onStop: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
