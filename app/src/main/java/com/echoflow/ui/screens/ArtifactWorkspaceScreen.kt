@@ -121,13 +121,22 @@ fun ArtifactWorkspaceScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .background(
-                        if (a.isHtml && mode == ArtifactViewMode.PREVIEW) Color.White
+                        if (a.isHtml) Color.White
                         else MaterialTheme.colorScheme.surface
                     ),
             ) {
                 when {
+                    a.isHtml -> {
+                        // Keep the WebView mounted across Preview/Code so toggling modes doesn't
+                        // destroy and reload it (which flashes black). The Code view overlays it.
+                        ArtifactWebView(html = content, modifier = Modifier.fillMaxSize())
+                        if (mode == ArtifactViewMode.CODE) {
+                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+                                CodeView(content)
+                            }
+                        }
+                    }
                     mode == ArtifactViewMode.CODE -> CodeView(content)
-                    a.isHtml -> ArtifactWebView(html = content, modifier = Modifier.fillMaxSize())
                     else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.base)) {
                         RichMarkdown(content, Modifier.fillMaxWidth())
                     }
@@ -298,6 +307,8 @@ private fun ArtifactWebView(html: String, modifier: Modifier = Modifier) {
                 settings.allowUniversalAccessFromFileURLs = false
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // Opaque white base so the view never paints a black frame while (re)loading.
+                setBackgroundColor(android.graphics.Color.WHITE)
                 webViewClient = WebViewClient()
                 loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                 lastHtml = html
