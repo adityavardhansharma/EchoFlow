@@ -180,9 +180,13 @@ private fun ArtifactTopBar(
                 )
                 if (versions.size > 1) VersionMenu(versions, selectedVersion, onSelectVersion)
                 IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy source", Modifier.size(20.dp)) }
-                // Export to PDF — reports/docs render their math; an HTML artifact prints as a page.
-                FilledTonalIconButton(onClick = onExport) {
-                    Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
+                // Export to PDF only for documents/reports (markdown/LaTeX), where it renders the
+                // math/prose to a page. HTML pages aren't meant to be flattened to a PDF, so the
+                // action is hidden for them.
+                if (!artifact.isHtml) {
+                    FilledTonalIconButton(onClick = onExport) {
+                        Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
+                    }
                 }
             }
             // Preview / Code segmented switcher.
