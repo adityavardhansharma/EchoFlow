@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -40,11 +41,65 @@ class OpenRouterService(private val context: Context) {
         .build()
 
     private val dynamicAdapter = moshi.adapter(Any::class.java)
+    private val streamChunkAdapter = moshi.adapter(OpenRouterStreamEvent::class.java)
 
     data class LocalAttachment(
         val uri: String,
         val mimeType: String?,
         val name: String?,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterStreamEvent(
+        val choices: List<OpenRouterStreamChoice>? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterStreamChoice(
+        val delta: OpenRouterStreamDelta? = null,
+        val message: OpenRouterStreamMessage? = null,
+        val finish_reason: String? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterStreamDelta(
+        val content: String? = null,
+        val reasoning: String? = null,
+        val reasoning_content: String? = null,
+        val tool_calls: List<OpenRouterToolCallDelta>? = null,
+        val annotations: List<OpenRouterAnnotation>? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterStreamMessage(
+        val annotations: List<OpenRouterAnnotation>? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterToolCallDelta(
+        val index: Int? = null,
+        val id: String? = null,
+        val type: String? = null,
+        val function: OpenRouterFunctionDelta? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterFunctionDelta(
+        val name: String? = null,
+        val arguments: String? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterAnnotation(
+        val type: String? = null,
+        val url_citation: OpenRouterUrlCitation? = null,
+    )
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterUrlCitation(
+        val title: String? = null,
+        val url: String? = null,
+        val content: String? = null,
     )
 
     /**
@@ -555,20 +610,18 @@ class OpenRouterService(private val context: Context) {
                 if (dataPart == "[DONE]" || dataPart.startsWith("[DONE]")) break
 
                 try {
-                    val map = dynamicAdapter.fromJson(dataPart) as? Map<*, *>
-                    val choices = map?.get("choices") as? List<*>
-                    val choice = choices?.firstOrNull() as? Map<*, *>
-                    val delta = choice?.get("delta") as? Map<*, *>
+                    val event = streamChunkAdapter.fromJson(dataPart)
+                    val choice = event?.choices?.firstOrNull()
+                    val delta = choice?.delta
 
                     // Reasoning tokens (different providers name the field differently).
-                    val reasoning = (delta?.get("reasoning") as? String)
-                        ?: (delta?.get("reasoning_content") as? String)
+                    val reasoning = delta?.reasoning ?: delta?.reasoning_content
                     if (!reasoning.isNullOrEmpty()) {
                         reasoningBuf.append(reasoning)
                         onChunk(StreamChunk.Reasoning(reasoning))
                     }
 
-                    val content = delta?.get("content") as? String
+                    val content = delta?.content
                     if (!content.isNullOrEmpty()) {
                         contentBuf.append(content)
                         onChunk(StreamChunk.Content(content))
@@ -577,16 +630,14 @@ class OpenRouterService(private val context: Context) {
                     // Tool call deltas: fragments accumulate per index. Used both by the
                     // OpenRouter server tool (search runs server-side mid-stream) and by
                     // client function calling (we run the search between requests).
-                    val toolCallDeltas = delta?.get("tool_calls") as? List<*>
-                    toolCallDeltas?.forEach { rawCall ->
-                        val call = rawCall as? Map<*, *> ?: return@forEach
-                        val index = (call["index"] as? Double)?.toInt() ?: 0
+                    val toolCallDeltas = delta?.tool_calls
+                    toolCallDeltas?.forEach { call ->
+                        val index = call.index ?: 0
                         val builder = toolCallBuilders.getOrPut(index) { ToolCallBuilder() }
-                        (call["id"] as? String)?.let { builder.id = it }
-                        (call["type"] as? String)?.let { builder.type = it }
-                        val function = call["function"] as? Map<*, *>
-                        (function?.get("name") as? String)?.let { builder.name = it }
-                        (function?.get("arguments") as? String)?.let { builder.args.append(it) }
+                        call.id?.let { builder.id = it }
+                        call.type?.let { builder.type = it }
+                        call.function?.name?.let { builder.name = it }
+                        call.function?.arguments?.let { builder.args.append(it) }
 
                         if (!builder.announced && builder.looksLikeWebSearch()) {
                             val query = parseQueryArgument(builder.args.toString())
@@ -629,20 +680,18 @@ class OpenRouterService(private val context: Context) {
                     }
 
                     // url_citation annotations may arrive on the delta or on a message object.
-                    val annotations = (delta?.get("annotations") as? List<*>)
-                        ?: ((choice?.get("message") as? Map<*, *>)?.get("annotations") as? List<*>)
+                    val annotations = delta?.annotations ?: choice?.message?.annotations
                     if (annotations != null) {
                         val fresh = mutableListOf<SearchSource>()
-                        annotations.forEach { rawAnn ->
-                            val ann = rawAnn as? Map<*, *> ?: return@forEach
-                            if ((ann["type"] as? String) != "url_citation") return@forEach
-                            val cite = ann["url_citation"] as? Map<*, *> ?: return@forEach
-                            val url = cite["url"] as? String ?: return@forEach
+                        annotations.forEach { ann ->
+                            if (ann.type != "url_citation") return@forEach
+                            val cite = ann.url_citation ?: return@forEach
+                            val url = cite.url ?: return@forEach
                             if (!seenSourceUrls.add(url)) return@forEach
                             val source = SearchSource(
-                                title = (cite["title"] as? String).orEmpty().ifBlank { url },
+                                title = cite.title.orEmpty().ifBlank { url },
                                 url = url,
-                                snippet = cite["content"] as? String
+                                snippet = cite.content
                             )
                             collectedSources.add(source)
                             fresh.add(source)
@@ -656,6 +705,8 @@ class OpenRouterService(private val context: Context) {
                     // tree. The exact shape is beta/undocumented, so we walk the whole chunk
                     // defensively for the signature keys and degrade to "consulted, no body" if
                     // nothing parses — never a crash. (Verify shapes against a live key.)
+                    val needsDynamicScan = echo != null || agentWorkerModel != null
+                    val map = if (needsDynamicScan) dynamicAdapter.fromJson(dataPart) as? Map<*, *> else null
                     if (echo != null && map != null) {
                         if (echo.advisorName != null && !advisorResolved) {
                             scanForAdvisorResult(map)?.let { (advisorModel, advice) ->
@@ -699,7 +750,7 @@ class OpenRouterService(private val context: Context) {
                         }
                     }
 
-                    (choice?.get("finish_reason") as? String)?.let { finishReason = it }
+                    choice?.finish_reason?.let { finishReason = it }
                 } catch (e: Exception) {
                     // Resilient inline SSE fail ignores
                 }

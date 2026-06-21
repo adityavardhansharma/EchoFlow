@@ -110,6 +110,22 @@ class ChatViewModel(
     private val openRouterService = OpenRouterService(application)
     private val webSearchService = WebSearchService()
     private val localLlmService = LocalLlmService(application)
+    private val chatRepository = ChatRepository(
+        chatDao = chatDao,
+        messageDao = messageDao,
+        localModelDao = localModelDao,
+        researchRunDao = researchRunDao,
+        deepResearchModelDao = deepResearchModelDao,
+        advisorProfileDao = advisorProfileDao,
+        fusionPanelDao = fusionPanelDao,
+        agentProfileDao = agentProfileDao,
+        browserSessionDao = browserSessionDao,
+        browserStepDao = browserStepDao,
+        artifactDao = artifactDao,
+        artifactVersionDao = artifactVersionDao,
+    )
+    private val openRouterGateway = OpenRouterGateway(openRouterService)
+    private val localGateway = LocalLlmGateway(localLlmService)
 
     // Browser Flow: stateful Firecrawl browser controlled through chat. The manager owns all
     // orchestration and writes session/step rows; the UI observes them.
@@ -117,7 +133,7 @@ class ChatViewModel(
         chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
     )
 
-    val allThreads: StateFlow<List<ChatThread>> = chatDao.getAllThreads()
+    val allThreads: StateFlow<List<ChatThread>> = chatRepository.allThreads()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -137,7 +153,7 @@ class ChatViewModel(
         allThreads,
         _drawerSearchQuery,
         _drawerSearchQuery.flatMapLatest { query ->
-            if (query.isBlank()) flowOf(emptyList()) else messageDao.searchChatIdsByContent(query.trim())
+            if (query.isBlank()) flowOf(emptyList()) else chatRepository.searchChatIdsByContent(query.trim())
         },
     ) { threads, query, contentMatchIds ->
         val q = query.trim()
@@ -158,7 +174,7 @@ class ChatViewModel(
             if (chatId == null) {
                 flowOf(emptyList())
             } else {
-                messageDao.getMessagesForChat(chatId)
+                chatRepository.messagesForChat(chatId)
             }
         }
         .stateIn(
@@ -241,31 +257,24 @@ class ChatViewModel(
     private val _pendingAttachmentName = MutableStateFlow<String?>(null)
     val pendingAttachmentName: StateFlow<String?> = _pendingAttachmentName.asStateFlow()
 
-    // Per-message capability toggles surfaced by the "+" menu as chips above the input.
-    private val _deepResearchActive = MutableStateFlow(false)
-    val deepResearchActive: StateFlow<Boolean> = _deepResearchActive.asStateFlow()
+    // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
+    // existing UI components can stay simple while illegal combinations remain unrepresentable.
+    private val _chatMode = MutableStateFlow<ChatMode>(ChatMode.Normal)
+    val chatMode: StateFlow<ChatMode> = _chatMode.asStateFlow()
 
-    private val _webSearchChipOn = MutableStateFlow(false)
-    val webSearchChipOn: StateFlow<Boolean> = _webSearchChipOn.asStateFlow()
-
-    private val _dataAgentActive = MutableStateFlow(false)
-    val dataAgentActive: StateFlow<Boolean> = _dataAgentActive.asStateFlow()
+    val deepResearchActive: StateFlow<Boolean> = modeIs<ChatMode.DeepResearch>()
+    val webSearchChipOn: StateFlow<Boolean> = modeIs<ChatMode.WebSearch>()
+    val dataAgentActive: StateFlow<Boolean> = modeIs<ChatMode.DataAgent>()
 
     // Echo Adviser / Echo Fusion: OpenRouter-only modes chosen from the "+" menu. Persist
     // across messages (a deliberate, cost-heavy choice) until the user turns them off.
-    private val _echoAdviserActive = MutableStateFlow(false)
-    val echoAdviserActive: StateFlow<Boolean> = _echoAdviserActive.asStateFlow()
-
-    private val _echoFusionActive = MutableStateFlow(false)
-    val echoFusionActive: StateFlow<Boolean> = _echoFusionActive.asStateFlow()
-
-    private val _echoAgentActive = MutableStateFlow(false)
-    val echoAgentActive: StateFlow<Boolean> = _echoAgentActive.asStateFlow()
+    val echoAdviserActive: StateFlow<Boolean> = modeIs<ChatMode.EchoAdviser>()
+    val echoFusionActive: StateFlow<Boolean> = modeIs<ChatMode.EchoFusion>()
+    val echoAgentActive: StateFlow<Boolean> = modeIs<ChatMode.EchoAgent>()
 
     // Artifact mode: sticky like the Echo modes. While on, every turn builds/updates an artifact;
     // follow-ups iterate the chat's current artifact (full version history).
-    private val _artifactActive = MutableStateFlow(false)
-    val artifactActive: StateFlow<Boolean> = _artifactActive.asStateFlow()
+    val artifactActive: StateFlow<Boolean> = modeIs<ChatMode.Artifact>()
 
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -298,8 +307,7 @@ class ChatViewModel(
 
     // Browser Flow igniter chip. Unlike Echo modes it is NOT sticky: it only *starts* a session;
     // once a session exists, the session row (not this flag) captures the owning chat's routing.
-    private val _browserFlowActive = MutableStateFlow(false)
-    val browserFlowActive: StateFlow<Boolean> = _browserFlowActive.asStateFlow()
+    val browserFlowActive: StateFlow<Boolean> = modeIs<ChatMode.BrowserFlow>()
 
     /** The single app-wide live browser session (start-lock + global pill). */
     val activeBrowserSession: StateFlow<BrowserSession?> = browserAgent.activeSession
@@ -355,61 +363,27 @@ class ChatViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Web Search, Deep Research, Data Agent, Echo Adviser and Echo Fusion are mutually
-    // exclusive capabilities — turning one on clears the rest.
-    private fun clearCapabilitiesExcept(keep: MutableStateFlow<Boolean>) {
-        listOf(_webSearchChipOn, _deepResearchActive, _dataAgentActive, _echoAdviserActive, _echoFusionActive, _echoAgentActive, _browserFlowActive, _artifactActive)
-            .filter { it !== keep }
-            .forEach { it.value = false }
+    private inline fun <reified T : ChatMode> modeIs(): StateFlow<Boolean> =
+        _chatMode
+            .map { it is T }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), _chatMode.value is T)
+
+    private fun setMode(mode: ChatMode) {
+        _chatMode.value = mode
     }
 
-    fun toggleArtifact() {
-        val next = !_artifactActive.value
-        _artifactActive.value = next
-        if (next) clearCapabilitiesExcept(_artifactActive)
+    private fun toggleMode(mode: ChatMode) {
+        _chatMode.value = if (_chatMode.value == mode) ChatMode.Normal else mode
     }
 
-    fun toggleDeepResearch() {
-        val next = !_deepResearchActive.value
-        _deepResearchActive.value = next
-        if (next) clearCapabilitiesExcept(_deepResearchActive)
-    }
-
-    fun toggleWebSearchChip() {
-        val next = !_webSearchChipOn.value
-        _webSearchChipOn.value = next
-        if (next) clearCapabilitiesExcept(_webSearchChipOn)
-    }
-
-    fun toggleDataAgent() {
-        val next = !_dataAgentActive.value
-        _dataAgentActive.value = next
-        if (next) clearCapabilitiesExcept(_dataAgentActive)
-    }
-
-    fun toggleEchoAdviser() {
-        val next = !_echoAdviserActive.value
-        _echoAdviserActive.value = next
-        if (next) clearCapabilitiesExcept(_echoAdviserActive)
-    }
-
-    fun toggleEchoFusion() {
-        val next = !_echoFusionActive.value
-        _echoFusionActive.value = next
-        if (next) clearCapabilitiesExcept(_echoFusionActive)
-    }
-
-    fun toggleEchoAgent() {
-        val next = !_echoAgentActive.value
-        _echoAgentActive.value = next
-        if (next) clearCapabilitiesExcept(_echoAgentActive)
-    }
-
-    fun toggleBrowserFlow() {
-        val next = !_browserFlowActive.value
-        _browserFlowActive.value = next
-        if (next) clearCapabilitiesExcept(_browserFlowActive)
-    }
+    fun toggleArtifact() = toggleMode(ChatMode.Artifact)
+    fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
+    fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
+    fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
+    fun toggleEchoAdviser() = toggleMode(ChatMode.EchoAdviser)
+    fun toggleEchoFusion() = toggleMode(ChatMode.EchoFusion)
+    fun toggleEchoAgent() = toggleMode(ChatMode.EchoAgent)
+    fun toggleBrowserFlow() = toggleMode(ChatMode.BrowserFlow)
 
     // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
 
@@ -725,11 +699,11 @@ class ChatViewModel(
 
         // Deep Research and Data Agent are different pipelines (foreground service +
         // provider/agent orchestration), so they short-circuit the normal streaming send.
-        if (_deepResearchActive.value && prompt.isNotEmpty()) {
+        if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
             startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
             return
         }
-        if (_dataAgentActive.value && prompt.isNotEmpty()) {
+        if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
             startDataAgent(prompt)
             return
         }
@@ -741,7 +715,7 @@ class ChatViewModel(
             return
         }
         // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
-        if (_browserFlowActive.value && prompt.isNotEmpty()) {
+        if (_chatMode.value is ChatMode.BrowserFlow && prompt.isNotEmpty()) {
             startBrowserSession(prompt)
             return
         }
@@ -758,12 +732,12 @@ class ChatViewModel(
             val selectedModel = settingsRepository.getSelectedModelDirect()
             // The "+ → Web Search" chip force-enables search using the last-used provider,
             // so the user never has to open Settings just to search one message.
-            val chipProvider = if (_webSearchChipOn.value) settingsRepository.resolveChipSearchProvider() else null
+            val chipProvider = if (_chatMode.value is ChatMode.WebSearch) settingsRepository.resolveChipSearchProvider() else null
             val provider = chipProvider ?: settingsRepository.getWebSearchProviderDirect()
             val searchScope = if (chipProvider != null) "both" else settingsRepository.getWebSearchScopeDirect()
             // Echo Fusion always runs cloud models (the panel + judge), so it never uses the
             // on-device engine even if a local model is the global selection.
-            val isLocal = selectedModel.startsWith("local/") && !_echoFusionActive.value
+            val isLocal = selectedModel.startsWith("local/") && _chatMode.value !is ChatMode.EchoFusion
 
             if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
@@ -814,7 +788,7 @@ class ChatViewModel(
             var agentReq: OpenRouterService.AgentRequest? = null
             var echoModel = selectedModel
             var echoSystemPrompt: String? = null
-            if (_echoAgentActive.value) {
+            if (_chatMode.value is ChatMode.EchoAgent) {
                 if (isLocal) {
                     _errorMessage.value = "Echo Agents needs a cloud main model. Pick one from the model selector."
                     return@launch
@@ -826,7 +800,7 @@ class ChatViewModel(
                 }
                 agentReq = OpenRouterService.AgentRequest(profile.workerModelId, profile.workerModelName, profile.maxToolCalls)
                 echoSystemPrompt = SystemPrompts.buildEchoAgent(profile.name)
-            } else if (_echoAdviserActive.value) {
+            } else if (_chatMode.value is ChatMode.EchoAdviser) {
                 if (isLocal) {
                     _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
                     return@launch
@@ -838,7 +812,7 @@ class ChatViewModel(
                 }
                 advisorReq = OpenRouterService.AdvisorRequest(profile.name, profile.modelId)
                 echoSystemPrompt = SystemPrompts.buildEchoAdviser(profile.name)
-            } else if (_echoFusionActive.value) {
+            } else if (_chatMode.value is ChatMode.EchoFusion) {
                 val panel = fusionPanelDao.getById(settingsRepository.getEchoFusionPanelIdDirect())
                 if (panel == null || panel.models.isEmpty()) {
                     _errorMessage.value = "Set up a Fusion panel first in Settings → Echo Fusion, then pick it."
@@ -852,7 +826,7 @@ class ChatViewModel(
 
             // Artifact mode: override the system prompt with the artifact builder. Feed the chat's
             // current artifact back so a follow-up revises it. On-device implies offline (no CDN).
-            val artifactMode = _artifactActive.value
+            val artifactMode = _chatMode.value is ChatMode.Artifact
             val artifactSystemPrompt = if (artifactMode) {
                 val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
                 val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
@@ -866,14 +840,7 @@ class ChatViewModel(
 
             if (chatId == null) {
                 isFirstMsgInChat = true
-                chatId = UUID.randomUUID().toString()
-                val newThread = ChatThread(
-                    id = chatId,
-                    title = "New Conversation",
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
-                )
-                chatDao.insertThread(newThread)
+                chatId = chatRepository.createThread().id
                 _currentChatThreadId.value = chatId
             }
 
@@ -891,13 +858,10 @@ class ChatViewModel(
                 localAttachmentMimeType = attachmentMime,
                 localAttachmentName = attachmentName
             )
-            messageDao.insertMessage(userMsg)
+            chatRepository.insertMessage(userMsg)
 
             // Update Thread Timestamp
-            val tempThread = chatDao.getThreadById(chatId)
-            if (tempThread != null) {
-                chatDao.updateThread(tempThread.copy(updatedAt = System.currentTimeMillis()))
-            }
+            chatRepository.touchThread(chatId)
 
             // Trigger background Title generation. Local chats use the word fallback:
             // no API key may exist, and the on-device engine is single-flight.
@@ -905,22 +869,17 @@ class ChatViewModel(
                 if (isLocal) {
                     val words = prompt.split("\\s+".toRegex())
                     val fallbackTitle = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
-                    chatDao.getThreadById(chatId)?.let { thread ->
-                        chatDao.updateThread(thread.copy(title = fallbackTitle))
-                    }
+                    chatRepository.renameThread(chatId, fallbackTitle)
                 } else {
                     launch {
                         val generatedTitle = openRouterService.generateTitle(apiKey, selectedModel, prompt)
-                        val activeThread = chatDao.getThreadById(chatId!!)
-                        if (activeThread != null) {
-                            chatDao.updateThread(activeThread.copy(title = generatedTitle))
-                        }
+                        chatRepository.renameThread(chatId!!, generatedTitle)
                     }
                 }
             }
 
             // Load updated dialog history
-            val fullHistory = messageDao.getMessagesForChatSync(chatId)
+            val fullHistory = chatRepository.history(chatId)
 
             // Resolve the user's global sampler settings for whichever model is about to run,
             // clamped to that model's limits (so a budget set for a big model can't break a
@@ -958,9 +917,28 @@ class ChatViewModel(
                 // Artifact mode runs the plain streaming path (no search); the parser extracts the
                 // <echo:artifact> block from the content stream.
                 artifactMode && isLocal ->
-                    localLlmService.generate(localModel!!, chatId, fullHistory, systemPrompt, inferenceParams)
+                    localGateway.stream(
+                        LlmStreamRequest(
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            localModel = localModel,
+                        )
+                    )
                 artifactMode ->
-                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false, params = inferenceParams)
+                    openRouterGateway.stream(
+                        LlmStreamRequest(
+                            apiKey = apiKey,
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            serverWebSearch = false,
+                        )
+                    )
                 advisorReq != null || fusionReq != null ->
                     openRouterService.sendWithEchoTools(
                         apiKey = apiKey,
@@ -974,15 +952,44 @@ class ChatViewModel(
                 isLocal && clientSearchReady ->
                     localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey, inferenceParams)
                 isLocal ->
-                    localLlmService.generate(localModel!!, chatId, fullHistory, systemPrompt, inferenceParams)
+                    localGateway.stream(
+                        LlmStreamRequest(
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            localModel = localModel,
+                        )
+                    )
                 provider == "openrouter" ->
-                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = true, params = inferenceParams)
+                    openRouterGateway.stream(
+                        LlmStreamRequest(
+                            apiKey = apiKey,
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            serverWebSearch = true,
+                        )
+                    )
                 clientSearchReady ->
                     openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
                 else ->
-                    openRouterService.sendChatMessageStream(apiKey, selectedModel, fullHistory, systemPrompt, serverWebSearch = false, params = inferenceParams)
+                    openRouterGateway.stream(
+                        LlmStreamRequest(
+                            apiKey = apiKey,
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            serverWebSearch = false,
+                        )
+                    )
             }
 
             // In artifact mode, route the <echo:artifact> block out of the chat bubble into
@@ -1020,6 +1027,23 @@ class ChatViewModel(
             // Keep the process unfrozen so the reply keeps streaming while minimized.
             KeepAliveService.acquire(getApplication(), keepAliveText)
             try {
+                var lastStreamUiEmit = 0L
+                var pendingStreamUiState: ActiveStreamState? = null
+                fun emitStreamUiState(force: Boolean = false) {
+                    val state = ActiveStreamState(
+                        segments = segments.toList(),
+                        statusNote = statusNote,
+                        progressLoading = false,
+                        isLocal = isLocal
+                    )
+                    pendingStreamUiState = state
+                    val now = System.currentTimeMillis()
+                    if (force || now - lastStreamUiEmit >= STREAM_UI_EMIT_MS) {
+                        setStreamState(chatId, state)
+                        pendingStreamUiState = null
+                        lastStreamUiEmit = now
+                    }
+                }
                 responseFlow.collect { rawChunk ->
                     // Persist a completed artifact version before reducing, so the card/segment
                     // carry a real artifactId/version to deep-link the workspace.
@@ -1035,16 +1059,9 @@ class ChatViewModel(
                     } else rawChunk
                     val note = reduceSegments(segments, chunk)
                     if (note != null) statusNote = note
-                    setStreamState(
-                        chatId,
-                        ActiveStreamState(
-                            segments = segments.toList(),
-                            statusNote = statusNote,
-                            progressLoading = false,
-                            isLocal = isLocal
-                        )
-                    )
+                    emitStreamUiState()
                 }
+                pendingStreamUiState?.let { emitStreamUiState(force = true) }
                 persistAssistantMessage(chatId, segments, interrupted = null)
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
@@ -1149,15 +1166,14 @@ class ChatViewModel(
             val now = System.currentTimeMillis()
             var chatId = _currentChatThreadId.value
             if (chatId == null) {
-                chatId = UUID.randomUUID().toString()
-                chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
+                chatId = chatRepository.createThread(now = now).id
                 _currentChatThreadId.value = chatId
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
-                chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
+                chatRepository.renameThread(chatId, fallbackTitle)
             }
 
-            messageDao.insertMessage(
+            chatRepository.insertMessage(
                 ChatMessage(
                     id = UUID.randomUUID().toString(),
                     chatId = chatId,
@@ -1169,7 +1185,7 @@ class ChatViewModel(
                     localAttachmentName = attachmentName,
                 )
             )
-            chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
+            chatRepository.touchThread(chatId, now)
 
             val runId = UUID.randomUUID().toString()
             researchRunDao.upsert(
@@ -1194,7 +1210,7 @@ class ChatViewModel(
             )
             DeepResearchForegroundService.start(getApplication(), runId)
             clearPendingAttachment()
-            _deepResearchActive.value = false // deliberate, per-question opt-in
+            setMode(ChatMode.Normal) // deliberate, per-question opt-in
         }
     }
 
@@ -1239,7 +1255,7 @@ class ChatViewModel(
                     chatDao.updateThread(thread.copy(title = title.ifBlank { "Browser session" }))
                 }
             }
-            _browserFlowActive.value = false // igniter consumed
+            setMode(ChatMode.Normal) // igniter consumed
             browserAgent.startSession(chatId, prompt)
         }
     }
@@ -1299,7 +1315,7 @@ class ChatViewModel(
                 )
             )
             DeepResearchForegroundService.start(getApplication(), runId)
-            _dataAgentActive.value = false
+            setMode(ChatMode.Normal)
         }
     }
 
@@ -1610,6 +1626,7 @@ class ChatViewModel(
     companion object {
         private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
+        private const val STREAM_UI_EMIT_MS = 33L
 
         fun provideFactory(
             application: Application,
