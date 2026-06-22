@@ -870,6 +870,10 @@ private fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, s
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
                             }
+                            "stopped" -> {
+                                StoppedNotice()
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
                             // The plan is rendered as a disclosure inside the report card.
                             "plan" -> Unit
                             "report" -> {
@@ -1045,6 +1049,25 @@ private fun ThinkingRow(modifier: Modifier = Modifier) {
         LoadingIndicator(color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(Spacing.s))
         Text("Thinking…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Red "Message stopped" line shown under a reply the user cancelled with the Stop button. */
+@Composable
+private fun StoppedNotice(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Default.Stop,
+            null,
+            Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.width(Spacing.xs))
+        Text(
+            "Message stopped",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
     }
 }
 
@@ -1530,20 +1553,27 @@ private fun PlusMenu(
 @Composable
 private fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onStop: () -> Unit = {}, onClick: () -> Unit) {
     if (isStreaming) {
-        // Tappable Stop — cancels the in-flight reply (cloud stream or on-device generation).
+        // Tappable Stop that stays in visual sync with the "Thinking…" row: the same expressive
+        // LoadingIndicator keeps spinning so the reply still feels live, with a Stop glyph centered
+        // on top so it reads clearly as "tap to stop". Tapping cancels the in-flight reply (cloud
+        // stream or on-device generation).
         Box(
             Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .clickable(onClick = onStop),
             contentAlignment = Alignment.Center,
         ) {
+            LoadingIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp),
+            )
             Icon(
                 Icons.Default.Stop,
                 "Stop generating",
-                Modifier.size(22.dp),
-                tint = MaterialTheme.colorScheme.onPrimary,
+                Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     } else {

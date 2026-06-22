@@ -165,7 +165,7 @@ data class ArtifactRef(
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "stopped"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,

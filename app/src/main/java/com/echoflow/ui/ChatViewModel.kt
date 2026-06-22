@@ -1074,7 +1074,7 @@ class ChatViewModel(
                 // User tapped Stop — keep whatever streamed so far and surface no error banner.
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
                 withContext(NonCancellable) {
-                    persistAssistantMessage(chatId, segments, interrupted = null)
+                    persistAssistantMessage(chatId, segments, interrupted = null, stopped = true)
                 }
                 throw e
             } catch (e: Exception) {
@@ -1327,7 +1327,8 @@ class ChatViewModel(
     private suspend fun persistAssistantMessage(
         chatId: String,
         segments: List<StreamSegment>,
-        interrupted: String?
+        interrupted: String?,
+        stopped: Boolean = false
     ) {
         val normalizedSegments = normalizeAssistantSegmentsForPersistence(segments)
         val contentText = normalizedSegments.filterIsInstance<StreamSegment.Text>()
@@ -1338,7 +1339,9 @@ class ChatViewModel(
             it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
                 (it is StreamSegment.Artifact && it.artifactId != null)
         }
-        if (contentText.isEmpty() && !hasEchoArtifact) return
+        // A user-stopped turn is always kept (even with no prose yet) so the "Message stopped"
+        // notice is shown; otherwise an empty, content-less turn is dropped.
+        if (contentText.isEmpty() && !hasEchoArtifact && !stopped) return
 
         val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim()
@@ -1408,8 +1411,11 @@ class ChatViewModel(
                     ?.let { PersistedSegment(type = "text", text = it) }
             }
         }.let { list ->
-            if (interrupted != null) list + PersistedSegment(type = "text", text = "*[Connection lost: $interrupted]*")
-            else list
+            var out = list
+            if (interrupted != null) out = out + PersistedSegment(type = "text", text = "*[Connection lost: $interrupted]*")
+            // A trailing "stopped" segment renders the red "Message stopped" notice under the reply.
+            if (stopped) out = out + PersistedSegment(type = "stopped")
+            out
         }
 
         messageDao.insertMessage(
