@@ -2,6 +2,7 @@
 
 package com.echoflow.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.content.MediaType
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.TransferableContent
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -313,6 +320,7 @@ fun ChatScreen(
                 onClearAttachment = { chatViewModel.clearPendingAttachment() },
                 onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onAttachPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
+                onReceiveImage = { uri -> chatViewModel.setPendingPastedImage(uri) },
                 imageAttachEnabled = imageAttachAvailable,
                 pdfAttachEnabled = pdfAttachAllowed,
                 isStreaming = isStreaming,
@@ -1181,6 +1189,7 @@ private fun InputToolbar(
     onClearAttachment: () -> Unit,
     onAttach: () -> Unit,
     onAttachPdf: () -> Unit,
+    onReceiveImage: (Uri) -> Unit,
     imageAttachEnabled: Boolean,
     pdfAttachEnabled: Boolean,
     isStreaming: Boolean,
@@ -1228,6 +1237,22 @@ private fun InputToolbar(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
+        object : ReceiveContentListener {
+            override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
+                if (!imageAttachEnabled || !transferableContent.hasMediaType(MediaType.Image)) {
+                    return transferableContent
+                }
+                return transferableContent.consume { item ->
+                    item.uri?.let { uri ->
+                        onReceiveImage(uri)
+                        true
+                    } == true
+                }
+            }
+        }
+    }
+
     Column(
         modifier
             .fillMaxWidth()
@@ -1419,7 +1444,10 @@ private fun InputToolbar(
                         disabledIndicatorColor = Color.Transparent,
                     ),
                     textStyle = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f).testTag("chat_input_field"),
+                    modifier = Modifier
+                        .weight(1f)
+                        .contentReceiver(imageContentReceiver)
+                        .testTag("chat_input_field"),
                 )
 
                 val researchMode = deepResearchActive || dataAgentActive

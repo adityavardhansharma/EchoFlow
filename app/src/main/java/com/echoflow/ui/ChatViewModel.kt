@@ -10,12 +10,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
@@ -447,7 +449,7 @@ class ChatViewModel(
 
             // Get display name
             var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
-            resolver.query(uri, null, null, null, null)?.use { cursor ->
+            runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (nameIndex != -1 && cursor.moveToFirst()) {
                     displayName = cursor.getString(nameIndex)
@@ -456,6 +458,43 @@ class ChatViewModel(
             _pendingAttachmentName.value = displayName
         }
     }
+
+    fun setPendingPastedImage(uri: Uri, fallbackMimeType: String? = null) {
+        viewModelScope.launch {
+            val cached = copyPastedImageToCache(uri, fallbackMimeType)
+            if (cached == null) {
+                _errorMessage.value = "Could not paste image."
+            } else {
+                setPendingAttachment(cached.first, cached.second)
+            }
+        }
+    }
+
+    private suspend fun copyPastedImageToCache(uri: Uri, fallbackMimeType: String?): Pair<Uri, String>? =
+        withContext(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val resolver = app.contentResolver
+            val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/png"
+            if (!mimeType.startsWith("image/", ignoreCase = true)) return@withContext null
+
+            runCatching {
+                val dir = File(app.cacheDir, "pasted_images").apply { mkdirs() }
+                val file = File.createTempFile("pasted_image_", ".${imageExtensionFor(mimeType)}", dir)
+                resolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: return@runCatching null
+                Uri.fromFile(file) to mimeType
+            }.getOrNull()
+        }
+
+    private fun imageExtensionFor(mimeType: String): String =
+        when (mimeType.lowercase()) {
+            "image/jpeg", "image/jpg" -> "jpg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/gif" -> "gif"
+            else -> "img"
+        }
 
     fun clearPendingAttachment() {
         _pendingAttachmentUri.value = null

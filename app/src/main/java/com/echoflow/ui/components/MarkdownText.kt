@@ -466,105 +466,6 @@ private fun parseDisplayMathBlock(lines: List<String>, index: Int): ParsedDispla
     )
 }
 
-private sealed class InlineSegment {
-    data class Text(val text: String) : InlineSegment()
-    data class Math(val latex: String, val raw: String) : InlineSegment()
-}
-
-private fun parseInlineMathSegments(text: String): List<InlineSegment> {
-    val segments = mutableListOf<InlineSegment>()
-    val plain = StringBuilder()
-    var i = 0
-
-    fun flushPlain() {
-        if (plain.isNotEmpty()) {
-            segments.add(InlineSegment.Text(plain.toString()))
-            plain.setLength(0)
-        }
-    }
-
-    while (i < text.length) {
-        when {
-            text.startsWith("\\(", i) -> {
-                val end = text.indexOf("\\)", i + 2)
-                if (end == -1) {
-                    plain.append(text.substring(i))
-                    break
-                }
-                val raw = text.substring(i, end + 2)
-                val latex = text.substring(i + 2, end).trim()
-                if (latex.isNotEmpty()) {
-                    flushPlain()
-                    segments.add(InlineSegment.Math(latex, raw))
-                } else {
-                    plain.append(raw)
-                }
-                i = end + 2
-            }
-
-            text.startsWith("\\[", i) -> {
-                val end = text.indexOf("\\]", i + 2)
-                if (end == -1) {
-                    plain.append(text.substring(i))
-                    break
-                }
-                val raw = text.substring(i, end + 2)
-                val latex = text.substring(i + 2, end).trim()
-                if (latex.isNotEmpty()) {
-                    flushPlain()
-                    segments.add(InlineSegment.Math(latex, raw))
-                } else {
-                    plain.append(raw)
-                }
-                i = end + 2
-            }
-
-            text.startsWith("$$", i) && !isEscaped(text, i) -> {
-                val end = text.indexOf("$$", i + 2)
-                if (end == -1) {
-                    plain.append(text.substring(i))
-                    break
-                }
-                val raw = text.substring(i, end + 2)
-                val latex = text.substring(i + 2, end).trim()
-                if (latex.isNotEmpty()) {
-                    flushPlain()
-                    segments.add(InlineSegment.Math(latex, raw))
-                } else {
-                    plain.append(raw)
-                }
-                i = end + 2
-            }
-
-            text[i] == '$' && !isEscaped(text, i) -> {
-                val end = findInlineDollarClose(text, i + 1)
-                if (end == -1) {
-                    plain.append(text[i])
-                    i++
-                    continue
-                }
-                val raw = text.substring(i, end + 1)
-                val latex = text.substring(i + 1, end).trim()
-                if (looksLikeMath(latex, text.getOrNull(i - 1), text.getOrNull(end + 1))) {
-                    flushPlain()
-                    segments.add(InlineSegment.Math(latex, raw))
-                } else {
-                    plain.append(raw)
-                }
-                i = end + 1
-            }
-
-            else -> {
-                plain.append(text[i])
-                i++
-            }
-        }
-    }
-
-    flushPlain()
-    return segments
-}
-
 private fun findInlineDollarClose(text: String, from: Int): Int {
     var i = from
     while (i < text.length) {
@@ -589,11 +490,199 @@ private fun looksLikeMath(content: String, before: Char?, after: Char?): Boolean
     if (content.first().isWhitespace() || content.last().isWhitespace()) return false
     if (content.length > 160) return false
     if (before?.isLetterOrDigit() == true && after?.isLetterOrDigit() == true) return false
+    if (content.all { it.isDigit() || it == '.' || it == ',' }) {
+        return before != '$' && after?.isLetter() != true && content.any { it.isDigit() }
+    }
     val lower = content.lowercase()
     val hasMathSignal = content.any { it in "\\^_=+-*/()[]{}<>|'" } ||
         listOf("frac", "sqrt", "lim", "sum", "int", "text", "sin", "cos", "tan", "log", "ln").any { it in lower }
     val isTinyVariable = content.length <= 4 && content.any { it.isLetter() } && content.none { it.isDigit() }
     return hasMathSignal || isTinyVariable
+}
+
+private sealed class InlineNode {
+    data class Text(val text: String) : InlineNode()
+    data class Math(val id: Int, val latex: String, val raw: String) : InlineNode()
+    data class Span(val style: SpanStyle, val children: List<InlineNode>) : InlineNode()
+    data class Code(val text: String) : InlineNode()
+    data class Link(val label: List<InlineNode>, val url: String) : InlineNode()
+    data class Citation(val label: String, val url: String) : InlineNode()
+}
+
+private class InlineParser(private val source: String) {
+    private var nextMathId = 0
+
+    fun parse(): List<InlineNode> = parseRange(0, source.length)
+
+    private fun parseRange(start: Int, end: Int): List<InlineNode> {
+        val nodes = mutableListOf<InlineNode>()
+        var cursor = start
+        while (cursor < end) {
+            var nextIdx = -1
+            var kind = ""
+            fun consider(idx: Int, k: String) {
+                if (idx in cursor until end && (nextIdx == -1 || idx < nextIdx)) {
+                    nextIdx = idx
+                    kind = k
+                }
+            }
+            consider(source.indexOf("\\(", cursor).takeIf { it < end } ?: -1, "parenMath")
+            consider(source.indexOf("\\[", cursor).takeIf { it < end } ?: -1, "bracketMath")
+            consider(indexOfDoubleDollar(cursor, end), "doubleDollarMath")
+            consider(indexOfDollar(cursor, end), "dollarMath")
+            consider(source.indexOf("**", cursor).takeIf { it < end } ?: -1, "bold")
+            consider(source.indexOf("~~", cursor).takeIf { it < end } ?: -1, "strike")
+            consider(source.indexOf("`", cursor).takeIf { it < end } ?: -1, "code")
+            consider(source.indexOf("[", cursor).takeIf { it < end } ?: -1, "link")
+            consider(indexOfItalic(source, cursor).takeIf { it < end } ?: -1, "italic")
+
+            if (nextIdx == -1) {
+                nodes.add(InlineNode.Text(source.substring(cursor, end)))
+                break
+            }
+            if (nextIdx > cursor) nodes.add(InlineNode.Text(source.substring(cursor, nextIdx)))
+
+            when (kind) {
+                "parenMath" -> {
+                    val close = source.indexOf("\\)", nextIdx + 2).takeIf { it in 0 until end }
+                    val parsed = close?.let { mathNode(nextIdx + 2, it, it + 2) }
+                    if (parsed != null) {
+                        nodes.add(parsed)
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text(source.substring(nextIdx, end)))
+                        break
+                    }
+                }
+                "bracketMath" -> {
+                    val close = source.indexOf("\\]", nextIdx + 2).takeIf { it in 0 until end }
+                    val parsed = close?.let { mathNode(nextIdx + 2, it, it + 2) }
+                    if (parsed != null) {
+                        nodes.add(parsed)
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text(source.substring(nextIdx, end)))
+                        break
+                    }
+                }
+                "doubleDollarMath" -> {
+                    val close = source.indexOf("$$", nextIdx + 2).takeIf { it in 0 until end }
+                    val parsed = close?.let { mathNode(nextIdx + 2, it, it + 2) }
+                    if (parsed != null) {
+                        nodes.add(parsed)
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text("$$"))
+                        cursor = nextIdx + 2
+                    }
+                }
+                "dollarMath" -> {
+                    val close = findInlineDollarClose(source, nextIdx + 1).takeIf { it in 0 until end }
+                    val latex = close?.let { source.substring(nextIdx + 1, it).trim() }
+                    if (close != null && latex != null && looksLikeMath(latex, source.getOrNull(nextIdx - 1), source.getOrNull(close + 1))) {
+                        nodes.add(mathNode(nextIdx + 1, close, close + 1)!!)
+                        cursor = close + 1
+                    } else {
+                        nodes.add(InlineNode.Text("$"))
+                        cursor = nextIdx + 1
+                    }
+                }
+                "bold" -> {
+                    val close = source.indexOf("**", nextIdx + 2).takeIf { it in 0 until end }
+                    if (close != null) {
+                        nodes.add(InlineNode.Span(SpanStyle(fontWeight = FontWeight.Bold), parseRange(nextIdx + 2, close)))
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text("**"))
+                        cursor = nextIdx + 2
+                    }
+                }
+                "strike" -> {
+                    val close = source.indexOf("~~", nextIdx + 2).takeIf { it in 0 until end }
+                    if (close != null) {
+                        nodes.add(InlineNode.Span(SpanStyle(textDecoration = TextDecoration.LineThrough), parseRange(nextIdx + 2, close)))
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text("~~"))
+                        cursor = nextIdx + 2
+                    }
+                }
+                "italic" -> {
+                    val close = source.indexOf("*", nextIdx + 1).takeIf { it in 0 until end }
+                    if (close != null && close > nextIdx + 1) {
+                        nodes.add(InlineNode.Span(SpanStyle(fontStyle = FontStyle.Italic), parseRange(nextIdx + 1, close)))
+                        cursor = close + 1
+                    } else {
+                        nodes.add(InlineNode.Text("*"))
+                        cursor = nextIdx + 1
+                    }
+                }
+                "code" -> {
+                    val close = source.indexOf("`", nextIdx + 1).takeIf { it in 0 until end }
+                    if (close != null) {
+                        nodes.add(InlineNode.Code(source.substring(nextIdx + 1, close)))
+                        cursor = close + 1
+                    } else {
+                        nodes.add(InlineNode.Text("`"))
+                        cursor = nextIdx + 1
+                    }
+                }
+                "link" -> {
+                    val labelEnd = source.indexOf("]", nextIdx + 1).takeIf { it in 0 until end }
+                    val parenOpen = labelEnd?.let { source.getOrNull(it + 1) }
+                    val parenClose = if (parenOpen == '(') source.indexOf(")", labelEnd + 2).takeIf { it in 0 until end } else null
+                    if (labelEnd != null && parenClose != null) {
+                        val labelText = source.substring(nextIdx + 1, labelEnd)
+                        val url = source.substring(labelEnd + 2, parenClose)
+                        nodes.add(
+                            if (isCitationLabel(labelText)) {
+                                InlineNode.Citation(labelText, url)
+                            } else {
+                                InlineNode.Link(parseRange(nextIdx + 1, labelEnd), url)
+                            }
+                        )
+                        cursor = parenClose + 1
+                    } else {
+                        nodes.add(InlineNode.Text("["))
+                        cursor = nextIdx + 1
+                    }
+                }
+            }
+        }
+        return nodes
+    }
+
+    private fun mathNode(contentStart: Int, contentEnd: Int, rawEnd: Int): InlineNode.Math? {
+        val latex = source.substring(contentStart, contentEnd).trim()
+        if (latex.isEmpty()) return null
+        return InlineNode.Math(nextMathId++, latex, source.substring(contentStart - delimiterPrefixLength(contentStart), rawEnd))
+    }
+
+    private fun delimiterPrefixLength(contentStart: Int): Int =
+        when {
+            contentStart >= 2 && source.startsWith("\\(", contentStart - 2) -> 2
+            contentStart >= 2 && source.startsWith("\\[", contentStart - 2) -> 2
+            contentStart >= 2 && source.startsWith("$$", contentStart - 2) -> 2
+            else -> 1
+        }
+
+    private fun indexOfDoubleDollar(from: Int, end: Int): Int {
+        var i = source.indexOf("$$", from)
+        while (i != -1 && i < end) {
+            if (!isEscaped(source, i)) return i
+            i = source.indexOf("$$", i + 2)
+        }
+        return -1
+    }
+
+    private fun indexOfDollar(from: Int, end: Int): Int {
+        var i = source.indexOf("$", from)
+        while (i != -1 && i < end) {
+            if (!isEscaped(source, i) && source.getOrNull(i + 1) != '$' && source.getOrNull(i - 1) != '$') return i
+            i = source.indexOf("$", i + 1)
+        }
+        return -1
+    }
 }
 
 @Composable
@@ -604,61 +693,48 @@ private fun InlineMarkdownText(
     style: TextStyle,
     modifier: Modifier = Modifier
 ) {
-    val segments = remember(text) { parseInlineMathSegments(text) }
-    val hasMath = segments.any { it is InlineSegment.Math }
+    val nodes = remember(text) { InlineParser(text).parse() }
+    val mathNodes = remember(nodes) { nodes.collectMathNodes() }
+    val hasMath = mathNodes.isNotEmpty()
     if (!hasMath) {
         val annotated = remember(text, linkColor) { parseInlineStyles(text, linkColor) }
         Text(annotated, style = style.copy(color = color), modifier = modifier)
         return
     }
 
-    val config = latexConfigFor(style, scale = 0.92f)
+    val textStyle = style.copy(color = color, lineHeight = lineHeightForInlineMath(style))
+    val config = latexConfigFor(style, scale = 0.86f)
     val measurer = rememberLatexMeasurer(config)
     val density = LocalDensity.current
     val darkTheme = isSystemInDarkTheme()
-    val measured = remember(segments, config, darkTheme) {
-        segments.map { segment ->
-            if (segment is InlineSegment.Math) measurer.measure(segment.latex, config, darkTheme) else null
-        }
+    val measured = remember(mathNodes, config, darkTheme) {
+        mathNodes.associate { math -> math.id to measurer.measure(math.latex, config, darkTheme) }
     }
-    val annotated = remember(segments, measured, linkColor) {
+    val annotated = remember(nodes, measured, linkColor) {
         buildAnnotatedString {
-            segments.forEachIndexed { index, segment ->
-                when (segment) {
-                    is InlineSegment.Text -> appendInline(segment.text, linkColor)
-                    is InlineSegment.Math -> {
-                        if (measured[index] != null) {
-                            appendInlineContent("math_$index", segment.raw)
-                        } else {
-                            appendInline(segment.raw, linkColor)
-                        }
-                    }
-                }
-            }
+            appendNodes(nodes, linkColor, measured.keys)
         }
     }
-    val inlineContent = remember(segments, measured, config, density, darkTheme) {
+    val inlineContent = remember(mathNodes, measured, config, density, darkTheme) {
         buildMap {
-            segments.forEachIndexed { index, segment ->
-                val dims = measured[index] ?: return@forEachIndexed
-                if (segment is InlineSegment.Math) {
-                    put(
-                        "math_$index",
-                        InlineTextContent(
-                            placeholder = Placeholder(
-                                width = with(density) { dims.widthPx.toSp() },
-                                height = with(density) { dims.heightPx.toSp() },
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                            )
-                        ) {
-                            Latex(
-                                latex = segment.latex,
-                                config = config,
-                                isDarkTheme = darkTheme
-                            )
-                        }
-                    )
-                }
+            mathNodes.forEach { math ->
+                val dims = measured[math.id] ?: return@forEach
+                put(
+                    "math_${math.id}",
+                    InlineTextContent(
+                        placeholder = Placeholder(
+                            width = with(density) { dims.widthPx.toSp() },
+                            height = with(density) { dims.heightPx.toSp() },
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                        )
+                    ) {
+                        Latex(
+                            latex = math.latex,
+                            config = config,
+                            isDarkTheme = darkTheme
+                        )
+                    }
+                )
             }
         }
     }
@@ -666,9 +742,82 @@ private fun InlineMarkdownText(
     Text(
         text = annotated,
         inlineContent = inlineContent,
-        style = style.copy(color = color),
+        style = textStyle,
         modifier = modifier
     )
+}
+
+private fun List<InlineNode>.collectMathNodes(): List<InlineNode.Math> {
+    val out = mutableListOf<InlineNode.Math>()
+    fun visit(nodes: List<InlineNode>) {
+        nodes.forEach { node ->
+            when (node) {
+                is InlineNode.Math -> out.add(node)
+                is InlineNode.Span -> visit(node.children)
+                is InlineNode.Link -> visit(node.label)
+                else -> Unit
+            }
+        }
+    }
+    visit(this)
+    return out
+}
+
+private fun AnnotatedString.Builder.appendNodes(
+    nodes: List<InlineNode>,
+    linkColor: Color,
+    measuredMathIds: Set<Int>
+) {
+    nodes.forEach { node ->
+        when (node) {
+            is InlineNode.Text -> append(node.text)
+            is InlineNode.Math -> {
+                if (node.id in measuredMathIds) {
+                    appendInlineContent("math_${node.id}", node.raw)
+                } else {
+                    append(node.raw)
+                }
+            }
+            is InlineNode.Span -> withStyle(node.style) {
+                appendNodes(node.children, linkColor, measuredMathIds)
+            }
+            is InlineNode.Code -> withStyle(
+                SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    background = Color.Gray.copy(alpha = 0.18f),
+                    fontWeight = FontWeight.Medium
+                )
+            ) { append(node.text) }
+            is InlineNode.Link -> withLink(
+                LinkAnnotation.Url(
+                    node.url,
+                    TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline))
+                )
+            ) {
+                appendNodes(node.label, linkColor, measuredMathIds)
+            }
+            is InlineNode.Citation -> withLink(
+                LinkAnnotation.Url(
+                    node.url,
+                    TextLinkStyles(
+                        SpanStyle(
+                            color = linkColor,
+                            background = linkColor.copy(alpha = 0.14f),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            baselineShift = BaselineShift.Superscript,
+                        )
+                    )
+                )
+            ) { append(" ${node.label} ") }
+        }
+    }
+}
+
+private fun lineHeightForInlineMath(style: TextStyle): TextUnit {
+    val baseSize = if (style.fontSize == TextUnit.Unspecified) 16.sp else style.fontSize
+    val current = if (style.lineHeight == TextUnit.Unspecified) baseSize * 1.5f else style.lineHeight
+    return current * 1.12f
 }
 
 @Composable
