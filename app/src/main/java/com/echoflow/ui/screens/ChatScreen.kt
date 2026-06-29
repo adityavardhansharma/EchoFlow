@@ -126,7 +126,9 @@ fun ChatScreen(
     val pendingMime by chatViewModel.pendingAttachmentMimeType.collectAsState()
     val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
     val selectedModelID by settingsViewModel.selectedModel.collectAsState()
+    val customProviderConfig by settingsViewModel.customProviderConfig.collectAsState()
     val customModelsList by settingsViewModel.customModels.collectAsState()
+    val customProviderModels by settingsViewModel.customProviderModels.collectAsState()
     val localModelsList by settingsViewModel.localModels.collectAsState()
     val localModelsEnabled by settingsViewModel.localModelsEnabled.collectAsState()
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
@@ -192,14 +194,30 @@ fun ChatScreen(
 
     // Image attachments work for cloud models and for on-device .litertlm bundles (which
     // support vision); .task models are text-only, so the Image option is hidden for them.
-    val imageAttachAllowed = remember(selectedModelID, localModelsList) {
-        if (selectedModelID.startsWith("local/")) {
-            localModelsList.firstOrNull { it.id == selectedModelID }
-                ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
-        } else true
+    val imageAttachAllowed = remember(selectedModelID, localModelsList, customProviderConfig) {
+        when {
+            selectedModelID.startsWith("local/") ->
+                localModelsList.firstOrNull { it.id == selectedModelID }
+                    ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
+            else -> true
+        }
     }
     val imageAttachAvailable = imageAttachAllowed && !deepResearchActive && !dataAgentActive
-    val selectedModelIsOpenRouter = remember(selectedModelID) { !selectedModelID.startsWith("local/") }
+    val selectedModelIsOpenRouter = remember(selectedModelID) {
+        !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
+    }
+    val selectedModelIsCustomCloud = remember(selectedModelID) {
+        selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) ||
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) ||
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI)
+    }
+    val selectedModelIsCustomPdfCapable = remember(selectedModelID, customProviderConfig) {
+        selectedModelIsCustomCloud ||
+            (selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) && customProviderConfig.ollamaPdfsEnabled) ||
+            (selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) && customProviderConfig.openAiCompatiblePdfsEnabled)
+    }
     val deepResearchUsesOpenRouter = remember(deepResearchActive, drModelId) {
         deepResearchActive && drModelId.isNotBlank() && !DeepResearchCatalog.isProviderEngine(drModelId)
     }
@@ -211,6 +229,7 @@ fun ChatScreen(
         echoAdviserActive,
         echoFusionActive,
         echoAgentActive,
+        selectedModelIsCustomPdfCapable,
     ) {
         when {
             dataAgentActive -> false
@@ -218,7 +237,7 @@ fun ChatScreen(
             echoFusionActive -> true
             echoAdviserActive -> selectedModelIsOpenRouter
             echoAgentActive -> selectedModelIsOpenRouter
-            else -> selectedModelIsOpenRouter
+            else -> selectedModelIsOpenRouter || selectedModelIsCustomPdfCapable
         }
     }
     LaunchedEffect(pendingUri, pendingMime, imageAttachAvailable, pdfAttachAllowed) {
@@ -230,16 +249,30 @@ fun ChatScreen(
         }
     }
 
-    val activeModelList = remember(customModelsList) {
+    val activeModelList = remember(customModelsList, customProviderModels) {
+        val list = mutableListOf(DEFAULT_MODEL)
+        customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
+        customProviderModels.filter { !it.isLocalLike }.forEach { model ->
+            if (list.none { it.first == model.id }) list.add(model.id to "${model.group}: ${model.name}")
+        }
+        list
+    }
+    val openRouterOnlyModelList = remember(customModelsList) {
         val list = mutableListOf(DEFAULT_MODEL)
         customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
         list
     }
-    val localModelEntries = remember(localModelsList, localModelsEnabled) {
-        if (localModelsEnabled) localModelsList.map { it.id to it.name } else emptyList()
+    val localModelEntries = remember(localModelsList, localModelsEnabled, customProviderModels) {
+        val entries = mutableListOf<Pair<String, String>>()
+        if (localModelsEnabled) entries.addAll(localModelsList.map { it.id to it.name })
+        customProviderModels.filter { it.isLocalLike }.forEach { model ->
+            entries.add(model.id to "${model.group}: ${model.name}")
+        }
+        entries
     }
     val modelShortName = activeModelList.firstOrNull { it.first == selectedModelID }?.second
         ?: customModelsList.firstOrNull { it.id == selectedModelID }?.name
+        ?: customProviderModels.firstOrNull { it.id == selectedModelID }?.let { "${it.group}: ${it.name}" }
         ?: localModelsList.firstOrNull { it.id == selectedModelID }?.name
         ?: selectedModelID
     val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
@@ -426,7 +459,7 @@ fun ChatScreen(
             )
         } else if (echoAdviserActive) {
             AdvisorPickerSheet(
-                models = activeModelList,
+                models = openRouterOnlyModelList,
                 selectedModelId = selectedModelID,
                 profiles = advisorProfiles,
                 selectedProfileId = echoAdviserProfileId,
@@ -437,7 +470,7 @@ fun ChatScreen(
             )
         } else if (echoAgentActive) {
             AgentPickerSheet(
-                models = activeModelList,
+                models = openRouterOnlyModelList,
                 selectedModelId = selectedModelID,
                 profiles = agentProfiles,
                 selectedProfileId = echoAgentProfileId,
@@ -1737,7 +1770,7 @@ private fun ModelPickerSheet(
                 }
                 if (filteredLocal.isNotEmpty()) {
                     item(key = "local-section") {
-                        Box(Modifier.padding(top = Spacing.m)) { SectionLabel("On-device") }
+                        Box(Modifier.padding(top = Spacing.m)) { SectionLabel("Local & network") }
                     }
                     items(filteredLocal, key = { it.first }) { (id, name) ->
                         ModelRow(name, id, id == selectedId, isLocal = true) { onSelect(id) }
@@ -2039,6 +2072,11 @@ private fun DrEngineRow(name: String, description: String, selected: Boolean, on
 private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: Boolean = false, onClick: () -> Unit) {
     val displayName = remember(name, isLocal) { modelPickerDisplayName(name, isLocal) }
     val provider = when {
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) -> "Direct OpenAI API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) -> "Direct Claude API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI) -> "Direct Gemini API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> "Ollama API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "OpenAI-compatible API"
         isLocal -> "Runs on this device — private & offline"
         modelId.contains("/") -> modelId.substringBefore("/").replaceFirstChar { it.uppercase() }
         else -> "Custom"
