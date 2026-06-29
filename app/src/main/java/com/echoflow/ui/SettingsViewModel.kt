@@ -9,6 +9,10 @@ import com.echoflow.data.AdvisorProfileDao
 import com.echoflow.data.AgentProfile
 import com.echoflow.data.AgentProfileDao
 import com.echoflow.data.CatalogEntry
+import com.echoflow.data.CustomProviderConfig
+import com.echoflow.data.CustomModelProvider
+import com.echoflow.data.CustomProviderModel
+import com.echoflow.data.CustomProviderService
 import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
 import com.echoflow.data.DeepResearchModel
@@ -26,6 +30,7 @@ import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.data.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +48,7 @@ class SettingsViewModel(
     private val agentProfileDao: AgentProfileDao
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
+    private val customProviderService = CustomProviderService()
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
@@ -65,6 +71,23 @@ class SettingsViewModel(
     // Inference parameters (global, one set per side)
     val localInferenceParams: StateFlow<InferenceParams> = repository.localInferenceParams
     val cloudInferenceParams: StateFlow<InferenceParams> = repository.cloudInferenceParams
+    val customProviderConfig: StateFlow<CustomProviderConfig> = repository.customProviderConfig
+
+    private val _customProviderTestLoading = MutableStateFlow(false)
+    val customProviderTestLoading: StateFlow<Boolean> = _customProviderTestLoading.asStateFlow()
+
+    private val _customProviderTestMessage = MutableStateFlow<String?>(null)
+    val customProviderTestMessage: StateFlow<String?> = _customProviderTestMessage.asStateFlow()
+
+    private val _customProviderFetchLoading = MutableStateFlow<CustomModelProvider?>(null)
+    val customProviderFetchLoading: StateFlow<CustomModelProvider?> = _customProviderFetchLoading.asStateFlow()
+
+    private val _customProviderFetchMessage = MutableStateFlow<String?>(null)
+    val customProviderFetchMessage: StateFlow<String?> = _customProviderFetchMessage.asStateFlow()
+
+    val customProviderModels: StateFlow<List<CustomProviderModel>> = repository.customProviderConfig
+        .map { it.toModelEntries() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Deep Research
     val deepResearchModelId: StateFlow<String> = repository.deepResearchModel
@@ -217,6 +240,67 @@ class SettingsViewModel(
 
     fun resetInferenceParams(local: Boolean) {
         repository.resetInferenceParams(local)
+    }
+
+    fun saveCustomProviderConfig(config: CustomProviderConfig) {
+        repository.saveCustomProviderConfig(config)
+        _customProviderTestMessage.value = null
+    }
+
+    fun testCustomProvider(config: CustomProviderConfig = customProviderConfig.value) {
+        if (_customProviderTestLoading.value) return
+        viewModelScope.launch {
+            _customProviderTestLoading.value = true
+            _customProviderTestMessage.value = null
+            try {
+                val result = when {
+                    config.ollamaEnabled ->
+                        customProviderService.testOllama(config.ollamaBaseUrl, config.ollamaModel)
+                    config.openAiCompatibleEnabled ->
+                        customProviderService.testOpenAiCompatible(config.openAiBaseUrl, config.openAiCompatibleApiKey, config.openAiCompatibleModel)
+                    else -> null
+                }
+                _customProviderTestMessage.value = result?.message
+            } finally {
+                _customProviderTestLoading.value = false
+            }
+        }
+    }
+
+    fun fetchCustomProviderModels(provider: CustomModelProvider, config: CustomProviderConfig = customProviderConfig.value) {
+        if (_customProviderFetchLoading.value != null) return
+        viewModelScope.launch {
+            _customProviderFetchLoading.value = provider
+            _customProviderFetchMessage.value = null
+            try {
+                val result = when (provider) {
+                    CustomModelProvider.OpenAi -> customProviderService.fetchModels(provider, apiKey = config.openAiApiKey)
+                    CustomModelProvider.Claude -> customProviderService.fetchModels(provider, apiKey = config.claudeApiKey)
+                    CustomModelProvider.Gemini -> customProviderService.fetchModels(provider, apiKey = config.geminiApiKey)
+                    CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
+                    CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
+                        provider,
+                        baseUrl = config.openAiBaseUrl,
+                        apiKey = config.openAiCompatibleApiKey,
+                    )
+                }
+                if (result.ok) {
+                    val updated = when (provider) {
+                        CustomModelProvider.OpenAi -> config.copy(openAiModels = result.message)
+                        CustomModelProvider.Claude -> config.copy(claudeModels = result.message)
+                        CustomModelProvider.Gemini -> config.copy(geminiModels = result.message)
+                        CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
+                        CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
+                    }
+                    saveCustomProviderConfig(updated)
+                    _customProviderFetchMessage.value = "Fetched ${result.message.lineSequence().filter { it.isNotBlank() }.count()} models."
+                } else {
+                    _customProviderFetchMessage.value = result.message
+                }
+            } finally {
+                _customProviderFetchLoading.value = null
+            }
+        }
     }
 
     // ── Deep Research ────────────────────────────────────────────────────────────────
@@ -461,6 +545,36 @@ class SettingsViewModel(
     }
 
     private fun gb(bytes: Long): String = "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
+
+    private fun CustomProviderConfig.toModelEntries(): List<CustomProviderModel> {
+        fun lines(value: String): List<String> = value.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().toList()
+        fun withManual(models: String, manual: String): List<String> =
+            (listOf(manual.trim()).filter { it.isNotEmpty() } + lines(models)).distinct()
+
+        val out = mutableListOf<CustomProviderModel>()
+        if (cloudApisEnabled) {
+            withManual(openAiSelectedModels, openAiModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OPENAI + it, it, "OpenAI", isLocalLike = false))
+            }
+            withManual(claudeSelectedModels, claudeModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_CLAUDE + it, it, "Claude", isLocalLike = false))
+            }
+            withManual(geminiSelectedModels, geminiModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_GEMINI + it, it, "Gemini", isLocalLike = false))
+            }
+        }
+        if (ollamaEnabled) {
+            withManual(ollamaSelectedModels, ollamaModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OLLAMA + it, it, "Ollama", isLocalLike = true))
+            }
+        }
+        if (openAiCompatibleEnabled) {
+            withManual(openAiCompatibleSelectedModels, openAiCompatibleModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE + it, it, "OpenAI-compatible", isLocalLike = true))
+            }
+        }
+        return out
+    }
 
     fun clearImportError() {
         _importError.value = null

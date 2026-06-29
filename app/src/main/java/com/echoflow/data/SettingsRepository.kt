@@ -156,6 +156,9 @@ class SettingsRepository(context: Context) {
     private val _cloudInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = false))
     val cloudInferenceParams: StateFlow<InferenceParams> = _cloudInferenceParams.asStateFlow()
 
+    private val _customProviderConfig = MutableStateFlow(getCustomProviderConfigDirect())
+    val customProviderConfig: StateFlow<CustomProviderConfig> = _customProviderConfig.asStateFlow()
+
     fun getApiKeyDirect(): String {
         return prefs.getString("openrouter_api_key", "").orEmpty()
     }
@@ -341,6 +344,87 @@ class SettingsRepository(context: Context) {
 
     fun resetInferenceParams(local: Boolean) {
         saveInferenceParams(local, if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS)
+    }
+
+    // ── Custom provider (Echo Labs prerelease) ────────────────────────────────────────
+
+    fun getCustomProviderConfigDirect(): CustomProviderConfig =
+        CustomProviderConfig(
+            cloudApisEnabled = prefs.getBoolean("labs_cloud_apis_enabled", false),
+            ollamaEnabled = prefs.getBoolean("labs_ollama_enabled", false),
+            openAiCompatibleEnabled = prefs.getBoolean("labs_openai_compatible_enabled", false),
+            openAiApiKey = prefs.getString("direct_openai_api_key", "").orEmpty(),
+            openAiModel = prefs.getString("direct_openai_model", "").orEmpty(),
+            openAiModels = prefs.getString("direct_openai_models", "").orEmpty(),
+            openAiSelectedModels = prefs.getString("direct_openai_selected_models", "").orEmpty(),
+            claudeApiKey = prefs.getString("direct_claude_api_key", "").orEmpty(),
+            claudeModel = prefs.getString("direct_claude_model", "").orEmpty(),
+            claudeModels = prefs.getString("direct_claude_models", "").orEmpty(),
+            claudeSelectedModels = prefs.getString("direct_claude_selected_models", "").orEmpty(),
+            geminiApiKey = prefs.getString("direct_gemini_api_key", "").orEmpty(),
+            geminiModel = prefs.getString("direct_gemini_model", "").orEmpty(),
+            geminiModels = prefs.getString("direct_gemini_models", "").orEmpty(),
+            geminiSelectedModels = prefs.getString("direct_gemini_selected_models", "").orEmpty(),
+            ollamaBaseUrl = prefs.getString("ollama_base_url", "http://localhost:11434").orEmpty(),
+            ollamaModel = prefs.getString("ollama_model", "").orEmpty(),
+            ollamaModels = prefs.getString("ollama_models", "").orEmpty(),
+            ollamaSelectedModels = prefs.getString("ollama_selected_models", "").orEmpty(),
+            ollamaImagesEnabled = prefs.getBoolean("ollama_images_enabled", false),
+            ollamaPdfsEnabled = prefs.getBoolean("ollama_pdfs_enabled", false),
+            openAiBaseUrl = prefs.getString("openai_compatible_base_url", "http://localhost:1234/v1").orEmpty(),
+            openAiCompatibleApiKey = prefs.getString("openai_compatible_api_key", "").orEmpty(),
+            openAiCompatibleModel = prefs.getString("openai_compatible_model", "").orEmpty(),
+            openAiCompatibleModels = prefs.getString("openai_compatible_models", "").orEmpty(),
+            openAiCompatibleSelectedModels = prefs.getString("openai_compatible_selected_models", "").orEmpty(),
+            openAiCompatibleImagesEnabled = prefs.getBoolean("openai_compatible_images_enabled", false),
+            openAiCompatiblePdfsEnabled = prefs.getBoolean("openai_compatible_pdfs_enabled", false),
+        )
+
+    fun saveCustomProviderConfig(config: CustomProviderConfig) {
+        val clean = config.copy(
+            openAiApiKey = config.openAiApiKey.trim(),
+            openAiModel = config.openAiModel.trim(),
+            claudeApiKey = config.claudeApiKey.trim(),
+            claudeModel = config.claudeModel.trim(),
+            geminiApiKey = config.geminiApiKey.trim(),
+            geminiModel = config.geminiModel.trim(),
+            ollamaBaseUrl = config.ollamaBaseUrl.trim(),
+            ollamaModel = config.ollamaModel.trim(),
+            openAiBaseUrl = config.openAiBaseUrl.trim(),
+            openAiCompatibleApiKey = config.openAiCompatibleApiKey.trim(),
+            openAiCompatibleModel = config.openAiCompatibleModel.trim(),
+        )
+        prefs.edit()
+            .putBoolean("labs_cloud_apis_enabled", clean.cloudApisEnabled)
+            .putBoolean("labs_ollama_enabled", clean.ollamaEnabled)
+            .putBoolean("labs_openai_compatible_enabled", clean.openAiCompatibleEnabled)
+            .putString("direct_openai_api_key", clean.openAiApiKey)
+            .putString("direct_openai_model", clean.openAiModel)
+            .putString("direct_openai_models", clean.openAiModels)
+            .putString("direct_openai_selected_models", clean.openAiSelectedModels)
+            .putString("direct_claude_api_key", clean.claudeApiKey)
+            .putString("direct_claude_model", clean.claudeModel)
+            .putString("direct_claude_models", clean.claudeModels)
+            .putString("direct_claude_selected_models", clean.claudeSelectedModels)
+            .putString("direct_gemini_api_key", clean.geminiApiKey)
+            .putString("direct_gemini_model", clean.geminiModel)
+            .putString("direct_gemini_models", clean.geminiModels)
+            .putString("direct_gemini_selected_models", clean.geminiSelectedModels)
+            .putString("ollama_base_url", clean.ollamaBaseUrl)
+            .putString("ollama_model", clean.ollamaModel)
+            .putString("ollama_models", clean.ollamaModels)
+            .putString("ollama_selected_models", clean.ollamaSelectedModels)
+            .putBoolean("ollama_images_enabled", clean.ollamaImagesEnabled)
+            .putBoolean("ollama_pdfs_enabled", clean.ollamaPdfsEnabled)
+            .putString("openai_compatible_base_url", clean.openAiBaseUrl)
+            .putString("openai_compatible_api_key", clean.openAiCompatibleApiKey)
+            .putString("openai_compatible_model", clean.openAiCompatibleModel)
+            .putString("openai_compatible_models", clean.openAiCompatibleModels)
+            .putString("openai_compatible_selected_models", clean.openAiCompatibleSelectedModels)
+            .putBoolean("openai_compatible_images_enabled", clean.openAiCompatibleImagesEnabled)
+            .putBoolean("openai_compatible_pdfs_enabled", clean.openAiCompatiblePdfsEnabled)
+            .apply()
+        _customProviderConfig.value = clean
     }
 
     // ── Deep Research ────────────────────────────────────────────────────────────────

@@ -110,6 +110,7 @@ class ChatViewModel(
     private val artifactManager = ArtifactManager(artifactDao, artifactVersionDao)
 
     private val openRouterService = OpenRouterService(application)
+    private val customProviderService = CustomProviderService(application)
     private val webSearchService = WebSearchService()
     private val localLlmService = LocalLlmService(application)
     private val chatRepository = ChatRepository(
@@ -769,6 +770,24 @@ class ChatViewModel(
 
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
+            val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
+            val customProvider = when {
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI) -> "openai"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
+                else -> null
+            }
+            val customProviderActive = customProvider != null
+            val requestModel = when (customProvider) {
+                "openai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI)
+                "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
+                "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
+                "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
+                "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
+                else -> selectedModel
+            }
             // The "+ → Web Search" chip force-enables search using the last-used provider,
             // so the user never has to open Settings just to search one message.
             val chipProvider = if (_chatMode.value is ChatMode.WebSearch) settingsRepository.resolveChipSearchProvider() else null
@@ -788,8 +807,30 @@ class ChatViewModel(
                 return@launch
             }
 
-            if (!isLocal && apiKey.isBlank()) {
+            if (!isLocal && !customProviderActive && apiKey.isBlank()) {
                 _errorMessage.value = "OpenRouter API Key is missing! Go to Settings to configure it."
+                return@launch
+            }
+
+            val customImageAllowed = when (customProvider) {
+                "openai", "claude", "gemini" -> true
+                "ollama" -> customProviderConfig.ollamaImagesEnabled
+                "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
+                else -> false
+            }
+            val customPdfAllowed = when (customProvider) {
+                "openai", "claude", "gemini" -> true
+                "ollama" -> customProviderConfig.ollamaPdfsEnabled
+                "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
+                else -> false
+            }
+            val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
+            if (customProviderActive && attachmentUri != null && pendingIsPdf && !customPdfAllowed) {
+                _errorMessage.value = "PDF is off for this Labs provider. Turn it on in Settings → Echo Labs → Labs Providers."
+                return@launch
+            }
+            if (customProviderActive && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
+                _errorMessage.value = "Images are off for this Labs provider. Turn them on in Settings → Echo Labs → Labs Providers."
                 return@launch
             }
 
@@ -815,6 +856,7 @@ class ChatViewModel(
             val effectiveProvider = when {
                 !searchAllowedForModel -> "off"
                 isLocal && provider == "openrouter" -> "off"
+                customProviderActive && provider == "openrouter" -> "off"
                 provider == "openrouter" -> "openrouter"
                 clientSearchReady -> provider
                 else -> "off"
@@ -832,6 +874,10 @@ class ChatViewModel(
                     _errorMessage.value = "Echo Agents needs a cloud main model. Pick one from the model selector."
                     return@launch
                 }
+                if (customProviderActive) {
+                    _errorMessage.value = "Echo Agents uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
+                    return@launch
+                }
                 val profile = agentProfileDao.getById(settingsRepository.getEchoAgentProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Set up an Echo Agent first in Settings → Echo Agents, then pick it."
@@ -844,6 +890,10 @@ class ChatViewModel(
                     _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
                     return@launch
                 }
+                if (customProviderActive) {
+                    _errorMessage.value = "Echo Adviser uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
+                    return@launch
+                }
                 val profile = advisorProfileDao.getById(settingsRepository.getEchoAdviserProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Pick an advisor first — set one up in Settings → Echo Adviser."
@@ -852,6 +902,10 @@ class ChatViewModel(
                 advisorReq = OpenRouterService.AdvisorRequest(profile.name, profile.modelId)
                 echoSystemPrompt = SystemPrompts.buildEchoAdviser(profile.name)
             } else if (_chatMode.value is ChatMode.EchoFusion) {
+                if (customProviderActive) {
+                    _errorMessage.value = "Echo Fusion uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
+                    return@launch
+                }
                 val panel = fusionPanelDao.getById(settingsRepository.getEchoFusionPanelIdDirect())
                 if (panel == null || panel.models.isEmpty()) {
                     _errorMessage.value = "Set up a Fusion panel first in Settings → Echo Fusion, then pick it."
@@ -905,7 +959,7 @@ class ChatViewModel(
             // Trigger background Title generation. Local chats use the word fallback:
             // no API key may exist, and the on-device engine is single-flight.
             if (isFirstMsgInChat) {
-                if (isLocal) {
+                if (isLocal || customProviderActive) {
                     val words = prompt.split("\\s+".toRegex())
                     val fallbackTitle = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
                     chatRepository.renameThread(chatId, fallbackTitle)
@@ -966,6 +1020,8 @@ class ChatViewModel(
                             localModel = localModel,
                         )
                     )
+                artifactMode && customProviderActive ->
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
                 artifactMode ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
@@ -1001,6 +1057,20 @@ class ChatViewModel(
                             localModel = localModel,
                         )
                     )
+                customProviderActive && clientSearchReady ->
+                    flow {
+                        val query = prompt
+                        emit(StreamChunk.SearchStarted(query))
+                        val sources = webSearchService.search(provider, searchKey, query)
+                        emit(StreamChunk.SearchSources(query, sources))
+                        val searchContext = sources.joinToString("\n\n") { source ->
+                            "[${source.title}](${source.url})\n${source.snippet.orEmpty()}"
+                        }
+                        val withSearch = systemPrompt + "\n\nUse these web search results when relevant:\n$searchContext"
+                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, withSearch, inferenceParams))
+                    }
+                customProviderActive ->
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
                 provider == "openrouter" ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
@@ -1133,6 +1203,29 @@ class ChatViewModel(
                 setStreamState(chatId, null)
             }
         }
+    }
+
+    private fun customProviderFlow(
+        provider: String?,
+        config: CustomProviderConfig,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        params: InferenceParams,
+    ): Flow<StreamChunk> = when (provider) {
+        "openai" -> customProviderService.streamOpenAi(config.openAiApiKey, model, history, systemPrompt, params)
+        "claude" -> customProviderService.streamClaude(config.claudeApiKey, model, history, systemPrompt, params)
+        "gemini" -> customProviderService.streamGemini(config.geminiApiKey, model, history, systemPrompt, params)
+        "ollama" -> customProviderService.streamOllama(config.ollamaBaseUrl, model, history, systemPrompt, params)
+        "openai-compatible" -> customProviderService.streamOpenAiCompatible(
+            baseUrl = config.openAiBaseUrl,
+            apiKey = config.openAiCompatibleApiKey,
+            model = model,
+            history = history,
+            systemPrompt = systemPrompt,
+            params = params,
+        )
+        else -> flow { throw Exception("Unknown Labs provider.") }
     }
 
     // -------------------------------------------------------------------------------
