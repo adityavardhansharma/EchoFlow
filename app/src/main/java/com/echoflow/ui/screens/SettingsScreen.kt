@@ -147,6 +147,9 @@ private const val PageEchoAdviser = "echo_adviser"
 private const val PageEchoFusion = "echo_fusion"
 private const val PageEchoAgent = "echo_agent"
 private const val PageCustomProvider = "custom_provider"
+private const val PageCustomProviderCloud = "custom_provider_cloud"
+private const val PageCustomProviderOllama = "custom_provider_ollama"
+private const val PageCustomProviderCompatible = "custom_provider_compatible"
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -203,7 +206,10 @@ fun SettingsScreen(
             PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageEchoLabs })
             PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageEchoLabs })
             PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageEchoLabs })
-            PageCustomProvider -> CustomProviderPage(viewModel, onBack = { page = PageEchoLabs })
+            PageCustomProvider -> CustomApiEndpointPage(viewModel, onOpen = { page = it }, onBack = { page = PageEchoLabs })
+            PageCustomProviderCloud -> DirectCloudApisPage(viewModel, onBack = { page = PageCustomProvider })
+            PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = { page = PageCustomProvider })
+            PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = { page = PageCustomProvider })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
@@ -1391,9 +1397,9 @@ private fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit,
                 onClick = { onOpen(PageEchoAgent) },
             )
             SettingsNavRow(
-                icon = Icons.Default.Hub,
+                icon = Icons.Default.Language,
                 polygon = MaterialShapes.Gem,
-                title = "Labs Providers",
+                title = "Custom API Endpoint",
                 subtitle = customProviderSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -1445,130 +1451,353 @@ private fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit,
     }
 }
 
-// ── Custom Provider ──────────────────────────────────────────────────────────────────
+// ── Custom API Endpoint ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun CustomProviderPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val savedConfig by viewModel.customProviderConfig.collectAsState()
-    val loading by viewModel.customProviderTestLoading.collectAsState()
-    val fetchLoading by viewModel.customProviderFetchLoading.collectAsState()
-    val fetchMessage by viewModel.customProviderFetchMessage.collectAsState()
-    val testMessage by viewModel.customProviderTestMessage.collectAsState()
-    var draft by remember(savedConfig) { mutableStateOf(savedConfig) }
+private fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit, onBack: () -> Unit) {
+    val config by viewModel.customProviderConfig.collectAsState()
+    val directCount = listOf(config.openAiSelectedModels, config.claudeSelectedModels, config.geminiSelectedModels)
+        .sumOf { selectedModelCount(it) }
+    val ollamaCount = selectedModelCount(config.ollamaSelectedModels)
+    val compatibleCount = selectedModelCount(config.openAiCompatibleSelectedModels)
 
-    SettingsPageScaffold(title = "Labs Providers", subtitle = "Prerelease direct and network APIs", onBack = onBack) {
-        LabProviderToggle(
-            title = "Direct Cloud APIs",
-            subtitle = "OpenAI, Claude and Gemini direct keys",
-            enabled = draft.cloudApisEnabled,
-            onToggle = { draft = draft.copy(cloudApisEnabled = it); viewModel.saveCustomProviderConfig(draft) },
-        )
-        AnimatedVisibility(visible = draft.cloudApisEnabled, enter = sectionEnter(), exit = sectionExit()) {
-            Column {
-                Spacer(Modifier.height(Spacing.m))
-                DirectCloudProviderCard(
-                    draft = draft,
-                    fetchLoading = fetchLoading,
-                    onDraft = { draft = it },
-                    onSave = { viewModel.saveCustomProviderConfig(draft) },
-                    onFetch = { provider ->
-                        viewModel.saveCustomProviderConfig(draft)
-                        viewModel.fetchCustomProviderModels(provider, draft)
-                    },
-                )
-            }
+    SettingsPageScaffold(title = "Custom API Endpoint", subtitle = "Prerelease model providers", onBack = onBack) {
+        FormCard {
+            Text("Bring your own endpoint", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Add direct cloud APIs, an Ollama server, or any OpenAI-compatible endpoint. Only models you select here appear in the chat model picker.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.height(Spacing.xl))
-        LabProviderToggle(
-            title = "Ollama API",
-            subtitle = "Local or LAN Ollama server",
-            enabled = draft.ollamaEnabled,
-            onToggle = { draft = draft.copy(ollamaEnabled = it); viewModel.saveCustomProviderConfig(draft) },
-        )
-        AnimatedVisibility(visible = draft.ollamaEnabled, enter = sectionEnter(), exit = sectionExit()) {
-            Column {
-                Spacer(Modifier.height(Spacing.m))
-                NetworkProviderCard(
-                    title = "Ollama",
-                    baseUrl = draft.ollamaBaseUrl,
-                    apiKey = null,
-                    manualModel = draft.ollamaModel,
-                    availableModels = draft.ollamaModels,
-                    selectedModels = draft.ollamaSelectedModels,
-                    images = draft.ollamaImagesEnabled,
-                    pdfs = draft.ollamaPdfsEnabled,
-                    fetchLoading = fetchLoading == CustomModelProvider.Ollama,
-                    testLoading = loading,
-                    testMessage = testMessage,
-                    placeholder = "llama3.1",
-                    onBaseUrl = { draft = draft.copy(ollamaBaseUrl = it) },
-                    onApiKey = {},
-                    onManualModel = { draft = draft.copy(ollamaModel = it) },
-                    onSelectedModels = { draft = draft.copy(ollamaSelectedModels = it) },
-                    onImages = { draft = draft.copy(ollamaImagesEnabled = it) },
-                    onPdfs = { draft = draft.copy(ollamaPdfsEnabled = it) },
-                    onSave = { viewModel.saveCustomProviderConfig(draft) },
-                    onFetch = {
-                        viewModel.saveCustomProviderConfig(draft)
-                        viewModel.fetchCustomProviderModels(CustomModelProvider.Ollama, draft)
-                    },
-                    onTest = {
-                        viewModel.saveCustomProviderConfig(draft)
-                        viewModel.testCustomProvider(draft.copy(openAiCompatibleEnabled = false, ollamaEnabled = true))
-                    },
-                )
-            }
+        PageSection("Providers", "Each provider has its own setup page")
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SettingsNavRow(
+                icon = Icons.Default.Language,
+                polygon = MaterialShapes.Gem,
+                title = "Direct Cloud APIs",
+                subtitle = endpointSubtitle(config.cloudApisEnabled, directCount, "OpenAI · Claude · Gemini"),
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 0,
+                count = 3,
+                onClick = { onOpen(PageCustomProviderCloud) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Memory,
+                polygon = BrandShapes.avatarStart,
+                title = "Ollama API",
+                subtitle = endpointSubtitle(config.ollamaEnabled, ollamaCount, config.ollamaBaseUrl.ifBlank { "Local or LAN server" }),
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 1,
+                count = 3,
+                onClick = { onOpen(PageCustomProviderOllama) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Tune,
+                polygon = BrandShapes.heroStart,
+                title = "OpenAI-Compatible API",
+                subtitle = endpointSubtitle(config.openAiCompatibleEnabled, compatibleCount, config.openAiBaseUrl.ifBlank { "LM Studio · Jan · vLLM" }),
+                container = MaterialTheme.colorScheme.tertiaryContainer,
+                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                index = 2,
+                count = 3,
+                onClick = { onOpen(PageCustomProviderCompatible) },
+            )
         }
-
-        Spacer(Modifier.height(Spacing.xl))
-        LabProviderToggle(
-            title = "OpenAI-Compatible API",
-            subtitle = "LM Studio, Jan, vLLM, LocalAI and similar servers",
-            enabled = draft.openAiCompatibleEnabled,
-            onToggle = { draft = draft.copy(openAiCompatibleEnabled = it); viewModel.saveCustomProviderConfig(draft) },
-        )
-        AnimatedVisibility(visible = draft.openAiCompatibleEnabled, enter = sectionEnter(), exit = sectionExit()) {
-            Column {
-                Spacer(Modifier.height(Spacing.m))
-                NetworkProviderCard(
-                    title = "OpenAI-compatible",
-                    baseUrl = draft.openAiBaseUrl,
-                    apiKey = draft.openAiCompatibleApiKey,
-                    manualModel = draft.openAiCompatibleModel,
-                    availableModels = draft.openAiCompatibleModels,
-                    selectedModels = draft.openAiCompatibleSelectedModels,
-                    images = draft.openAiCompatibleImagesEnabled,
-                    pdfs = draft.openAiCompatiblePdfsEnabled,
-                    fetchLoading = fetchLoading == CustomModelProvider.OpenAiCompatible,
-                    testLoading = loading,
-                    testMessage = testMessage,
-                    placeholder = "local-model",
-                    onBaseUrl = { draft = draft.copy(openAiBaseUrl = it) },
-                    onApiKey = { draft = draft.copy(openAiCompatibleApiKey = it) },
-                    onManualModel = { draft = draft.copy(openAiCompatibleModel = it) },
-                    onSelectedModels = { draft = draft.copy(openAiCompatibleSelectedModels = it) },
-                    onImages = { draft = draft.copy(openAiCompatibleImagesEnabled = it) },
-                    onPdfs = { draft = draft.copy(openAiCompatiblePdfsEnabled = it) },
-                    onSave = { viewModel.saveCustomProviderConfig(draft) },
-                    onFetch = {
-                        viewModel.saveCustomProviderConfig(draft)
-                        viewModel.fetchCustomProviderModels(CustomModelProvider.OpenAiCompatible, draft)
-                    },
-                    onTest = {
-                        viewModel.saveCustomProviderConfig(draft)
-                        viewModel.testCustomProvider(draft.copy(openAiCompatibleEnabled = true, ollamaEnabled = false))
-                    },
-                )
-            }
-        }
-
-        ProviderStatusMessage(fetchMessage)
     }
 }
 
 @Composable
-private fun LabProviderToggle(title: String, subtitle: String, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+private fun DirectCloudApisPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val saved by viewModel.customProviderConfig.collectAsState()
+    val fetchLoading by viewModel.customProviderFetchLoading.collectAsState()
+    val fetchMessage by viewModel.customProviderFetchMessage.collectAsState()
+    var draft by remember(saved) { mutableStateOf(saved) }
+    var manualProvider by remember { mutableStateOf<CustomModelProvider?>(null) }
+
+    SettingsPageScaffold(title = "Direct Cloud APIs", subtitle = "OpenAI, Claude and Gemini", onBack = onBack) {
+        EndpointMasterToggle(
+            title = "Direct Cloud APIs",
+            subtitle = "Show selected direct API models in chat",
+            enabled = draft.cloudApisEnabled,
+            onToggle = { draft = draft.copy(cloudApisEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Provider keys", "Fetch models from each company, then choose what appears in chat")
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            DirectCloudProviderPanel(
+                title = "OpenAI",
+                provider = CustomModelProvider.OpenAi,
+                apiKey = draft.openAiApiKey,
+                manualModel = draft.openAiModel,
+                availableModels = draft.openAiModels,
+                selectedModels = draft.openAiSelectedModels,
+                fetchLoading = fetchLoading,
+                index = 0,
+                count = 3,
+                onKey = { draft = draft.copy(openAiApiKey = it) },
+                onSelectedModels = { draft = draft.copy(openAiSelectedModels = it); viewModel.saveCustomProviderConfig(draft) },
+                onManualClick = { manualProvider = CustomModelProvider.OpenAi },
+                onFetch = {
+                    viewModel.saveCustomProviderConfig(draft)
+                    viewModel.fetchCustomProviderModels(CustomModelProvider.OpenAi, draft)
+                },
+            )
+            DirectCloudProviderPanel(
+                title = "Claude",
+                provider = CustomModelProvider.Claude,
+                apiKey = draft.claudeApiKey,
+                manualModel = draft.claudeModel,
+                availableModels = draft.claudeModels,
+                selectedModels = draft.claudeSelectedModels,
+                fetchLoading = fetchLoading,
+                index = 1,
+                count = 3,
+                onKey = { draft = draft.copy(claudeApiKey = it) },
+                onSelectedModels = { draft = draft.copy(claudeSelectedModels = it); viewModel.saveCustomProviderConfig(draft) },
+                onManualClick = { manualProvider = CustomModelProvider.Claude },
+                onFetch = {
+                    viewModel.saveCustomProviderConfig(draft)
+                    viewModel.fetchCustomProviderModels(CustomModelProvider.Claude, draft)
+                },
+            )
+            DirectCloudProviderPanel(
+                title = "Gemini",
+                provider = CustomModelProvider.Gemini,
+                apiKey = draft.geminiApiKey,
+                manualModel = draft.geminiModel,
+                availableModels = draft.geminiModels,
+                selectedModels = draft.geminiSelectedModels,
+                fetchLoading = fetchLoading,
+                index = 2,
+                count = 3,
+                onKey = { draft = draft.copy(geminiApiKey = it) },
+                onSelectedModels = { draft = draft.copy(geminiSelectedModels = it); viewModel.saveCustomProviderConfig(draft) },
+                onManualClick = { manualProvider = CustomModelProvider.Gemini },
+                onFetch = {
+                    viewModel.saveCustomProviderConfig(draft)
+                    viewModel.fetchCustomProviderModels(CustomModelProvider.Gemini, draft)
+                },
+            )
+        }
+        Spacer(Modifier.height(Spacing.m))
+        Button(
+            onClick = { viewModel.saveCustomProviderConfig(draft) },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) { Text("Save keys") }
+        ProviderStatusMessage(fetchMessage)
+
+        Spacer(Modifier.height(Spacing.xl))
+        FormCard {
+            Text("Attachments", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Image and PDF attachments are enabled for direct OpenAI, Claude and Gemini models by default.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    manualProvider?.let { provider ->
+        val current = when (provider) {
+            CustomModelProvider.OpenAi -> draft.openAiModel
+            CustomModelProvider.Claude -> draft.claudeModel
+            CustomModelProvider.Gemini -> draft.geminiModel
+            else -> ""
+        }
+        ManualModelDialog(
+            title = "Manual ${providerLabel(provider)} model",
+            initial = current,
+            placeholder = manualPlaceholder(provider),
+            onDismiss = { manualProvider = null },
+            onConfirm = { model ->
+                draft = when (provider) {
+                    CustomModelProvider.OpenAi -> draft.copy(openAiModel = model)
+                    CustomModelProvider.Claude -> draft.copy(claudeModel = model)
+                    CustomModelProvider.Gemini -> draft.copy(geminiModel = model)
+                    else -> draft
+                }
+                viewModel.saveCustomProviderConfig(draft)
+                manualProvider = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val saved by viewModel.customProviderConfig.collectAsState()
+    val fetchLoading by viewModel.customProviderFetchLoading.collectAsState()
+    val testLoading by viewModel.customProviderTestLoading.collectAsState()
+    val fetchMessage by viewModel.customProviderFetchMessage.collectAsState()
+    val testMessage by viewModel.customProviderTestMessage.collectAsState()
+    var draft by remember(saved) { mutableStateOf(saved) }
+    var showManual by remember { mutableStateOf(false) }
+
+    SettingsPageScaffold(title = "Ollama API", subtitle = "Local or LAN models", onBack = onBack) {
+        EndpointMasterToggle(
+            title = "Ollama API",
+            subtitle = "Show selected Ollama models in chat",
+            enabled = draft.ollamaEnabled,
+            onToggle = { draft = draft.copy(ollamaEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        EndpointConnectionCard(
+            title = "Server",
+            baseUrl = draft.ollamaBaseUrl,
+            apiKey = null,
+            placeholder = "http://192.168.1.50:11434",
+            onBaseUrl = { draft = draft.copy(ollamaBaseUrl = it) },
+            onApiKey = {},
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Button(
+            onClick = { viewModel.saveCustomProviderConfig(draft) },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) { Text("Save endpoint") }
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Models", "Fetch from Ollama, then choose what appears in chat")
+        EndpointActionsRow(
+            fetchLoading = fetchLoading == CustomModelProvider.Ollama,
+            testLoading = testLoading,
+            onFetch = {
+                viewModel.saveCustomProviderConfig(draft)
+                viewModel.fetchCustomProviderModels(CustomModelProvider.Ollama, draft)
+            },
+            onTest = {
+                viewModel.saveCustomProviderConfig(draft)
+                viewModel.testCustomProvider(draft.copy(ollamaEnabled = true, openAiCompatibleEnabled = false))
+            },
+            onManual = { showManual = true },
+        )
+        Spacer(Modifier.height(Spacing.m))
+        ProviderModelChips(
+            availableModels = draft.ollamaModels,
+            selectedModels = draft.ollamaSelectedModels,
+            emptyText = "Fetch models from Ollama or add one manually.",
+            onSelectedModels = { draft = draft.copy(ollamaSelectedModels = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+        ProviderStatusMessage(fetchMessage)
+        ProviderStatusMessage(testMessage)
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Capabilities", "Turn these on only for models/endpoints that support them")
+        EndpointCapabilityToggles(
+            images = draft.ollamaImagesEnabled,
+            pdfs = draft.ollamaPdfsEnabled,
+            onImages = { draft = draft.copy(ollamaImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+            onPdfs = { draft = draft.copy(ollamaPdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+    }
+
+    if (showManual) {
+        ManualModelDialog(
+            title = "Manual Ollama model",
+            initial = draft.ollamaModel,
+            placeholder = "llama3.1",
+            onDismiss = { showManual = false },
+            onConfirm = {
+                draft = draft.copy(ollamaModel = it)
+                viewModel.saveCustomProviderConfig(draft)
+                showManual = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val saved by viewModel.customProviderConfig.collectAsState()
+    val fetchLoading by viewModel.customProviderFetchLoading.collectAsState()
+    val testLoading by viewModel.customProviderTestLoading.collectAsState()
+    val fetchMessage by viewModel.customProviderFetchMessage.collectAsState()
+    val testMessage by viewModel.customProviderTestMessage.collectAsState()
+    var draft by remember(saved) { mutableStateOf(saved) }
+    var showManual by remember { mutableStateOf(false) }
+
+    SettingsPageScaffold(title = "OpenAI-Compatible API", subtitle = "LM Studio, Jan, vLLM and more", onBack = onBack) {
+        EndpointMasterToggle(
+            title = "OpenAI-Compatible API",
+            subtitle = "Show selected network models in chat",
+            enabled = draft.openAiCompatibleEnabled,
+            onToggle = { draft = draft.copy(openAiCompatibleEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        EndpointConnectionCard(
+            title = "Endpoint",
+            baseUrl = draft.openAiBaseUrl,
+            apiKey = draft.openAiCompatibleApiKey,
+            placeholder = "http://192.168.1.50:1234/v1",
+            onBaseUrl = { draft = draft.copy(openAiBaseUrl = it) },
+            onApiKey = { draft = draft.copy(openAiCompatibleApiKey = it) },
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Button(
+            onClick = { viewModel.saveCustomProviderConfig(draft) },
+            shape = CircleShape,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) { Text("Save endpoint") }
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Models", "Fetch tries /v1/models, /models, then /api/v1/models")
+        EndpointActionsRow(
+            fetchLoading = fetchLoading == CustomModelProvider.OpenAiCompatible,
+            testLoading = testLoading,
+            onFetch = {
+                viewModel.saveCustomProviderConfig(draft)
+                viewModel.fetchCustomProviderModels(CustomModelProvider.OpenAiCompatible, draft)
+            },
+            onTest = {
+                viewModel.saveCustomProviderConfig(draft)
+                viewModel.testCustomProvider(draft.copy(openAiCompatibleEnabled = true, ollamaEnabled = false))
+            },
+            onManual = { showManual = true },
+        )
+        Spacer(Modifier.height(Spacing.m))
+        ProviderModelChips(
+            availableModels = draft.openAiCompatibleModels,
+            selectedModels = draft.openAiCompatibleSelectedModels,
+            emptyText = "Fetch models from the endpoint or add one manually.",
+            onSelectedModels = { draft = draft.copy(openAiCompatibleSelectedModels = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+        ProviderStatusMessage(fetchMessage)
+        ProviderStatusMessage(testMessage)
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Capabilities", "Enable only if your server and selected model support them")
+        EndpointCapabilityToggles(
+            images = draft.openAiCompatibleImagesEnabled,
+            pdfs = draft.openAiCompatiblePdfsEnabled,
+            onImages = { draft = draft.copy(openAiCompatibleImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+            onPdfs = { draft = draft.copy(openAiCompatiblePdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+        )
+    }
+
+    if (showManual) {
+        ManualModelDialog(
+            title = "Manual compatible model",
+            initial = draft.openAiCompatibleModel,
+            placeholder = "local-model",
+            onDismiss = { showManual = false },
+            onConfirm = {
+                draft = draft.copy(openAiCompatibleModel = it)
+                viewModel.saveCustomProviderConfig(draft)
+                showManual = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun EndpointMasterToggle(title: String, subtitle: String, enabled: Boolean, onToggle: (Boolean) -> Unit) {
     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -1582,28 +1811,7 @@ private fun LabProviderToggle(title: String, subtitle: String, enabled: Boolean,
 }
 
 @Composable
-private fun DirectCloudProviderCard(
-    draft: CustomProviderConfig,
-    fetchLoading: CustomModelProvider?,
-    onDraft: (CustomProviderConfig) -> Unit,
-    onSave: () -> Unit,
-    onFetch: (CustomModelProvider) -> Unit,
-) {
-    FormCard {
-        DirectProviderBlock("OpenAI", CustomModelProvider.OpenAi, draft.openAiApiKey, draft.openAiModel, draft.openAiModels, draft.openAiSelectedModels, fetchLoading, onKey = { onDraft(draft.copy(openAiApiKey = it)) }, onManual = { onDraft(draft.copy(openAiModel = it)) }, onModels = { onDraft(draft.copy(openAiSelectedModels = it)) }, onFetch = onFetch)
-        Spacer(Modifier.height(Spacing.l))
-        DirectProviderBlock("Claude", CustomModelProvider.Claude, draft.claudeApiKey, draft.claudeModel, draft.claudeModels, draft.claudeSelectedModels, fetchLoading, onKey = { onDraft(draft.copy(claudeApiKey = it)) }, onManual = { onDraft(draft.copy(claudeModel = it)) }, onModels = { onDraft(draft.copy(claudeSelectedModels = it)) }, onFetch = onFetch)
-        Spacer(Modifier.height(Spacing.l))
-        DirectProviderBlock("Gemini", CustomModelProvider.Gemini, draft.geminiApiKey, draft.geminiModel, draft.geminiModels, draft.geminiSelectedModels, fetchLoading, onKey = { onDraft(draft.copy(geminiApiKey = it)) }, onManual = { onDraft(draft.copy(geminiModel = it)) }, onModels = { onDraft(draft.copy(geminiSelectedModels = it)) }, onFetch = onFetch)
-        Spacer(Modifier.height(Spacing.m))
-        Text("Images and PDFs are enabled by default for these direct cloud APIs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(Spacing.m))
-        Button(onClick = onSave, shape = CircleShape, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Save") }
-    }
-}
-
-@Composable
-private fun DirectProviderBlock(
+private fun DirectCloudProviderPanel(
     title: String,
     provider: CustomModelProvider,
     apiKey: String,
@@ -1611,63 +1819,96 @@ private fun DirectProviderBlock(
     availableModels: String,
     selectedModels: String,
     fetchLoading: CustomModelProvider?,
+    index: Int,
+    count: Int,
     onKey: (String) -> Unit,
-    onManual: (String) -> Unit,
-    onModels: (String) -> Unit,
-    onFetch: (CustomModelProvider) -> Unit,
+    onSelectedModels: (String) -> Unit,
+    onManualClick: () -> Unit,
+    onFetch: () -> Unit,
 ) {
-    var visible by remember { mutableStateOf(false) }
-    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-    Spacer(Modifier.height(Spacing.s))
-    OutlinedTextField(
-        value = apiKey,
-        onValueChange = onKey,
-        label = { Text("API key") },
-        singleLine = true,
-        shape = MaterialTheme.shapes.medium,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (visible) "Hide" else "Show") } },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Spacer(Modifier.height(Spacing.s))
-    OutlinedTextField(value = manualModel, onValueChange = onManual, label = { Text("Manual model") }, singleLine = true, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
-    Spacer(Modifier.height(Spacing.s))
-    ProviderModelChips(availableModels, selectedModels, onModels)
-    Spacer(Modifier.height(Spacing.s))
-    FilledTonalButton(onClick = { onFetch(provider) }, enabled = fetchLoading == null, shape = CircleShape, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-        if (fetchLoading == provider) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Fetch models")
+    var keyVisible by remember { mutableStateOf(false) }
+    Surface(shape = groupedItemShape(index, count), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(Spacing.base)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(40.dp).clip(RoundedPolygonShape(MaterialShapes.Cookie4Sided)).background(MaterialTheme.colorScheme.secondaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(title.take(1), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Spacer(Modifier.width(Spacing.base))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "${selectedModelCount(selectedModels) + if (manualModel.isBlank()) 0 else 1} selected for chat",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.m))
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = onKey,
+                label = { Text("$title API key") },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { keyVisible = !keyVisible }) {
+                        Icon(if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (keyVisible) "Hide" else "Show")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(Spacing.m))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
+                FilledTonalButton(onClick = onManualClick, shape = CircleShape, modifier = Modifier.weight(1f).height(48.dp)) {
+                    Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(Spacing.s))
+                    Text(if (manualModel.isBlank()) "Manual model" else "Edit manual")
+                }
+                Button(onClick = onFetch, enabled = fetchLoading == null, shape = CircleShape, modifier = Modifier.weight(1f).height(48.dp)) {
+                    if (fetchLoading == provider) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Fetch models")
+                }
+            }
+            if (manualModel.isNotBlank()) {
+                Spacer(Modifier.height(Spacing.s))
+                Text("Manual: $manualModel", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(Spacing.m))
+            ProviderModelChips(
+                availableModels = availableModels,
+                selectedModels = selectedModels,
+                emptyText = "Fetch $title models or add one manually.",
+                onSelectedModels = onSelectedModels,
+            )
+        }
     }
 }
 
 @Composable
-private fun NetworkProviderCard(
+private fun EndpointConnectionCard(
     title: String,
     baseUrl: String,
     apiKey: String?,
-    manualModel: String,
-    availableModels: String,
-    selectedModels: String,
-    images: Boolean,
-    pdfs: Boolean,
-    fetchLoading: Boolean,
-    testLoading: Boolean,
-    testMessage: String?,
     placeholder: String,
     onBaseUrl: (String) -> Unit,
     onApiKey: (String) -> Unit,
-    onManualModel: (String) -> Unit,
-    onSelectedModels: (String) -> Unit,
-    onImages: (Boolean) -> Unit,
-    onPdfs: (Boolean) -> Unit,
-    onSave: () -> Unit,
-    onFetch: () -> Unit,
-    onTest: () -> Unit,
 ) {
-    var visible by remember { mutableStateOf(false) }
+    var keyVisible by remember { mutableStateOf(false) }
     FormCard {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(Spacing.s))
-        OutlinedTextField(value = baseUrl, onValueChange = onBaseUrl, label = { Text("Base URL") }, placeholder = { Text("http://192.168.1.50:1234/v1") }, singleLine = true, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            value = baseUrl,
+            onValueChange = onBaseUrl,
+            label = { Text("Base URL") },
+            placeholder = { Text(placeholder) },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth(),
+        )
         if (apiKey != null) {
             Spacer(Modifier.height(Spacing.s))
             OutlinedTextField(
@@ -1677,47 +1918,85 @@ private fun NetworkProviderCard(
                 placeholder = { Text("Optional for local servers") },
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
-                visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (visible) "Hide" else "Show") } },
+                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { keyVisible = !keyVisible }) {
+                        Icon(if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (keyVisible) "Hide" else "Show")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.height(Spacing.s))
-        OutlinedTextField(value = manualModel, onValueChange = onManualModel, label = { Text("Manual model") }, placeholder = { Text(placeholder) }, singleLine = true, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(Spacing.m))
-        ProviderModelChips(availableModels, selectedModels, onSelectedModels)
-        Spacer(Modifier.height(Spacing.m))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Images", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = images, onCheckedChange = onImages)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("PDFs", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = pdfs, onCheckedChange = onPdfs)
-        }
-        ProviderSafetyText()
-        Spacer(Modifier.height(Spacing.m))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
-            FilledTonalButton(onClick = onSave, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) { Text("Save") }
-            FilledTonalButton(onClick = onFetch, enabled = !fetchLoading, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) {
-                if (fetchLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Fetch")
-            }
-            Button(onClick = onTest, enabled = !testLoading, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) {
-                if (testLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Test")
-            }
-        }
-        ProviderStatusMessage(testMessage)
+        Text(
+            "Plain HTTP is allowed for localhost and private LAN addresses only. Use HTTPS for internet-facing servers.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
 @Composable
-private fun ProviderModelChips(availableModels: String, selectedModels: String, onSelectedModels: (String) -> Unit) {
+private fun EndpointActionsRow(fetchLoading: Boolean, testLoading: Boolean, onFetch: () -> Unit, onTest: () -> Unit, onManual: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onFetch, enabled = !fetchLoading, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) {
+            if (fetchLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Fetch models")
+        }
+        FilledTonalButton(onClick = onManual, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) {
+            Text("Manual model")
+        }
+        FilledTonalButton(onClick = onTest, enabled = !testLoading, shape = CircleShape, modifier = Modifier.weight(1f).height(52.dp)) {
+            if (testLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Test")
+        }
+    }
+}
+
+@Composable
+private fun EndpointCapabilityToggles(images: Boolean, pdfs: Boolean, onImages: (Boolean) -> Unit, onPdfs: (Boolean) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+        CapabilityRow("Images", "Allow image attachments for compatible vision models", images, 0, 2, onImages)
+        CapabilityRow("PDFs", "Allow PDF attachments only when your endpoint supports them", pdfs, 1, 2, onPdfs)
+    }
+}
+
+@Composable
+private fun CapabilityRow(title: String, subtitle: String, checked: Boolean, index: Int, count: Int, onChange: (Boolean) -> Unit) {
+    Surface(shape = groupedItemShape(index, count), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
+    }
+}
+
+@Composable
+private fun ProviderModelChips(
+    availableModels: String,
+    selectedModels: String,
+    emptyText: String,
+    onSelectedModels: (String) -> Unit,
+) {
     val available = remember(availableModels, selectedModels) {
-        (availableModels.lineSequence() + selectedModels.lineSequence()).map { it.trim() }.filter { it.isNotEmpty() }.distinct().toList()
+        (availableModels.lineSequence() + selectedModels.lineSequence())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
     }
     val selected = selectedModels.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     if (available.isEmpty()) {
-        Text("Fetch models or enter a manual model above.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                emptyText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(Spacing.base),
+            )
+        }
         return
     }
     Text("Show in chat model picker", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1737,23 +2016,65 @@ private fun ProviderModelChips(availableModels: String, selectedModels: String, 
 }
 
 @Composable
-private fun ProviderSafetyText() {
-    Text(
-        "Plain HTTP is allowed for localhost and private LAN addresses only. Use HTTPS for internet-facing servers.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-@Composable
 private fun ProviderStatusMessage(message: String?) {
     if (message == null) return
     Spacer(Modifier.height(Spacing.s))
     Text(
         message,
         style = MaterialTheme.typography.bodySmall,
-        color = if (message.contains("works", ignoreCase = true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        color = if (message.contains("Fetched", ignoreCase = true) || message.contains("works", ignoreCase = true)) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+        modifier = Modifier.padding(horizontal = Spacing.xs),
     )
+}
+
+@Composable
+private fun ManualModelDialog(title: String, initial: String, placeholder: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var value by remember(initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Add, null) },
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                placeholder = { Text(placeholder) },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value.trim()) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun endpointSubtitle(enabled: Boolean, selectedCount: Int, detail: String): String =
+    if (!enabled) "Off" else "$selectedCount selected · $detail"
+
+private fun selectedModelCount(models: String): Int =
+    models.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().count()
+
+private fun providerLabel(provider: CustomModelProvider): String = when (provider) {
+    CustomModelProvider.OpenAi -> "OpenAI"
+    CustomModelProvider.Claude -> "Claude"
+    CustomModelProvider.Gemini -> "Gemini"
+    CustomModelProvider.Ollama -> "Ollama"
+    CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"
+}
+
+private fun manualPlaceholder(provider: CustomModelProvider): String = when (provider) {
+    CustomModelProvider.OpenAi -> "gpt-4.1-mini"
+    CustomModelProvider.Claude -> "claude-sonnet-4-5"
+    CustomModelProvider.Gemini -> "gemini-2.5-flash"
+    CustomModelProvider.Ollama -> "llama3.1"
+    CustomModelProvider.OpenAiCompatible -> "local-model"
 }
 
 // ── Data Agent ────────────────────────────────────────────────────────────────────────
