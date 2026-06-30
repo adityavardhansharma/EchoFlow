@@ -775,6 +775,7 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI) -> "openai"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
                 else -> null
@@ -784,6 +785,7 @@ class ChatViewModel(
                 "openai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI)
                 "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
                 "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
+                "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
                 else -> selectedModel
@@ -814,23 +816,25 @@ class ChatViewModel(
 
             val customImageAllowed = when (customProvider) {
                 "openai", "claude", "gemini" -> true
+                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
                 else -> false
             }
             val customPdfAllowed = when (customProvider) {
                 "openai", "claude", "gemini" -> true
+                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
                 "ollama" -> customProviderConfig.ollamaPdfsEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
                 else -> false
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
             if (customProviderActive && attachmentUri != null && pendingIsPdf && !customPdfAllowed) {
-                _errorMessage.value = "PDF is off for this Labs provider. Turn it on in Settings → Echo Labs → Labs Providers."
+                _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in Settings → Echo Labs → Custom API Endpoint."
                 return@launch
             }
             if (customProviderActive && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
-                _errorMessage.value = "Images are off for this Labs provider. Turn them on in Settings → Echo Labs → Labs Providers."
+                _errorMessage.value = "Images are off for this custom endpoint. Turn them on in Settings → Echo Labs → Custom API Endpoint."
                 return@launch
             }
 
@@ -1216,6 +1220,7 @@ class ChatViewModel(
         "openai" -> customProviderService.streamOpenAi(config.openAiApiKey, model, history, systemPrompt, params)
         "claude" -> customProviderService.streamClaude(config.claudeApiKey, model, history, systemPrompt, params)
         "gemini" -> customProviderService.streamGemini(config.geminiApiKey, model, history, systemPrompt, params)
+        "cerebras" -> customProviderService.streamCerebras(config.cerebrasApiKey, model, history, systemPrompt, params)
         "ollama" -> customProviderService.streamOllama(config.ollamaBaseUrl, model, history, systemPrompt, params)
         "openai-compatible" -> customProviderService.streamOpenAiCompatible(
             baseUrl = config.openAiBaseUrl,
@@ -1225,7 +1230,7 @@ class ChatViewModel(
             systemPrompt = systemPrompt,
             params = params,
         )
-        else -> flow { throw Exception("Unknown Labs provider.") }
+        else -> flow { throw Exception("Unknown custom endpoint provider.") }
     }
 
     // -------------------------------------------------------------------------------

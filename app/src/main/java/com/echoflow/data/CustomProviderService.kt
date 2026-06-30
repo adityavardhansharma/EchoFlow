@@ -24,18 +24,26 @@ data class CustomProviderConfig(
     val cloudApisEnabled: Boolean,
     val ollamaEnabled: Boolean,
     val openAiCompatibleEnabled: Boolean,
+    val openAiEnabled: Boolean,
     val openAiApiKey: String,
     val openAiModel: String,
     val openAiModels: String,
     val openAiSelectedModels: String,
+    val claudeEnabled: Boolean,
     val claudeApiKey: String,
     val claudeModel: String,
     val claudeModels: String,
     val claudeSelectedModels: String,
+    val geminiEnabled: Boolean,
     val geminiApiKey: String,
     val geminiModel: String,
     val geminiModels: String,
     val geminiSelectedModels: String,
+    val cerebrasEnabled: Boolean,
+    val cerebrasApiKey: String,
+    val cerebrasModel: String,
+    val cerebrasModels: String,
+    val cerebrasSelectedModels: String,
     val ollamaBaseUrl: String,
     val ollamaModel: String,
     val ollamaModels: String,
@@ -54,6 +62,7 @@ data class CustomProviderConfig(
         const val PREFIX_OPENAI = "custom/openai/"
         const val PREFIX_CLAUDE = "custom/claude/"
         const val PREFIX_GEMINI = "custom/gemini/"
+        const val PREFIX_CEREBRAS = "custom/cerebras/"
         const val PREFIX_OLLAMA = "custom/ollama/"
         const val PREFIX_OPENAI_COMPATIBLE = "custom/openai-compatible/"
     }
@@ -66,7 +75,16 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Ollama, OpenAiCompatible }
+
+object CustomProviderCapabilities {
+    fun cerebrasSupportsImages(model: String): Boolean {
+        val id = model.trim().lowercase()
+        return id.startsWith("gemma") || id.contains("/gemma")
+    }
+
+    fun cerebrasSupportsPdfs(model: String): Boolean = false
+}
 
 data class ProviderValidationResult(
     val ok: Boolean,
@@ -231,6 +249,15 @@ class CustomProviderService(private val context: Context? = null) {
         }
     }.flowOn(Dispatchers.IO)
 
+    fun streamCerebras(
+        apiKey: String,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        params: InferenceParams,
+    ): Flow<StreamChunk> =
+        streamOpenAiCompatible("https://api.cerebras.ai/v1", apiKey, model, history, systemPrompt, params)
+
     fun streamOpenAiCompatible(
         baseUrl: String,
         apiKey: String,
@@ -349,6 +376,7 @@ class CustomProviderService(private val context: Context? = null) {
                 CustomModelProvider.OpenAi -> fetchOpenAiStyleModels("https://api.openai.com/v1", apiKey)
                 CustomModelProvider.Claude -> fetchClaudeModels(apiKey)
                 CustomModelProvider.Gemini -> fetchGeminiModels(apiKey)
+                CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
             }
