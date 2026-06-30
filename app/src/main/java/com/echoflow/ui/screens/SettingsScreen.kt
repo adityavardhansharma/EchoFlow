@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
@@ -110,6 +112,7 @@ import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberMorph
+import com.echoflow.ui.theme.rememberMorphProgress
 import kotlin.math.roundToInt
 
 private data class Accent(val id: String, val label: String, val swatch: Color)
@@ -1492,24 +1495,18 @@ private fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String)
                 count = 3,
                 onClick = { onOpen(PageCustomProviderCloud) },
             )
-            SettingsNavRow(
-                icon = Icons.Default.Memory,
-                polygon = BrandShapes.avatarStart,
-                title = "Ollama API",
-                subtitle = endpointSubtitle(config.ollamaEnabled, config.ollamaBaseUrl.ifBlank { "Local or LAN server" }),
-                container = MaterialTheme.colorScheme.primaryContainer,
-                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+            DirectBrandNavRow(
+                provider = CustomModelProvider.Ollama,
+                enabled = config.ollamaEnabled,
+                subtitle = config.ollamaBaseUrl.ifBlank { "Local or LAN server" },
                 index = 1,
                 count = 3,
                 onClick = { onOpen(PageCustomProviderOllama) },
             )
-            SettingsNavRow(
-                icon = Icons.Default.Tune,
-                polygon = BrandShapes.heroStart,
-                title = "OpenAI-Compatible API",
-                subtitle = endpointSubtitle(config.openAiCompatibleEnabled, config.openAiBaseUrl.ifBlank { "LM Studio · Jan · vLLM" }),
-                container = MaterialTheme.colorScheme.tertiaryContainer,
-                onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+            DirectBrandNavRow(
+                provider = CustomModelProvider.OpenAiCompatible,
+                enabled = config.openAiCompatibleEnabled,
+                subtitle = config.openAiBaseUrl.ifBlank { "LM Studio · Jan · vLLM" },
                 index = 2,
                 count = 3,
                 onClick = { onOpen(PageCustomProviderCompatible) },
@@ -1697,9 +1694,8 @@ private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit)
     var showManual by remember { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "Ollama API", subtitle = "Local or LAN models", onBack = onBack) {
-        EndpointMasterToggle(
-            title = "Ollama API",
-            subtitle = "Use a local or LAN Ollama server",
+        BrandEndpointToggle(
+            provider = CustomModelProvider.Ollama,
             enabled = draft.ollamaEnabled,
             onToggle = { draft = draft.copy(ollamaEnabled = it); viewModel.saveCustomProviderConfig(draft) },
         )
@@ -1786,9 +1782,8 @@ private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: (
     var showManual by remember { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "OpenAI-Compatible API", subtitle = "LM Studio, Jan, vLLM and more", onBack = onBack) {
-        EndpointMasterToggle(
-            title = "OpenAI-Compatible API",
-            subtitle = "Use LM Studio, Jan, vLLM or similar",
+        BrandEndpointToggle(
+            provider = CustomModelProvider.OpenAiCompatible,
             enabled = draft.openAiCompatibleEnabled,
             onToggle = { draft = draft.copy(openAiCompatibleEnabled = it); viewModel.saveCustomProviderConfig(draft) },
         )
@@ -1877,8 +1872,9 @@ private fun directProviderBrand(provider: CustomModelProvider): DirectProviderBr
     CustomModelProvider.OpenAi -> DirectProviderBrand("OpenAI", "Direct OpenAI API", "sk-...", "gpt-4.1-mini", R.drawable.logo_openai, Color(0xFF10A37F))
     CustomModelProvider.Claude -> DirectProviderBrand("Claude", "Direct Anthropic API", "sk-ant-...", "claude-sonnet-4-5", R.drawable.logo_claude, Color(0xFFD97757))
     CustomModelProvider.Gemini -> DirectProviderBrand("Gemini", "Direct Google API", "AIza...", "gemini-2.5-flash", R.drawable.logo_gemini, Color(0xFF4285F4))
-    CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFE23B3B))
-    else -> DirectProviderBrand(providerLabel(provider), "Direct API", "API key", manualPlaceholder(provider), R.drawable.logo_openai, Color(0xFF6750A4))
+    CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFF15A29))
+    CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
+    CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
 }
 
 @Composable
@@ -1901,7 +1897,7 @@ private fun DirectBrandNavRow(
             Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ProviderLogo(brand = brand, modifier = Modifier.size(44.dp))
+            ProviderLogo(brand = brand, size = 46.dp)
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1944,7 +1940,7 @@ private fun BrandEndpointToggle(provider: CustomModelProvider, enabled: Boolean,
     val brand = directProviderBrand(provider)
     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
-            ProviderLogo(brand = brand, modifier = Modifier.size(48.dp))
+            ProviderLogo(brand = brand, size = 52.dp, animated = enabled)
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -1968,14 +1964,30 @@ private fun BrandEndpointToggle(provider: CustomModelProvider, enabled: Boolean,
     }
 }
 
+/**
+ * The brand chip used across every custom-endpoint page: the provider's monochrome mark on a
+ * brand-colored polygon. In list rows it stays still; as a page hero ([animated]) it gently
+ * morphs Cookie4 → Cookie9 and breathes, the signature M3 Expressive "alive" treatment.
+ */
 @Composable
-private fun ProviderLogo(brand: DirectProviderBrand, modifier: Modifier = Modifier) {
-    Surface(shape = RoundedPolygonShape(MaterialShapes.Cookie4Sided), color = brand.color, modifier = modifier) {
+private fun ProviderLogo(brand: DirectProviderBrand, size: Dp = 48.dp, animated: Boolean = false) {
+    if (animated) {
+        val morph = rememberMorph(MaterialShapes.Cookie4Sided, MaterialShapes.Cookie9Sided)
+        val progress by rememberMorphProgress(durationMillis = 5200)
+        BrandChip(brand, size, MorphPolygonShape(morph, progress), 1f + 0.045f * progress)
+    } else {
+        BrandChip(brand, size, RoundedPolygonShape(MaterialShapes.Cookie4Sided), 1f)
+    }
+}
+
+@Composable
+private fun BrandChip(brand: DirectProviderBrand, size: Dp, shape: Shape, scale: Float) {
+    Surface(shape = shape, color = brand.color, modifier = Modifier.size(size).scale(scale)) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Image(
                 painter = painterResource(brand.logoRes),
                 contentDescription = brand.title,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(size * 0.5f),
             )
         }
     }
@@ -1989,12 +2001,12 @@ private fun DirectBrandActions(
     onFetch: () -> Unit,
     onManual: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
         Button(
             onClick = onFetch,
             enabled = !fetchLoading && !fetchBlocked,
             shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.weight(1f).height(52.dp),
         ) {
             if (fetchLoading) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -2007,11 +2019,11 @@ private fun DirectBrandActions(
         FilledTonalButton(
             onClick = onManual,
             shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.weight(1f).height(52.dp),
         ) {
             Icon(Icons.Default.Add, null, Modifier.size(18.dp))
             Spacer(Modifier.width(Spacing.s))
-            Text(if (hasManual) "Edit manual" else "Manual", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (hasManual) "Edit" else "Manual", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -2391,15 +2403,6 @@ private fun providerLabel(provider: CustomModelProvider): String = when (provide
     CustomModelProvider.Cerebras -> "Cerebras"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"
-}
-
-private fun manualPlaceholder(provider: CustomModelProvider): String = when (provider) {
-    CustomModelProvider.OpenAi -> "gpt-4.1-mini"
-    CustomModelProvider.Claude -> "claude-sonnet-4-5"
-    CustomModelProvider.Gemini -> "gemini-2.5-flash"
-    CustomModelProvider.Cerebras -> "llama3.3-70b"
-    CustomModelProvider.Ollama -> "llama3.1"
-    CustomModelProvider.OpenAiCompatible -> "local-model"
 }
 
 // ── Data Agent ────────────────────────────────────────────────────────────────────────
