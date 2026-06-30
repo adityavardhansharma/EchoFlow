@@ -1593,7 +1593,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
             provider = provider,
             enabled = enabled,
             onToggle = {
-                draft = setDirectProviderEnabled(draft.copy(cloudApisEnabled = true), provider, it)
+                draft = setDirectProviderEnabled(if (it) draft.copy(cloudApisEnabled = true) else draft, provider, it)
                 viewModel.saveCustomProviderConfig(draft)
             },
         )
@@ -1659,7 +1659,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
                     Text("Attachments", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "Image and PDF attachments are enabled for selected ${brand.title} models.",
+                        directProviderAttachmentText(provider),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -2372,10 +2372,16 @@ private fun setDirectProviderSelectedModels(config: CustomProviderConfig, provid
 
 private fun directProviderSummary(config: CustomProviderConfig, provider: CustomModelProvider): String {
     if (!directProviderEnabled(config, provider)) return "Off"
-    val selected = directProviderSelectedModels(config, provider).lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().count()
-    val manual = if (directProviderManualModel(config, provider).isBlank()) 0 else 1
-    val count = selected + manual
+    val count = (
+        listOf(directProviderManualModel(config, provider).trim()).filter { it.isNotEmpty() } +
+            directProviderSelectedModels(config, provider).lineSequence().map { it.trim() }.filter { it.isNotEmpty() }
+        ).distinct().count()
     return if (count == 0) "On · no chat models" else "On · $count chat model" + if (count == 1) "" else "s"
+}
+
+private fun directProviderAttachmentText(provider: CustomModelProvider): String = when (provider) {
+    CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
+    else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
 }
 
 private fun providerLabel(provider: CustomModelProvider): String = when (provider) {

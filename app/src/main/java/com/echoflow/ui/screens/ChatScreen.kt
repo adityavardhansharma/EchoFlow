@@ -69,6 +69,7 @@ import coil.compose.AsyncImage
 import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.AgentProfile
 import com.echoflow.data.ChatMessage
+import com.echoflow.data.CustomProviderCapabilities
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DeepResearchModel
@@ -201,6 +202,8 @@ fun ChatScreen(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
+                CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             else -> true
         }
     }
@@ -208,14 +211,17 @@ fun ChatScreen(
     val selectedModelIsOpenRouter = remember(selectedModelID) {
         !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
     }
-    val selectedModelIsCustomCloud = remember(selectedModelID) {
+    val selectedModelIsDirectCloudPdfCapable = remember(selectedModelID) {
         selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) ||
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) ||
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI) ||
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS)
+            (
+                selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) &&
+                    CustomProviderCapabilities.cerebrasSupportsPdfs(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
+                )
     }
     val selectedModelIsCustomPdfCapable = remember(selectedModelID, customProviderConfig) {
-        selectedModelIsCustomCloud ||
+        selectedModelIsDirectCloudPdfCapable ||
             (selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) && customProviderConfig.ollamaPdfsEnabled) ||
             (selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) && customProviderConfig.openAiCompatiblePdfsEnabled)
     }

@@ -77,6 +77,15 @@ data class CustomProviderModel(
 
 enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Ollama, OpenAiCompatible }
 
+object CustomProviderCapabilities {
+    fun cerebrasSupportsImages(model: String): Boolean {
+        val id = model.trim().lowercase()
+        return id.startsWith("gemma") || id.contains("/gemma")
+    }
+
+    fun cerebrasSupportsPdfs(model: String): Boolean = false
+}
+
 data class ProviderValidationResult(
     val ok: Boolean,
     val message: String,

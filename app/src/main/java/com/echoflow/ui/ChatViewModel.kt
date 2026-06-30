@@ -815,13 +815,15 @@ class ChatViewModel(
             }
 
             val customImageAllowed = when (customProvider) {
-                "openai", "claude", "gemini", "cerebras" -> true
+                "openai", "claude", "gemini" -> true
+                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
                 else -> false
             }
             val customPdfAllowed = when (customProvider) {
-                "openai", "claude", "gemini", "cerebras" -> true
+                "openai", "claude", "gemini" -> true
+                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
                 "ollama" -> customProviderConfig.ollamaPdfsEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
                 else -> false
