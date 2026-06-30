@@ -1618,7 +1618,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (apiKey.isNotBlank()) {
+                    if (directProviderApiKey(saved, provider).isNotBlank()) {
                         Spacer(Modifier.height(Spacing.s))
                         SavedKeyBadge("A key is saved on this device")
                     }
