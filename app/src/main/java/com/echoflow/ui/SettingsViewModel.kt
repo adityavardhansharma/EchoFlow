@@ -277,6 +277,7 @@ class SettingsViewModel(
                     CustomModelProvider.OpenAi -> customProviderService.fetchModels(provider, apiKey = config.openAiApiKey)
                     CustomModelProvider.Claude -> customProviderService.fetchModels(provider, apiKey = config.claudeApiKey)
                     CustomModelProvider.Gemini -> customProviderService.fetchModels(provider, apiKey = config.geminiApiKey)
+                    CustomModelProvider.Cerebras -> customProviderService.fetchModels(provider, apiKey = config.cerebrasApiKey)
                     CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
                     CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
                         provider,
@@ -289,6 +290,7 @@ class SettingsViewModel(
                         CustomModelProvider.OpenAi -> config.copy(openAiModels = result.message)
                         CustomModelProvider.Claude -> config.copy(claudeModels = result.message)
                         CustomModelProvider.Gemini -> config.copy(geminiModels = result.message)
+                        CustomModelProvider.Cerebras -> config.copy(cerebrasModels = result.message)
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
                         CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
                     }
@@ -552,15 +554,24 @@ class SettingsViewModel(
             (listOf(manual.trim()).filter { it.isNotEmpty() } + lines(models)).distinct()
 
         val out = mutableListOf<CustomProviderModel>()
-        if (cloudApisEnabled) {
+        if (cloudApisEnabled && openAiEnabled) {
             withManual(openAiSelectedModels, openAiModel).forEach {
                 out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OPENAI + it, it, "OpenAI", isLocalLike = false))
             }
+        }
+        if (cloudApisEnabled && claudeEnabled) {
             withManual(claudeSelectedModels, claudeModel).forEach {
                 out.add(CustomProviderModel(CustomProviderConfig.PREFIX_CLAUDE + it, it, "Claude", isLocalLike = false))
             }
+        }
+        if (cloudApisEnabled && geminiEnabled) {
             withManual(geminiSelectedModels, geminiModel).forEach {
                 out.add(CustomProviderModel(CustomProviderConfig.PREFIX_GEMINI + it, it, "Gemini", isLocalLike = false))
+            }
+        }
+        if (cloudApisEnabled && cerebrasEnabled) {
+            withManual(cerebrasSelectedModels, cerebrasModel).forEach {
+                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_CEREBRAS + it, it, "Cerebras", isLocalLike = false))
             }
         }
         if (ollamaEnabled) {

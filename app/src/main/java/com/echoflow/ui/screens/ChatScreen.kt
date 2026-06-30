@@ -211,7 +211,8 @@ fun ChatScreen(
     val selectedModelIsCustomCloud = remember(selectedModelID) {
         selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) ||
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) ||
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI)
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI) ||
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS)
     }
     val selectedModelIsCustomPdfCapable = remember(selectedModelID, customProviderConfig) {
         selectedModelIsCustomCloud ||
@@ -2075,6 +2076,7 @@ private fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: 
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) -> "Direct OpenAI API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) -> "Direct Claude API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI) -> "Direct Gemini API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) -> "Direct Cerebras API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> "Ollama API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "OpenAI-compatible API"
         isLocal -> "Runs on this device — private & offline"
