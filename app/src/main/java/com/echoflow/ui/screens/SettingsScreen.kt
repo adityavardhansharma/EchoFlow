@@ -1749,6 +1749,13 @@ private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit)
                     onImages = { draft = draft.copy(ollamaImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                     onPdfs = { draft = draft.copy(ollamaPdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                 )
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Tool calling", "Let the model run web searches itself")
+                EndpointToolCallingToggle(
+                    enabled = draft.ollamaToolCallingEnabled,
+                    onToggle = { draft = draft.copy(ollamaToolCallingEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+                )
             }
         }
         AnimatedVisibility(visible = !draft.ollamaEnabled, enter = sectionEnter(), exit = sectionExit()) {
@@ -1836,6 +1843,13 @@ private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: (
                     pdfs = draft.openAiCompatiblePdfsEnabled,
                     onImages = { draft = draft.copy(openAiCompatibleImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                     onPdfs = { draft = draft.copy(openAiCompatiblePdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+                )
+
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Tool calling", "Let the model run web searches itself")
+                EndpointToolCallingToggle(
+                    enabled = draft.openAiCompatibleToolCallingEnabled,
+                    onToggle = { draft = draft.copy(openAiCompatibleToolCallingEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                 )
             }
         }
@@ -2139,6 +2153,29 @@ private fun EndpointCapabilityToggles(images: Boolean, pdfs: Boolean, onImages: 
     Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
         CapabilityRow("Images", "Allow image attachments for compatible vision models", images, 0, 2, onImages)
         CapabilityRow("PDFs", "Allow PDF attachments only when your endpoint supports them", pdfs, 1, 2, onPdfs)
+    }
+}
+
+/**
+ * Per-endpoint switch for native tool calling (the model runs web_search itself). Off by default
+ * because it only works on models that actually support tool/function calls — when off, the app
+ * falls back to running one search and pasting the results in.
+ */
+@Composable
+private fun EndpointToolCallingToggle(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Tool calling", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Only turn on if your selected model supports tool/function calls. The model will run web searches itself when it needs to. When off, the app searches once and feeds the results in. Needs a web search provider set up in Settings → Web search.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, onCheckedChange = onToggle)
+        }
     }
 }
 
