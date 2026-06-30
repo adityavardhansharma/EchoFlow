@@ -159,6 +159,7 @@ private const val PageCustomProviderGemini = "custom_provider_gemini"
 private const val PageCustomProviderCerebras = "custom_provider_cerebras"
 private const val PageCustomProviderOllama = "custom_provider_ollama"
 private const val PageCustomProviderCompatible = "custom_provider_compatible"
+private val CustomProviderSectionGap = 28.dp
 
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
@@ -1481,7 +1482,7 @@ private fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String)
             )
         }
 
-        Spacer(Modifier.height(Spacing.xl))
+        Spacer(Modifier.height(CustomProviderSectionGap))
         PageSection("Providers", "Each provider has its own setup page")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
             SettingsNavRow(
@@ -1536,7 +1537,7 @@ private fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) -
 
         AnimatedVisibility(visible = draft.cloudApisEnabled, enter = sectionEnter(), exit = sectionExit()) {
             Column {
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Brands", "Open a brand to add its key and choose models")
                 Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
                     brands.forEachIndexed { index, (provider, page) ->
@@ -1551,7 +1552,7 @@ private fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) -
                     }
                 }
 
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 FormCard {
                     Text("Attachments", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
@@ -1597,7 +1598,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
 
         AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
             Column {
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("API key")
                 FormCard {
                     OutlinedTextField(
@@ -1627,7 +1628,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
                     ) { Text("Save key") }
                 }
 
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Models", "Choose what appears in the chat model picker")
                 DirectBrandActions(
                     fetchLoading = fetchLoading == provider,
@@ -1651,7 +1652,7 @@ private fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: CustomM
                 )
                 ProviderStatusMessage(fetchMessage)
 
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 FormCard {
                     Text("Attachments", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
@@ -1701,7 +1702,7 @@ private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit)
         )
         AnimatedVisibility(visible = draft.ollamaEnabled, enter = sectionEnter(), exit = sectionExit()) {
             Column {
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 EndpointConnectionCard(
                     title = "Server",
                     baseUrl = draft.ollamaBaseUrl,
@@ -1716,7 +1717,7 @@ private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit)
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) { Text("Save") }
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Models")
                 EndpointActionsRow(
                     fetchLoading = fetchLoading == CustomModelProvider.Ollama,
@@ -1741,13 +1742,20 @@ private fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit)
                 ProviderStatusMessage(fetchMessage)
                 ProviderStatusMessage(testMessage)
 
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Capabilities")
                 EndpointCapabilityToggles(
                     images = draft.ollamaImagesEnabled,
                     pdfs = draft.ollamaPdfsEnabled,
                     onImages = { draft = draft.copy(ollamaImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                     onPdfs = { draft = draft.copy(ollamaPdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+                )
+
+                Spacer(Modifier.height(CustomProviderSectionGap))
+                PageSection("Tool calling", "Let the model run web searches itself")
+                EndpointToolCallingToggle(
+                    enabled = draft.ollamaToolCallingEnabled,
+                    onToggle = { draft = draft.copy(ollamaToolCallingEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                 )
             }
         }
@@ -1789,7 +1797,7 @@ private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: (
         )
         AnimatedVisibility(visible = draft.openAiCompatibleEnabled, enter = sectionEnter(), exit = sectionExit()) {
             Column {
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 EndpointConnectionCard(
                     title = "Endpoint",
                     baseUrl = draft.openAiBaseUrl,
@@ -1804,7 +1812,7 @@ private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: (
                     shape = CircleShape,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) { Text("Save") }
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Models")
                 EndpointActionsRow(
                     fetchLoading = fetchLoading == CustomModelProvider.OpenAiCompatible,
@@ -1829,13 +1837,20 @@ private fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: (
                 ProviderStatusMessage(fetchMessage)
                 ProviderStatusMessage(testMessage)
 
-                Spacer(Modifier.height(Spacing.xl))
+                Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Capabilities")
                 EndpointCapabilityToggles(
                     images = draft.openAiCompatibleImagesEnabled,
                     pdfs = draft.openAiCompatiblePdfsEnabled,
                     onImages = { draft = draft.copy(openAiCompatibleImagesEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                     onPdfs = { draft = draft.copy(openAiCompatiblePdfsEnabled = it); viewModel.saveCustomProviderConfig(draft) },
+                )
+
+                Spacer(Modifier.height(CustomProviderSectionGap))
+                PageSection("Tool calling", "Let the model run web searches itself")
+                EndpointToolCallingToggle(
+                    enabled = draft.openAiCompatibleToolCallingEnabled,
+                    onToggle = { draft = draft.copy(openAiCompatibleToolCallingEnabled = it); viewModel.saveCustomProviderConfig(draft) },
                 )
             }
         }
@@ -2142,6 +2157,29 @@ private fun EndpointCapabilityToggles(images: Boolean, pdfs: Boolean, onImages: 
     }
 }
 
+/**
+ * Per-endpoint switch for native tool calling (the model runs web_search itself). Off by default
+ * because it only works on models that actually support tool/function calls — when off, the app
+ * falls back to running one search and pasting the results in.
+ */
+@Composable
+private fun EndpointToolCallingToggle(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Tool calling", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Only turn on if your selected model supports tool/function calls. The model will run web searches itself when it needs to. When off, the app searches once and feeds the results in. Needs a web search provider set up in Settings → Web search.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
 @Composable
 private fun CapabilityRow(title: String, subtitle: String, checked: Boolean, index: Int, count: Int, onChange: (Boolean) -> Unit) {
     Surface(shape = groupedItemShape(index, count), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
@@ -2296,7 +2334,6 @@ private fun ManualModelDialog(title: String, initial: String, placeholder: Strin
 
 @Composable
 private fun EndpointOffState(message: String) {
-    Spacer(Modifier.height(Spacing.m))
     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Text(
             message,

@@ -866,6 +866,18 @@ class ChatViewModel(
                 else -> "off"
             }
 
+            // Native tool calling for custom providers: the model itself calls web_search in a loop,
+            // instead of the app pre-injecting one search. Needs a client search backend (so an
+            // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
+            // gated by a per-provider toggle since their tool support depends on the chosen model.
+            val customToolCallingActive = customProviderActive &&
+                effectiveProvider in CLIENT_SEARCH_PROVIDERS &&
+                when (customProvider) {
+                    "ollama" -> customProviderConfig.ollamaToolCallingEnabled
+                    "openai-compatible" -> customProviderConfig.openAiCompatibleToolCallingEnabled
+                    else -> true // OpenAI / Claude / Gemini / Cerebras
+                }
+
             // Echo Adviser / Echo Fusion: OpenRouter-only modes. Resolve the active profile/panel
             // here; both override the model, system prompt and response flow. Cloud models only.
             var advisorReq: OpenRouterService.AdvisorRequest? = null
@@ -930,7 +942,15 @@ class ChatViewModel(
                 SystemPrompts.buildArtifact(isLocal, offline, prior)
             } else null
 
-            val systemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: SystemPrompts.build(isLocal, effectiveProvider)
+            val systemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
+                // Tool-calling custom providers behave like cloud models: they call web_search
+                // themselves, so they get the standard "you have a web_search tool" prompt.
+                customToolCallingActive -> SystemPrompts.build(false, effectiveProvider)
+                // Other custom providers have no native tool calling; their search results are
+                // pre-injected, so they need the "results are provided" prompt instead.
+                customProviderActive -> SystemPrompts.buildCustomProvider(effectiveProvider)
+                else -> SystemPrompts.build(isLocal, effectiveProvider)
+            }
 
             var isFirstMsgInChat = false
             var chatId = _currentChatThreadId.value
@@ -1061,6 +1081,10 @@ class ChatViewModel(
                             localModel = localModel,
                         )
                     )
+                customToolCallingActive ->
+                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                        webSearchService.search(provider, searchKey, query)
+                    }
                 customProviderActive && clientSearchReady ->
                     flow {
                         val query = prompt
@@ -1207,6 +1231,29 @@ class ChatViewModel(
                 setStreamState(chatId, null)
             }
         }
+    }
+
+    /**
+     * Custom provider with native tool calling: routes to the per-format tool loop in
+     * [CustomProviderService], passing a [search] executor backed by the active client search
+     * provider. Falls back to the plain (no-tool) flow for any unknown provider.
+     */
+    private fun customProviderToolFlow(
+        provider: String?,
+        config: CustomProviderConfig,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        params: InferenceParams,
+        search: suspend (String) -> List<SearchSource>,
+    ): Flow<StreamChunk> = when (provider) {
+        "openai" -> customProviderService.streamOpenAiTools("https://api.openai.com/v1", config.openAiApiKey, model, history, systemPrompt, params, search)
+        "cerebras" -> customProviderService.streamOpenAiTools("https://api.cerebras.ai/v1", config.cerebrasApiKey, model, history, systemPrompt, params, search)
+        "openai-compatible" -> customProviderService.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, systemPrompt, params, search)
+        "ollama" -> customProviderService.streamOllamaTools(config.ollamaBaseUrl, model, history, systemPrompt, params, search)
+        "claude" -> customProviderService.streamClaudeTools(config.claudeApiKey, model, history, systemPrompt, params, search)
+        "gemini" -> customProviderService.streamGeminiTools(config.geminiApiKey, model, history, systemPrompt, params, search)
+        else -> customProviderFlow(provider, config, model, history, systemPrompt, params)
     }
 
     private fun customProviderFlow(

@@ -38,6 +38,49 @@ object SystemPrompts {
         return sections.joinToString("\n\n")
     }
 
+    /**
+     * System prompt for the custom direct providers (OpenAI / Claude / Gemini / Cerebras / Ollama /
+     * OpenAI-compatible). These run through [CustomProviderService], which has NO native tool /
+     * function calling — so the "you have a web_search tool, call it" framing of [build] is wrong
+     * for them. When search is on, the app runs ONE search on the user's message and pastes the
+     * results in (see ChatViewModel's custom-provider client-search branch); this prompt tells the
+     * model exactly that, so it uses the provided results instead of pretending to call a tool.
+     *
+     * @param provider effective search provider: "off", "exa", "parallel", or "firecrawl".
+     *        ("openrouter" never reaches here — server search can't serve custom providers.)
+     */
+    fun buildCustomProvider(provider: String, currentDate: String = currentDate()): String {
+        val sections = mutableListOf<String>()
+        sections += identity(false)
+        sections += "Current date: $currentDate."
+        sections += when (provider) {
+            "exa", "parallel", "firecrawl" -> injectedSearchGuidance(provider)
+            else -> noSearch(false)
+        }
+        sections += formatting(false)
+        return sections.joinToString("\n\n")
+    }
+
+    private fun injectedSearchGuidance(provider: String): String {
+        val providerNote = when (provider) {
+            "exa" -> "They come from Exa (semantic search): relevant text excerpts, not full pages — quote carefully."
+            "parallel" -> "They come from Parallel: dense excerpts answering the user's question."
+            else -> "They come from Firecrawl: page content as markdown — extract just the facts you need."
+        }
+        return """
+        ## Web search results
+        The app has already run a web search for the user's message and pasted the results below, each
+        as a titled snippet: [Title](URL) followed by an excerpt. You do NOT have a search tool and
+        cannot run more searches this turn — work with what is provided. $providerNote
+
+        - Base any current, time-sensitive, or factual claim on these results rather than memory.
+        - Cite a result-backed claim inline as a markdown link to its URL, e.g. ([Reuters](https://example.com)). Place the citation right after the sentence it supports.
+        - Do NOT announce that you are "searching", offer to search, or emit any tool/function call — the results are already here.
+        - If the results do not answer the question, say what you could not verify instead of guessing.
+        - Never append a separate "Sources" or "References" list — the app shows sources separately.
+        """.trimIndent()
+    }
+
     private fun identity(isLocalModel: Boolean): String = buildString {
         append("You are EchoFlow, a helpful, accurate AI assistant inside an Android chat app.")
         if (isLocalModel) {

@@ -379,6 +379,7 @@ class SettingsRepository(context: Context) {
             ollamaSelectedModels = prefs.getString("ollama_selected_models", "").orEmpty(),
             ollamaImagesEnabled = prefs.getBoolean("ollama_images_enabled", false),
             ollamaPdfsEnabled = prefs.getBoolean("ollama_pdfs_enabled", false),
+            ollamaToolCallingEnabled = prefs.getBoolean("ollama_tool_calling_enabled", false),
             openAiBaseUrl = prefs.getString("openai_compatible_base_url", "http://localhost:1234/v1").orEmpty(),
             openAiCompatibleApiKey = prefs.getString("openai_compatible_api_key", "").orEmpty(),
             openAiCompatibleModel = prefs.getString("openai_compatible_model", "").orEmpty(),
@@ -386,6 +387,7 @@ class SettingsRepository(context: Context) {
             openAiCompatibleSelectedModels = prefs.getString("openai_compatible_selected_models", "").orEmpty(),
             openAiCompatibleImagesEnabled = prefs.getBoolean("openai_compatible_images_enabled", false),
             openAiCompatiblePdfsEnabled = prefs.getBoolean("openai_compatible_pdfs_enabled", false),
+            openAiCompatibleToolCallingEnabled = prefs.getBoolean("openai_compatible_tool_calling_enabled", false),
         )
 
     fun saveCustomProviderConfig(config: CustomProviderConfig) {
@@ -434,6 +436,7 @@ class SettingsRepository(context: Context) {
             .putString("ollama_selected_models", clean.ollamaSelectedModels)
             .putBoolean("ollama_images_enabled", clean.ollamaImagesEnabled)
             .putBoolean("ollama_pdfs_enabled", clean.ollamaPdfsEnabled)
+            .putBoolean("ollama_tool_calling_enabled", clean.ollamaToolCallingEnabled)
             .putString("openai_compatible_base_url", clean.openAiBaseUrl)
             .putString("openai_compatible_api_key", clean.openAiCompatibleApiKey)
             .putString("openai_compatible_model", clean.openAiCompatibleModel)
@@ -441,6 +444,7 @@ class SettingsRepository(context: Context) {
             .putString("openai_compatible_selected_models", clean.openAiCompatibleSelectedModels)
             .putBoolean("openai_compatible_images_enabled", clean.openAiCompatibleImagesEnabled)
             .putBoolean("openai_compatible_pdfs_enabled", clean.openAiCompatiblePdfsEnabled)
+            .putBoolean("openai_compatible_tool_calling_enabled", clean.openAiCompatibleToolCallingEnabled)
             .apply()
         _customProviderConfig.value = clean
     }
