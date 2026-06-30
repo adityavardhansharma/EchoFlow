@@ -18,7 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
@@ -130,6 +132,17 @@ class MainActivity : ComponentActivity() {
                 "light" -> false
                 "dark" -> true
                 else -> isSystemDark
+            }
+
+            // Status/navigation bar icons must contrast with the page, which follows the in-app
+            // theme — not the system uiMode that enableEdgeToEdge() keys off by default. Without
+            // this, a "Light" theme under a dark OS leaves white icons invisible on white.
+            val view = LocalView.current
+            LaunchedEffect(themeActiveDark) {
+                WindowCompat.getInsetsController(this@MainActivity.window, view).apply {
+                    isAppearanceLightStatusBars = !themeActiveDark
+                    isAppearanceLightNavigationBars = !themeActiveDark
+                }
             }
 
             EchoFlowTheme(
