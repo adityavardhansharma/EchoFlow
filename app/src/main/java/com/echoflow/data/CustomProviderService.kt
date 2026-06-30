@@ -358,7 +358,7 @@ class CustomProviderService(private val context: Context? = null) {
     // provider. Results are fed back with [formatSearchResultsForModel] so the numbered `[n](url)`
     // citation contract the system prompt describes lines up.
 
-    private val maxToolRounds = 4
+    private val maxToolSearches = 4
 
     private val webSearchToolOpenAi: Map<String, Any> = mapOf(
         "type" to "function",
@@ -432,6 +432,7 @@ class CustomProviderService(private val context: Context? = null) {
         if (model.isBlank()) throw Exception("Enter a model name.")
         val messages = ArrayList<Map<String, Any?>>(buildOpenAiMessages(history, systemPrompt))
         var round = 0
+        var searchCount = 0
         while (true) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
@@ -439,8 +440,8 @@ class CustomProviderService(private val context: Context? = null) {
                 "stream" to true,
                 "temperature" to params.temperature,
                 "top_p" to params.topP,
-                "tools" to listOf(webSearchToolOpenAi),
             )
+            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolOpenAi)
             if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "chat/completions"))
@@ -480,7 +481,6 @@ class CustomProviderService(private val context: Context? = null) {
             }
 
             if (pending.values.none { it.name == "web_search" }) break
-            if (round >= maxToolRounds) break
 
             messages.add(
                 mapOf(
@@ -503,10 +503,26 @@ class CustomProviderService(private val context: Context? = null) {
                     continue
                 }
                 val query = extractQuery(call.args.toString())
+                if (searchCount >= maxToolSearches) {
+                    emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
+                    messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Search limit reached. Answer now using the results already available."))
+                    continue
+                }
+                searchCount++
                 emit(StreamChunk.SearchStarted(query))
-                val sources = runCatching { search(query) }.getOrDefault(emptyList())
-                emit(StreamChunk.SearchSources(query, sources))
-                messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to formatSearchResultsForModel(sources)))
+                val searchResult = runCatching { search(query) }
+                val toolContent = searchResult.fold(
+                    onSuccess = { sources ->
+                        emit(StreamChunk.SearchSources(query, sources))
+                        formatSearchResultsForModel(sources)
+                    },
+                    onFailure = {
+                        emit(StreamChunk.SearchSources(query, emptyList()))
+                        emit(StreamChunk.StatusNote("Search failed: ${it.message}"))
+                        "Search failed: ${it.message ?: "Unknown error"}"
+                    },
+                )
+                messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to toolContent))
             }
             round++
         }
@@ -525,12 +541,12 @@ class CustomProviderService(private val context: Context? = null) {
         if (model.isBlank()) throw Exception("Enter an Ollama model name.")
         val messages = ArrayList<Map<String, Any?>>(buildSimpleMessages(history, systemPrompt))
         var round = 0
+        var searchCount = 0
         while (true) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
                 "messages" to messages,
                 "stream" to true,
-                "tools" to listOf(webSearchToolOpenAi),
                 "options" to mapOf(
                     "temperature" to params.temperature,
                     "top_p" to params.topP,
@@ -538,6 +554,7 @@ class CustomProviderService(private val context: Context? = null) {
                     "num_predict" to params.maxTokens,
                 ),
             )
+            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolOpenAi)
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "api/chat"))
                 .addHeader("Content-Type", "application/json")
@@ -572,27 +589,49 @@ class CustomProviderService(private val context: Context? = null) {
             }
 
             if (toolCalls.none { it.first == "web_search" }) break
-            if (round >= maxToolRounds) break
 
             messages.add(
                 mapOf(
                     "role" to "assistant",
                     "content" to collected.toString(),
-                    "tool_calls" to toolCalls.map { (name, args) ->
-                        mapOf("function" to mapOf("name" to name, "arguments" to (runCatching { dynamicAdapter.fromJson(args) }.getOrNull() ?: args)))
+                    "tool_calls" to toolCalls.mapIndexed { index, (name, args) ->
+                        val callId = "call_${round}_${index}_${name}"
+                        mapOf(
+                            "id" to callId,
+                            "type" to "function",
+                            "function" to mapOf("name" to name, "arguments" to (runCatching { dynamicAdapter.fromJson(args) }.getOrNull() ?: args)),
+                        )
                     },
                 )
             )
-            for ((name, args) in toolCalls) {
+            for ((index, pair) in toolCalls.withIndex()) {
+                val (name, args) = pair
+                val callId = "call_${round}_${index}_${name}"
                 if (name != "web_search") {
-                    messages.add(mapOf("role" to "tool", "content" to "Unknown tool."))
+                    messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Unknown tool."))
                     continue
                 }
                 val query = extractQuery(args)
+                if (searchCount >= maxToolSearches) {
+                    emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
+                    messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Search limit reached. Answer now using the results already available."))
+                    continue
+                }
+                searchCount++
                 emit(StreamChunk.SearchStarted(query))
-                val sources = runCatching { search(query) }.getOrDefault(emptyList())
-                emit(StreamChunk.SearchSources(query, sources))
-                messages.add(mapOf("role" to "tool", "content" to formatSearchResultsForModel(sources)))
+                val searchResult = runCatching { search(query) }
+                val toolContent = searchResult.fold(
+                    onSuccess = { sources ->
+                        emit(StreamChunk.SearchSources(query, sources))
+                        formatSearchResultsForModel(sources)
+                    },
+                    onFailure = {
+                        emit(StreamChunk.SearchSources(query, emptyList()))
+                        emit(StreamChunk.StatusNote("Search failed: ${it.message}"))
+                        "Search failed: ${it.message ?: "Unknown error"}"
+                    },
+                )
+                messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to toolContent))
             }
             round++
         }
@@ -614,6 +653,7 @@ class CustomProviderService(private val context: Context? = null) {
             messages.add(mapOf("role" to if (it.role == "assistant") "assistant" else "user", "content" to it.content))
         }
         var round = 0
+        var searchCount = 0
         while (true) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
@@ -621,8 +661,8 @@ class CustomProviderService(private val context: Context? = null) {
                 "stream" to true,
                 "max_tokens" to params.maxTokens.coerceAtLeast(1024),
                 "temperature" to params.temperature,
-                "tools" to listOf(webSearchToolClaude),
             )
+            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolClaude)
             if (systemPrompt.isNotBlank()) payload["system"] = systemPrompt
             val request = Request.Builder()
                 .url("https://api.anthropic.com/v1/messages")
@@ -674,7 +714,6 @@ class CustomProviderService(private val context: Context? = null) {
 
             val toolUses = blocks.values.filter { it.type == "tool_use" }
             if (toolUses.none { it.name == "web_search" }) break
-            if (round >= maxToolRounds) break
 
             val assistantBlocks = mutableListOf<Map<String, Any?>>()
             blocks.values.forEach { b ->
@@ -699,10 +738,26 @@ class CustomProviderService(private val context: Context? = null) {
                     continue
                 }
                 val query = extractQuery(b.json.toString())
+                if (searchCount >= maxToolSearches) {
+                    emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
+                    resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to "Search limit reached. Answer now using the results already available."))
+                    continue
+                }
+                searchCount++
                 emit(StreamChunk.SearchStarted(query))
-                val sources = runCatching { search(query) }.getOrDefault(emptyList())
-                emit(StreamChunk.SearchSources(query, sources))
-                resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to formatSearchResultsForModel(sources)))
+                val searchResult = runCatching { search(query) }
+                val toolContent = searchResult.fold(
+                    onSuccess = { sources ->
+                        emit(StreamChunk.SearchSources(query, sources))
+                        formatSearchResultsForModel(sources)
+                    },
+                    onFailure = {
+                        emit(StreamChunk.SearchSources(query, emptyList()))
+                        emit(StreamChunk.StatusNote("Search failed: ${it.message}"))
+                        "Search failed: ${it.message ?: "Unknown error"}"
+                    },
+                )
+                resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to toolContent))
             }
             messages.add(mapOf("role" to "user", "content" to resultBlocks))
             round++
@@ -726,6 +781,7 @@ class CustomProviderService(private val context: Context? = null) {
         }
         val cleanModel = model.removePrefix("models/")
         var round = 0
+        var searchCount = 0
         while (true) {
             val payload = mutableMapOf<String, Any?>(
                 "contents" to contents,
@@ -734,8 +790,8 @@ class CustomProviderService(private val context: Context? = null) {
                     "topP" to params.topP,
                     "maxOutputTokens" to params.maxTokens.coerceAtLeast(256),
                 ),
-                "tools" to listOf(mapOf("functionDeclarations" to listOf(webSearchFnGemini))),
             )
+            if (searchCount < maxToolSearches) payload["tools"] = listOf(mapOf("functionDeclarations" to listOf(webSearchFnGemini)))
             if (systemPrompt.isNotBlank()) payload["systemInstruction"] = mapOf("parts" to listOf(mapOf("text" to systemPrompt)))
             val request = Request.Builder()
                 .url("https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:streamGenerateContent?key=${apiKey.trim()}&alt=sse")
@@ -772,7 +828,6 @@ class CustomProviderService(private val context: Context? = null) {
             }
 
             if (functionCalls.none { it.first == "web_search" }) break
-            if (round >= maxToolRounds) break
 
             contents.add(mapOf("role" to "model", "parts" to modelParts))
             val responseParts = mutableListOf<Map<String, Any?>>()
@@ -781,11 +836,28 @@ class CustomProviderService(private val context: Context? = null) {
                     responseParts.add(mapOf("functionResponse" to mapOf("name" to name, "response" to mapOf("content" to "Unknown tool."))))
                     continue
                 }
-                val query = (args["query"] as? String)?.trim().orEmpty()
+                val query = (args["query"] as? String)?.trim().takeIf { !it.isNullOrBlank() }
+                    ?: args.toString().trim()
+                if (searchCount >= maxToolSearches) {
+                    emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
+                    responseParts.add(mapOf("functionResponse" to mapOf("name" to "web_search", "response" to mapOf("content" to "Search limit reached. Answer now using the results already available."))))
+                    continue
+                }
+                searchCount++
                 emit(StreamChunk.SearchStarted(query))
-                val sources = runCatching { search(query) }.getOrDefault(emptyList())
-                emit(StreamChunk.SearchSources(query, sources))
-                responseParts.add(mapOf("functionResponse" to mapOf("name" to "web_search", "response" to mapOf("results" to formatSearchResultsForModel(sources)))))
+                val searchResult = runCatching { search(query) }
+                val toolContent = searchResult.fold(
+                    onSuccess = { sources ->
+                        emit(StreamChunk.SearchSources(query, sources))
+                        formatSearchResultsForModel(sources)
+                    },
+                    onFailure = {
+                        emit(StreamChunk.SearchSources(query, emptyList()))
+                        emit(StreamChunk.StatusNote("Search failed: ${it.message}"))
+                        "Search failed: ${it.message ?: "Unknown error"}"
+                    },
+                )
+                responseParts.add(mapOf("functionResponse" to mapOf("name" to "web_search", "response" to mapOf("results" to toolContent))))
             }
             contents.add(mapOf("role" to "user", "parts" to responseParts))
             round++
