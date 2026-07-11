@@ -21,74 +21,6 @@ import java.io.File
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
-/** One visual block of the in-progress assistant reply, rendered in arrival order. */
-sealed class StreamSegment {
-    data class Text(val text: String) : StreamSegment()
-    data class Reasoning(val text: String) : StreamSegment()
-    data class Search(
-        val query: String,
-        val sources: List<SearchSource>,
-        val active: Boolean
-    ) : StreamSegment()
-
-    /** Echo Adviser consultation: the question asked and the advice (null while pending). */
-    data class Advisor(
-        val advisorName: String,
-        val advisorModel: String,
-        val prompt: String,
-        val advice: String?,
-        val active: Boolean
-    ) : StreamSegment()
-
-    /** Echo Fusion deliberation: the panel roster and the judge's analysis (null while pending). */
-    data class Fusion(
-        val panelName: String,
-        val models: List<String>,
-        val analysis: FusionAnalysis?,
-        val active: Boolean
-    ) : StreamSegment()
-
-    /** Transient "Echo Agents are deploying…" banner shown while the non-streaming request runs. */
-    object AgentRun : StreamSegment()
-
-    /** Echo Agent delegation: a task handed to the worker and its outcome (null while running). */
-    data class Subagent(
-        val taskName: String,
-        val taskDescription: String,
-        val workerModel: String,
-        val outcome: String?,
-        val error: String?,
-        val active: Boolean
-    ) : StreamSegment()
-
-    /**
-     * Artifact card: shown while the model builds an artifact ([building] = true, with a live
-     * [charCount]) and afterwards as a finished card carrying the persisted [artifactId]/[version].
-     */
-    data class Artifact(
-        val artifactId: String?,
-        val title: String,
-        val artifactType: String,
-        val version: Int,
-        val charCount: Int,
-        val building: Boolean,
-        val truncated: Boolean,
-    ) : StreamSegment()
-}
-
-private data class ActiveStreamState(
-    val segments: List<StreamSegment> = emptyList(),
-    val statusNote: String? = null,
-    val progressLoading: Boolean = false,
-    val isLocal: Boolean = false
-)
-
-data class BrowserStartConflict(
-    val activeSession: BrowserSession,
-    val targetChatId: String?,
-    val pendingPrompt: String,
-)
-
 class ChatViewModel(
     application: Application,
     private val chatDao: ChatDao,
@@ -111,6 +43,7 @@ class ChatViewModel(
 
     private val openRouterService = OpenRouterService(application)
     private val customProviderService = CustomProviderService(application)
+    private val customProviderFlowRouter = CustomProviderFlowRouter(customProviderService)
     private val webSearchService = WebSearchService()
     private val localLlmService = LocalLlmService(application)
     private val chatRepository = ChatRepository(
@@ -535,190 +468,8 @@ class ChatViewModel(
     // Segment reducer
     // -------------------------------------------------------------------------------
 
-    private fun reduceSegments(segments: MutableList<StreamSegment>, chunk: StreamChunk): String? {
-        // The "deploying agents" banner is only a waiting indicator: clear it the moment any real
-        // reply content (a delegation, reasoning, the answer, …) starts to arrive.
-        if (chunk !is StreamChunk.AgentRunStarted && chunk !is StreamChunk.StatusNote) {
-            segments.removeAll { it is StreamSegment.AgentRun }
-        }
-        when (chunk) {
-            is StreamChunk.AgentRunStarted -> {
-                if (segments.none { it is StreamSegment.AgentRun }) segments.add(StreamSegment.AgentRun)
-            }
-            is StreamChunk.Reasoning -> {
-                val last = segments.lastOrNull()
-                if (last is StreamSegment.Reasoning) {
-                    segments[segments.lastIndex] = last.copy(text = last.text + chunk.text)
-                } else {
-                    segments.add(StreamSegment.Reasoning(chunk.text))
-                }
-            }
-            is StreamChunk.Content -> {
-                val last = segments.lastOrNull()
-                if (last is StreamSegment.Text) {
-                    segments[segments.lastIndex] = last.copy(text = last.text + chunk.text)
-                } else {
-                    // A Text block after a Search block is what creates the t3-style
-                    // "searched → wrote → searched again" interleave.
-                    segments.add(StreamSegment.Text(chunk.text))
-                }
-            }
-            is StreamChunk.SearchStarted -> {
-                segments.add(StreamSegment.Search(chunk.query, emptyList(), active = true))
-            }
-            is StreamChunk.SearchSources -> {
-                val activeIdx = segments.indexOfLast { it is StreamSegment.Search && it.active }
-                if (activeIdx >= 0) {
-                    val seg = segments[activeIdx] as StreamSegment.Search
-                    segments[activeIdx] = seg.copy(sources = seg.sources + chunk.sources, active = false)
-                } else {
-                    // Sources without a started search (e.g. server-tool annotations whose
-                    // tool-call delta shape we didn't recognize) still get a card.
-                    segments.add(StreamSegment.Search(chunk.query, chunk.sources, active = false))
-                }
-            }
-            is StreamChunk.StatusNote -> {
-                return chunk.text
-            }
-            is StreamChunk.AdvisorStarted -> {
-                segments.add(
-                    StreamSegment.Advisor(
-                        advisorName = chunk.advisorName,
-                        advisorModel = chunk.advisorModel,
-                        prompt = chunk.prompt,
-                        advice = null,
-                        active = true,
-                    )
-                )
-            }
-            is StreamChunk.AdvisorResolved -> {
-                val idx = segments.indexOfLast { it is StreamSegment.Advisor && it.active }
-                if (idx >= 0) {
-                    val seg = segments[idx] as StreamSegment.Advisor
-                    segments[idx] = seg.copy(
-                        advisorModel = chunk.advice.advisorModel.ifBlank { seg.advisorModel },
-                        prompt = seg.prompt.ifBlank { chunk.advice.prompt },
-                        advice = chunk.advice.advice,
-                        active = false,
-                    )
-                } else {
-                    segments.add(
-                        StreamSegment.Advisor(
-                            advisorName = chunk.advice.advisorName,
-                            advisorModel = chunk.advice.advisorModel,
-                            prompt = chunk.advice.prompt,
-                            advice = chunk.advice.advice,
-                            active = false,
-                        )
-                    )
-                }
-            }
-            is StreamChunk.FusionStarted -> {
-                segments.add(
-                    StreamSegment.Fusion(
-                        panelName = chunk.panelName,
-                        models = chunk.models,
-                        analysis = null,
-                        active = true,
-                    )
-                )
-            }
-            is StreamChunk.FusionResolved -> {
-                val idx = segments.indexOfLast { it is StreamSegment.Fusion && it.active }
-                if (idx >= 0) {
-                    val seg = segments[idx] as StreamSegment.Fusion
-                    segments[idx] = seg.copy(
-                        models = seg.models.ifEmpty { chunk.analysis.models },
-                        analysis = chunk.analysis,
-                        active = false,
-                    )
-                } else {
-                    segments.add(
-                        StreamSegment.Fusion(
-                            panelName = chunk.analysis.panelName,
-                            models = chunk.analysis.models,
-                            analysis = chunk.analysis,
-                            active = false,
-                        )
-                    )
-                }
-            }
-            is StreamChunk.SubagentStarted -> {
-                segments.add(
-                    StreamSegment.Subagent(
-                        taskName = chunk.taskName,
-                        taskDescription = chunk.taskDescription,
-                        workerModel = chunk.workerModel,
-                        outcome = null,
-                        error = null,
-                        active = true,
-                    )
-                )
-            }
-            is StreamChunk.SubagentResolved -> {
-                val r = chunk.result
-                // Match the running delegation by task name; fall back to the last active one.
-                val idx = segments.indexOfLast {
-                    it is StreamSegment.Subagent && it.active && (it.taskName == r.taskName || r.taskName.isBlank())
-                }.takeIf { it >= 0 } ?: segments.indexOfLast { it is StreamSegment.Subagent && it.active }
-                if (idx >= 0) {
-                    val seg = segments[idx] as StreamSegment.Subagent
-                    segments[idx] = seg.copy(
-                        workerModel = r.workerModel.ifBlank { seg.workerModel },
-                        outcome = r.outcome,
-                        error = r.error,
-                        active = false,
-                    )
-                } else {
-                    segments.add(
-                        StreamSegment.Subagent(
-                            taskName = r.taskName,
-                            taskDescription = r.taskDescription,
-                            workerModel = r.workerModel,
-                            outcome = r.outcome,
-                            error = r.error,
-                            active = false,
-                        )
-                    )
-                }
-            }
-            is StreamChunk.ArtifactStarted -> {
-                segments.add(
-                    StreamSegment.Artifact(
-                        artifactId = null,
-                        title = chunk.title,
-                        artifactType = chunk.artifactType,
-                        version = 0,
-                        charCount = 0,
-                        building = true,
-                        truncated = false,
-                    )
-                )
-            }
-            is StreamChunk.ArtifactProgress -> {
-                val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }
-                if (idx >= 0) {
-                    val seg = segments[idx] as StreamSegment.Artifact
-                    segments[idx] = seg.copy(charCount = chunk.charCount)
-                }
-            }
-            is StreamChunk.ArtifactCompleted -> {
-                val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }
-                val finished = StreamSegment.Artifact(
-                    artifactId = chunk.artifactId,
-                    title = chunk.title,
-                    artifactType = chunk.artifactType,
-                    version = chunk.version,
-                    charCount = chunk.content.length,
-                    building = false,
-                    truncated = chunk.truncated,
-                )
-                if (idx >= 0) segments[idx] = finished else segments.add(finished)
-            }
-        }
-        return null
-    }
-
+    private fun reduceSegments(segments: MutableList<StreamSegment>, chunk: StreamChunk): String? =
+        ChatSegmentReducer.reduce(segments, chunk)
     // -------------------------------------------------------------------------------
     // Send + routing
     // -------------------------------------------------------------------------------
@@ -1246,15 +997,7 @@ class ChatViewModel(
         systemPrompt: String,
         params: InferenceParams,
         search: suspend (String) -> List<SearchSource>,
-    ): Flow<StreamChunk> = when (provider) {
-        "openai" -> customProviderService.streamOpenAiTools("https://api.openai.com/v1", config.openAiApiKey, model, history, systemPrompt, params, search)
-        "cerebras" -> customProviderService.streamOpenAiTools("https://api.cerebras.ai/v1", config.cerebrasApiKey, model, history, systemPrompt, params, search)
-        "openai-compatible" -> customProviderService.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, systemPrompt, params, search)
-        "ollama" -> customProviderService.streamOllamaTools(config.ollamaBaseUrl, model, history, systemPrompt, params, search)
-        "claude" -> customProviderService.streamClaudeTools(config.claudeApiKey, model, history, systemPrompt, params, search)
-        "gemini" -> customProviderService.streamGeminiTools(config.geminiApiKey, model, history, systemPrompt, params, search)
-        else -> customProviderFlow(provider, config, model, history, systemPrompt, params)
-    }
+    ): Flow<StreamChunk> = customProviderFlowRouter.streamWithTools(provider, config, model, history, systemPrompt, params, search)
 
     private fun customProviderFlow(
         provider: String?,
@@ -1263,22 +1006,7 @@ class ChatViewModel(
         history: List<ChatMessage>,
         systemPrompt: String,
         params: InferenceParams,
-    ): Flow<StreamChunk> = when (provider) {
-        "openai" -> customProviderService.streamOpenAi(config.openAiApiKey, model, history, systemPrompt, params)
-        "claude" -> customProviderService.streamClaude(config.claudeApiKey, model, history, systemPrompt, params)
-        "gemini" -> customProviderService.streamGemini(config.geminiApiKey, model, history, systemPrompt, params)
-        "cerebras" -> customProviderService.streamCerebras(config.cerebrasApiKey, model, history, systemPrompt, params)
-        "ollama" -> customProviderService.streamOllama(config.ollamaBaseUrl, model, history, systemPrompt, params)
-        "openai-compatible" -> customProviderService.streamOpenAiCompatible(
-            baseUrl = config.openAiBaseUrl,
-            apiKey = config.openAiCompatibleApiKey,
-            model = model,
-            history = history,
-            systemPrompt = systemPrompt,
-            params = params,
-        )
-        else -> flow { throw Exception("Unknown custom endpoint provider.") }
-    }
+    ): Flow<StreamChunk> = customProviderFlowRouter.stream(provider, config, model, history, systemPrompt, params)
 
     // -------------------------------------------------------------------------------
     // Deep Research
@@ -1512,164 +1240,24 @@ class ChatViewModel(
         chatId: String,
         segments: List<StreamSegment>,
         interrupted: String?,
-        stopped: Boolean = false
+        stopped: Boolean = false,
     ) {
-        val normalizedSegments = normalizeAssistantSegmentsForPersistence(segments)
-        val contentText = normalizedSegments.filterIsInstance<StreamSegment.Text>()
-            .joinToString("\n\n") { it.text }.trim()
-        // Keep a turn that produced only an Echo Adviser/Fusion artifact (no prose answer) so
-        // the consultation/deliberation card still persists and re-renders.
-        val hasEchoArtifact = normalizedSegments.any {
-            it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
-                (it is StreamSegment.Artifact && it.artifactId != null)
-        }
-        // A user-stopped turn is always kept (even with no prose yet) so the "Message stopped"
-        // notice is shown; otherwise an empty, content-less turn is dropped.
-        if (contentText.isEmpty() && !hasEchoArtifact && !stopped) return
-
-        val reasoningText = normalizedSegments.filterIsInstance<StreamSegment.Reasoning>()
-            .joinToString("\n\n") { it.text }.trim()
-
-        val toolEvents = normalizedSegments.mapIndexedNotNull { index, seg ->
-            (seg as? StreamSegment.Search)?.let {
-                ToolEvent(query = it.query, sources = it.sources, orderIndex = index)
-            }
-        }
-        val citations = toolEvents.flatMap { it.sources }
-            .distinctBy { it.url }
-            .map { Citation(title = it.title, url = it.url) }
-
-        val finalContent = if (interrupted != null) {
-            "$contentText\n\n*[Connection lost: $interrupted]*"
-        } else contentText
-
-        // The ordered timeline (reason → search → reason → text) is persisted as-is so a
-        // finished reply renders exactly like it streamed, never merging reasoning blocks.
-        val persistedSegments = normalizedSegments.mapNotNull { seg ->
-            when (seg) {
-                is StreamSegment.Reasoning -> seg.text.trim().takeIf { it.isNotEmpty() }
-                    ?.let { PersistedSegment(type = "reasoning", text = it) }
-                is StreamSegment.Search ->
-                    PersistedSegment(type = "search", query = seg.query, sources = seg.sources)
-                is StreamSegment.Advisor ->
-                    PersistedSegment(
-                        type = "advisor",
-                        advisor = AdvisorAdvice(
-                            advisorName = seg.advisorName,
-                            advisorModel = seg.advisorModel,
-                            prompt = seg.prompt,
-                            advice = seg.advice.orEmpty(),
-                        ),
-                    )
-                is StreamSegment.Fusion ->
-                    PersistedSegment(
-                        type = "fusion",
-                        fusion = (seg.analysis ?: FusionAnalysis(panelName = seg.panelName, judgeModel = null, models = seg.models))
-                            .copy(panelName = seg.panelName, models = seg.models.ifEmpty { seg.analysis?.models ?: emptyList() }),
-                    )
-                is StreamSegment.Subagent ->
-                    PersistedSegment(
-                        type = "subagent",
-                        subagent = SubagentResult(
-                            taskName = seg.taskName,
-                            taskDescription = seg.taskDescription,
-                            workerModel = seg.workerModel,
-                            outcome = seg.outcome.orEmpty(),
-                            error = seg.error,
-                        ),
-                    )
-                is StreamSegment.Artifact -> seg.artifactId?.let { id ->
-                    PersistedSegment(
-                        type = "artifact",
-                        artifact = ArtifactRef(
-                            artifactId = id,
-                            title = seg.title,
-                            type = seg.artifactType,
-                            version = seg.version,
-                        ),
-                    )
-                }
-                // Transient waiting indicator — never persisted.
-                is StreamSegment.AgentRun -> null
-                is StreamSegment.Text -> seg.text.trim().takeIf { it.isNotEmpty() }
-                    ?.let { PersistedSegment(type = "text", text = it) }
-            }
-        }.let { list ->
-            var out = list
-            if (interrupted != null) out = out + PersistedSegment(type = "text", text = "*[Connection lost: $interrupted]*")
-            // A trailing "stopped" segment renders the red "Message stopped" notice under the reply.
-            if (stopped) out = out + PersistedSegment(type = "stopped")
-            out
-        }
-
+        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
         messageDao.insertMessage(
             ChatMessage(
                 id = UUID.randomUUID().toString(),
                 chatId = chatId,
                 role = "assistant",
-                content = finalContent,
+                content = draft.content,
                 createdAt = System.currentTimeMillis(),
-                reasoning = reasoningText.ifBlank { null },
-                toolEventsJson = ToolEventJson.toolEventsToJson(toolEvents),
-                citationsJson = ToolEventJson.citationsToJson(citations),
-                segmentsJson = ToolEventJson.segmentsToJson(persistedSegments)
+                reasoning = draft.reasoning,
+                toolEventsJson = ToolEventJson.toolEventsToJson(draft.toolEvents),
+                citationsJson = ToolEventJson.citationsToJson(draft.citations),
+                segmentsJson = ToolEventJson.segmentsToJson(draft.segments),
             )
         )
-
-        chatDao.getThreadById(chatId)?.let { currentT ->
-            chatDao.updateThread(currentT.copy(updatedAt = System.currentTimeMillis()))
-        }
+        chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = System.currentTimeMillis())) }
     }
-
-    /**
-     * Some OpenRouter/provider combinations (notably a few DeepSeek routes) can stream the
-     * visible answer through `reasoning` / `reasoning_content` and never send `content`.
-     * Without this guard the live answer disappears when streaming ends because there is no
-     * assistant content to persist. Preserve the timeline, but promote the final reasoning tail
-     * into normal text when it is the only answer-like material we received.
-     */
-    private fun normalizeAssistantSegmentsForPersistence(segments: List<StreamSegment>): List<StreamSegment> {
-        if (segments.any { it is StreamSegment.Text && it.text.isNotBlank() }) return segments
-
-        val lastReasoningIndex = segments.indexOfLast {
-            it is StreamSegment.Reasoning && it.text.isNotBlank()
-        }
-        if (lastReasoningIndex < 0) return segments
-
-        val normalized = segments.toMutableList()
-        val reasoning = normalized[lastReasoningIndex] as StreamSegment.Reasoning
-        val (remainingReasoning, answerText) = splitReasoningOnlyAnswer(reasoning.text)
-        val replacement = mutableListOf<StreamSegment>()
-        if (remainingReasoning.isNotBlank()) replacement.add(StreamSegment.Reasoning(remainingReasoning))
-        replacement.add(StreamSegment.Text(answerText))
-
-        normalized.removeAt(lastReasoningIndex)
-        normalized.addAll(lastReasoningIndex, replacement)
-        return normalized
-    }
-
-    private fun splitReasoningOnlyAnswer(text: String): Pair<String, String> {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return "" to ""
-
-        val thinkEnd = trimmed.lastIndexOf("</think>", ignoreCase = true)
-        if (thinkEnd >= 0) {
-            val answer = trimmed.substring(thinkEnd + "</think>".length).trim()
-            if (answer.isNotEmpty()) return trimmed.substring(0, thinkEnd + "</think>".length).trim() to answer
-        }
-
-        val marker = Regex(
-            pattern = "(?im)^\\s*(final\\s+answer|answer|response)\\s*:\\s*"
-        ).findAll(trimmed).lastOrNull()
-        if (marker != null) {
-            val answerStart = marker.range.last + 1
-            val answer = trimmed.substring(answerStart).trim()
-            if (answer.isNotEmpty()) return trimmed.substring(0, marker.range.first).trim() to answer
-        }
-
-        return "" to trimmed
-    }
-
     // -------------------------------------------------------------------------------
     // Local model + client search: prompt-based tool protocol
     // -------------------------------------------------------------------------------
@@ -1792,20 +1380,7 @@ class ChatViewModel(
     }
 
     private fun extractSearchQuery(text: String): String? {
-        val xml = Regex("<search>(.*?)</search>", RegexOption.DOT_MATCHES_ALL).find(text)
-        if (xml != null) {
-            return xml.groupValues[1].trim().lineSequence().firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
-        }
-        // Unterminated tag at stream end: take what followed the opener.
-        val open = text.indexOf("<search>")
-        if (open >= 0) {
-            return text.substring(open + "<search>".length)
-                .substringBefore("</search").trim()
-                .lineSequence().firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
-        }
-        val plain = Regex("^\\s*search:\\s*(.+)$", RegexOption.IGNORE_CASE)
-            .find(text.lineSequence().firstOrNull { it.isNotBlank() } ?: "")
-        return plain?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
+        return ChatResponsePolicy.extractSearchQuery(text)
     }
 
     override fun onCleared() {

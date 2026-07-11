@@ -6,8 +6,10 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- EncryptedSharedPreferences keys are bound to the device Keystore and cannot be
+         restored reliably. Legacy preferences may still contain pre-migration API keys. -->
+    <exclude domain="sharedpref" path="secure_settings_prefs.xml" />
+    <exclude domain="sharedpref" path="settings_prefs.xml" />
+    <!-- Downloaded models are reproducible and can exceed Android's backup quota. -->
+    <exclude domain="file" path="models/" />
 </full-backup-content>

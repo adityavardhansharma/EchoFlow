@@ -2,55 +2,20 @@ package com.echoflow.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class SettingsRepository(context: Context) {
-    private val legacyPrefs: SharedPreferences = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-    private val prefs: SharedPreferences = createSecurePrefs(context) ?: legacyPrefs
+    private val legacyPrefs: SharedPreferences = SettingsPreferenceStorage.legacy(context)
+    private val prefs: SharedPreferences = SettingsPreferenceStorage.secureOrNull(context) ?: legacyPrefs
 
     init {
-        migrateLegacyPrefsIfNeeded()
+        SettingsPreferenceStorage.migrateLegacyIfNeeded(legacyPrefs, prefs)
         // One-time migration from the legacy boolean toggle to the provider-based setting.
         if (!prefs.contains(KEY_SEARCH_PROVIDER) && prefs.getBoolean("web_search_enabled", false)) {
             prefs.edit().putString(KEY_SEARCH_PROVIDER, "openrouter").apply()
         }
-    }
-
-    private fun createSecurePrefs(context: Context): SharedPreferences? = runCatching {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            SECURE_PREFS,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }.getOrNull()
-
-    private fun migrateLegacyPrefsIfNeeded() {
-        if (prefs === legacyPrefs || prefs.getBoolean(KEY_SECURE_PREFS_MIGRATED, false)) return
-        val edit = prefs.edit()
-        legacyPrefs.all.forEach { (key, value) ->
-            if (prefs.contains(key)) return@forEach
-            when (value) {
-                is String -> edit.putString(key, value)
-                is Boolean -> edit.putBoolean(key, value)
-                is Int -> edit.putInt(key, value)
-                is Long -> edit.putLong(key, value)
-                is Float -> edit.putFloat(key, value)
-                is Set<*> -> {
-                    @Suppress("UNCHECKED_CAST")
-                    edit.putStringSet(key, value as Set<String>)
-                }
-            }
-        }
-        edit.putBoolean(KEY_SECURE_PREFS_MIGRATED, true).apply()
     }
 
     private val _apiKey = MutableStateFlow(getApiKeyDirect())
@@ -568,9 +533,6 @@ class SettingsRepository(context: Context) {
     }
 
     companion object {
-        private const val LEGACY_PREFS = "settings_prefs"
-        private const val SECURE_PREFS = "secure_settings_prefs"
-        private const val KEY_SECURE_PREFS_MIGRATED = "secure_prefs_migrated_v1"
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"

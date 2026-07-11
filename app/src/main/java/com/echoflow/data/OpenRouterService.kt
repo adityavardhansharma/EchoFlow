@@ -42,6 +42,15 @@ class OpenRouterService(private val context: Context) {
 
     private val dynamicAdapter = moshi.adapter(Any::class.java)
     private val streamChunkAdapter = moshi.adapter(OpenRouterStreamEvent::class.java)
+    private val streamTransport by lazy {
+        OpenRouterStreamTransport(
+            dynamicAdapter = dynamicAdapter,
+            streamChunkAdapter = streamChunkAdapter,
+            requestFactory = ::buildHttpRequest,
+            pdfPluginEnabler = ::addPdfPluginIfNeeded,
+            errorParser = ::parseErrorMessage,
+        )
+    }
 
     data class LocalAttachment(
         val uri: String,
@@ -121,20 +130,12 @@ class OpenRouterService(private val context: Context) {
         }
     }
 
-    private fun isPdfMime(mime: String?): Boolean = mime.equals("application/pdf", ignoreCase = true)
+    private fun isPdfMime(mime: String?): Boolean = OpenRouterPayloads.isPdf(mime)
 
-    private fun pdfPlugins(): List<Map<String, Any>> = listOf(
-        mapOf(
-            "id" to "file-parser",
-            "pdf" to mapOf("engine" to "cloudflare-ai"),
-        )
-    )
-
-    private fun historyHasPdfAttachment(history: List<ChatMessage>): Boolean =
-        history.any { it.role == "user" && it.localAttachmentUri != null && isPdfMime(it.localAttachmentMimeType) }
+    private fun historyHasPdfAttachment(history: List<ChatMessage>): Boolean = OpenRouterPayloads.historyHasPdf(history)
 
     private fun addPdfPluginIfNeeded(requestMap: MutableMap<String, Any>, hasPdf: Boolean) {
-        if (hasPdf) requestMap["plugins"] = pdfPlugins()
+        OpenRouterPayloads.enablePdfPlugin(requestMap, hasPdf)
     }
 
     /**
@@ -142,59 +143,14 @@ class OpenRouterService(private val context: Context) {
      * The system prompt (when present) is prepended for the request only — never persisted.
      */
     private fun buildMessagesPayload(history: List<ChatMessage>, systemPrompt: String? = null): MutableList<Map<String, Any>> {
-        val payload = mutableListOf<Map<String, Any>>()
-        if (!systemPrompt.isNullOrBlank()) {
-            payload.add(mapOf("role" to "system", "content" to systemPrompt))
-        }
-        history.forEach { msg ->
-            val base64 = getBase64FromUri(msg.localAttachmentUri)
-            payload.add(
-                if (base64 != null && msg.role == "user") {
-                    val mime = msg.localAttachmentMimeType ?: "image/jpeg"
-                    val attachmentPart = if (isPdfMime(mime)) {
-                        mapOf(
-                            "type" to "file",
-                            "file" to mapOf(
-                                "filename" to (msg.localAttachmentName?.takeIf { it.isNotBlank() } ?: "document.pdf"),
-                                "file_data" to "data:application/pdf;base64,$base64",
-                            )
-                        )
-                    } else {
-                        mapOf(
-                            "type" to "image_url",
-                            "image_url" to mapOf("url" to "data:$mime;base64,$base64")
-                        )
-                    }
-                    mapOf(
-                        "role" to msg.role,
-                        "content" to listOf(
-                            mapOf("type" to "text", "text" to msg.content),
-                            attachmentPart
-                        )
-                    )
-                } else {
-                    mapOf(
-                        "role" to msg.role,
-                        "content" to msg.content
-                    )
-                }
-            )
-        }
-        return payload
+        return OpenRouterPayloads.messages(history, systemPrompt, ::getBase64FromUri)
     }
 
     /**
      * Parse errors returned from OpenRouter payload
      */
     private fun parseErrorMessage(errJson: String): String? {
-        return try {
-            val map = dynamicAdapter.fromJson(errJson) as? Map<*, *>
-            val errorMap = map?.get("error") as? Map<*, *>
-            val message = errorMap?.get("message") as? String
-            message
-        } catch (e: Exception) {
-            null
-        }
+        return OpenRouterPayloads.errorMessage(errJson)
     }
 
     private fun buildHttpRequest(apiKey: String, jsonPayload: String): Request {
@@ -312,7 +268,7 @@ class OpenRouterService(private val context: Context) {
     // Streaming internals
     // ---------------------------------------------------------------------------------
 
-    private data class CompletedToolCall(
+    internal data class CompletedToolCall(
         val id: String,
         val name: String,
         val arguments: String,
@@ -320,7 +276,7 @@ class OpenRouterService(private val context: Context) {
         val announced: Boolean
     )
 
-    private class ToolCallBuilder {
+    internal class ToolCallBuilder {
         var id: String? = null
         var type: String? = null
         var name: String? = null
@@ -348,7 +304,7 @@ class OpenRouterService(private val context: Context) {
         val fusionModels: List<String> = emptyList(),
     )
 
-    private data class TurnResult(
+    internal data class TurnResult(
         val content: String,
         val reasoning: String,
         val toolCalls: List<CompletedToolCall>,
@@ -388,140 +344,6 @@ class OpenRouterService(private val context: Context) {
     }
 
     /** Parse a string only if it looks like a JSON object/array (some tool results are stringified). */
-    private fun parseMaybeJson(s: String): Any? {
-        val t = s.trim()
-        if (!(t.startsWith("{") || t.startsWith("["))) return null
-        return try { dynamicAdapter.fromJson(t) } catch (e: Exception) { null }
-    }
-
-    /** Walks an SSE chunk for an advisor result `{model?, advice}`. Returns (advisorModel, advice). */
-    private fun scanForAdvisorResult(node: Any?, depth: Int = 0): Pair<String?, String>? {
-        if (depth > 8) return null
-        when (node) {
-            is Map<*, *> -> {
-                (node["advice"] as? String)?.takeIf { it.isNotBlank() }?.let { advice ->
-                    return (node["model"] as? String) to advice
-                }
-                (node["content"] as? String)?.let { c ->
-                    parseMaybeJson(c)?.let { scanForAdvisorResult(it, depth + 1)?.let { r -> return r } }
-                }
-                for (v in node.values) scanForAdvisorResult(v, depth + 1)?.let { return it }
-            }
-            is List<*> -> for (v in node) scanForAdvisorResult(v, depth + 1)?.let { return it }
-        }
-        return null
-    }
-
-    /**
-     * Walks an SSE chunk for subagent results `{status, model, task_name, outcome}` (or an
-     * `{status:"error", task_name, error}`). Appends every distinct one found to [out]; the
-     * caller dedupes by task_name. The shape is documented (unlike advisor/fusion), so this is
-     * a straightforward keyed scan rather than a guess.
-     */
-    private fun scanForSubagentResults(node: Any?, depth: Int = 0, out: MutableList<SubagentResult>) {
-        if (depth > 8) return
-        when (node) {
-            is Map<*, *> -> {
-                val taskName = (node["task_name"] as? String)?.takeIf { it.isNotBlank() }
-                val hasOutcome = node.containsKey("outcome")
-                val errorMsg = (node["error"] as? String)?.takeIf { it.isNotBlank() }
-                if (taskName != null && (hasOutcome || errorMsg != null)) {
-                    out.add(
-                        SubagentResult(
-                            taskName = taskName,
-                            workerModel = (node["model"] as? String).orEmpty(),
-                            outcome = (node["outcome"] as? String).orEmpty(),
-                            error = errorMsg?.takeIf { (node["status"] as? String) == "error" || !hasOutcome },
-                        )
-                    )
-                }
-                (node["content"] as? String)?.let { c -> parseMaybeJson(c)?.let { scanForSubagentResults(it, depth + 1, out) } }
-                for (v in node.values) scanForSubagentResults(v, depth + 1, out)
-            }
-            is List<*> -> for (v in node) scanForSubagentResults(v, depth + 1, out)
-        }
-    }
-
-    private fun isFusionResponseList(list: List<*>?): Boolean =
-        list != null && list.isNotEmpty() && list.all {
-            (it as? Map<*, *>)?.containsKey("content") == true && (it as? Map<*, *>)?.containsKey("model") == true
-        }
-
-    /** Walks an SSE chunk for a fusion result `{analysis?, responses?, failed_models?}`. */
-    private fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? {
-        if (depth > 8) return null
-        when (node) {
-            is Map<*, *> -> {
-                val analysisObj = node["analysis"] as? Map<*, *>
-                val responses = node["responses"] as? List<*>
-                if (analysisObj != null || isFusionResponseList(responses)) {
-                    return buildFusionAnalysis(node)
-                }
-                (node["content"] as? String)?.let { c ->
-                    parseMaybeJson(c)?.let { scanForFusionResult(it, depth + 1)?.let { r -> return r } }
-                }
-                for (v in node.values) scanForFusionResult(v, depth + 1)?.let { return it }
-            }
-            is List<*> -> for (v in node) scanForFusionResult(v, depth + 1)?.let { return it }
-        }
-        return null
-    }
-
-    private fun buildFusionAnalysis(result: Map<*, *>): FusionAnalysis {
-        val analysis = result["analysis"] as? Map<*, *>
-        fun strList(key: String): List<String> =
-            (analysis?.get(key) as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-
-        val contradictions = (analysis?.get("contradictions") as? List<*>)?.mapNotNull { raw ->
-            val m = raw as? Map<*, *> ?: return@mapNotNull null
-            val topic = m["topic"] as? String ?: return@mapNotNull null
-            val stances = (m["stances"] as? List<*>)?.map { it.toString() } ?: emptyList()
-            FusionContradiction(topic, stances)
-        } ?: emptyList()
-
-        val partial = (analysis?.get("partial_coverage") as? List<*>)?.mapNotNull { raw ->
-            when (raw) {
-                is Map<*, *> -> raw["point"] as? String
-                is String -> raw
-                else -> null
-            }
-        } ?: emptyList()
-
-        val insights = (analysis?.get("unique_insights") as? List<*>)?.mapNotNull { raw ->
-            val m = raw as? Map<*, *> ?: return@mapNotNull null
-            val insight = m["insight"] as? String ?: return@mapNotNull null
-            FusionInsight((m["model"] as? String).orEmpty(), insight)
-        } ?: emptyList()
-
-        val responses = (result["responses"] as? List<*>)?.mapNotNull { raw ->
-            val m = raw as? Map<*, *> ?: return@mapNotNull null
-            val content = m["content"] as? String ?: return@mapNotNull null
-            FusionResponse((m["model"] as? String).orEmpty(), content)
-        } ?: emptyList()
-
-        val failed = (result["failed_models"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-
-        return FusionAnalysis(
-            panelName = "",
-            judgeModel = null,
-            models = responses.map { it.model }.filter { it.isNotBlank() },
-            consensus = strList("consensus"),
-            contradictions = contradictions,
-            partialCoverage = partial,
-            uniqueInsights = insights,
-            blindSpots = strList("blind_spots"),
-            responses = responses,
-            failedModels = failed,
-        )
-    }
-
-    /**
-     * Executes one streaming chat completion, emitting chunks as they arrive and returning
-     * the accumulated turn. Handles plain content/reasoning deltas, OpenRouter server-tool
-     * activity (`openrouter:web_search`), client function tool_calls deltas, and
-     * url_citation annotations. All parsing is defensive: unknown shapes degrade to plain
-     * text streaming, never a crash.
-     */
     private suspend fun streamCompletion(
         apiKey: String,
         model: String,
@@ -533,255 +355,11 @@ class OpenRouterService(private val context: Context) {
         agentWorkerModel: String? = null,
         pdfPluginEnabled: Boolean = false,
         httpClient: OkHttpClient = client,
-        onChunk: suspend (StreamChunk) -> Unit
-    ): TurnResult {
-        val requestMap = mutableMapOf<String, Any>(
-            "model" to model,
-            "messages" to payloadMessages,
-            "stream" to true,
-            // Ask OpenRouter to stream reasoning tokens for reasoning-capable models. Models that
-            // don't support it simply ignore this and never send a `reasoning` delta.
-            "include_reasoning" to true,
-            "reasoning" to mapOf("enabled" to true)
-        )
-        addPdfPluginIfNeeded(requestMap, pdfPluginEnabled)
-        if (tools != null) {
-            requestMap["tools"] = tools
-        }
-        // For Echo Adviser/Fusion the user made a deliberate, cost-heavy choice from the "+"
-        // menu — so we force the tool to actually run rather than leaving it to the model.
-        if (toolChoice != null) {
-            requestMap["tool_choice"] = toolChoice
-        }
-        // The user's global cloud sampler settings. top_k / max_tokens are only sent when set
-        // (0 means "leave it to the model"); temperature / top_p always apply.
-        if (params != null) {
-            requestMap["temperature"] = params.temperature
-            requestMap["top_p"] = params.topP
-            if (params.topK > 0) requestMap["top_k"] = params.topK
-            if (params.maxTokens > 0) requestMap["max_tokens"] = params.maxTokens
-        }
-
-        val jsonPayload = dynamicAdapter.toJson(requestMap)
-        val request = buildHttpRequest(apiKey, jsonPayload)
-
-        val contentBuf = StringBuilder()
-        val reasoningBuf = StringBuilder()
-        val toolCallBuilders = sortedMapOf<Int, ToolCallBuilder>()
-        val collectedSources = mutableListOf<SearchSource>()
-        val seenSourceUrls = mutableSetOf<String>()
-        var finishReason: String? = null
-        var lastAnnouncedQuery: String? = null
-
-        // Echo Adviser / Fusion: announce the consult/deliberation the moment its tool call
-        // appears, then resolve once the (beta, undocumented-shape) result is seen in the stream.
-        var advisorAnnounced = false
-        var advisorResolved = false
-        var advisorPrompt: String? = null
-        var fusionAnnounced = false
-        var fusionResolved = false
-
-        // Echo Agent: the orchestrator may delegate several tasks per turn, so these track
-        // per-tool-call (announce) and per-task-name (resolve) rather than a single flag.
-        val subagentAnnounced = mutableMapOf<Int, Boolean>()
-        val subagentResolved = mutableSetOf<String>()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val errorString = response.body?.string().orEmpty()
-                val parsedErrorMsg = parseErrorMessage(errorString)
-                val statusMessage = when (response.code) {
-                    401 -> "Unauthorized keys. Verify your OpenRouter API key."
-                    404 -> "Model: \"$model\" is unavailable."
-                    403 -> "Your OpenRouter balance might be empty."
-                    else -> parsedErrorMsg ?: "HTTP ${response.code}"
-                }
-                throw Exception("API Failure: $statusMessage")
-            }
-
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            val reader = body.charStream().buffered()
-            var line: String?
-
-            while (reader.readLine().also { line = it } != null) {
-                val currentLine = line!!.trim()
-                if (!currentLine.startsWith("data: ")) continue
-                val dataPart = currentLine.substring(6).trim()
-                if (dataPart == "[DONE]" || dataPart.startsWith("[DONE]")) break
-
-                try {
-                    val event = streamChunkAdapter.fromJson(dataPart)
-                    val choice = event?.choices?.firstOrNull()
-                    val delta = choice?.delta
-
-                    // Reasoning tokens (different providers name the field differently).
-                    val reasoning = delta?.reasoning ?: delta?.reasoning_content
-                    if (!reasoning.isNullOrEmpty()) {
-                        reasoningBuf.append(reasoning)
-                        onChunk(StreamChunk.Reasoning(reasoning))
-                    }
-
-                    val content = delta?.content
-                    if (!content.isNullOrEmpty()) {
-                        contentBuf.append(content)
-                        onChunk(StreamChunk.Content(content))
-                    }
-
-                    // Tool call deltas: fragments accumulate per index. Used both by the
-                    // OpenRouter server tool (search runs server-side mid-stream) and by
-                    // client function calling (we run the search between requests).
-                    val toolCallDeltas = delta?.tool_calls
-                    toolCallDeltas?.forEach { call ->
-                        val index = call.index ?: 0
-                        val builder = toolCallBuilders.getOrPut(index) { ToolCallBuilder() }
-                        call.id?.let { builder.id = it }
-                        call.type?.let { builder.type = it }
-                        call.function?.name?.let { builder.name = it }
-                        call.function?.arguments?.let { builder.args.append(it) }
-
-                        if (!builder.announced && builder.looksLikeWebSearch()) {
-                            val query = parseQueryArgument(builder.args.toString())
-                            if (query != null) {
-                                builder.announced = true
-                                lastAnnouncedQuery = query
-                                onChunk(StreamChunk.SearchStarted(query))
-                            }
-                        }
-                        // web_fetch reads a specific URL: surface it on the same search timeline
-                        // as a one-URL "search" so citations and the activity card just work.
-                        if (!builder.announced && builder.looksLikeWebFetch()) {
-                            val url = parseUrlArgument(builder.args.toString())
-                            if (url != null) {
-                                builder.announced = true
-                                lastAnnouncedQuery = url
-                                onChunk(StreamChunk.SearchStarted(url))
-                            }
-                        }
-                        if (echo?.advisorName != null && !advisorAnnounced && builder.looksLikeAdvisor()) {
-                            val prompt = parsePromptArgument(builder.args.toString())
-                            if (prompt != null) {
-                                advisorAnnounced = true
-                                advisorPrompt = prompt
-                                onChunk(StreamChunk.AdvisorStarted(echo.advisorName, echo.advisorModel.orEmpty(), prompt))
-                            }
-                        }
-                        if (echo?.fusionPanelName != null && !fusionAnnounced && builder.looksLikeFusion()) {
-                            fusionAnnounced = true
-                            onChunk(StreamChunk.FusionStarted(echo.fusionPanelName, echo.fusionModels))
-                        }
-                        // Echo Agent delegation: announce the moment the task brief parses, then
-                        // the worker runs server-side and its outcome arrives as a tool result.
-                        if (agentWorkerModel != null && subagentAnnounced[index] != true && builder.looksLikeSubagent()) {
-                            parseTaskArgs(builder.args.toString())?.let { (name, desc) ->
-                                subagentAnnounced[index] = true
-                                onChunk(StreamChunk.SubagentStarted(name, desc, agentWorkerModel))
-                            }
-                        }
-                    }
-
-                    // url_citation annotations may arrive on the delta or on a message object.
-                    val annotations = delta?.annotations ?: choice?.message?.annotations
-                    if (annotations != null) {
-                        val fresh = mutableListOf<SearchSource>()
-                        annotations.forEach { ann ->
-                            if (ann.type != "url_citation") return@forEach
-                            val cite = ann.url_citation ?: return@forEach
-                            val url = cite.url ?: return@forEach
-                            if (!seenSourceUrls.add(url)) return@forEach
-                            val source = SearchSource(
-                                title = cite.title.orEmpty().ifBlank { url },
-                                url = url,
-                                snippet = cite.content
-                            )
-                            collectedSources.add(source)
-                            fresh.add(source)
-                        }
-                        if (fresh.isNotEmpty()) {
-                            onChunk(StreamChunk.SearchSources(lastAnnouncedQuery.orEmpty(), fresh))
-                        }
-                    }
-
-                    // Echo Adviser/Fusion results arrive as a tool result somewhere in the chunk
-                    // tree. The exact shape is beta/undocumented, so we walk the whole chunk
-                    // defensively for the signature keys and degrade to "consulted, no body" if
-                    // nothing parses — never a crash. (Verify shapes against a live key.)
-                    val needsDynamicScan = echo != null || agentWorkerModel != null
-                    val map = if (needsDynamicScan) dynamicAdapter.fromJson(dataPart) as? Map<*, *> else null
-                    if (echo != null && map != null) {
-                        if (echo.advisorName != null && !advisorResolved) {
-                            scanForAdvisorResult(map)?.let { (advisorModel, advice) ->
-                                advisorResolved = true
-                                onChunk(
-                                    StreamChunk.AdvisorResolved(
-                                        AdvisorAdvice(
-                                            advisorName = echo.advisorName,
-                                            advisorModel = advisorModel ?: echo.advisorModel.orEmpty(),
-                                            prompt = advisorPrompt.orEmpty(),
-                                            advice = advice,
-                                        )
-                                    )
-                                )
-                            }
-                        }
-                        if (echo.fusionPanelName != null && !fusionResolved) {
-                            scanForFusionResult(map)?.let { analysis ->
-                                fusionResolved = true
-                                onChunk(
-                                    StreamChunk.FusionResolved(
-                                        analysis.copy(
-                                            panelName = echo.fusionPanelName,
-                                            models = echo.fusionModels.ifEmpty { analysis.models },
-                                        )
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    // Echo Agent: a worker delegation finished somewhere in this chunk. Emit each
-                    // distinct result once (keyed by task_name) so its card flips from running.
-                    if (agentWorkerModel != null && map != null) {
-                        val found = mutableListOf<SubagentResult>()
-                        scanForSubagentResults(map, out = found)
-                        found.forEach { r ->
-                            if (subagentResolved.add(r.taskName)) {
-                                onChunk(StreamChunk.SubagentResolved(r.copy(workerModel = r.workerModel.ifBlank { agentWorkerModel })))
-                            }
-                        }
-                    }
-
-                    choice?.finish_reason?.let { finishReason = it }
-                } catch (e: Exception) {
-                    // Resilient inline SSE fail ignores
-                }
-            }
-        }
-
-        val completedCalls = toolCallBuilders.entries.mapNotNull { (index, builder) ->
-            val name = builder.name ?: builder.type ?: return@mapNotNull null
-            CompletedToolCall(
-                id = builder.id ?: "call_$index",
-                name = name,
-                arguments = builder.args.toString().ifBlank { "{}" },
-                announced = builder.announced
-            )
-        }
-
-        return TurnResult(
-            content = contentBuf.toString(),
-            reasoning = reasoningBuf.toString(),
-            toolCalls = completedCalls,
-            finishReason = finishReason,
-            sources = collectedSources
-        )
-    }
-
-    /**
-     * Streaming completion. With [serverWebSearch] the OpenRouter `openrouter:web_search`
-     * server tool is attached: the model can decide to search the web zero, one, or many
-     * times during the answer; searches execute on OpenRouter's side and surface here as
-     * SearchStarted/SearchSources chunks.
-     */
+        onChunk: suspend (StreamChunk) -> Unit,
+    ): TurnResult = streamTransport.streamCompletion(
+        apiKey, model, payloadMessages, tools, params, toolChoice, echo,
+        agentWorkerModel, pdfPluginEnabled, httpClient, onChunk,
+    )
     fun sendChatMessageStream(
         apiKey: String,
         model: String,
@@ -1009,7 +587,7 @@ class OpenRouterService(private val context: Context) {
         // location (a `role:"tool"` message, a tool_calls entry, or inline) is beta/undocumented.
         if (advisor != null) {
             val asked = findAskedPrompt(message)
-            val result = scanForAdvisorResult(response)
+            val result = OpenRouterEchoDecoder.scanForAdvisorResult(response)
             emit(
                 StreamChunk.AdvisorResolved(
                     AdvisorAdvice(
@@ -1022,7 +600,7 @@ class OpenRouterService(private val context: Context) {
             )
         }
         if (fusion != null) {
-            val parsed = scanForFusionResult(response)
+            val parsed = OpenRouterEchoDecoder.scanForFusionResult(response)
             val analysis = (parsed ?: FusionAnalysis(panelName = fusion.panelName, judgeModel = fusion.judge, models = fusion.models))
                 .copy(
                     panelName = fusion.panelName,

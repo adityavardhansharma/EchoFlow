@@ -240,13 +240,15 @@ class BrowserAgentManager(
             return
         }
 
-        val results = runCatching { webSearch.search(provider, searchKey, websiteQuery(searchText), 6) }
+        val results = runCatching {
+            webSearch.search(provider, searchKey, BrowserResolutionPolicy.websiteQuery(searchText), 6)
+        }
             .getOrNull().orEmpty()
         val candidates = BrowserResolver.rankCandidates(results, searchText)
         val top = candidates.firstOrNull()
         when {
             top == null -> askForUrl(session, "I couldn't find that site. Paste the URL or type the exact name.")
-            isConfident(top, searchText) -> {
+            BrowserResolutionPolicy.isConfident(top, searchText) -> {
                 if (BrowserResolver.isSensitive(top.url)) askConfirmDomain(session, top.url)
                 else beginScrape(session.copy(resolvedUrl = top.url), session.goal)
             }
@@ -517,28 +519,7 @@ class BrowserAgentManager(
         chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = System.currentTimeMillis())) }
     }
 
-    private fun websiteQuery(instruction: String): String {
-        val cleaned = instruction.replace(
-            Regex("^(go to|open|visit|check|navigate to|browse|launch|head to)\\s+", RegexOption.IGNORE_CASE), ""
-        )
-        val name = cleaned.split(Regex("\\s+(and|then|to find|find|search|,)\\s+", RegexOption.IGNORE_CASE))
-            .firstOrNull()?.trim().orEmpty()
-        val base = if (name.length in 2..40) name else cleaned.take(40)
-        return "$base official website"
-    }
-
-    private fun isConfident(top: BrowserCandidate, instruction: String): Boolean {
-        if (BrowserResolver.isDispreferred(top.url)) return false
-        val tokens = instruction.lowercase().split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 && it !in STOPWORDS }
-        return tokens.any { top.domain.contains(it) }
-    }
-
     companion object {
         private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
-        private val STOPWORDS = setOf(
-            "go", "to", "the", "open", "visit", "find", "and", "check", "on", "for", "of",
-            "in", "me", "please", "navigate", "search", "website", "site", "official",
-        )
     }
 }

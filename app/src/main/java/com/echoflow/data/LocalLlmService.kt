@@ -1,8 +1,6 @@
 package com.echoflow.data
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -10,7 +8,6 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -36,7 +33,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.nehuatl.llamacpp.LlamaAndroid
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -58,8 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * model's limits by the caller) through the runtime's native sampler.
  */
 class LocalLlmService(private val context: Context) {
-
-    private enum class Runtime { MEDIAPIPE, LITERT, GGUF }
+    private val platform = LocalLlmPlatformSupport(context)
 
     // ── MediaPipe runtime (.task) ────────────────────────────────────────────────────
     private var mpEngine: LlmInference? = null
@@ -99,7 +94,7 @@ class LocalLlmService(private val context: Context) {
     private val ggufScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Which runtime the in-flight generation belongs to (for appendContext/continue). */
-    private var activeRuntime = Runtime.MEDIAPIPE
+    private var activeRuntime = LocalLlmRuntime.MEDIAPIPE
     /** Params of the in-flight generation, reused by [continueGeneration]. */
     private var activeParams: InferenceParams = InferenceLimits.LOCAL_DEFAULTS
 
@@ -114,75 +109,33 @@ class LocalLlmService(private val context: Context) {
     private val _modelLoading = MutableStateFlow(false)
     val modelLoading: StateFlow<Boolean> = _modelLoading.asStateFlow()
 
-    private fun modelFile(model: LocalModel): File =
-        File(File(context.filesDir, "models"), model.fileName)
+    private fun modelFile(model: LocalModel): File = platform.modelFile(model)
 
     fun modelFileExists(model: LocalModel): Boolean = modelFile(model).exists()
 
-    private fun runtimeFor(model: LocalModel): Runtime = when {
-        LocalModelCatalog.isGguf(model.fileName) -> Runtime.GGUF
-        LocalModelCatalog.isLiteRtLm(model.fileName) -> Runtime.LITERT
-        else -> Runtime.MEDIAPIPE
-    }
-
-    /** Resolves the effective token budget: the coerced param, or the model's own default. */
     private fun effectiveMaxTokens(model: LocalModel, params: InferenceParams): Int =
-        (params.maxTokens.takeIf { it > 0 } ?: model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName))
-            .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL)
+        LocalLlmPrompting.effectiveMaxTokens(model, params)
+
+    private fun transcriptOf(turns: List<ChatMessage>): String =
+        LocalLlmPrompting.transcriptOf(turns)
+
+    private fun userTurnPrompt(content: String): String =
+        LocalLlmPrompting.userTurnPrompt(content)
 
     /**
      * Native OOM during weight loading aborts the whole process and is uncatchable, so
      * refuse upfront when device RAM is clearly below what the model peaks at (AI Edge
      * Gallery does the same check against estimated peak memory).
      */
-    private fun checkRamBudget(file: File) {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val memInfo = android.app.ActivityManager.MemoryInfo().also { activityManager.getMemoryInfo(it) }
-        val estimatedPeakBytes = (file.length() * 1.8).toLong()
-        if (memInfo.totalMem in 1 until estimatedPeakBytes) {
-            val needGb = estimatedPeakBytes / (1024.0 * 1024 * 1024)
-            throw Exception(
-                "This model needs roughly %.1f GB of RAM, more than this device has. Try a smaller model.".format(needGb)
-            )
-        }
-    }
+    private fun checkRamBudget(file: File) = platform.checkRamBudget(file)
 
-    private fun friendlyLoadError(e: Throwable): String = when {
-        e is OutOfMemoryError || e.message?.contains("memory", ignoreCase = true) == true ->
-            "Not enough memory to load this model on this device. Try a smaller model."
-        else ->
-            "Could not load the model — the file may be corrupt or unsupported. " +
-                "Re-download or re-import it. (${e.message?.take(120)})"
-    }
-
-    private fun transcriptOf(turns: List<ChatMessage>): String = turns.joinToString("\n") { msg ->
-        val speaker = if (msg.role == "user") "Human" else "EchoFlow"
-        "$speaker: ${msg.content}"
-    }
+    private fun friendlyLoadError(e: Throwable): String = platform.friendlyLoadError(e)
 
     /**
      * Decodes an attachment URI into a downscaled JPEG [Content.ImageBytes] for multimodal
      * .litertlm bundles. Returns null when there's no image or it can't be read.
      */
-    private fun imageContentFromUri(uriString: String?): Content? {
-        if (uriString.isNullOrBlank()) return null
-        return try {
-            val raw = context.contentResolver.openInputStream(Uri.parse(uriString))?.use { it.readBytes() }
-                ?: return null
-            var bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
-            val max = 768
-            val longest = maxOf(bmp.width, bmp.height)
-            if (longest > max) {
-                val scale = max.toFloat() / longest
-                bmp = Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
-            }
-            val out = ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
-            Content.ImageBytes(out.toByteArray())
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun imageContentFromUri(uriString: String?): Content? = platform.imageContentFromUri(uriString)
 
     /**
      * Prepares the runtime for a new user turn and starts generation.
@@ -196,12 +149,12 @@ class LocalLlmService(private val context: Context) {
         systemPrompt: String,
         params: InferenceParams = InferenceLimits.LOCAL_DEFAULTS
     ): Flow<StreamChunk> {
-        activeRuntime = runtimeFor(model)
+        activeRuntime = LocalLlmPrompting.runtimeFor(model)
         activeParams = params
         return when (activeRuntime) {
-            Runtime.GGUF -> generateGguf(model, chatId, history, systemPrompt, params)
-            Runtime.LITERT -> generateLitert(model, chatId, history, systemPrompt, params)
-            Runtime.MEDIAPIPE -> generateMediaPipe(model, chatId, history, systemPrompt, params)
+            LocalLlmRuntime.GGUF -> generateGguf(model, chatId, history, systemPrompt, params)
+            LocalLlmRuntime.LITERT -> generateLitert(model, chatId, history, systemPrompt, params)
+            LocalLlmRuntime.MEDIAPIPE -> generateMediaPipe(model, chatId, history, systemPrompt, params)
         }
     }
 
@@ -211,17 +164,17 @@ class LocalLlmService(private val context: Context) {
      */
     fun appendContext(text: String) {
         when (activeRuntime) {
-            Runtime.LITERT -> lrtPendingContext = (lrtPendingContext ?: "") + text
-            Runtime.GGUF -> ggufPendingContext = (ggufPendingContext ?: "") + text
-            Runtime.MEDIAPIPE -> runCatching { mpSession?.addQueryChunk(text) }
+            LocalLlmRuntime.LITERT -> lrtPendingContext = (lrtPendingContext ?: "") + text
+            LocalLlmRuntime.GGUF -> ggufPendingContext = (ggufPendingContext ?: "") + text
+            LocalLlmRuntime.MEDIAPIPE -> runCatching { mpSession?.addQueryChunk(text) }
         }
     }
 
     /** Continues generating after [appendContext], without a new user message. */
     fun continueGeneration(): Flow<StreamChunk> = when (activeRuntime) {
-        Runtime.LITERT -> continueLitert()
-        Runtime.GGUF -> continueGguf()
-        Runtime.MEDIAPIPE -> continueMediaPipe()
+        LocalLlmRuntime.LITERT -> continueLitert()
+        LocalLlmRuntime.GGUF -> continueGguf()
+        LocalLlmRuntime.MEDIAPIPE -> continueMediaPipe()
     }
 
     /** Frees all engines and sessions (model switch away from local, or ViewModel cleared). */
@@ -246,28 +199,12 @@ class LocalLlmService(private val context: Context) {
 
     // ── LiteRT-LM implementation ─────────────────────────────────────────────────────
 
-    private fun createLitertEngine(path: String, maxTokens: Int, backend: Backend, visionBackend: Backend?): Engine {
-        val engine = Engine(
-            EngineConfig(
-                modelPath = path,
-                backend = backend,
-                // Vision is enabled for every .litertlm engine so image attachments work on
-                // multimodal bundles (Gemma 4). Text-only bundles simply ignore the image.
-                visionBackend = visionBackend,
-                audioBackend = null,
-                maxNumTokens = maxTokens,
-                maxNumImages = if (visionBackend != null) 1 else null,
-                cacheDir = null,
-            )
-        )
-        try {
-            engine.initialize()
-        } catch (e: Throwable) {
-            runCatching { engine.close() }
-            throw e
-        }
-        return engine
-    }
+    private fun createLitertEngine(
+        path: String,
+        maxTokens: Int,
+        backend: Backend,
+        visionBackend: Backend?,
+    ): Engine = LocalLlmEngineFactory.createLiteRt(path, maxTokens, backend, visionBackend)
 
     private fun ensureLitertEngine(model: LocalModel, maxTokens: Int) {
         val file = modelFile(model)
@@ -436,7 +373,7 @@ class LocalLlmService(private val context: Context) {
     }
 
     private fun onLitertFlowClosed() {
-        if (activeRuntime == Runtime.LITERT && generating.getAndSet(false)) {
+        if (activeRuntime == LocalLlmRuntime.LITERT && generating.getAndSet(false)) {
             runCatching { lrtConversation?.cancelProcess() }
         }
     }
@@ -481,19 +418,12 @@ class LocalLlmService(private val context: Context) {
         mpLoadedMaxTopK = maxTopK
     }
 
-    private fun newMpSession(params: InferenceParams, maxTopK: Int): LlmInferenceSession {
-        val eng = mpEngine ?: throw Exception("Local model engine not initialized.")
-        // topK must stay <= the engine's setMaxTopK; 0 (disabled) isn't valid here, so the
-        // engine ceiling stands in for "no cut".
-        return LlmInferenceSession.createFromOptions(
-            eng,
-            LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                .setTopK(if (params.topK <= 0) maxTopK else params.topK)
-                .setTopP(params.topP)
-                .setTemperature(params.temperature)
-                .build()
+    private fun newMpSession(params: InferenceParams, maxTopK: Int): LlmInferenceSession =
+        LocalLlmEngineFactory.createMediaPipeSession(
+            mpEngine ?: throw Exception("Local model engine not initialized."),
+            params,
+            maxTopK,
         )
-    }
 
     private fun closeMpSessionInternal() {
         runCatching { mpSession?.close() }
@@ -502,9 +432,6 @@ class LocalLlmService(private val context: Context) {
         mpLastHistorySize = -1
         mpParams = null
     }
-
-    private fun userTurnPrompt(content: String): String =
-        "Human message:\n$content\n\nEchoFlow reply:"
 
     private fun generateMediaPipe(
         model: LocalModel,
@@ -624,7 +551,7 @@ class LocalLlmService(private val context: Context) {
     }
 
     private fun onMpFlowClosed() {
-        if (activeRuntime == Runtime.MEDIAPIPE && generating.getAndSet(false)) {
+        if (activeRuntime == LocalLlmRuntime.MEDIAPIPE && generating.getAndSet(false)) {
             runCatching { mpSession?.cancelGenerateResponseAsync() }
         }
     }
@@ -804,7 +731,7 @@ class LocalLlmService(private val context: Context) {
     }
 
     private fun onGgufFlowClosed() {
-        if (activeRuntime == Runtime.GGUF && generating.getAndSet(false)) {
+        if (activeRuntime == LocalLlmRuntime.GGUF && generating.getAndSet(false)) {
             val id = ggufContextId
             val engine = ggufEngine
             if (id != null && engine != null) {
