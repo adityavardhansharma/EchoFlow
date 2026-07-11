@@ -49,6 +49,7 @@ class SettingsViewModel(
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
     private val customProviderService = CustomProviderService()
+    private val profileManager = SettingsProfileManager(repository, advisorProfileDao, fusionPanelDao, agentProfileDao)
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
@@ -328,34 +329,11 @@ class SettingsViewModel(
     fun saveEchoAdviserProfile(id: String) = repository.saveEchoAdviserProfileId(id)
 
     fun addAdvisorProfile(name: String, modelId: String, modelName: String) {
-        viewModelScope.launch {
-            val cleanName = name.trim().ifEmpty { "Advisor" }
-            val cleanModel = modelId.trim()
-            if (cleanModel.isEmpty()) return@launch
-            val id = java.util.UUID.randomUUID().toString()
-            advisorProfileDao.insert(
-                AdvisorProfile(
-                    id = id,
-                    name = cleanName,
-                    modelId = cleanModel,
-                    modelName = modelName.trim().ifEmpty { cleanModel.substringAfterLast("/") },
-                    createdAt = System.currentTimeMillis(),
-                )
-            )
-            // First profile becomes the active selection automatically.
-            if (repository.getEchoAdviserProfileIdDirect().isBlank()) {
-                repository.saveEchoAdviserProfileId(id)
-            }
-        }
+        viewModelScope.launch { profileManager.addAdvisor(name, modelId, modelName) }
     }
 
     fun deleteAdvisorProfile(id: String) {
-        viewModelScope.launch {
-            advisorProfileDao.delete(id)
-            if (repository.getEchoAdviserProfileIdDirect() == id) {
-                repository.saveEchoAdviserProfileId(advisorProfileDao.getAllSync().firstOrNull()?.id.orEmpty())
-            }
-        }
+        viewModelScope.launch { profileManager.deleteAdvisor(id) }
     }
 
     // ── Echo Fusion ────────────────────────────────────────────────────────────────────
@@ -363,34 +341,11 @@ class SettingsViewModel(
     fun saveEchoFusionPanel(id: String) = repository.saveEchoFusionPanelId(id)
 
     fun addFusionPanel(name: String, models: List<Pair<String, String>>, judgeModelId: String?) {
-        viewModelScope.launch {
-            val cleanName = name.trim().ifEmpty { "Panel" }
-            val ids = models.map { it.first.trim() }.filter { it.isNotEmpty() }
-            if (ids.size < 2) return@launch // a panel needs at least two models
-            val id = java.util.UUID.randomUUID().toString()
-            fusionPanelDao.upsert(
-                FusionPanel(
-                    id = id,
-                    name = cleanName,
-                    modelIds = ids.joinToString("\n"),
-                    modelNames = models.map { it.second.trim().ifEmpty { it.first.substringAfterLast("/") } }.joinToString("\n"),
-                    judgeModelId = judgeModelId?.trim()?.takeIf { it.isNotEmpty() && it in ids },
-                    createdAt = System.currentTimeMillis(),
-                )
-            )
-            if (repository.getEchoFusionPanelIdDirect().isBlank()) {
-                repository.saveEchoFusionPanelId(id)
-            }
-        }
+        viewModelScope.launch { profileManager.addPanel(name, models, judgeModelId) }
     }
 
     fun deleteFusionPanel(id: String) {
-        viewModelScope.launch {
-            fusionPanelDao.delete(id)
-            if (repository.getEchoFusionPanelIdDirect() == id) {
-                repository.saveEchoFusionPanelId(fusionPanelDao.getAllSync().firstOrNull()?.id.orEmpty())
-            }
-        }
+        viewModelScope.launch { profileManager.deletePanel(id) }
     }
 
     // ── Echo Agent ───────────────────────────────────────────────────────────────────────
@@ -398,35 +353,11 @@ class SettingsViewModel(
     fun saveEchoAgentProfile(id: String) = repository.saveEchoAgentProfileId(id)
 
     fun addAgentProfile(name: String, workerModelId: String, workerModelName: String, maxToolCalls: Int) {
-        viewModelScope.launch {
-            val cleanName = name.trim().ifEmpty { "Agent" }
-            val cleanModel = workerModelId.trim()
-            if (cleanModel.isEmpty()) return@launch
-            val id = java.util.UUID.randomUUID().toString()
-            agentProfileDao.insert(
-                AgentProfile(
-                    id = id,
-                    name = cleanName,
-                    workerModelId = cleanModel,
-                    workerModelName = workerModelName.trim().ifEmpty { cleanModel.substringAfterLast("/") },
-                    maxToolCalls = maxToolCalls.coerceIn(1, 25),
-                    createdAt = System.currentTimeMillis(),
-                )
-            )
-            // First profile becomes the active selection automatically.
-            if (repository.getEchoAgentProfileIdDirect().isBlank()) {
-                repository.saveEchoAgentProfileId(id)
-            }
-        }
+        viewModelScope.launch { profileManager.addAgent(name, workerModelId, workerModelName, maxToolCalls) }
     }
 
     fun deleteAgentProfile(id: String) {
-        viewModelScope.launch {
-            agentProfileDao.delete(id)
-            if (repository.getEchoAgentProfileIdDirect() == id) {
-                repository.saveEchoAgentProfileId(agentProfileDao.getAllSync().firstOrNull()?.id.orEmpty())
-            }
-        }
+        viewModelScope.launch { profileManager.deleteAgent(id) }
     }
 
     fun addDeepResearchModel(id: String, name: String) {
@@ -549,42 +480,7 @@ class SettingsViewModel(
     private fun gb(bytes: Long): String = "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
 
     private fun CustomProviderConfig.toModelEntries(): List<CustomProviderModel> {
-        fun lines(value: String): List<String> = value.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().toList()
-        fun withManual(models: String, manual: String): List<String> =
-            (listOf(manual.trim()).filter { it.isNotEmpty() } + lines(models)).distinct()
-
-        val out = mutableListOf<CustomProviderModel>()
-        if (cloudApisEnabled && openAiEnabled) {
-            withManual(openAiSelectedModels, openAiModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OPENAI + it, it, "OpenAI", isLocalLike = false))
-            }
-        }
-        if (cloudApisEnabled && claudeEnabled) {
-            withManual(claudeSelectedModels, claudeModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_CLAUDE + it, it, "Claude", isLocalLike = false))
-            }
-        }
-        if (cloudApisEnabled && geminiEnabled) {
-            withManual(geminiSelectedModels, geminiModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_GEMINI + it, it, "Gemini", isLocalLike = false))
-            }
-        }
-        if (cloudApisEnabled && cerebrasEnabled) {
-            withManual(cerebrasSelectedModels, cerebrasModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_CEREBRAS + it, it, "Cerebras", isLocalLike = false))
-            }
-        }
-        if (ollamaEnabled) {
-            withManual(ollamaSelectedModels, ollamaModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OLLAMA + it, it, "Ollama", isLocalLike = true))
-            }
-        }
-        if (openAiCompatibleEnabled) {
-            withManual(openAiCompatibleSelectedModels, openAiCompatibleModel).forEach {
-                out.add(CustomProviderModel(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE + it, it, "OpenAI-compatible", isLocalLike = true))
-            }
-        }
-        return out
+        return CustomProviderModelCatalog.entries(this)
     }
 
     fun clearImportError() {
