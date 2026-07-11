@@ -52,6 +52,17 @@ class GeneratedImageStore(
         return latest.takeIf { File(it.filePath).exists() }
     }
 
+    /**
+     * Removes this chat's image files from disk. Must run BEFORE the chat thread row is
+     * deleted — the generated_images rows cascade away with it, and after that the PNGs
+     * would be unreachable orphans growing app storage forever.
+     */
+    suspend fun deleteFilesForChat(chatId: String) = withContext(Dispatchers.IO) {
+        dao.getForChat(chatId).forEach { image ->
+            runCatching { File(image.filePath).delete() }
+        }
+    }
+
     /** The stored file re-encoded as a data URL for an edit request, or null if missing. */
     suspend fun asDataUrl(image: GeneratedImage): String? = withContext(Dispatchers.IO) {
         val file = File(image.filePath)

@@ -202,10 +202,12 @@ internal class OpenRouterStreamTransport(
                         }
                     }
 
-                    // Generated images (modalities: ["image","text"]) arrive base64 on the
-                    // delta or the final message object.
-                    val images = delta?.images ?: choice?.message?.images
-                    images?.forEach { payload ->
+                    // Generated images (modalities: ["image","text"]) can arrive base64 on the
+                    // delta, the final message object, or both — read both sides (an empty
+                    // delta list must not shadow the completed message's image) and let the
+                    // seen-key set drop duplicates.
+                    val images = delta?.images.orEmpty() + choice?.message?.images.orEmpty()
+                    images.forEach { payload ->
                         val dataUrl = payload.dataUrl ?: return@forEach
                         val key = "${dataUrl.length}:${dataUrl.takeLast(64)}"
                         if (seenImageKeys.add(key)) {

@@ -450,6 +450,8 @@ class ChatViewModel(
 
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch {
+            // Image files live outside Room; remove them while their rows (and paths) still exist.
+            generatedImageStore.deleteFilesForChat(thread.id)
             chatDao.deleteThread(thread)
             if (_currentChatThreadId.value == thread.id) {
                 selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
