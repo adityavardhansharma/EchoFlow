@@ -12,9 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatThread::class, ChatMessage::class, CustomModel::class, LocalModel::class,
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
         AgentProfile::class, BrowserSession::class, BrowserStep::class,
-        Artifact::class, ArtifactVersion::class
+        Artifact::class, ArtifactVersion::class,
+        ImageModel::class, GeneratedImage::class
     ],
-    version = 12, // v12: artifacts + artifact_versions (MIGRATION_11_12)
+    version = 13, // v13: image_models + generated_images (MIGRATION_12_13)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +32,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun browserStepDao(): BrowserStepDao
     abstract fun artifactDao(): ArtifactDao
     abstract fun artifactVersionDao(): ArtifactVersionDao
+    abstract fun imageModelDao(): ImageModelDao
+    abstract fun generatedImageDao(): GeneratedImageDao
 
     companion object {
         @Volatile
@@ -232,6 +235,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS image_models (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "name TEXT NOT NULL, " +
+                        "addedAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS generated_images (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "chatId TEXT NOT NULL, " +
+                        "filePath TEXT NOT NULL, " +
+                        "prompt TEXT NOT NULL, " +
+                        "parentId TEXT, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(chatId) REFERENCES chat_threads(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_generated_images_chatId ON generated_images (chatId)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -251,6 +276,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
                 )
                 .build()
                 INSTANCE = instance

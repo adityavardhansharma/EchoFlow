@@ -31,6 +31,32 @@ class OpenRouterPayloadsTest {
         assertFalse(OpenRouterPayloads.historyHasPdf(history))
     }
 
+    @Test fun `attaches edit image to the newest user message preserving existing parts`() {
+        val history = listOf(
+            message(role = "user", content = "draw a cat"),
+            message(role = "assistant", content = "here it is"),
+            message(role = "user", content = "make it night", uri = "content://photo"),
+        )
+        val messages = OpenRouterPayloads.messages(history) { if (it == null) null else "cGhvdG8=" }
+        OpenRouterPayloads.attachImageToLastUserMessage(messages, "data:image/png;base64,QUJD")
+
+        val parts = messages.last()["content"] as List<*>
+        assertEquals(3, parts.size) // text + user photo + previous generated version
+        val attached = parts.last() as Map<*, *>
+        assertEquals("image_url", attached["type"])
+        assertEquals("data:image/png;base64,QUJD", (attached["image_url"] as Map<*, *>)["url"])
+        // The assistant message stays scalar text.
+        assertEquals("here it is", messages[1]["content"])
+    }
+
+    @Test fun `attach image rewrites scalar user content into parts`() {
+        val messages = OpenRouterPayloads.messages(listOf(message(role = "user", content = "redo it"))) { null }
+        OpenRouterPayloads.attachImageToLastUserMessage(messages, "data:image/png;base64,QUJD")
+        val parts = messages.single()["content"] as List<*>
+        assertEquals("text", (parts[0] as Map<*, *>)["type"])
+        assertEquals("image_url", (parts[1] as Map<*, *>)["type"])
+    }
+
     @Test fun `extracts only structured OpenRouter error message`() {
         assertEquals("quota", OpenRouterPayloads.errorMessage("""{"error":{"message":"quota"}}"""))
         assertNull(OpenRouterPayloads.errorMessage("broken"))

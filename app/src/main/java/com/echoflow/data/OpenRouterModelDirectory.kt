@@ -16,6 +16,7 @@ data class OpenRouterModelInfo(
     val contextLength: Int?,
     val promptPricePerM: Double?, // USD per 1M prompt tokens
     val completionPricePerM: Double?, // USD per 1M completion tokens
+    val outputsImage: Boolean = false, // architecture.output_modalities contains "image"
 ) {
     val isFree: Boolean get() = (promptPricePerM ?: 0.0) == 0.0 && (completionPricePerM ?: 0.0) == 0.0
 }
@@ -58,6 +59,7 @@ class OpenRouterModelDirectory {
                     contextLength = raw.contextLength,
                     promptPricePerM = raw.pricing?.prompt?.toDoubleOrNull()?.times(1_000_000),
                     completionPricePerM = raw.pricing?.completion?.toDoubleOrNull()?.times(1_000_000),
+                    outputsImage = raw.architecture?.outputModalities.orEmpty().any { it.equals("image", ignoreCase = true) },
                 )
             }.sortedBy { it.name.lowercase() }
             cache = models
@@ -73,6 +75,11 @@ private data class RawModel(
     val name: String? = null,
     @Json(name = "context_length") val contextLength: Int? = null,
     val pricing: RawPricing? = null,
+    val architecture: RawArchitecture? = null,
+)
+
+private data class RawArchitecture(
+    @Json(name = "output_modalities") val outputModalities: List<String>? = null,
 )
 
 private data class RawPricing(

@@ -77,11 +77,32 @@ class OpenRouterService(private val context: Context) {
         val reasoning_content: String? = null,
         val tool_calls: List<OpenRouterToolCallDelta>? = null,
         val annotations: List<OpenRouterAnnotation>? = null,
+        val images: List<OpenRouterImagePayload>? = null,
     )
 
     @JsonClass(generateAdapter = true)
     data class OpenRouterStreamMessage(
         val annotations: List<OpenRouterAnnotation>? = null,
+        val images: List<OpenRouterImagePayload>? = null,
+    )
+
+    /**
+     * One generated image on a delta or final message. The documented shape is
+     * `{type: "image_url", image_url: {url: "data:image/png;base64,..."}}`; [url] covers a
+     * flattened variant seen in beta payloads. (Verify against a live key in Android Studio.)
+     */
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterImagePayload(
+        val type: String? = null,
+        val image_url: OpenRouterImageUrl? = null,
+        val url: String? = null,
+    ) {
+        val dataUrl: String? get() = image_url?.url ?: url
+    }
+
+    @JsonClass(generateAdapter = true)
+    data class OpenRouterImageUrl(
+        val url: String? = null,
     )
 
     @JsonClass(generateAdapter = true)
@@ -354,11 +375,12 @@ class OpenRouterService(private val context: Context) {
         echo: EchoContext? = null,
         agentWorkerModel: String? = null,
         pdfPluginEnabled: Boolean = false,
+        extraBody: Map<String, Any>? = null,
         httpClient: OkHttpClient = client,
         onChunk: suspend (StreamChunk) -> Unit,
     ): TurnResult = streamTransport.streamCompletion(
         apiKey, model, payloadMessages, tools, params, toolChoice, echo,
-        agentWorkerModel, pdfPluginEnabled, httpClient, onChunk,
+        agentWorkerModel, pdfPluginEnabled, extraBody, httpClient, onChunk,
     )
     fun sendChatMessageStream(
         apiKey: String,
@@ -401,6 +423,40 @@ class OpenRouterService(private val context: Context) {
             )
         )
     )
+
+    /**
+     * Image generation / conversational editing via a multimodal-output model (Nano Banana
+     * family). One streaming chat completion with `modalities: ["image","text"]`: history
+     * rides along as text, and on edit turns [editImageDataUrl] (the chat's latest generated
+     * image) is attached to the newest user message so the model revises it in place. Text
+     * deltas stream as usual; the finished image surfaces as [StreamChunk.ImageGenerated].
+     * Uses the long-timeout [echoClient] — generation regularly takes 15–30s.
+     */
+    fun sendImageGeneration(
+        apiKey: String,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        editImageDataUrl: String? = null,
+        params: InferenceParams? = null,
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) {
+            throw Exception("API key is missing! Please configure it in your Settings.")
+        }
+        val messages = buildMessagesPayload(history, systemPrompt)
+        if (editImageDataUrl != null) {
+            OpenRouterPayloads.attachImageToLastUserMessage(messages, editImageDataUrl)
+        }
+        streamCompletion(
+            apiKey = apiKey,
+            model = model,
+            payloadMessages = messages,
+            tools = null,
+            params = params,
+            extraBody = mapOf("modalities" to listOf("image", "text")),
+            httpClient = echoClient,
+        ) { emit(it) }
+    }.flowOn(Dispatchers.IO)
 
     /** Config for one Echo Agent turn: the worker (subagent) model and its tool-call budget. */
     data class AgentRequest(val workerModel: String, val workerModelName: String, val maxToolCalls: Int)

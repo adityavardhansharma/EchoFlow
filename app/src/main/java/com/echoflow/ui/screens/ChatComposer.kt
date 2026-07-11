@@ -143,6 +143,8 @@ internal fun InputToolbar(
     onToggleBrowserFlow: () -> Unit,
     artifactActive: Boolean,
     onToggleArtifact: () -> Unit,
+    imageGenActive: Boolean,
+    onToggleImageGen: () -> Unit,
     browserSession: com.echoflow.data.BrowserSession?,
     browserSteps: List<com.echoflow.data.BrowserStep>,
     onBrowserOpen: () -> Unit,
@@ -228,7 +230,7 @@ internal fun InputToolbar(
         }
 
         // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive || artifactActive) {
+        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive || artifactActive || imageGenActive) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -242,6 +244,9 @@ internal fun InputToolbar(
                 }
                 if (artifactActive) {
                     CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
+                }
+                if (imageGenActive) {
+                    CapabilityChip(Icons.Default.Brush, "Create image", onRemove = onToggleImageGen)
                 }
                 if (echoAdviserActive) {
                     CapabilityChip(
@@ -332,6 +337,8 @@ internal fun InputToolbar(
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         artifactOn = artifactActive,
+                        imageGenOn = imageGenActive,
+                        onToggleImageGen = { plusMenuOpen = false; onToggleImageGen() },
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
@@ -356,6 +363,7 @@ internal fun InputToolbar(
                                 dataAgentActive -> "Describe the data to extract…"
                                 deepResearchActive -> "Research a topic…"
                                 artifactActive -> "Describe an artifact to build…"
+                                imageGenActive -> "Describe an image — or a change…"
                                 else -> "Ask anything…"
                             }
                         )
@@ -408,6 +416,8 @@ internal fun PlusMenu(
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
     artifactOn: Boolean,
+    imageGenOn: Boolean,
+    onToggleImageGen: () -> Unit,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -453,6 +463,13 @@ internal fun PlusMenu(
             leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
             trailingIcon = { if (artifactOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
             onClick = onToggleArtifact,
+        )
+        // Create image — generate and conversationally edit images (OpenRouter image models).
+        DropdownMenuItem(
+            text = { Text("Create image") },
+            leadingIcon = { Icon(Icons.Default.Brush, null) },
+            trailingIcon = { if (imageGenOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
+            onClick = onToggleImageGen,
         )
         // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
         if (dataAgentAvailable) {

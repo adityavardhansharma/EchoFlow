@@ -25,6 +25,29 @@ class ChatSegmentReducerTest {
         assertEquals("working", ChatSegmentReducer.reduce(segments, StreamChunk.StatusNote("working")))
     }
 
+    @Test fun `image generation seeds a pending placeholder and resolves on the saved file`() {
+        val segments = mutableListOf<StreamSegment>()
+        ChatSegmentReducer.reduce(segments, StreamChunk.ImageGenStarted("rain", editing = true, previousImagePath = "/old.png"))
+        val pending = segments.single() as StreamSegment.Image
+        assertEquals("rain", pending.pattern)
+        assertEquals("/old.png", pending.previousImagePath)
+        ChatSegmentReducer.reduce(segments, StreamChunk.Content("Here you go"))
+        ChatSegmentReducer.reduce(segments, StreamChunk.ImageGenerated(dataUrl = "", filePath = "/new.png", imageId = "img-1"))
+        val resolved = segments.filterIsInstance<StreamSegment.Image>().single()
+        assertFalse(resolved.generating)
+        assertEquals("/new.png", resolved.filePath)
+        assertEquals("img-1", resolved.imageId)
+    }
+
+    @Test fun `an unsaved base64 image chunk never reaches the timeline`() {
+        val segments = mutableListOf<StreamSegment>()
+        ChatSegmentReducer.reduce(segments, StreamChunk.ImageGenStarted("ripple", editing = false))
+        ChatSegmentReducer.reduce(segments, StreamChunk.ImageGenerated(dataUrl = "data:image/png;base64,AAAA"))
+        val image = segments.single() as StreamSegment.Image
+        assertNull(image.filePath)
+        assertEquals(true, image.generating)
+    }
+
     @Test fun `real output removes transient agent banner`() {
         val segments = mutableListOf<StreamSegment>()
         assertNull(ChatSegmentReducer.reduce(segments, StreamChunk.AgentRunStarted))

@@ -35,11 +35,15 @@ class ChatViewModel(
     private val browserSessionDao: BrowserSessionDao,
     private val browserStepDao: BrowserStepDao,
     private val artifactDao: ArtifactDao,
-    private val artifactVersionDao: ArtifactVersionDao
+    private val artifactVersionDao: ArtifactVersionDao,
+    private val generatedImageDao: GeneratedImageDao
 ) : AndroidViewModel(application) {
 
     // Artifacts: model-built, rendered content (web page / document / report) with version history.
     private val artifactManager = ArtifactManager(artifactDao, artifactVersionDao)
+
+    // Image generation: decoded PNGs on disk, version chain in Room (see GeneratedImageStore).
+    private val generatedImageStore = GeneratedImageStore(application, generatedImageDao)
 
     private val openRouterService = OpenRouterService(application)
     private val customProviderService = CustomProviderService(application)
@@ -212,6 +216,9 @@ class ChatViewModel(
     // follow-ups iterate the chat's current artifact (full version history).
     val artifactActive: StateFlow<Boolean> = modeIs<ChatMode.Artifact>()
 
+    // Image generation mode: sticky, so follow-up turns keep editing the chat's latest image.
+    val imageGenActive: StateFlow<Boolean> = modeIs<ChatMode.ImageGen>()
+
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val currentArtifact: StateFlow<Artifact?> = _currentChatThreadId
@@ -313,6 +320,7 @@ class ChatViewModel(
     }
 
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
+    fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
@@ -519,6 +527,7 @@ class ChatViewModel(
             clearPendingAttachment()
             clearError()
 
+            val imageGenMode = _chatMode.value is ChatMode.ImageGen
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
@@ -547,8 +556,20 @@ class ChatViewModel(
             val provider = chipProvider ?: settingsRepository.getWebSearchProviderDirect()
             val searchScope = if (chipProvider != null) "both" else settingsRepository.getWebSearchScopeDirect()
             // Echo Fusion always runs cloud models (the panel + judge), so it never uses the
-            // on-device engine even if a local model is the global selection.
-            val isLocal = selectedModel.startsWith("local/") && _chatMode.value !is ChatMode.EchoFusion
+            // on-device engine even if a local model is the global selection. Image generation
+            // likewise always runs its own OpenRouter image model, whatever chat model is picked.
+            val isLocal = selectedModel.startsWith("local/") && _chatMode.value !is ChatMode.EchoFusion && !imageGenMode
+
+            if (imageGenMode) {
+                if (apiKey.isBlank()) {
+                    _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                    return@launch
+                }
+                if (attachmentMime.equals("application/pdf", ignoreCase = true)) {
+                    _errorMessage.value = "Image generation works with image attachments only, not PDFs."
+                    return@launch
+                }
+            }
 
             if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
@@ -580,11 +601,11 @@ class ChatViewModel(
                 else -> false
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            if (customProviderActive && attachmentUri != null && pendingIsPdf && !customPdfAllowed) {
+            if (customProviderActive && !imageGenMode && attachmentUri != null && pendingIsPdf && !customPdfAllowed) {
                 _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in Settings → Echo Labs → Custom API Endpoint."
                 return@launch
             }
-            if (customProviderActive && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
+            if (customProviderActive && !imageGenMode && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = "Images are off for this custom endpoint. Turn them on in Settings → Echo Labs → Custom API Endpoint."
                 return@launch
             }
@@ -772,7 +793,29 @@ class ChatViewModel(
                 )
             }
 
+            // Image mode: resolve the version being edited (if any) and this generation's dot
+            // animation before building the stream. Ripple and rain alternate at random so the
+            // wait itself has variety across generations.
+            val imageGenModelId = if (imageGenMode) settingsRepository.getImageGenModelDirect() else ""
+            val imagePrev = if (imageGenMode) generatedImageStore.latestForChat(chatId) else null
+            val imageEditUrl = imagePrev?.let { generatedImageStore.asDataUrl(it) }
+            val imagePattern = if (imageGenMode) listOf("ripple", "rain").random() else ""
+
             val baseResponseFlow: Flow<StreamChunk> = when {
+                imageGenMode ->
+                    flow {
+                        emit(StreamChunk.ImageGenStarted(imagePattern, imageEditUrl != null, imagePrev?.filePath))
+                        emitAll(
+                            openRouterService.sendImageGeneration(
+                                apiKey = apiKey,
+                                model = imageGenModelId,
+                                history = fullHistory,
+                                systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
+                                editImageDataUrl = imageEditUrl,
+                                params = inferenceParams,
+                            )
+                        )
+                    }
                 agentReq != null ->
                     openRouterService.sendWithAgentTools(
                         apiKey = apiKey,
@@ -907,6 +950,7 @@ class ChatViewModel(
                 else -> null
             }
             val keepAliveText = when {
+                imageGenMode -> "Creating an image…"
                 agentReq != null -> "Echo Agents — handing tasks to your Echo Agent…"
                 fusionReq != null -> "Echo Fusion — the panel is deliberating…"
                 advisorReq != null -> "Echo Adviser — consulting your advisor…"
@@ -935,16 +979,30 @@ class ChatViewModel(
                 responseFlow.collect { rawChunk ->
                     // Persist a completed artifact version before reducing, so the card/segment
                     // carry a real artifactId/version to deep-link the workspace.
-                    val chunk = if (rawChunk is StreamChunk.ArtifactCompleted && rawChunk.content.isNotBlank()) {
-                        val ref = artifactManager.saveVersion(
-                            chatId = chatId,
-                            title = rawChunk.title,
-                            type = rawChunk.artifactType,
-                            content = rawChunk.content,
-                            sourcePrompt = prompt,
-                        )
-                        rawChunk.copy(artifactId = ref.artifactId, artifactType = ref.type, version = ref.version)
-                    } else rawChunk
+                    val chunk = when {
+                        rawChunk is StreamChunk.ArtifactCompleted && rawChunk.content.isNotBlank() -> {
+                            val ref = artifactManager.saveVersion(
+                                chatId = chatId,
+                                title = rawChunk.title,
+                                type = rawChunk.artifactType,
+                                content = rawChunk.content,
+                                sourcePrompt = prompt,
+                            )
+                            rawChunk.copy(artifactId = ref.artifactId, artifactType = ref.type, version = ref.version)
+                        }
+                        // Persist a generated image to disk/Room before reducing — the timeline
+                        // only ever carries file paths, never multi-MB base64 payloads.
+                        rawChunk is StreamChunk.ImageGenerated && rawChunk.filePath == null -> {
+                            val saved = generatedImageStore.save(
+                                chatId = chatId,
+                                prompt = prompt,
+                                dataUrl = rawChunk.dataUrl,
+                                parentId = imagePrev?.id,
+                            )
+                            StreamChunk.ImageGenerated(dataUrl = "", filePath = saved.filePath, imageId = saved.id)
+                        }
+                        else -> rawChunk
+                    }
                     val note = reduceSegments(segments, chunk)
                     if (note != null) statusNote = note
                     emitStreamUiState()
@@ -1407,14 +1465,16 @@ class ChatViewModel(
             browserSessionDao: BrowserSessionDao,
             browserStepDao: BrowserStepDao,
             artifactDao: ArtifactDao,
-            artifactVersionDao: ArtifactVersionDao
+            artifactVersionDao: ArtifactVersionDao,
+            generatedImageDao: GeneratedImageDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
-                    agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao
+                    agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao,
+                    generatedImageDao
                 ) as T
             }
         }

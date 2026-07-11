@@ -29,6 +29,7 @@ class EchoFlowAppGraph(application: Application) {
             database.advisorProfileDao(),
             database.fusionPanelDao(),
             database.agentProfileDao(),
+            database.imageModelDao(),
         )
     }
 
@@ -48,6 +49,7 @@ class EchoFlowAppGraph(application: Application) {
             database.browserStepDao(),
             database.artifactDao(),
             database.artifactVersionDao(),
+            database.generatedImageDao(),
         )
     }
 }

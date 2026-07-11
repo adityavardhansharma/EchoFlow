@@ -168,6 +168,7 @@ fun ChatScreen(
     val echoAgentEnabled by settingsViewModel.echoAgentEnabled.collectAsState()
 
     val artifactActive by chatViewModel.artifactActive.collectAsState()
+    val imageGenActive by chatViewModel.imageGenActive.collectAsState()
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
@@ -390,6 +391,8 @@ fun ChatScreen(
                 onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
                 artifactActive = artifactActive,
                 onToggleArtifact = { chatViewModel.toggleArtifact() },
+                imageGenActive = imageGenActive,
+                onToggleImageGen = { chatViewModel.toggleImageGen() },
                 browserSession = browserSession,
                 browserSteps = browserSteps,
                 onBrowserOpen = { browserSession?.let { chatViewModel.openBrowserWorkspace(it.chatId) } },

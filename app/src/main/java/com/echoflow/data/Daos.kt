@@ -128,6 +128,36 @@ interface AgentProfileDao {
 }
 
 @Dao
+interface ImageModelDao {
+    @Query("SELECT * FROM image_models ORDER BY addedAt ASC")
+    fun getAll(): Flow<List<ImageModel>>
+
+    @Query("SELECT * FROM image_models ORDER BY addedAt ASC")
+    suspend fun getAllSync(): List<ImageModel>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(model: ImageModel)
+
+    @Query("DELETE FROM image_models WHERE id = :modelId")
+    suspend fun delete(modelId: String)
+}
+
+@Dao
+interface GeneratedImageDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(image: GeneratedImage)
+
+    @Query("SELECT * FROM generated_images WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): GeneratedImage?
+
+    @Query("SELECT * FROM generated_images WHERE chatId = :chatId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestForChat(chatId: String): GeneratedImage?
+
+    @Query("SELECT * FROM generated_images WHERE chatId = :chatId ORDER BY createdAt ASC")
+    suspend fun getForChat(chatId: String): List<GeneratedImage>
+}
+
+@Dao
 interface ResearchRunDao {
     @Query("SELECT * FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled') ORDER BY createdAt DESC LIMIT 1")
     fun observeActiveForChat(chatId: String): Flow<ResearchRun?>

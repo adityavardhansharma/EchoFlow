@@ -93,6 +93,10 @@ class SettingsRepository(context: Context) {
     private val _artifactsOffline = MutableStateFlow(getArtifactsOfflineDirect())
     val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
 
+    // Image generation: which image-output OpenRouter model the "Create image" mode uses.
+    private val _imageGenModel = MutableStateFlow(getImageGenModelDirect())
+    val imageGenModel: StateFlow<String> = _imageGenModel.asStateFlow()
+
     // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
     private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
     val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
@@ -523,6 +527,16 @@ class SettingsRepository(context: Context) {
         _artifactsOffline.value = enabled
     }
 
+    // ── Image generation ───────────────────────────────────────────────────────────────
+
+    fun getImageGenModelDirect(): String =
+        prefs.getString("image_gen_model", DEFAULT_IMAGE_MODEL_ID).orEmpty()
+
+    fun saveImageGenModel(id: String) {
+        prefs.edit().putString("image_gen_model", id).apply()
+        _imageGenModel.value = id
+    }
+
     /** Minutes of inactivity before Browser Flow auto-stops the session (cost guard). 0 = off. */
     fun getBrowserIdleMinutesDirect(): Int =
         prefs.getInt("browser_idle_minutes", 3)
@@ -537,5 +551,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
         const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
+        const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
     }
 }

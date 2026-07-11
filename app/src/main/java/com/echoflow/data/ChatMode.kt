@@ -11,5 +11,6 @@ sealed interface ChatMode {
     data object EchoAgent : ChatMode
     data object BrowserFlow : ChatMode
     data object Artifact : ChatMode
+    data object ImageGen : ChatMode
 }
 
