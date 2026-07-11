@@ -418,4 +418,3 @@ internal fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: 
         )
     }
 }
-

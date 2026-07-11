@@ -187,5 +187,5 @@ internal object ChatSegmentReducer {
         }
         return null
     }
-    
+
 }

@@ -12,7 +12,7 @@ internal object OpenRouterEchoDecoder {
         if (!(t.startsWith("{") || t.startsWith("["))) return null
         return try { dynamicAdapter.fromJson(t) } catch (e: Exception) { null }
     }
-    
+
     /** Walks an SSE chunk for an advisor result `{model?, advice}`. Returns (advisorModel, advice). */
     fun scanForAdvisorResult(node: Any?, depth: Int = 0): Pair<String?, String>? {
         if (depth > 8) return null
@@ -30,7 +30,7 @@ internal object OpenRouterEchoDecoder {
         }
         return null
     }
-    
+
     /**
      * Walks an SSE chunk for subagent results `{status, model, task_name, outcome}` (or an
      * `{status:"error", task_name, error}`). Appends every distinct one found to [out]; the
@@ -60,12 +60,12 @@ internal object OpenRouterEchoDecoder {
             is List<*> -> for (v in node) scanForSubagentResults(v, depth + 1, out)
         }
     }
-    
+
     fun isFusionResponseList(list: List<*>?): Boolean =
         list != null && list.isNotEmpty() && list.all {
             (it as? Map<*, *>)?.containsKey("content") == true && (it as? Map<*, *>)?.containsKey("model") == true
         }
-    
+
     /** Walks an SSE chunk for a fusion result `{analysis?, responses?, failed_models?}`. */
     fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? {
         if (depth > 8) return null
@@ -85,19 +85,19 @@ internal object OpenRouterEchoDecoder {
         }
         return null
     }
-    
+
     fun buildFusionAnalysis(result: Map<*, *>): FusionAnalysis {
         val analysis = result["analysis"] as? Map<*, *>
         fun strList(key: String): List<String> =
             (analysis?.get(key) as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-    
+
         val contradictions = (analysis?.get("contradictions") as? List<*>)?.mapNotNull { raw ->
             val m = raw as? Map<*, *> ?: return@mapNotNull null
             val topic = m["topic"] as? String ?: return@mapNotNull null
             val stances = (m["stances"] as? List<*>)?.map { it.toString() } ?: emptyList()
             FusionContradiction(topic, stances)
         } ?: emptyList()
-    
+
         val partial = (analysis?.get("partial_coverage") as? List<*>)?.mapNotNull { raw ->
             when (raw) {
                 is Map<*, *> -> raw["point"] as? String
@@ -105,21 +105,21 @@ internal object OpenRouterEchoDecoder {
                 else -> null
             }
         } ?: emptyList()
-    
+
         val insights = (analysis?.get("unique_insights") as? List<*>)?.mapNotNull { raw ->
             val m = raw as? Map<*, *> ?: return@mapNotNull null
             val insight = m["insight"] as? String ?: return@mapNotNull null
             FusionInsight((m["model"] as? String).orEmpty(), insight)
         } ?: emptyList()
-    
+
         val responses = (result["responses"] as? List<*>)?.mapNotNull { raw ->
             val m = raw as? Map<*, *> ?: return@mapNotNull null
             val content = m["content"] as? String ?: return@mapNotNull null
             FusionResponse((m["model"] as? String).orEmpty(), content)
         } ?: emptyList()
-    
+
         val failed = (result["failed_models"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-    
+
         return FusionAnalysis(
             panelName = "",
             judgeModel = null,
@@ -133,7 +133,7 @@ internal object OpenRouterEchoDecoder {
             failedModels = failed,
         )
     }
-    
+
     /**
      * Executes one streaming chat completion, emitting chunks as they arrive and returning
      * the accumulated turn. Handles plain content/reasoning deltas, OpenRouter server-tool

@@ -51,4 +51,3 @@ interface BrowserStepDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(step: BrowserStep)
 }
-

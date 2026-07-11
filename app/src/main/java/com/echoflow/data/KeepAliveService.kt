@@ -66,8 +66,8 @@ class KeepAliveService : Service() {
     companion object {
         private const val CHANNEL_ID = "keep_alive"
         private const val NOTIFICATION_ID = 41
-        private const val ACTION_STOP = "com.echoflow.keepalive.STOP"
-        private const val EXTRA_TEXT = "text"
+        internal const val ACTION_STOP = "com.echoflow.keepalive.STOP"
+        internal const val EXTRA_TEXT = "text"
 
         private val holders = AtomicInteger(0)
 

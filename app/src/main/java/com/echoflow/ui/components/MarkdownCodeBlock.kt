@@ -159,4 +159,3 @@ internal fun highlightCode(code: String, language: String?, darkTheme: Boolean):
         }
     }
 }
-

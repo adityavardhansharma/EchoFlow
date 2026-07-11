@@ -136,4 +136,3 @@ object BrowserResolver {
             .toList()
     }
 }
-

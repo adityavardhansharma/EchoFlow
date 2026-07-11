@@ -27,7 +27,7 @@ internal class CustomProviderToolStreamer(
     private fun customError(label: String, code: Int, body: String) = errorDecoder(label, code, body)
 
     private val maxToolSearches = 4
-    
+
     private val webSearchToolOpenAi: Map<String, Any> = mapOf(
         "type" to "function",
         "function" to mapOf(
@@ -42,7 +42,7 @@ internal class CustomProviderToolStreamer(
             ),
         ),
     )
-    
+
     private val webSearchToolClaude: Map<String, Any> = mapOf(
         "name" to "web_search",
         "description" to "Search the web for current, recent, niche, or factual information. Returns a numbered list of results.",
@@ -54,7 +54,7 @@ internal class CustomProviderToolStreamer(
             "required" to listOf("query"),
         ),
     )
-    
+
     private val webSearchFnGemini: Map<String, Any> = mapOf(
         "name" to "web_search",
         "description" to "Search the web for current, recent, niche, or factual information. Returns a numbered list of results.",
@@ -66,13 +66,13 @@ internal class CustomProviderToolStreamer(
             "required" to listOf("query"),
         ),
     )
-    
+
     private class OpenAiPendingCall {
         var id = ""
         var name = ""
         val args = StringBuilder()
     }
-    
+
     private class ClaudePendingBlock {
         var type = ""
         var id = ""
@@ -80,12 +80,12 @@ internal class CustomProviderToolStreamer(
         val text = StringBuilder()
         val json = StringBuilder()
     }
-    
+
     private fun extractQuery(argsJson: String): String {
         val q = runCatching { (dynamicAdapter.fromJson(argsJson) as? Map<*, *>)?.get("query") as? String }.getOrNull()
         return q?.trim().orEmpty().ifBlank { argsJson.trim() }
     }
-    
+
     /** OpenAI-style tool loop — used by OpenAI, Cerebras, and any OpenAI-compatible endpoint. */
     fun streamOpenAiTools(
         baseUrl: String,
@@ -117,7 +117,7 @@ internal class CustomProviderToolStreamer(
                 .apply { apiKey.trim().takeIf { it.isNotEmpty() }?.let { addHeader("Authorization", "Bearer $it") } }
                 .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
                 .build()
-    
+
             val pending = sortedMapOf<Int, OpenAiPendingCall>()
             val assistantContent = StringBuilder()
             client.newCall(request).execute().use { response ->
@@ -147,9 +147,9 @@ internal class CustomProviderToolStreamer(
                     }
                 }
             }
-    
+
             if (pending.values.none { it.name == "web_search" }) break
-    
+
             messages.add(
                 mapOf(
                     "role" to "assistant",
@@ -195,7 +195,7 @@ internal class CustomProviderToolStreamer(
             round++
         }
     }.flowOn(Dispatchers.IO)
-    
+
     /** Ollama `/api/chat` tool loop. Ollama returns whole tool calls (not deltas) on the stream. */
     fun streamOllamaTools(
         baseUrl: String,
@@ -228,7 +228,7 @@ internal class CustomProviderToolStreamer(
                 .addHeader("Content-Type", "application/json")
                 .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
                 .build()
-    
+
             val collected = StringBuilder()
             val toolCalls = mutableListOf<Pair<String, String>>() // name, argsJson
             client.newCall(request).execute().use { response ->
@@ -255,9 +255,9 @@ internal class CustomProviderToolStreamer(
                     }
                 }
             }
-    
+
             if (toolCalls.none { it.first == "web_search" }) break
-    
+
             messages.add(
                 mapOf(
                     "role" to "assistant",
@@ -304,7 +304,7 @@ internal class CustomProviderToolStreamer(
             round++
         }
     }.flowOn(Dispatchers.IO)
-    
+
     /** Anthropic Messages tool loop — accumulates `tool_use` blocks from the SSE stream. */
     fun streamClaudeTools(
         apiKey: String,
@@ -339,7 +339,7 @@ internal class CustomProviderToolStreamer(
                 .addHeader("Content-Type", "application/json")
                 .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
                 .build()
-    
+
             val blocks = sortedMapOf<Int, ClaudePendingBlock>()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw Exception(customError("Claude", response.code, response.body?.string().orEmpty()))
@@ -379,10 +379,10 @@ internal class CustomProviderToolStreamer(
                     }
                 }
             }
-    
+
             val toolUses = blocks.values.filter { it.type == "tool_use" }
             if (toolUses.none { it.name == "web_search" }) break
-    
+
             val assistantBlocks = mutableListOf<Map<String, Any?>>()
             blocks.values.forEach { b ->
                 when (b.type) {
@@ -398,7 +398,7 @@ internal class CustomProviderToolStreamer(
                 }
             }
             messages.add(mapOf("role" to "assistant", "content" to assistantBlocks))
-    
+
             val resultBlocks = mutableListOf<Map<String, Any?>>()
             for (b in toolUses) {
                 if (b.name != "web_search") {
@@ -431,7 +431,7 @@ internal class CustomProviderToolStreamer(
             round++
         }
     }.flowOn(Dispatchers.IO)
-    
+
     /** Gemini generateContent tool loop — collects `functionCall` parts, replies with `functionResponse`. */
     fun streamGeminiTools(
         apiKey: String,
@@ -466,7 +466,7 @@ internal class CustomProviderToolStreamer(
                 .addHeader("Content-Type", "application/json")
                 .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
                 .build()
-    
+
             val functionCalls = mutableListOf<Pair<String, Map<*, *>>>() // name, args
             val modelParts = mutableListOf<Map<String, Any?>>()
             client.newCall(request).execute().use { response ->
@@ -494,9 +494,9 @@ internal class CustomProviderToolStreamer(
                     }
                 }
             }
-    
+
             if (functionCalls.none { it.first == "web_search" }) break
-    
+
             contents.add(mapOf("role" to "model", "parts" to modelParts))
             val responseParts = mutableListOf<Map<String, Any?>>()
             for ((name, args) in functionCalls) {
@@ -531,5 +531,5 @@ internal class CustomProviderToolStreamer(
             round++
         }
     }.flowOn(Dispatchers.IO)
-    
+
 }

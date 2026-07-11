@@ -500,4 +500,3 @@ internal class InlineParser(private val source: String) {
         return -1
     }
 }
-

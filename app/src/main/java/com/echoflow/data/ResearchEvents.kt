@@ -39,4 +39,3 @@ sealed class ResearchEvent {
 
     data class Failed(val message: String) : ResearchEvent()
 }
-

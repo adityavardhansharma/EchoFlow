@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import android.Manifest
 import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,8 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import com.echoflow.MainActivity
 import com.echoflow.R
 
@@ -53,6 +56,11 @@ object ReplyNotifications {
      */
     fun notifyReplyReady(context: Context, chatId: String, title: String, text: String) {
         if (isAppForeground(context)) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         ensureChannel(context)
 
         val openIntent = Intent(context, MainActivity::class.java).apply {

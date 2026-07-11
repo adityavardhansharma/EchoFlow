@@ -336,5 +336,3 @@ internal fun indexOfItalic(text: String, from: Int): Int {
     }
     return -1
 }
-
-

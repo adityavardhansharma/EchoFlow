@@ -468,4 +468,3 @@ internal fun formatPricing(info: OpenRouterModelInfo): String {
 }
 
 // ── Web search ────────────────────────────────────────────────────────────────────────
-

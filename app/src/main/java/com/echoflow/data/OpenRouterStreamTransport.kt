@@ -79,10 +79,10 @@ internal class OpenRouterStreamTransport(
             if (params.topK > 0) requestMap["top_k"] = params.topK
             if (params.maxTokens > 0) requestMap["max_tokens"] = params.maxTokens
         }
-    
+
         val jsonPayload = dynamicAdapter.toJson(requestMap)
         val request = buildHttpRequest(apiKey, jsonPayload)
-    
+
         val contentBuf = StringBuilder()
         val reasoningBuf = StringBuilder()
         val toolCallBuilders = sortedMapOf<Int, OpenRouterService.ToolCallBuilder>()
@@ -90,7 +90,7 @@ internal class OpenRouterStreamTransport(
         val seenSourceUrls = mutableSetOf<String>()
         var finishReason: String? = null
         var lastAnnouncedQuery: String? = null
-    
+
         // Echo Adviser / Fusion: announce the consult/deliberation the moment its tool call
         // appears, then resolve once the (beta, undocumented-shape) result is seen in the stream.
         var advisorAnnounced = false
@@ -98,12 +98,12 @@ internal class OpenRouterStreamTransport(
         var advisorPrompt: String? = null
         var fusionAnnounced = false
         var fusionResolved = false
-    
+
         // Echo Agent: the orchestrator may delegate several tasks per turn, so these track
         // per-tool-call (announce) and per-task-name (resolve) rather than a single flag.
         val subagentAnnounced = mutableMapOf<Int, Boolean>()
         val subagentResolved = mutableSetOf<String>()
-    
+
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val errorString = response.body?.string().orEmpty()
@@ -116,35 +116,35 @@ internal class OpenRouterStreamTransport(
                 }
                 throw Exception("API Failure: $statusMessage")
             }
-    
+
             val body = response.body ?: throw Exception("Empty stream body received.")
             val reader = body.charStream().buffered()
             var line: String?
-    
+
             while (reader.readLine().also { line = it } != null) {
                 val currentLine = line!!.trim()
                 if (!currentLine.startsWith("data: ")) continue
                 val dataPart = currentLine.substring(6).trim()
                 if (dataPart == "[DONE]" || dataPart.startsWith("[DONE]")) break
-    
+
                 try {
                     val event = streamChunkAdapter.fromJson(dataPart)
                     val choice = event?.choices?.firstOrNull()
                     val delta = choice?.delta
-    
+
                     // Reasoning tokens (different providers name the field differently).
                     val reasoning = delta?.reasoning ?: delta?.reasoning_content
                     if (!reasoning.isNullOrEmpty()) {
                         reasoningBuf.append(reasoning)
                         onChunk(StreamChunk.Reasoning(reasoning))
                     }
-    
+
                     val content = delta?.content
                     if (!content.isNullOrEmpty()) {
                         contentBuf.append(content)
                         onChunk(StreamChunk.Content(content))
                     }
-    
+
                     // Tool call deltas: fragments accumulate per index. Used both by the
                     // OpenRouter server tool (search runs server-side mid-stream) and by
                     // client function calling (we run the search between requests).
@@ -156,7 +156,7 @@ internal class OpenRouterStreamTransport(
                         call.type?.let { builder.type = it }
                         call.function?.name?.let { builder.name = it }
                         call.function?.arguments?.let { builder.args.append(it) }
-    
+
                         if (!builder.announced && builder.looksLikeWebSearch()) {
                             val query = parseQueryArgument(builder.args.toString())
                             if (query != null) {
@@ -196,7 +196,7 @@ internal class OpenRouterStreamTransport(
                             }
                         }
                     }
-    
+
                     // url_citation annotations may arrive on the delta or on a message object.
                     val annotations = delta?.annotations ?: choice?.message?.annotations
                     if (annotations != null) {
@@ -218,7 +218,7 @@ internal class OpenRouterStreamTransport(
                             onChunk(StreamChunk.SearchSources(lastAnnouncedQuery.orEmpty(), fresh))
                         }
                     }
-    
+
                     // Echo Adviser/Fusion results arrive as a tool result somewhere in the chunk
                     // tree. The exact shape is beta/undocumented, so we walk the whole chunk
                     // defensively for the signature keys and degrade to "consulted, no body" if
@@ -255,7 +255,7 @@ internal class OpenRouterStreamTransport(
                             }
                         }
                     }
-    
+
                     // Echo Agent: a worker delegation finished somewhere in this chunk. Emit each
                     // distinct result once (keyed by task_name) so its card flips from running.
                     if (agentWorkerModel != null && map != null) {
@@ -267,14 +267,14 @@ internal class OpenRouterStreamTransport(
                             }
                         }
                     }
-    
+
                     choice?.finish_reason?.let { finishReason = it }
                 } catch (e: Exception) {
                     // Resilient inline SSE fail ignores
                 }
             }
         }
-    
+
         val completedCalls = toolCallBuilders.entries.mapNotNull { (index, builder) ->
             val name = builder.name ?: builder.type ?: return@mapNotNull null
             OpenRouterService.CompletedToolCall(
@@ -284,7 +284,7 @@ internal class OpenRouterStreamTransport(
                 announced = builder.announced
             )
         }
-    
+
         return OpenRouterService.TurnResult(
             content = contentBuf.toString(),
             reasoning = reasoningBuf.toString(),
@@ -293,7 +293,7 @@ internal class OpenRouterStreamTransport(
             sources = collectedSources
         )
     }
-    
+
     /**
      * Streaming completion. With [serverWebSearch] the OpenRouter `openrouter:web_search`
      * server tool is attached: the model can decide to search the web zero, one, or many

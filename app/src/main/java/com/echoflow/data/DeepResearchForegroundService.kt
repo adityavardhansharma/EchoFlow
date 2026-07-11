@@ -371,9 +371,9 @@ class DeepResearchForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "deep_research"
         private const val NOTIFICATION_ID = 73
-        private const val ACTION_CANCEL = "com.echoflow.research.CANCEL"
-        private const val ACTION_RESUME = "com.echoflow.research.RESUME"
-        private const val EXTRA_RUN_ID = "run_id"
+        internal const val ACTION_CANCEL = "com.echoflow.research.CANCEL"
+        internal const val ACTION_RESUME = "com.echoflow.research.RESUME"
+        internal const val EXTRA_RUN_ID = "run_id"
 
         /** Start (or continue) a specific run. Must be called from the foreground (a tap). */
         fun start(context: Context, runId: String) {
