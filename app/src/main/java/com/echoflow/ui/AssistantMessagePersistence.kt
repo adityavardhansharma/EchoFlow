@@ -17,7 +17,8 @@ internal object AssistantMessagePersistence {
         val content = normalized.filterIsInstance<StreamSegment.Text>().joinToString("\n\n") { it.text }.trim()
         val hasDurableCard = normalized.any {
             it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
-                (it is StreamSegment.Artifact && it.artifactId != null)
+                (it is StreamSegment.Artifact && it.artifactId != null) ||
+                (it is StreamSegment.Image && it.filePath != null)
         }
         if (content.isEmpty() && !hasDurableCard && !stopped) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
@@ -46,6 +47,9 @@ internal object AssistantMessagePersistence {
         )
         is StreamSegment.Subagent -> PersistedSegment("subagent", subagent = SubagentResult(segment.taskName, segment.taskDescription, segment.workerModel, segment.outcome.orEmpty(), segment.error))
         is StreamSegment.Artifact -> segment.artifactId?.let { PersistedSegment("artifact", artifact = ArtifactRef(it, segment.title, segment.artifactType, segment.version)) }
+        is StreamSegment.Image -> segment.filePath?.let { path ->
+            PersistedSegment("image", image = ImageRef(segment.imageId.orEmpty(), path))
+        }
         is StreamSegment.Text -> segment.text.trim().takeIf(String::isNotEmpty)?.let { PersistedSegment("text", text = it) }
         is StreamSegment.AgentRun -> null
     }

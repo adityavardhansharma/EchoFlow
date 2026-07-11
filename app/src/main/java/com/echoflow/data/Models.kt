@@ -119,6 +119,44 @@ data class AgentProfile(
 )
 
 /**
+ * A cloud model the user has whitelisted for image generation. Kept separate from
+ * [CustomModel] (chat models) because image output only works on the few directory models
+ * whose `output_modalities` include "image", so it has its own add-model flow and search.
+ */
+@Entity(tableName = "image_models")
+data class ImageModel(
+    @PrimaryKey val id: String, // OpenRouter id, e.g. "google/gemini-2.5-flash-image"
+    val name: String,
+    val addedAt: Long,
+)
+
+/**
+ * One generated image: the decoded PNG lives as a file under filesDir/generated_images/
+ * (never as a DB blob); this row is the durable record. [parentId] links an edit to the
+ * version it was produced from, so walking the chain yields the image's version history.
+ */
+@Entity(
+    tableName = "generated_images",
+    foreignKeys = [
+        ForeignKey(
+            entity = ChatThread::class,
+            parentColumns = ["id"],
+            childColumns = ["chatId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("chatId")]
+)
+data class GeneratedImage(
+    @PrimaryKey val id: String, // UUID
+    val chatId: String,
+    val filePath: String, // absolute path of the PNG in app storage
+    val prompt: String, // the user turn that produced this version
+    val parentId: String? = null, // previous version in the edit chain (null = first)
+    val createdAt: Long,
+)
+
+/**
  * The durable record of one Deep Research run. This is the single source of truth: the
  * foreground service writes progress here and the UI observes it, so a run survives the
  * Activity/ViewModel being destroyed and can be resumed after the app is force-killed

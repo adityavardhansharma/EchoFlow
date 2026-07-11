@@ -73,6 +73,29 @@ sealed class StreamChunk {
         val version: Int = 0,
         val truncated: Boolean = false,
     ) : StreamChunk()
+
+    // ── Image generation (OpenRouter multimodal output) ─────────────────────────────
+    /**
+     * An image-mode turn is in flight — the placeholder card shows immediately. [pattern] is
+     * the dot animation chosen for this generation ("ripple" or "rain"); [previousImagePath]
+     * is set on edit turns so the placeholder can show the version being reworked.
+     */
+    data class ImageGenStarted(
+        val pattern: String,
+        val editing: Boolean,
+        val previousImagePath: String? = null,
+    ) : StreamChunk()
+
+    /**
+     * The model returned an image. The transport emits it with only [dataUrl] (base64);
+     * the ViewModel persists the file and re-emits with [filePath]/[imageId] filled in,
+     * which is what resolves the pending placeholder segment.
+     */
+    data class ImageGenerated(
+        val dataUrl: String,
+        val filePath: String? = null,
+        val imageId: String? = null,
+    ) : StreamChunk()
 }
 
 // ── Echo Adviser / Echo Fusion result records ──────────────────────────────────────
@@ -159,20 +182,27 @@ data class ArtifactRef(
     val version: Int,
 )
 
+/** A reference to a persisted [com.echoflow.data.GeneratedImage], embedded in a reply's timeline. */
+data class ImageRef(
+    val imageId: String,
+    val filePath: String,
+)
+
 /**
  * One block of a finished reply, persisted in arrival order so the rendered timeline
  * (reason → search → reason → search → answer) survives exactly as it streamed instead
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "stopped"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "image" | "stopped"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,
     val advisor: AdvisorAdvice? = null, // present when type == "advisor"
     val fusion: FusionAnalysis? = null, // present when type == "fusion"
     val subagent: SubagentResult? = null, // present when type == "subagent"
-    val artifact: ArtifactRef? = null // present when type == "artifact"
+    val artifact: ArtifactRef? = null, // present when type == "artifact"
+    val image: ImageRef? = null // present when type == "image"
 )
 
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -145,6 +146,7 @@ internal const val PageCloudModels = "cloud_models"
 internal const val PageWebSearch = "web_search"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
+internal const val PageImageGen = "image_gen"
 internal const val PageDataAgent = "data_agent"
 internal const val PageBrowserFlow = "browser_flow"
 internal const val PageEchoLabs = "echo_labs"
@@ -210,6 +212,7 @@ fun SettingsScreen(
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
+            PageImageGen -> ImageGenPage(viewModel, onBack = { page = PageHome })
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = { page = PageHome })
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageEchoLabs })
             PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageEchoLabs })
@@ -288,6 +291,11 @@ internal fun SettingsHomePage(
         localModels.isEmpty() -> "On · No models installed yet"
         else -> "On · ${localModels.size} installed"
     }
+    val imageGenModelId by viewModel.imageGenModelId.collectAsState()
+    val imageModelsHome by viewModel.imageModels.collectAsState()
+    val imageGenSubtitle = imageModelsHome.firstOrNull { it.id == imageGenModelId }?.name
+        ?: if (imageGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID) "Gemini 2.5 Flash Image"
+        else imageGenModelId
     val deepResearchSubtitle = when {
         deepResearchModelId.isBlank() -> "No engine selected"
         else -> DeepResearchCatalog.providerEngineById(deepResearchModelId)?.name
@@ -337,7 +345,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 6,
+                index = 0, count = 7,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -347,7 +355,7 @@ internal fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 6,
+                index = 1, count = 7,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -357,7 +365,7 @@ internal fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 6,
+                index = 2, count = 7,
                 onClick = { onOpen(PageLocalModels) },
             )
             SettingsNavRow(
@@ -367,7 +375,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 6,
+                index = 3, count = 7,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -377,8 +385,18 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 6,
+                index = 4, count = 7,
                 onClick = { onOpen(PageDeepResearch) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Brush,
+                polygon = MaterialShapes.Flower,
+                title = "Image generation",
+                subtitle = imageGenSubtitle,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 5, count = 7,
+                onClick = { onOpen(PageImageGen) },
             )
             SettingsNavRow(
                 icon = Icons.Default.AutoAwesome,
@@ -387,7 +405,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 5, count = 6,
+                index = 6, count = 7,
                 onClick = { onOpen(PageEchoLabs) },
             )
         }

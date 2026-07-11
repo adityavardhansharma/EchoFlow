@@ -67,4 +67,19 @@ sealed class StreamSegment {
         val building: Boolean,
         val truncated: Boolean,
     ) : StreamSegment()
+
+    /**
+     * A generated image in the assistant stream: the animated placeholder while [generating],
+     * then the revealed image once [filePath] lands. [pattern] picks the dot animation
+     * ("ripple" or "rain") chosen for this generation; [previousImagePath] backs the
+     * edit-turn placeholder (the old version shown dimmed under the dots).
+     */
+    data class Image(
+        val imageId: String?,
+        val filePath: String?,
+        val pattern: String,
+        val editing: Boolean,
+        val previousImagePath: String?,
+        val generating: Boolean,
+    ) : StreamSegment()
 }

@@ -287,6 +287,19 @@ internal fun StreamingAssistantBubble(
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
+                    is StreamSegment.Image -> {
+                        if (segment.generating) {
+                            com.echoflow.ui.components.GeneratingImageCard(
+                                pattern = segment.pattern,
+                                previousImagePath = segment.previousImagePath,
+                            )
+                        } else {
+                            segment.filePath?.let { path ->
+                                com.echoflow.ui.components.GeneratedImageBlock(filePath = path, animateReveal = true)
+                            }
+                        }
+                        Spacer(Modifier.height(Spacing.s))
+                    }
                     is StreamSegment.Text -> {
                         SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
                         if (!isLast) Spacer(Modifier.height(Spacing.s))
@@ -487,6 +500,15 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                                         charCount = 0,
                                         truncated = false,
                                         onOpen = onArtifactOpen,
+                                    )
+                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                            "image" -> {
+                                segment.image?.let { ref ->
+                                    com.echoflow.ui.components.GeneratedImageBlock(
+                                        filePath = ref.filePath,
+                                        animateReveal = false,
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }

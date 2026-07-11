@@ -19,6 +19,8 @@ import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DeepResearchModelDao
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.FusionPanelDao
+import com.echoflow.data.ImageModel
+import com.echoflow.data.ImageModelDao
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.InferenceParams
@@ -45,7 +47,8 @@ class SettingsViewModel(
     private val deepResearchModelDao: DeepResearchModelDao,
     private val advisorProfileDao: AdvisorProfileDao,
     private val fusionPanelDao: FusionPanelDao,
-    private val agentProfileDao: AgentProfileDao
+    private val agentProfileDao: AgentProfileDao,
+    private val imageModelDao: ImageModelDao
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
     private val customProviderService = CustomProviderService()
@@ -116,6 +119,11 @@ class SettingsViewModel(
     // Artifacts
     val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
 
+    // Image generation
+    val imageGenModelId: StateFlow<String> = repository.imageGenModel
+    val imageModels: StateFlow<List<ImageModel>> = imageModelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Echo Adviser / Echo Fusion
     val echoAdviserProfileId: StateFlow<String> = repository.echoAdviserProfileId
     val echoFusionPanelId: StateFlow<String> = repository.echoFusionPanelId
@@ -171,6 +179,19 @@ class SettingsViewModel(
             val q = query.trim()
             if (q.isEmpty()) all.take(40)
             else all.filter { it.id.contains(q, true) || it.name.contains(q, true) }.take(60)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    /** Same directory, restricted to models whose output modalities include images. */
+    val orImageModelResults: StateFlow<List<OpenRouterModelInfo>> =
+        combine(_orAllModels, _orModelQuery) { all, query ->
+            val imageCapable = all.filter { it.outputsImage }
+            val q = query.trim()
+            if (q.isEmpty()) imageCapable.take(40)
+            else imageCapable.filter { it.id.contains(q, true) || it.name.contains(q, true) }.take(60)
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -360,6 +381,29 @@ class SettingsViewModel(
         viewModelScope.launch { profileManager.deleteAgent(id) }
     }
 
+    // ── Image generation ─────────────────────────────────────────────────────────────────
+
+    fun saveImageGenModel(id: String) = repository.saveImageGenModel(id)
+
+    fun addImageModel(id: String, name: String) {
+        viewModelScope.launch {
+            val cleanId = id.trim()
+            val cleanName = name.trim().ifEmpty { cleanId.substringAfterLast("/") }
+            if (cleanId.isNotEmpty()) {
+                imageModelDao.insert(ImageModel(cleanId, cleanName, System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun deleteImageModel(id: String) {
+        viewModelScope.launch {
+            imageModelDao.delete(id)
+            if (repository.getImageGenModelDirect() == id) {
+                repository.saveImageGenModel(SettingsRepository.DEFAULT_IMAGE_MODEL_ID)
+            }
+        }
+    }
+
     fun addDeepResearchModel(id: String, name: String) {
         viewModelScope.launch {
             val cleanId = id.trim()
@@ -526,11 +570,12 @@ class SettingsViewModel(
             deepResearchModelDao: DeepResearchModelDao,
             advisorProfileDao: AdvisorProfileDao,
             fusionPanelDao: FusionPanelDao,
-            agentProfileDao: AgentProfileDao
+            agentProfileDao: AgentProfileDao,
+            imageModelDao: ImageModelDao
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao) as T
             }
         }
     }

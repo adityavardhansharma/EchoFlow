@@ -50,6 +50,7 @@ internal class OpenRouterStreamTransport(
         echo: OpenRouterService.EchoContext? = null,
         agentWorkerModel: String? = null,
         pdfPluginEnabled: Boolean = false,
+        extraBody: Map<String, Any>? = null,
         httpClient: OkHttpClient,
         onChunk: suspend (StreamChunk) -> Unit
     ): OpenRouterService.TurnResult {
@@ -62,6 +63,7 @@ internal class OpenRouterStreamTransport(
             "include_reasoning" to true,
             "reasoning" to mapOf("enabled" to true)
         )
+        extraBody?.let { requestMap.putAll(it) }
         addPdfPluginIfNeeded(requestMap, pdfPluginEnabled)
         if (tools != null) {
             requestMap["tools"] = tools
@@ -90,6 +92,9 @@ internal class OpenRouterStreamTransport(
         val seenSourceUrls = mutableSetOf<String>()
         var finishReason: String? = null
         var lastAnnouncedQuery: String? = null
+        // Generated images can appear on a delta and again on the final message object; emit
+        // each distinct payload once (keyed cheaply — data URLs are megabytes long).
+        val seenImageKeys = mutableSetOf<String>()
 
         // Echo Adviser / Fusion: announce the consult/deliberation the moment its tool call
         // appears, then resolve once the (beta, undocumented-shape) result is seen in the stream.
@@ -194,6 +199,19 @@ internal class OpenRouterStreamTransport(
                                 subagentAnnounced[index] = true
                                 onChunk(StreamChunk.SubagentStarted(name, desc, agentWorkerModel))
                             }
+                        }
+                    }
+
+                    // Generated images (modalities: ["image","text"]) can arrive base64 on the
+                    // delta, the final message object, or both — read both sides (an empty
+                    // delta list must not shadow the completed message's image) and let the
+                    // seen-key set drop duplicates.
+                    val images = delta?.images.orEmpty() + choice?.message?.images.orEmpty()
+                    images.forEach { payload ->
+                        val dataUrl = payload.dataUrl ?: return@forEach
+                        val key = "${dataUrl.length}:${dataUrl.takeLast(64)}"
+                        if (seenImageKeys.add(key)) {
+                            onChunk(StreamChunk.ImageGenerated(dataUrl))
                         }
                     }
 

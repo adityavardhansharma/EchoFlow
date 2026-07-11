@@ -56,8 +56,12 @@ class DatabaseUpgradeTest {
     }
 
     @Test
-    fun `production database upgrades version one through version twelve without data loss`() {
+    fun `production database upgrades version one through version thirteen without data loss`() {
         val database = AppDatabase.getDatabase(context).also { openedDatabase = it }
+
+        // v13 tables exist and are queryable after the chained migration.
+        database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM image_models").use { it.moveToFirst() }
+        database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM generated_images").use { it.moveToFirst() }
 
         database.openHelper.readableDatabase.query(
             "SELECT content, reasoning, localAttachmentUri, localAttachmentName " +

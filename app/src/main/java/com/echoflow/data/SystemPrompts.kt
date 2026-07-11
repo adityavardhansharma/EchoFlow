@@ -288,6 +288,27 @@ object SystemPrompts {
     // ── Artifacts ────────────────────────────────────────────────────────────────────
 
     /**
+     * Image generation mode: the model natively outputs an image alongside a short line of
+     * text. On edit turns the newest user message carries the previous version, and the model
+     * revises exactly what was asked while keeping everything else consistent.
+     */
+    fun buildImageGen(editing: Boolean, currentDate: String = currentDate()): String {
+        val base = """
+        You are EchoFlow's image generator. Current date: $currentDate.
+
+        The user's message describes an image to create. Generate exactly ONE image per reply.
+        Alongside the image, write one short, friendly sentence about what you made — no
+        markdown headers, no lists, no long explanations.
+        """.trimIndent()
+        val editRules = """
+        The user's newest message includes the current version of their image. This is an EDIT:
+        apply only the requested changes and keep everything else — subject, composition,
+        style, lighting — as consistent with the provided image as possible.
+        """.trimIndent()
+        return if (editing) base + "\n\n" + editRules else base
+    }
+
+    /**
      * Artifact mode: the model produces ONE self-contained, rendered artifact (a web page, a
      * markdown document, or a printable LaTeX report) wrapped in a sentinel block the app extracts
      * from the stream. Works on cloud and on-device models — the on-device variant is trimmed to

@@ -171,6 +171,41 @@ internal object ChatSegmentReducer {
                     segments[idx] = seg.copy(charCount = chunk.charCount)
                 }
             }
+            is StreamChunk.ImageGenStarted -> {
+                segments.add(
+                    StreamSegment.Image(
+                        imageId = null,
+                        filePath = null,
+                        pattern = chunk.pattern,
+                        editing = chunk.editing,
+                        previousImagePath = chunk.previousImagePath,
+                        generating = true,
+                    )
+                )
+            }
+            is StreamChunk.ImageGenerated -> {
+                // Only chunks the ViewModel already persisted (filePath set) reach the timeline;
+                // a raw base64 chunk that slipped through is ignored rather than rendered.
+                val path = chunk.filePath ?: return null
+                val idx = segments.indexOfLast { it is StreamSegment.Image && it.generating }
+                val done = if (idx >= 0) {
+                    (segments[idx] as StreamSegment.Image).copy(
+                        imageId = chunk.imageId,
+                        filePath = path,
+                        generating = false,
+                    )
+                } else {
+                    StreamSegment.Image(
+                        imageId = chunk.imageId,
+                        filePath = path,
+                        pattern = "ripple",
+                        editing = false,
+                        previousImagePath = null,
+                        generating = false,
+                    )
+                }
+                if (idx >= 0) segments[idx] = done else segments.add(done)
+            }
             is StreamChunk.ArtifactCompleted -> {
                 val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }
                 val finished = StreamSegment.Artifact(
