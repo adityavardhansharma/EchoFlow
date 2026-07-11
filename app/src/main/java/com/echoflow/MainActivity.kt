@@ -27,11 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Settings
-import com.echoflow.data.AppDatabase
 import com.echoflow.data.DeepResearchForegroundService
-import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.ReplyNotifications
-import com.echoflow.data.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -67,15 +64,12 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // 1. Initializing Local Repositories and SQLite Database
-        val database = AppDatabase.getDatabase(application)
-        val settingsRepo = SettingsRepository(applicationContext)
-        val modelDownloadManager = ModelDownloadManager(applicationContext, database.localModelDao())
+        val appGraph = EchoFlowAppGraph(application)
 
         // Resume any Deep Research run that was interrupted by an app kill — but only spin
         // up the service when there is actually something to resume (no idle notification).
         lifecycleScope.launch {
-            if (database.researchRunDao().getInterrupted().isNotEmpty()) {
+            if (appGraph.database.researchRunDao().getInterrupted().isNotEmpty()) {
                 DeepResearchForegroundService.resume(applicationContext)
             }
         }
@@ -83,35 +77,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             // 2. Fetch ViewModels using our custom factory providers
             val settingsVm: SettingsViewModel = viewModel(
-                factory = SettingsViewModel.provideFactory(
-                    settingsRepo,
-                    database.customModelDao(),
-                    database.localModelDao(),
-                    modelDownloadManager,
-                    database.deepResearchModelDao(),
-                    database.advisorProfileDao(),
-                    database.fusionPanelDao(),
-                    database.agentProfileDao()
-                )
+                factory = appGraph.settingsViewModelFactory
             )
 
             val chatVm: ChatViewModel = viewModel(
-                factory = ChatViewModel.provideFactory(
-                    application,
-                    database.chatDao(),
-                    database.messageDao(),
-                    settingsRepo,
-                    database.localModelDao(),
-                    database.researchRunDao(),
-                    database.deepResearchModelDao(),
-                    database.advisorProfileDao(),
-                    database.fusionPanelDao(),
-                    database.agentProfileDao(),
-                    database.browserSessionDao(),
-                    database.browserStepDao(),
-                    database.artifactDao(),
-                    database.artifactVersionDao()
-                )
+                factory = appGraph.chatViewModelFactory
             )
 
             // Notification tap → jump to that conversation once the ViewModel is ready.
@@ -155,157 +125,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainNavigationHub(chatVm, settingsVm)
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun MainNavigationHub(
-    chatViewModel: ChatViewModel,
-    settingsViewModel: SettingsViewModel
-) {
-    var activeTab by remember { mutableStateOf("chat") }
-
-    val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
-    val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
-    val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (activeTab == "settings") {
-            // Intercept the system back gesture/button so it returns to chat
-            // instead of falling through to the Activity and exiting the app.
-            BackHandler { activeTab = "chat" }
-            SettingsScreen(
-                viewModel = settingsViewModel,
-                onBackClicked = { activeTab = "chat" }
-            )
-        } else {
-            AdaptiveChatWorkspace(
-                chatViewModel = chatViewModel,
-                settingsViewModel = settingsViewModel,
-                onSettingsClicked = { activeTab = "settings" }
-            )
-        }
-
-        // Global "remote browser active" pill — visible across tabs while a session is live and
-        // the workspace is closed. Tapping it returns to the owning chat's workspace.
-        val pillSession = activeBrowserSession
-        if (pillSession != null && browserWorkspaceChatId == null) {
-            com.echoflow.ui.components.GlobalBrowserPill(
-                session = pillSession,
-                onClick = { chatViewModel.openBrowserWorkspace(pillSession.chatId) },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp),
-            )
-        }
-
-        // Fullscreen Browser Workspace overlay (the native mini-browser).
-        if (browserWorkspaceChatId != null) {
-            BackHandler { chatViewModel.closeBrowserWorkspace() }
-            com.echoflow.ui.screens.BrowserWorkspaceScreen(
-                chatViewModel = chatViewModel,
-                onClose = { chatViewModel.closeBrowserWorkspace() },
-            )
-        }
-
-        // Fullscreen Artifact Workspace overlay (preview / code / version switcher). The smooth
-        // slide-up/fade on open is animated inside the screen itself (see ArtifactWorkspaceScreen)
-        // so its presence is never gated behind a transition — keeping "Open" reliable.
-        if (artifactWorkspaceOpen) {
-            BackHandler { chatViewModel.closeArtifactWorkspace() }
-            com.echoflow.ui.screens.ArtifactWorkspaceScreen(
-                chatViewModel = chatViewModel,
-                onClose = { chatViewModel.closeArtifactWorkspace() },
-            )
-        }
-    }
-}
-
-@Composable
-fun AdaptiveChatWorkspace(
-    chatViewModel: ChatViewModel,
-    settingsViewModel: SettingsViewModel,
-    onSettingsClicked: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val allConversations by chatViewModel.filteredThreads.collectAsState()
-    val drawerSearchQuery by chatViewModel.drawerSearchQuery.collectAsState()
-    val selectedThreadId by chatViewModel.currentChatThreadId.collectAsState()
-
-    // Inspect screen boundaries for Tablet orientation check
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val useSplitLayout = maxWidth >= 600.dp
-
-        if (useSplitLayout) {
-            // Dual-Pane Slate: Side-by-Side persistent layout for Expanded screens
-            Row(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(320.dp)
-                ) {
-                    ChatDrawerContent(
-                        allThreads = allConversations,
-                        currentThreadId = selectedThreadId,
-                        onThreadSelected = { id -> chatViewModel.selectThread(id) },
-                        onNewChatClicked = { chatViewModel.startNewChat() },
-                        onDeleteThread = { t -> chatViewModel.deleteThread(t) },
-                        onRenameThread = { t, name -> chatViewModel.renameThread(t, name) },
-                        onSettingsClicked = onSettingsClicked,
-                        searchQuery = drawerSearchQuery,
-                        onSearchQueryChange = chatViewModel::setDrawerSearchQuery
-                    )
-                }
-
-                VerticalDivider(
-                    modifier = Modifier.fillMaxHeight(),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
-
-                Box(modifier = Modifier.weight(1f)) {
-                    ChatScreen(
-                        chatViewModel = chatViewModel,
-                        settingsViewModel = settingsViewModel,
-                        onMenuClicked = { /* Drawer is persistent, no trigger required */ },
-                        onSettingsClicked = onSettingsClicked
-                    )
-                }
-            }
-        } else {
-            // Mobile Sliding Layer: Modal sliding drawers for compact display
-            val mobileDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-
-            ModalNavigationDrawer(
-                drawerState = mobileDrawerState,
-                // Gestures on: swipe from the edge to open, swipe the sheet to close.
-                gesturesEnabled = true,
-                drawerContent = {
-                    ModalDrawerSheet(
-                        drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
-                        modifier = Modifier.widthIn(max = 340.dp)
-                    ) {
-                        ChatDrawerContent(
-                            allThreads = allConversations,
-                            currentThreadId = selectedThreadId,
-                            onThreadSelected = { id -> chatViewModel.selectThread(id) },
-                            onNewChatClicked = { chatViewModel.startNewChat() },
-                            onDeleteThread = { t -> chatViewModel.deleteThread(t) },
-                            onRenameThread = { t, name -> chatViewModel.renameThread(t, name) },
-                            onSettingsClicked = onSettingsClicked,
-                            onCloseDrawer = { scope.launch { mobileDrawerState.close() } },
-                            searchQuery = drawerSearchQuery,
-                            onSearchQueryChange = chatViewModel::setDrawerSearchQuery
-                        )
-                    }
-                }
-            ) {
-                ChatScreen(
-                    chatViewModel = chatViewModel,
-                    settingsViewModel = settingsViewModel,
-                    onMenuClicked = { scope.launch { mobileDrawerState.open() } },
-                    onSettingsClicked = onSettingsClicked
-                )
             }
         }
     }
