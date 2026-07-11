@@ -506,34 +506,14 @@ object SystemPrompts {
      * in v1). Keeps the agent on the current session and forbids irreversible actions: it must
      * stop and report rather than pay, submit accounts changes, or send anything on its own.
      */
-    fun browserInteractPrompt(instruction: String, draftMode: Boolean): String = buildString {
-        append("You are controlling a live web browser on the user's behalf, continuing from the current page and session. ")
-        append("Do the task, then briefly report what you did and what is now on screen.\n\n")
-        append("Rules:\n")
-        append("- Do NOT save logins, cookies or credentials. This is a temporary session.\n")
-        append("- NEVER complete payments, checkout, place orders, book/confirm purchases, transfer money, or change/delete account settings. ")
-        append("If the task needs that, STOP and reply that the user must do it themselves in the live browser.\n")
-        append("- If you hit a login, CAPTCHA, OTP, paywall or human-verification step, STOP and say exactly which one — do not attempt to bypass it.\n")
-        if (draftMode) {
-            append("- The user wants to send a message/email. COMPOSE it but DO NOT send or submit it. ")
-            append("Return the exact final text you would send, clearly, so the user can confirm first.\n")
-        } else {
-            append("- Do not send messages, emails or form submissions unless the task explicitly says to, and even then only non-sensitive ones.\n")
-        }
-        append("\nTask: ")
-        append(instruction.trim())
-    }
+    fun browserInteractPrompt(instruction: String, draftMode: Boolean): String =
+        BrowserSystemPrompts.interact(instruction, draftMode)
 
     /** Final-turn prompt used by Finish: summarize the session before it is closed. */
-    fun browserFinishPrompt(): String =
-        "Summarize what was accomplished in this browser session and the final state of the page " +
-            "(key items, prices, links or results found). Be concise and useful. Do not take any " +
-            "further action — this is the closing summary."
+    fun browserFinishPrompt(): String = BrowserSystemPrompts.finish()
 
     /** Prompt to actually send a message the user already reviewed and confirmed. */
-    fun browserSendConfirmedPrompt(draft: String): String =
-        "The user has reviewed and approved the following message. Send/submit it exactly as written, " +
-            "then confirm it was sent.\n\nApproved message:\n" + draft.trim()
+    fun browserSendConfirmedPrompt(draft: String): String = BrowserSystemPrompts.sendConfirmed(draft)
 
     private fun formatting(isLocalModel: Boolean): String = buildString {
         append(
