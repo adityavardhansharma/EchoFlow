@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Artifact::class, ArtifactVersion::class
     ],
     version = 12, // v12: artifacts + artifact_versions (MIGRATION_11_12)
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
@@ -36,7 +36,18 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
+        /**
+         * Version 2 added the nullable reasoning trace to chat messages. The original app used
+         * destructive fallback for this upgrade; keeping the explicit migration here ensures
+         * users of the first release retain their conversations.
+         */
+        internal val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN reasoning TEXT")
+            }
+        }
+
+        internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN toolEventsJson TEXT")
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN citationsJson TEXT")
@@ -229,6 +240,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "local_chat_database"
                 )
                 .addMigrations(
+                    MIGRATION_1_2,
                     MIGRATION_2_3,
                     MIGRATION_3_4,
                     MIGRATION_4_5,
@@ -240,8 +252,6 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                 )
-                // Only pre-v2 installs (no migration path defined) fall back destructively.
-                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
