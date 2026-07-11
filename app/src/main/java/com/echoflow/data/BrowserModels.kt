@@ -84,7 +84,6 @@ data class BrowserSession(
         const val CREDITS_PER_MINUTE = 7
     }
 }
-
 /**
  * One entry in a session's timeline (the activity log shown in the card / workspace drawer).
  * Roles: "user" (a command/answer), "agent" (an output) or "system" (a status/handoff note).
@@ -129,50 +128,4 @@ object BrowserJson {
     fun candidatesFromJson(json: String?): List<BrowserCandidate> =
         if (json.isNullOrBlank()) emptyList()
         else runCatching { candidateAdapter.fromJson(json) }.getOrNull().orEmpty()
-}
-
-@Dao
-interface BrowserSessionDao {
-    /** The live (non-terminal) session for one chat, if any — drives the in-chat card. */
-    @Query(
-        "SELECT * FROM browser_sessions WHERE chatId = :chatId " +
-            "AND status NOT IN ('completed','failed','stopped','expired') " +
-            "ORDER BY createdAt DESC LIMIT 1"
-    )
-    fun observeActiveForChat(chatId: String): Flow<BrowserSession?>
-
-    /** The single app-wide live session (start-a-session lock + global pill). */
-    @Query(
-        "SELECT * FROM browser_sessions WHERE status NOT IN ('completed','failed','stopped','expired') " +
-            "ORDER BY createdAt DESC LIMIT 1"
-    )
-    fun observeAnyActive(): Flow<BrowserSession?>
-
-    @Query("SELECT * FROM browser_sessions WHERE id = :id LIMIT 1")
-    suspend fun getById(id: String): BrowserSession?
-
-    @Query(
-        "SELECT * FROM browser_sessions WHERE chatId = :chatId " +
-            "AND status NOT IN ('completed','failed','stopped','expired') " +
-            "ORDER BY createdAt DESC LIMIT 1"
-    )
-    suspend fun getActiveForChat(chatId: String): BrowserSession?
-
-    @Query("SELECT * FROM browser_sessions WHERE status NOT IN ('completed','failed','stopped','expired')")
-    suspend fun getAllActive(): List<BrowserSession>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(session: BrowserSession)
-
-    @Query("DELETE FROM browser_sessions WHERE id = :id")
-    suspend fun delete(id: String)
-}
-
-@Dao
-interface BrowserStepDao {
-    @Query("SELECT * FROM browser_steps WHERE sessionId = :sessionId ORDER BY createdAt ASC")
-    fun observeForSession(sessionId: String): Flow<List<BrowserStep>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(step: BrowserStep)
 }
