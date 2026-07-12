@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,6 +68,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -100,11 +101,11 @@ fun GeneratingImageCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
+        // Deliberately compact while waiting — a full-width square dominates a phone screen.
+        // The finished image (a separate block) is allowed to render larger.
         Box(
             Modifier
-                .widthIn(max = 340.dp)
-                .fillMaxWidth()
-                .aspectRatio(1f)
+                .size(216.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
@@ -143,6 +144,10 @@ private fun DotFieldCanvas(pattern: String, modifier: Modifier = Modifier) {
         }
     }
     val dotColor = MaterialTheme.colorScheme.primary
+    // Crest dots shift tone within the same hue — brighter on dark themes, deeper on light —
+    // matching M3 tonal-palette behaviour instead of only changing opacity.
+    val darkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val crestColor = lerp(dotColor, if (darkTheme) Color.White else Color.Black, 0.18f)
     Canvas(modifier) {
         // Reading timeMs inside the draw block redraws every frame without recomposing.
         val t = timeMs
@@ -156,24 +161,23 @@ private fun DotFieldCanvas(pattern: String, modifier: Modifier = Modifier) {
                 } else {
                     ImageDotField.rippleIntensity(ImageDotField.distanceFromCenter(col, row), t)
                 }
+                // Every channel — size, opacity, tone, shape — is a CONTINUOUS function of one
+                // intensity value. No thresholds: a threshold reads as a per-frame pop.
                 val alpha = 0.15f + 0.85f * intensity
                 val radius = restRadius * (1f + 1.35f * intensity)
                 val cx = col * cell + cell / 2f
                 val cy = row * cell + cell / 2f
-                if (intensity > 0.25f) {
-                    // The crest morphs circles toward soft squircles — the Expressive accent.
-                    val side = radius * 3.4f
-                    val corner = side * (0.5f - 0.28f * intensity)
-                    drawRoundRect(
-                        color = dotColor,
-                        alpha = alpha,
-                        topLeft = Offset(cx - side / 2f, cy - side / 2f),
-                        size = Size(side, side),
-                        cornerRadius = CornerRadius(corner, corner),
-                    )
-                } else {
-                    drawCircle(color = dotColor, alpha = alpha, radius = radius, center = Offset(cx, cy))
-                }
+                val side = radius * 2f
+                // Corner radius eases from a perfect circle (side/2) toward a soft squircle as
+                // the crest passes — the Expressive morph, with no discontinuity at any point.
+                val corner = side * (0.5f - 0.24f * intensity * intensity * (3f - 2f * intensity))
+                drawRoundRect(
+                    color = lerp(dotColor, crestColor, intensity),
+                    alpha = alpha,
+                    topLeft = Offset(cx - side / 2f, cy - side / 2f),
+                    size = Size(side, side),
+                    cornerRadius = CornerRadius(corner, corner),
+                )
             }
         }
     }
@@ -252,20 +256,23 @@ fun GeneratedImageBlock(
                         clipRect(bottom = size.height * reveal) { this@drawWithContent.drawContent() }
                         if (reveal < 1f) {
                             val y = size.height * reveal
-                            // Soft glow trail above the line, then the bright 3px scanline.
+                            // Density-aware: raw px here would render a near-invisible hairline
+                            // on a modern phone screen instead of a visible glowing sweep.
+                            val lineHeight = 2.5.dp.toPx()
+                            val glowHeight = 40.dp.toPx()
                             drawRect(
                                 brush = Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, scanColor.copy(alpha = 0.35f)),
-                                    startY = (y - 48f).coerceAtLeast(0f),
+                                    colors = listOf(Color.Transparent, scanColor.copy(alpha = 0.4f)),
+                                    startY = (y - glowHeight).coerceAtLeast(0f),
                                     endY = y,
                                 ),
-                                topLeft = Offset(0f, (y - 48f).coerceAtLeast(0f)),
-                                size = Size(size.width, 48f.coerceAtMost(y)),
+                                topLeft = Offset(0f, (y - glowHeight).coerceAtLeast(0f)),
+                                size = Size(size.width, glowHeight.coerceAtMost(y)),
                             )
                             drawRect(
                                 color = scanColor,
-                                topLeft = Offset(0f, y - 1.5f),
-                                size = Size(size.width, 3f),
+                                topLeft = Offset(0f, y - lineHeight / 2f),
+                                size = Size(size.width, lineHeight),
                             )
                         }
                     },
