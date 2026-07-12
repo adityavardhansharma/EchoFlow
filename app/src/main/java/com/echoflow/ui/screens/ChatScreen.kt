@@ -169,6 +169,14 @@ fun ChatScreen(
 
     val artifactActive by chatViewModel.artifactActive.collectAsState()
     val imageGenActive by chatViewModel.imageGenActive.collectAsState()
+    val imageGenModelId by settingsViewModel.imageGenModelId.collectAsState()
+    val imageModels by settingsViewModel.imageModels.collectAsState()
+    // "Create image" swaps the model picker to image-output models only.
+    val imageModelEntries = remember(imageModels) {
+        val default = com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID to "Gemini 2.5 Flash Image"
+        listOf(default) + imageModels.filter { it.id != default.first }.map { it.id to it.name }
+    }
+    val imageModelLabel = imageModelEntries.firstOrNull { it.first == imageGenModelId }?.second ?: imageGenModelId
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
@@ -337,6 +345,7 @@ fun ChatScreen(
             ChatTopBar(
                 modifier = Modifier.align(Alignment.TopCenter),
                 modelName = when {
+                    imageGenActive -> imageModelLabel
                     echoFusionActive -> activePanel?.name ?: "Choose panel"
                     echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
                     echoAgentActive -> activeAgent?.let { "$modelShortName · ${it.name}" } ?: "Pick an Echo Agent"
@@ -460,7 +469,16 @@ fun ChatScreen(
     }
 
     if (showModelMenu) {
-        if (echoFusionActive) {
+        if (imageGenActive) {
+            ModelPickerSheet(
+                models = imageModelEntries,
+                localModels = emptyList(),
+                selectedId = imageGenModelId,
+                onSelect = { settingsViewModel.saveImageGenModel(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (echoFusionActive) {
             FusionPickerSheet(
                 panels = fusionPanels,
                 selectedId = echoFusionPanelId,
