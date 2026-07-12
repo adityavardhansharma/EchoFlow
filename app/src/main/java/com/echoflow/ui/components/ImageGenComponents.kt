@@ -92,6 +92,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.ceil
+import kotlin.math.hypot
 
 /** The compact side of the placeholder square while the model is still painting. */
 private val PlaceholderSize = 216.dp
@@ -236,6 +238,7 @@ fun GeneratedImageSegment(
                 DotFieldCanvas(
                     pattern = pattern,
                     revealFraction = { reveal.value },
+                    stretchFraction = { stretch.value },
                     modifier = Modifier.matchParentSize(),
                 )
             }
@@ -290,6 +293,7 @@ fun GeneratedImageSegment(
 private fun DotFieldCanvas(
     pattern: String,
     revealFraction: () -> Float,
+    stretchFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
     var timeMs by remember { mutableLongStateOf(0L) }
@@ -315,27 +319,44 @@ private fun DotFieldCanvas(
         // Reading timeMs inside the draw block redraws every frame without recomposing.
         val t = timeMs
         val fraction = revealFraction()
+        val stretchNow = stretchFraction()
         val revealY = size.height * fraction
         // Global fade in the last quarter of the sweep so the tail end never pops off.
         val fieldAlpha = if (fraction > 0.75f) (1f - fraction) * 4f else 1f
         if (fieldAlpha <= 0f) return@Canvas
-        val n = ImageDotField.GRID
-        val cell = size.minDimension / n
+        // The grid ADAPTS to the growing canvas: cell size stays constant (derived from the
+        // placeholder square) and new rows/columns of dots appear as the card stretches, so
+        // the whole surface is always dots — never a bare box with a square patch of them.
+        val cell = size.minDimension / ImageDotField.GRID
+        val cols = ceil(size.width / cell).toInt()
+        val rows = ceil(size.height / cell).toInt()
+        val offsetX = (size.width - cols * cell) / 2f
+        val offsetY = (size.height - rows * cell) / 2f
+        val centerX = size.width / 2f
+        val centerY = size.height / 2f
         val restRadius = cell * 0.16f
-        for (row in 0 until n) {
-            val cy = row * cell + cell / 2f
+        // During the stretch, one celebratory crest rides the expanding edge outward — the
+        // dots visibly push the card open instead of a plain container resizing under them.
+        val maxDistCells = hypot(centerX, centerY) / cell
+        val burstPos = if (stretchNow > 0f && stretchNow < 1f) stretchNow * (maxDistCells + 2f) else -100f
+        for (row in 0 until rows) {
+            val cy = offsetY + row * cell + cell / 2f
             if (fraction > 0f && cy < revealY) continue // dissolved into the image above the line
-            for (col in 0 until n) {
-                val intensity = if (pattern == "rain") {
-                    rain.intensityAt(col, row)
+            for (col in 0 until cols) {
+                val cx = offsetX + col * cell + cell / 2f
+                val distCells = hypot(cx - centerX, cy - centerY) / cell
+                var intensity = if (pattern == "rain") {
+                    rain.intensityAt(col % ImageDotField.GRID, row)
                 } else {
-                    ImageDotField.rippleIntensity(ImageDotField.distanceFromCenter(col, row), t)
+                    ImageDotField.rippleIntensity(distCells, t)
+                }
+                if (burstPos > 0f) {
+                    intensity = (intensity + ImageDotField.gauss(distCells - burstPos, 1.3f)).coerceAtMost(1f)
                 }
                 // Every channel — size, opacity, tone, shape — is a CONTINUOUS function of one
                 // intensity value. No thresholds: a threshold reads as a per-frame pop.
                 val alpha = (0.15f + 0.85f * intensity) * fieldAlpha
                 val radius = restRadius * (1f + 1.35f * intensity)
-                val cx = col * cell + cell / 2f
                 val side = radius * 2f
                 // Corner radius eases from a perfect circle (side/2) toward a soft squircle as
                 // the crest passes — the Expressive morph, with no discontinuity at any point.
