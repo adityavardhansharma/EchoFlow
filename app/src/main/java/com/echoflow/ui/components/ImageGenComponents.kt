@@ -102,10 +102,13 @@ fun GeneratingImageCard(
 ) {
     Column(modifier.fillMaxWidth()) {
         // Deliberately compact while waiting — a full-width square dominates a phone screen.
-        // The finished image (a separate block) is allowed to render larger.
+        // Capped, not fixed: in a pane narrower than 216dp (split-screen, folded) the card
+        // shrinks with its parent instead of clipping. The finished image renders larger.
         Box(
             Modifier
-                .size(216.dp)
+                .widthIn(max = 216.dp)
+                .fillMaxWidth()
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(20.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
