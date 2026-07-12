@@ -288,16 +288,14 @@ internal fun StreamingAssistantBubble(
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Image -> {
-                        if (segment.generating) {
-                            com.echoflow.ui.components.GeneratingImageCard(
-                                pattern = segment.pattern,
-                                previousImagePath = segment.previousImagePath,
-                            )
-                        } else {
-                            segment.filePath?.let { path ->
-                                com.echoflow.ui.components.GeneratedImageBlock(filePath = path, animateReveal = true)
-                            }
-                        }
+                        // One composable through generating → stretch → reveal → settled, so the
+                        // dot field animates INTO the image instead of hard-swapping components.
+                        com.echoflow.ui.components.GeneratedImageSegment(
+                            filePath = segment.filePath,
+                            pattern = segment.pattern,
+                            previousImagePath = segment.previousImagePath,
+                            animate = true,
+                        )
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Text -> {
@@ -506,9 +504,11 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                             }
                             "image" -> {
                                 segment.image?.let { ref ->
-                                    com.echoflow.ui.components.GeneratedImageBlock(
+                                    com.echoflow.ui.components.GeneratedImageSegment(
                                         filePath = ref.filePath,
-                                        animateReveal = false,
+                                        pattern = "ripple",
+                                        previousImagePath = null,
+                                        animate = false,
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }

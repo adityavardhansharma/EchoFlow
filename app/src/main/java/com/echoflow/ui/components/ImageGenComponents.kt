@@ -5,10 +5,12 @@ package com.echoflow.ui.components
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -16,6 +18,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,7 +33,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,51 +94,205 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** The compact side of the placeholder square while the model is still painting. */
+private val PlaceholderSize = 216.dp
+
+/** The widest the settled image may render inside the reply. */
+private val SettledMaxWidth = 340.dp
+
+/** The tallest the settled image may render; taller aspects are capped and center-cropped. */
+private val SettledMaxHeight = 420.dp
+
 /**
- * The image-generation placeholder: a 21×21 field of tiny theme-colored dots resting near
- * silence while one narrow wave (ripple) or sparse streaks (rain) travel through them, with
- * a shuffled-deck status phrase crossfading below. All color comes from the Material scheme,
- * so it re-skins itself with dynamic color and dark mode. On edit turns the previous version
- * shows dimmed and blurred beneath the dots — "your image is being reworked".
+ * One generated image through its whole life, in a single composable so every phase can
+ * animate into the next (two separate composables would lose identity and hard-cut):
+ *
+ *   Generating — compact dot-field square, shuffled status phrases.
+ *   Stretching — the file landed; the SAME card grows to the exact footprint the finished
+ *                image will occupy (its true aspect ratio at bubble width, height-capped),
+ *                dots still dancing. The unhurried "something finished" beat.
+ *   Revealing  — the scanline sweeps down: image unmasked above the line, dots dissolving
+ *                as it passes them, then a small spring settle.
+ *   Settled    — plain image with save/share and the fullscreen viewer. Persisted chats
+ *                ([animate] = false) start here directly with zero motion.
  */
 @Composable
-fun GeneratingImageCard(
+fun GeneratedImageSegment(
+    filePath: String?,
     pattern: String,
     previousImagePath: String?,
+    animate: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var viewerOpen by remember { mutableStateOf(false) }
+
+    // Exact pixel dimensions of the finished PNG — a bounds-only decode, no bitmap loaded.
+    val rawAspect by produceState<Float?>(initialValue = null, filePath) {
+        value = filePath?.let { path ->
+            withContext(Dispatchers.IO) {
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(path, opts)
+                if (opts.outWidth > 0 && opts.outHeight > 0) opts.outWidth.toFloat() / opts.outHeight else 1f
+            }
+        }
+    }
+    // The display footprint: true aspect at bubble width, capped so height never exceeds
+    // SettledMaxHeight (the stretch targets exactly what the settled image will occupy,
+    // so the reveal ends with zero snap or reflow).
+    val minAspect = SettledMaxWidth.value / SettledMaxHeight.value
+    val displayAspect = (rawAspect ?: 1f).coerceAtLeast(minAspect)
+
+    var settled by rememberSaveable(filePath) { mutableStateOf(!animate && filePath != null) }
+    val stretch = remember(filePath) { Animatable(if (settled) 1f else 0f) }
+    val reveal = remember(filePath) { Animatable(if (settled) 1f else 0f) }
+    LaunchedEffect(filePath, rawAspect) {
+        if (filePath != null && rawAspect != null && !settled) {
+            // Tweens, not springs: overshoot on LAYOUT size re-measures past the target and
+            // back, which reads as jitter. The bounce lives in the scale settle instead.
+            stretch.animateTo(1f, tween(durationMillis = 700, easing = FastOutSlowInEasing))
+            delay(150) // a breath at full size before the unveil
+            reveal.animateTo(1f, tween(durationMillis = 1200, easing = FastOutSlowInEasing))
+            settled = true
+        }
+    }
+    // A small dip-and-spring-back around the reveal — the Expressive settle.
+    val settleScale by animateFloatAsState(
+        targetValue = if (reveal.value > 0f && reveal.value < 1f) 0.985f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "image-settle",
+    )
+    val scanColor = MaterialTheme.colorScheme.primary
+
+    // Both dimensions of the card interpolate together from the placeholder square to the
+    // settled footprint, driven by the single stretch value.
+    val morphMaxWidth = (PlaceholderSize.value + (SettledMaxWidth.value - PlaceholderSize.value) * stretch.value).dp
+    val morphAspect = 1f + (displayAspect - 1f) * stretch.value
+
+    // Persisted history starts settled with the aspect still decoding for a few ms — hold the
+    // card that beat instead of flashing a square that reflows to the real ratio.
+    if (settled && rawAspect == null) return
+
     Column(modifier.fillMaxWidth()) {
-        // Deliberately compact while waiting — a full-width square dominates a phone screen.
-        // Capped, not fixed: in a pane narrower than 216dp (split-screen, folded) the card
-        // shrinks with its parent instead of clipping. The finished image renders larger.
         Box(
             Modifier
-                .widthIn(max = 216.dp)
+                .widthIn(max = morphMaxWidth)
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .aspectRatio(morphAspect)
+                .scale(settleScale)
                 .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .then(if (settled) Modifier.clickable { viewerOpen = true } else Modifier),
         ) {
-            previousImagePath?.let { path ->
+            // Edit turns: the version being reworked, dimmed under the dots until the reveal.
+            if (previousImagePath != null && reveal.value < 1f) {
                 AsyncImage(
-                    model = File(path),
+                    model = File(previousImagePath),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .matchParentSize()
                         .blur(14.dp) // no-op below API 31; the alpha dim still reads correctly
-                        .alpha(0.35f),
+                        .alpha(0.35f * (1f - reveal.value)),
                 )
             }
-            DotFieldCanvas(pattern = pattern, modifier = Modifier.matchParentSize())
+            // The finished image, unmasked top-to-bottom by the scanline.
+            if (filePath != null) {
+                AsyncImage(
+                    model = File(filePath),
+                    contentDescription = "Generated image",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .drawWithContent {
+                            val fraction = reveal.value
+                            clipRect(bottom = size.height * fraction) { this@drawWithContent.drawContent() }
+                            if (fraction > 0f && fraction < 1f) {
+                                val y = size.height * fraction
+                                // Density-aware: raw px would be a near-invisible hairline.
+                                val lineHeight = 2.5.dp.toPx()
+                                val glowHeight = 40.dp.toPx()
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, scanColor.copy(alpha = 0.4f)),
+                                        startY = (y - glowHeight).coerceAtLeast(0f),
+                                        endY = y,
+                                    ),
+                                    topLeft = Offset(0f, (y - glowHeight).coerceAtLeast(0f)),
+                                    size = Size(size.width, glowHeight.coerceAtMost(y)),
+                                )
+                                drawRect(
+                                    color = scanColor,
+                                    topLeft = Offset(0f, y - lineHeight / 2f),
+                                    size = Size(size.width, lineHeight),
+                                )
+                            }
+                        },
+                )
+            }
+            // Dots run through generating AND stretching, then dissolve under the scanline —
+            // only dots below the sweep survive, so the field literally becomes the image.
+            if (!settled) {
+                DotFieldCanvas(
+                    pattern = pattern,
+                    revealFraction = { reveal.value },
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
         }
-        Spacer(Modifier.height(Spacing.s))
-        GeneratingPhraseLine()
+        // Status phrases only while the model is still painting; they collapse the moment
+        // the stretch begins so the card is the sole focus of the handoff.
+        AnimatedVisibility(
+            visible = filePath == null,
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            Column {
+                Spacer(Modifier.height(Spacing.s))
+                GeneratingPhraseLine()
+            }
+        }
+        AnimatedVisibility(visible = settled, enter = fadeIn()) {
+            Column {
+                Spacer(Modifier.height(Spacing.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            filePath ?: return@FilledTonalIconButton
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { saveGeneratedImageToGallery(context, filePath) != null }
+                                Toast.makeText(context, if (ok) "Saved to Pictures/EchoFlow" else "Couldn't save the image", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    ) { Icon(Icons.Default.Download, "Save to gallery", Modifier.size(16.dp)) }
+                    FilledTonalIconButton(
+                        onClick = { filePath?.let { scope.launch { shareGeneratedImage(context, it) } } },
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    ) { Icon(Icons.Default.Share, "Share", Modifier.size(16.dp)) }
+                }
+            }
+        }
+    }
+
+    if (viewerOpen && filePath != null) {
+        GeneratedImageViewer(filePath = filePath, onDismiss = { viewerOpen = false })
     }
 }
 
+/**
+ * The 21×21 dot field. All color comes from the Material scheme (dynamic color + dark mode
+ * adaptive). [revealFraction] is read lazily in the draw phase: dots above the scanline are
+ * gone, dots below it fade as the sweep approaches the bottom.
+ */
 @Composable
-private fun DotFieldCanvas(pattern: String, modifier: Modifier = Modifier) {
+private fun DotFieldCanvas(
+    pattern: String,
+    revealFraction: () -> Float,
+    modifier: Modifier = Modifier,
+) {
     var timeMs by remember { mutableLongStateOf(0L) }
     val rain = remember(pattern) { RainField() }
     LaunchedEffect(pattern) {
@@ -155,10 +315,17 @@ private fun DotFieldCanvas(pattern: String, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         // Reading timeMs inside the draw block redraws every frame without recomposing.
         val t = timeMs
+        val fraction = revealFraction()
+        val revealY = size.height * fraction
+        // Global fade in the last quarter of the sweep so the tail end never pops off.
+        val fieldAlpha = if (fraction > 0.75f) (1f - fraction) * 4f else 1f
+        if (fieldAlpha <= 0f) return@Canvas
         val n = ImageDotField.GRID
         val cell = size.minDimension / n
         val restRadius = cell * 0.16f
         for (row in 0 until n) {
+            val cy = row * cell + cell / 2f
+            if (fraction > 0f && cy < revealY) continue // dissolved into the image above the line
             for (col in 0 until n) {
                 val intensity = if (pattern == "rain") {
                     rain.intensityAt(col, row)
@@ -167,10 +334,9 @@ private fun DotFieldCanvas(pattern: String, modifier: Modifier = Modifier) {
                 }
                 // Every channel — size, opacity, tone, shape — is a CONTINUOUS function of one
                 // intensity value. No thresholds: a threshold reads as a per-frame pop.
-                val alpha = 0.15f + 0.85f * intensity
+                val alpha = (0.15f + 0.85f * intensity) * fieldAlpha
                 val radius = restRadius * (1f + 1.35f * intensity)
                 val cx = col * cell + cell / 2f
-                val cy = row * cell + cell / 2f
                 val side = radius * 2f
                 // Corner radius eases from a perfect circle (side/2) toward a soft squircle as
                 // the crest passes — the Expressive morph, with no discontinuity at any point.
@@ -206,104 +372,6 @@ private fun GeneratingPhraseLine(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = modifier,
         )
-    }
-}
-
-/**
- * A finished generated image, inline in the reply. On first arrival it plays the wipe
- * reveal (a glowing primary-color line sweeps top→bottom unmasking the image) ending in a
- * small spring settle; reloading a persisted chat renders instantly. Tap opens fullscreen.
- */
-@Composable
-fun GeneratedImageBlock(
-    filePath: String,
-    animateReveal: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var viewerOpen by remember { mutableStateOf(false) }
-    var revealed by rememberSaveable(filePath) { mutableStateOf(!animateReveal) }
-    val progress = remember(filePath) { Animatable(if (revealed) 1f else 0f) }
-    LaunchedEffect(filePath) {
-        if (!revealed) {
-            progress.animateTo(1f, tween(durationMillis = 850, easing = FastOutSlowInEasing))
-            revealed = true
-        }
-    }
-    val settle by animateFloatAsState(
-        targetValue = if (progress.value >= 1f) 1f else 0.98f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "image-reveal-settle",
-    )
-    val scanColor = MaterialTheme.colorScheme.primary
-
-    Column(modifier.fillMaxWidth()) {
-        Box(
-            Modifier
-                .widthIn(max = 340.dp)
-                .fillMaxWidth()
-                .scale(settle)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .clickable { viewerOpen = true },
-        ) {
-            AsyncImage(
-                model = File(filePath),
-                contentDescription = "Generated image",
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 420.dp)
-                    .drawWithContent {
-                        val reveal = progress.value
-                        clipRect(bottom = size.height * reveal) { this@drawWithContent.drawContent() }
-                        if (reveal < 1f) {
-                            val y = size.height * reveal
-                            // Density-aware: raw px here would render a near-invisible hairline
-                            // on a modern phone screen instead of a visible glowing sweep.
-                            val lineHeight = 2.5.dp.toPx()
-                            val glowHeight = 40.dp.toPx()
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, scanColor.copy(alpha = 0.4f)),
-                                    startY = (y - glowHeight).coerceAtLeast(0f),
-                                    endY = y,
-                                ),
-                                topLeft = Offset(0f, (y - glowHeight).coerceAtLeast(0f)),
-                                size = Size(size.width, glowHeight.coerceAtMost(y)),
-                            )
-                            drawRect(
-                                color = scanColor,
-                                topLeft = Offset(0f, y - lineHeight / 2f),
-                                size = Size(size.width, lineHeight),
-                            )
-                        }
-                    },
-            )
-        }
-        Spacer(Modifier.height(Spacing.xs))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            FilledTonalIconButton(
-                onClick = {
-                    scope.launch {
-                        val ok = withContext(Dispatchers.IO) { saveGeneratedImageToGallery(context, filePath) != null }
-                        Toast.makeText(context, if (ok) "Saved to Pictures/EchoFlow" else "Couldn't save the image", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            ) { Icon(Icons.Default.Download, "Save to gallery", Modifier.size(16.dp)) }
-            FilledTonalIconButton(
-                onClick = { scope.launch { shareGeneratedImage(context, filePath) } },
-                modifier = Modifier.size(32.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            ) { Icon(Icons.Default.Share, "Share", Modifier.size(16.dp)) }
-        }
-    }
-
-    if (viewerOpen) {
-        GeneratedImageViewer(filePath = filePath, onDismiss = { viewerOpen = false })
     }
 }
 

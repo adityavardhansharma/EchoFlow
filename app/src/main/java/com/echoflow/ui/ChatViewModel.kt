@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -1010,6 +1011,14 @@ class ChatViewModel(
                     emitStreamUiState()
                 }
                 pendingStreamUiState?.let { emitStreamUiState(force = true) }
+                // The image usually arrives as the final chunk, so persisting immediately would
+                // replace the streaming bubble (and its stretch-and-reveal choreography) after a
+                // few frames. Hold the live bubble long enough for the ~2s handoff to finish;
+                // the persisted block then lands in the exact same footprint, so the swap is
+                // invisible. Stop/cancel skips this — those paths persist immediately.
+                if (imageGenMode && segments.any { it is StreamSegment.Image && !it.generating }) {
+                    delay(2600)
+                }
                 persistAssistantMessage(chatId, segments, interrupted = null)
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
