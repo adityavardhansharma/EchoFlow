@@ -4,7 +4,7 @@
 
     <!-- LiteRT-LM may declare a higher library minSdk than ours; local models only run
          on modern arm64 devices in practice, so merging it in is safe. -->
-    <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm" />
+    <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm,com.llamatik" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -21,6 +21,19 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.EchoFlow">
+
+        <!-- MediaPipe Image Generator runs diffusion on the GPU where a vendor OpenCL
+             driver exists; all are optional so devices without them still install. -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL-car.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL-pixel.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -39,10 +52,26 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Long-running model downloads are owned by WorkManager so they can resume after
+             process death. Android 14+ requires the foreground-service type on its merged
+             service as well as on the ForegroundInfo supplied by the worker. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <service
             android:name=".data.DeepResearchForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Experimental checkpoints run out-of-process so an unsupported model or native
+             memory failure cannot terminate the app or damage its persisted data. -->
+        <service
+            android:name=".data.StableDiffusionGenerationService"
+            android:exported="false"
+            android:process=":image_generation"
+            android:stopWithTask="false" />
     </application>
 
 </manifest>
