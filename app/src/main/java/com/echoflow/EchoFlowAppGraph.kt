@@ -2,6 +2,8 @@ package com.echoflow
 
 import android.app.Application
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.LocalImageModelManager
+import com.echoflow.data.LocalInferenceGate
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
@@ -18,6 +20,11 @@ class EchoFlowAppGraph(application: Application) {
     val settingsRepository = SettingsRepository(application.applicationContext)
     private val modelDownloadManager =
         ModelDownloadManager(application.applicationContext, database.localModelDao())
+    private val localImageModelManager =
+        LocalImageModelManager(application.applicationContext, database.localImageModelDao())
+
+    // One gate app-wide: local LLM inference and local image generation never overlap.
+    private val localInferenceGate = LocalInferenceGate()
 
     val settingsViewModelFactory by lazy {
         SettingsViewModel.provideFactory(
@@ -30,6 +37,9 @@ class EchoFlowAppGraph(application: Application) {
             database.fusionPanelDao(),
             database.agentProfileDao(),
             database.imageModelDao(),
+            database.localImageModelDao(),
+            localImageModelManager,
+            localInferenceGate,
         )
     }
 
@@ -50,6 +60,9 @@ class EchoFlowAppGraph(application: Application) {
             database.artifactDao(),
             database.artifactVersionDao(),
             database.generatedImageDao(),
+            database.localImageModelDao(),
+            localImageModelManager,
+            localInferenceGate,
         )
     }
 }
