@@ -97,6 +97,27 @@ class SettingsRepository(context: Context) {
     private val _imageGenModel = MutableStateFlow(getImageGenModelDirect())
     val imageGenModel: StateFlow<String> = _imageGenModel.asStateFlow()
 
+    // Image generation engine ("openrouter" | "local") and the on-device knobs.
+    private val _imageGenEngine = MutableStateFlow(getImageGenEngineDirect())
+    val imageGenEngine: StateFlow<String> = _imageGenEngine.asStateFlow()
+
+    private val _localImageModel = MutableStateFlow(getLocalImageModelDirect())
+    val localImageModel: StateFlow<String> = _localImageModel.asStateFlow()
+
+    private val _localImageIterations = MutableStateFlow(getLocalImageIterationsDirect())
+    val localImageIterations: StateFlow<Int> = _localImageIterations.asStateFlow()
+
+    private val _localImageSeedMode = MutableStateFlow(getLocalImageSeedModeDirect())
+    val localImageSeedMode: StateFlow<String> = _localImageSeedMode.asStateFlow() // "random" | "fixed"
+
+    private val _localImageFixedSeed = MutableStateFlow(getLocalImageFixedSeedDirect())
+    val localImageFixedSeed: StateFlow<Int> = _localImageFixedSeed.asStateFlow()
+
+    // The broader experimental catalog is intentionally opt-in. This preference only gates
+    // discovery/download; already-installed models remain selectable and runnable.
+    private val _experimentalImageModelsEnabled = MutableStateFlow(getExperimentalImageModelsEnabledDirect())
+    val experimentalImageModelsEnabled: StateFlow<Boolean> = _experimentalImageModelsEnabled.asStateFlow()
+
     // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
     private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
     val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
@@ -537,6 +558,61 @@ class SettingsRepository(context: Context) {
         _imageGenModel.value = id
     }
 
+    /** Existing users never stored this key, so they default to the cloud engine. */
+    fun getImageGenEngineDirect(): String =
+        prefs.getString("image_generation_engine", IMAGE_ENGINE_OPENROUTER).orEmpty()
+            .takeIf { it == IMAGE_ENGINE_LOCAL } ?: IMAGE_ENGINE_OPENROUTER
+
+    fun saveImageGenEngine(engine: String) {
+        val clean = if (engine == IMAGE_ENGINE_LOCAL) IMAGE_ENGINE_LOCAL else IMAGE_ENGINE_OPENROUTER
+        prefs.edit().putString("image_generation_engine", clean).apply()
+        _imageGenEngine.value = clean
+    }
+
+    fun getLocalImageModelDirect(): String =
+        prefs.getString("local_image_model_id", "").orEmpty()
+
+    fun saveLocalImageModel(id: String) {
+        prefs.edit().putString("local_image_model_id", id).apply()
+        _localImageModel.value = id
+    }
+
+    fun getLocalImageIterationsDirect(): Int =
+        prefs.getInt("local_image_iterations", LOCAL_IMAGE_ITERATIONS_DEFAULT)
+            .coerceIn(LOCAL_IMAGE_ITERATIONS_MIN, LOCAL_IMAGE_ITERATIONS_MAX)
+
+    fun saveLocalImageIterations(value: Int) {
+        val clamped = value.coerceIn(LOCAL_IMAGE_ITERATIONS_MIN, LOCAL_IMAGE_ITERATIONS_MAX)
+        prefs.edit().putInt("local_image_iterations", clamped).apply()
+        _localImageIterations.value = clamped
+    }
+
+    fun getLocalImageSeedModeDirect(): String =
+        prefs.getString("local_image_seed_mode", "random").orEmpty()
+            .takeIf { it == "fixed" } ?: "random"
+
+    fun saveLocalImageSeedMode(mode: String) {
+        val clean = if (mode == "fixed") "fixed" else "random"
+        prefs.edit().putString("local_image_seed_mode", clean).apply()
+        _localImageSeedMode.value = clean
+    }
+
+    fun getLocalImageFixedSeedDirect(): Int =
+        prefs.getInt("local_image_fixed_seed", 1)
+
+    fun saveLocalImageFixedSeed(seed: Int) {
+        prefs.edit().putInt("local_image_fixed_seed", seed).apply()
+        _localImageFixedSeed.value = seed
+    }
+
+    fun getExperimentalImageModelsEnabledDirect(): Boolean =
+        prefs.getBoolean(KEY_EXPERIMENTAL_IMAGE_MODELS_ENABLED, false)
+
+    fun saveExperimentalImageModelsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_EXPERIMENTAL_IMAGE_MODELS_ENABLED, enabled).apply()
+        _experimentalImageModelsEnabled.value = enabled
+    }
+
     /** Minutes of inactivity before Browser Flow auto-stops the session (cost guard). 0 = off. */
     fun getBrowserIdleMinutesDirect(): Int =
         prefs.getInt("browser_idle_minutes", 3)
@@ -550,7 +626,13 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
+        private const val KEY_EXPERIMENTAL_IMAGE_MODELS_ENABLED = "experimental_image_models_enabled"
         const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
+        const val IMAGE_ENGINE_OPENROUTER = "openrouter"
+        const val IMAGE_ENGINE_LOCAL = "local"
+        const val LOCAL_IMAGE_ITERATIONS_DEFAULT = 20
+        const val LOCAL_IMAGE_ITERATIONS_MIN = 10
+        const val LOCAL_IMAGE_ITERATIONS_MAX = 30
     }
 }
