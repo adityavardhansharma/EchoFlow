@@ -63,6 +63,7 @@ android {
     targetCompatibility = JavaVersion.VERSION_11
   }
   buildFeatures {
+    aidl = true
     compose = true
     buildConfig = true
   }
@@ -107,6 +108,7 @@ dependencies {
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.security.crypto)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
@@ -116,7 +118,9 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.litertlm.android)
   implementation(libs.llamacpp.kotlin)
+  implementation(libs.llamatik)
   implementation(libs.mediapipe.tasks.genai)
+  implementation(libs.mediapipe.tasks.vision.image.generator)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
@@ -124,6 +128,7 @@ dependencies {
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
+  testImplementation(libs.androidx.work.testing)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)

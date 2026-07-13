@@ -56,12 +56,20 @@ class DatabaseUpgradeTest {
     }
 
     @Test
-    fun `production database upgrades version one through version thirteen without data loss`() {
+    fun `production database upgrades version one through version fifteen without data loss`() {
         val database = AppDatabase.getDatabase(context).also { openedDatabase = it }
 
         // v13 tables exist and are queryable after the chained migration.
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM image_models").use { it.moveToFirst() }
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM generated_images").use { it.moveToFirst() }
+        // v14: local_image_models is created and starts empty.
+        database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM local_image_models").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+        database.openHelper.readableDatabase.query(
+            "SELECT runtime, modelFileName FROM local_image_models LIMIT 0"
+        ).use { /* v15 columns are queryable */ }
 
         database.openHelper.readableDatabase.query(
             "SELECT content, reasoning, localAttachmentUri, localAttachmentName " +

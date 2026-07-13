@@ -143,6 +143,24 @@ interface ImageModelDao {
 }
 
 @Dao
+interface LocalImageModelDao {
+    @Query("SELECT * FROM local_image_models ORDER BY addedAt ASC")
+    fun getAll(): Flow<List<LocalImageModel>>
+
+    @Query("SELECT * FROM local_image_models ORDER BY addedAt ASC")
+    suspend fun getAllSync(): List<LocalImageModel>
+
+    @Query("SELECT * FROM local_image_models WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): LocalImageModel?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(model: LocalImageModel)
+
+    @Query("DELETE FROM local_image_models WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
 interface GeneratedImageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(image: GeneratedImage)

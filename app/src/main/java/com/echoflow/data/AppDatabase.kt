@@ -13,9 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
         AgentProfile::class, BrowserSession::class, BrowserStep::class,
         Artifact::class, ArtifactVersion::class,
-        ImageModel::class, GeneratedImage::class
+        ImageModel::class, GeneratedImage::class, LocalImageModel::class
     ],
-    version = 13, // v13: image_models + generated_images (MIGRATION_12_13)
+    version = 15, // v15: runtime metadata for mixed local image engines
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artifactVersionDao(): ArtifactVersionDao
     abstract fun imageModelDao(): ImageModelDao
     abstract fun generatedImageDao(): GeneratedImageDao
+    abstract fun localImageModelDao(): LocalImageModelDao
 
     companion object {
         @Volatile
@@ -257,6 +258,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS local_image_models (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "name TEXT NOT NULL, " +
+                        "directoryName TEXT NOT NULL, " +
+                        "installedBytes INTEGER NOT NULL, " +
+                        "sourceRevision TEXT NOT NULL, " +
+                        "sourceCheckpointSha256 TEXT NOT NULL, " +
+                        "bundleSha256 TEXT NOT NULL, " +
+                        "licenseId TEXT NOT NULL, " +
+                        "activationPhrase TEXT, " +
+                        "defaultNegativePrompt TEXT, " +
+                        "bundleFormatVersion INTEGER NOT NULL, " +
+                        "addedAt INTEGER NOT NULL)"
+                )
+            }
+        }
+
+        /** Existing v14 installs were all MediaPipe directory bundles. */
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE local_image_models ADD COLUMN runtime TEXT NOT NULL " +
+                        "DEFAULT 'mediapipe'"
+                )
+                db.execSQL(
+                    "ALTER TABLE local_image_models ADD COLUMN modelFileName TEXT"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -277,6 +311,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                     MIGRATION_12_13,
+                    MIGRATION_13_14,
+                    MIGRATION_14_15,
                 )
                 .build()
                 INSTANCE = instance

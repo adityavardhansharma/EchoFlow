@@ -37,7 +37,10 @@ class ChatViewModel(
     private val browserStepDao: BrowserStepDao,
     private val artifactDao: ArtifactDao,
     private val artifactVersionDao: ArtifactVersionDao,
-    private val generatedImageDao: GeneratedImageDao
+    private val generatedImageDao: GeneratedImageDao,
+    private val localImageModelDao: LocalImageModelDao,
+    private val localImageModelManager: LocalImageModelManager,
+    private val localInferenceGate: LocalInferenceGate
 ) : AndroidViewModel(application) {
 
     // Artifacts: model-built, rendered content (web page / document / report) with version history.
@@ -45,6 +48,15 @@ class ChatViewModel(
 
     // Image generation: decoded PNGs on disk, version chain in Room (see GeneratedImageStore).
     private val generatedImageStore = GeneratedImageStore(application, generatedImageDao)
+
+    // Cloud and model-routed local image engines; the ViewModel never exposes pipeline choices.
+    private val openRouterImageEngine by lazy { OpenRouterImageGenerationEngine(openRouterService, generatedImageStore) }
+    private val localImageEngine by lazy {
+        LocalImageGenerationEngineRouter(
+            mediaPipe = MediaPipeImageGenerationEngine(application, generatedImageStore),
+            stableDiffusionCpp = StableDiffusionCppImageGenerationEngine(application, generatedImageStore),
+        )
+    }
 
     private val openRouterService = OpenRouterService(application)
     private val customProviderService = CustomProviderService(application)
@@ -481,6 +493,20 @@ class ChatViewModel(
 
     private fun reduceSegments(segments: MutableList<StreamSegment>, chunk: StreamChunk): String? =
         ChatSegmentReducer.reduce(segments, chunk)
+
+    /**
+     * Routes a local (on-device) generation flow through the shared inference gate so a
+     * local LLM reply and a local image generation can never run at the same time. The
+     * gate is released on completion, failure and cancellation alike.
+     */
+    private fun Flow<StreamChunk>.withLocalInferenceGate(label: String): Flow<StreamChunk> {
+        val upstream = this
+        return flow {
+            localInferenceGate.withExclusive(label) {
+                upstream.collect { emit(it) }
+            }
+        }
+    }
     // -------------------------------------------------------------------------------
     // Send + routing
     // -------------------------------------------------------------------------------
@@ -563,13 +589,33 @@ class ChatViewModel(
             // likewise always runs its own OpenRouter image model, whatever chat model is picked.
             val isLocal = selectedModel.startsWith("local/") && _chatMode.value !is ChatMode.EchoFusion && !imageGenMode
 
+            val imageEngineLocal = imageGenMode &&
+                settingsRepository.getImageGenEngineDirect() == SettingsRepository.IMAGE_ENGINE_LOCAL
+            var localImageModel: LocalImageModel? = null
             if (imageGenMode) {
-                if (apiKey.isBlank()) {
-                    _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
-                    return@launch
-                }
                 if (attachmentMime.equals("application/pdf", ignoreCase = true)) {
                     _errorMessage.value = "Image generation works with image attachments only, not PDFs."
+                    return@launch
+                }
+                if (imageEngineLocal) {
+                    // On-device engine: no API key needed — but the model must be installed.
+                    val selectedId = settingsRepository.getLocalImageModelDirect()
+                    localImageModel = selectedId.takeIf { it.isNotBlank() }?.let { localImageModelDao.getById(it) }
+                    if (localImageModel == null || !localImageModelManager.isInstalled(localImageModel)) {
+                        _errorMessage.value = "Download an on-device image model in Settings → Image generation first."
+                        return@launch
+                    }
+                    val catalogEntry = LocalImageModelCatalog.entryById(localImageModel.id)
+                    if (catalogEntry != null && !localImageModelManager.deviceSupportsRuntime(catalogEntry)) {
+                        _errorMessage.value = "${localImageModel.name} needs Android 8.0 or newer."
+                        return@launch
+                    }
+                    if (catalogEntry != null && !localImageModelManager.deviceMeetsRam(catalogEntry)) {
+                        _errorMessage.value = "${localImageModel.name} needs more memory than this device has. Try the OpenRouter engine instead."
+                        return@launch
+                    }
+                } else if (apiKey.isBlank()) {
+                    _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
                     return@launch
                 }
             }
@@ -801,23 +847,59 @@ class ChatViewModel(
             // wait itself has variety across generations.
             val imageGenModelId = if (imageGenMode) settingsRepository.getImageGenModelDirect() else ""
             val imagePrev = if (imageGenMode) generatedImageStore.latestForChat(chatId) else null
-            val imageEditUrl = imagePrev?.let { generatedImageStore.asDataUrl(it) }
+            // The base64 re-encode is cloud-only: OpenRouter gets true conversational editing.
+            val imageEditUrl = if (imageGenMode && !imageEngineLocal) imagePrev?.let { generatedImageStore.asDataUrl(it) } else null
             val imagePattern = if (imageGenMode) listOf("ripple", "rain").random() else ""
 
             val baseResponseFlow: Flow<StreamChunk> = when {
                 imageGenMode ->
                     flow {
-                        emit(StreamChunk.ImageGenStarted(imagePattern, imageEditUrl != null, imagePrev?.filePath))
-                        emitAll(
-                            openRouterService.sendImageGeneration(
-                                apiKey = apiKey,
-                                model = imageGenModelId,
-                                history = fullHistory,
-                                systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
-                                editImageDataUrl = imageEditUrl,
-                                params = inferenceParams,
-                            )
+                        emit(StreamChunk.ImageGenStarted(imagePattern, imagePrev != null, imagePrev?.filePath))
+                        // On-device runtimes do not support instruction-based editing: a local
+                        // follow-up regenerates from the prior prompt plus the requested change,
+                        // linked into the same version chain via parentId.
+                        val localPrompt = if (imageEngineLocal && imagePrev != null) {
+                            "${imagePrev.prompt}, $prompt"
+                        } else prompt
+                        val request = ImageGenerationRequest(
+                            chatId = chatId,
+                            prompt = localPrompt,
+                            modelId = if (imageEngineLocal) localImageModel!!.id else imageGenModelId,
+                            iterations = settingsRepository.getLocalImageIterationsDirect(),
+                            seed = if (settingsRepository.getLocalImageSeedModeDirect() == "fixed") {
+                                settingsRepository.getLocalImageFixedSeedDirect()
+                            } else null,
+                            previousImage = imagePrev,
+                            apiKey = apiKey,
+                            history = fullHistory,
+                            systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
+                            editImageDataUrl = imageEditUrl,
+                            params = inferenceParams,
+                            localModel = localImageModel,
+                            localModelInstallDir = localImageModel?.let {
+                                localImageModelManager.directoryFor(it).absolutePath
+                            },
                         )
+                        val relay: suspend (ImageGenerationEvent) -> Unit = { event ->
+                            when (event) {
+                                is ImageGenerationEvent.Text -> emit(StreamChunk.Content(event.delta))
+                                is ImageGenerationEvent.ImageFile -> emit(
+                                    StreamChunk.ImageGenerated(
+                                        dataUrl = "",
+                                        filePath = event.image.filePath,
+                                        imageId = event.image.id,
+                                    )
+                                )
+                            }
+                        }
+                        if (imageEngineLocal) {
+                            // Local diffusion and local LLM inference never overlap.
+                            localInferenceGate.withExclusive("image generation") {
+                                localImageEngine.generate(request).collect(relay)
+                            }
+                        } else {
+                            openRouterImageEngine.generate(request).collect(relay)
+                        }
                     }
                 agentReq != null ->
                     openRouterService.sendWithAgentTools(
@@ -840,7 +922,7 @@ class ChatViewModel(
                             params = inferenceParams,
                             localModel = localModel,
                         )
-                    )
+                    ).withLocalInferenceGate("a chat reply")
                 artifactMode && customProviderActive ->
                     customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
                 artifactMode ->
@@ -867,6 +949,7 @@ class ChatViewModel(
                     )
                 isLocal && clientSearchReady ->
                     localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey, inferenceParams)
+                        .withLocalInferenceGate("a chat reply")
                 isLocal ->
                     localGateway.stream(
                         LlmStreamRequest(
@@ -877,7 +960,7 @@ class ChatViewModel(
                             params = inferenceParams,
                             localModel = localModel,
                         )
-                    )
+                    ).withLocalInferenceGate("a chat reply")
                 customToolCallingActive ->
                     customProviderToolFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
@@ -1454,6 +1537,7 @@ class ChatViewModel(
 
     override fun onCleared() {
         localLlmService.releaseAll()
+        localImageEngine.close()
         super.onCleared()
     }
 
@@ -1477,7 +1561,10 @@ class ChatViewModel(
             browserStepDao: BrowserStepDao,
             artifactDao: ArtifactDao,
             artifactVersionDao: ArtifactVersionDao,
-            generatedImageDao: GeneratedImageDao
+            generatedImageDao: GeneratedImageDao,
+            localImageModelDao: LocalImageModelDao,
+            localImageModelManager: LocalImageModelManager,
+            localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1485,7 +1572,7 @@ class ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
                     agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao,
-                    generatedImageDao
+                    generatedImageDao, localImageModelDao, localImageModelManager, localInferenceGate
                 ) as T
             }
         }

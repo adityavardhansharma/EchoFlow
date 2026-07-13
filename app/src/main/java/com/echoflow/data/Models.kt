@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
+import androidx.room.ColumnInfo
 
 @Entity(tableName = "chat_threads")
 data class ChatThread(
@@ -127,6 +128,31 @@ data class AgentProfile(
 data class ImageModel(
     @PrimaryKey val id: String, // OpenRouter id, e.g. "google/gemini-2.5-flash-image"
     val name: String,
+    val addedAt: Long,
+)
+
+/**
+ * One installed on-device image model (a preconverted MediaPipe Image Generator bundle
+ * extracted under filesDir/image_models/[directoryName]). A row exists only after the
+ * bundle downloaded, verified, validated, passed its smoke test and atomically installed.
+ */
+@Entity(tableName = "local_image_models")
+data class LocalImageModel(
+    @PrimaryKey val id: String, // catalog id, "local-image/<slug>"
+    val name: String,
+    val directoryName: String, // directory under filesDir/image_models/
+    val installedBytes: Long,
+    val sourceRevision: String,
+    val sourceCheckpointSha256: String,
+    val bundleSha256: String,
+    val licenseId: String,
+    val activationPhrase: String?,
+    val defaultNegativePrompt: String?,
+    val bundleFormatVersion: Int,
+    /** Runtime id persisted with the install so catalog changes cannot reroute it. */
+    @ColumnInfo(defaultValue = "'mediapipe'") val runtime: String,
+    /** File inside [directoryName] for single-file stable-diffusion.cpp installs. */
+    val modelFileName: String?,
     val addedAt: Long,
 )
 
