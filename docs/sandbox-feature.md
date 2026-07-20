@@ -156,6 +156,8 @@ interface SandboxEngine {
     suspend fun downloadFile(
         session: SandboxSessionHandle,
         remotePath: String,
+        expectedSizeBytes: Long?,
+        maxBytes: Long,
         sink: OutputStream,
         onProgress: (Float) -> Unit,
     )
@@ -165,9 +167,15 @@ interface SandboxEngine {
 
 data class SandboxExecResult(
     val exitCode: Int,
-    val stdout: String,      // truncate at 64 KB, note truncation
-    val stderr: String,      // truncate at 16 KB
+    val stdout: String,      // local parser input; truncate at 64 KB, never forward raw by default
+    val stderr: String,      // local parser input; redact, then truncate to 16 KB before forwarding
     val timedOut: Boolean,
+)
+
+data class SandboxOutputLimits(
+    val maxFileBytes: Long = 50L * 1024 * 1024,
+    val maxTaskBytes: Long = 100L * 1024 * 1024,
+    val maxStoredBytes: Long = 500L * 1024 * 1024,
 )
 
 enum class SandboxProfile { CORE, DOCUMENTS, MEDIA }
@@ -214,17 +222,27 @@ bounded.
 | `documents` | core + pypdf, pdfplumber, python-docx, openpyxl (write/styles), reportlab, weasyprint (+ fonts), ocrmypdf + tesseract | ≤ 40 s |
 | `media` | ffmpeg, faster-whisper (small model weights) | ≤ 60 s |
 
+"Immutable" refers to the versioned base profile. Optional packages are installed only into a
+disposable per-task overlay (§6.1); they never mutate a template, snapshot, or reusable base.
+
 ### 5.2 Single source of truth
 
-One **lockfile** (`sandbox/requirements-{profile}.lock`, exact pinned versions) shipped in app
-assets drives BOTH paths:
+Each profile has two shipped, versioned inputs: `sandbox/requirements-{profile}.lock` for exact
+Python packages and `sandbox/system-{profile}.lock` for the base-image digest, OS packages, fonts,
+and native libraries. `SANDBOX_BASE_IMAGE_VERSION` and the OCI image digest are pinned alongside
+`SANDBOX_TEMPLATE_VERSION`.
 
-- **Option B (bootstrap, always available):** blank provider image → `uv pip install -r <lockfile>`
-  (uv, not pip — 10–20 s instead of 60–90 s). This is the permanent fallback.
+- **Option B (bootstrap, always available):** start the pinned Debian/Python provider image, install
+  the locked system layer, then run `uv pip install -r <lockfile>`. The documents system layer
+  includes Tesseract, Ghostscript, WeasyPrint libraries and pinned fonts; media includes ffmpeg.
+  Bootstrap verifies each native binary and font checksum before marking the profile ready. If a
+  provider cannot install the locked system layer, that profile is reported unavailable instead of
+  silently starting an incomplete environment.
 - **Option A (prebuilt, accelerator):** the provisioning worker builds a template/snapshot in the
   *user's own account* from the same lockfile. E2B: submit Dockerfile referencing the lockfile.
   Daytona: boot blank → run the same bootstrap → snapshot the result. **One lockfile, two
-  mechanisms, provably identical environments.**
+  mechanisms, provably identical environments.** Template creation uses the same pinned base-image
+  digest, system lock and Python lock as bootstrap.
 
 Pin `SANDBOX_TEMPLATE_VERSION` (int) in the app. Template names are deterministic:
 `echoflow-{profile}-v{N}` → provisioning is idempotent (check-before-create; a crashed worker rerun
@@ -260,7 +278,7 @@ app policy, invisible to the model), no read/write/edit file tools (the model ma
 ```json
 {
   "name": "run_python",
-  "description": "Execute Python in the task workspace. Input files are at /data/. Write ALL outputs to /outputs/ and end by printing the manifest (see system instructions).",
+  "description": "Execute Python in the task workspace. Input files are at /data/. Write ALL outputs to the supplied OUTPUT_DIR and end by printing the manifest (see system instructions).",
   "parameters": {
     "profile":   { "type": "string", "enum": ["core", "documents", "media"], "default": "core" },
     "code":      { "type": "string" },
@@ -284,6 +302,12 @@ lxml, xlsxwriter, tabulate, chardet, python-dateutil, pytz, …). Rejection retu
 model can relay: `"Package X isn't supported in EchoFlow sandboxes yet."` Better a clear refusal
 than a 3-minute wheel compile on the user's bill.
 
+The tool installs exact allow-listed versions into `/task/.venv-overlay`, never into the immutable
+profile. The overlay is deleted when the task turn ends and is not retained during the session
+reuse window. Limits: one install call per task, at most five packages, 100 MB downloaded/installed,
+and 60 seconds wall time. An install call counts toward the overall tool-call budget even though it
+does not consume one of the three `run_python` attempts.
+
 ### 6.2 Wire-up
 
 Tool calls ride the **existing streaming tool-call path** (the same transport Echo Agents uses with
@@ -292,7 +316,7 @@ work. The orchestrator registers the two tools only when the sandbox chip is act
 
 ### 6.3 System prompt block (append when chip active — add to `SystemPrompts.kt`)
 
-```
+```text
 You have a sandboxed Python workspace for working with files and data.
 
 Environments — pick via the `profile` parameter of run_python:
@@ -303,11 +327,11 @@ Environments — pick via the `profile` parameter of run_python:
 
 Rules:
 1. The user's attached files are at /data/ (exact paths are listed below).
-2. Write every output file to /outputs/. Never write outputs anywhere else.
+2. Write every output file to {{OUTPUT_DIR}}. Never write outputs anywhere else.
 3. For aggregation-heavy questions over tabular files, prefer DuckDB SQL over pandas.
-4. Charts: save as PNG to /outputs/ at 2x scale; do not call plt.show().
+4. Charts: save as PNG to {{OUTPUT_DIR}} at 2x scale; do not call plt.show().
 5. Your script MUST end by printing exactly one line:
-   ECHO_MANIFEST:{"outputs":[{"path":"/outputs/<file>","description":"<short description>"}]}
+   ECHO_MANIFEST:{"outputs":[{"path":"{{OUTPUT_DIR}}/<file>","description":"<short description>"}]}
    List every file you produced. If you produced none (answer-only task), print
    ECHO_MANIFEST:{"outputs":[]} and give the answer in your reply text.
 6. If your code errors, you will receive stderr — fix the code and try again.
@@ -322,6 +346,12 @@ Attached files:
 - The app renders **only** files named in the manifest (prevents rendering scratch files).
 - Parser: scan stdout lines from the end; first line starting with `ECHO_MANIFEST:` wins; strict
   JSON parse; on parse failure → treat as missing (see error matrix §10).
+- Validate every entry before download: require a regular, non-symlink file whose canonical parent
+  is the current attempt directory and whose final component is a safe basename (no separators,
+  `..`, control characters, or absolute paths). Generate the app-private storage name from a UUID;
+  the manifest filename is display metadata only. Any invalid entry fails the manifest as a whole.
+- Never recover by listing and rendering the output directory. Missing, corrupt, or unsafe
+  manifests fail closed after the single repair turn described in §10.
 - This is the contract that keeps 12B-class models reliable: one convention, machine-checkable.
 
 ---
@@ -351,12 +381,12 @@ sequenceDiagram
     end
     O->>S: exec(python code, timeout)
     S-->>O: ExecResult(exit=1, stderr="KeyError…")
-    O->>M: tool result {exitCode, stdout, stderr}  (attempt 1/3)
+    O->>M: tool result {exitCode, boundedResultData, redactedStderr}  (attempt 1/3)
     M-->>O: tool_call run_python(fixed code)
     O->>S: exec(...)
     S-->>O: ExecResult(exit=0, stdout="…ECHO_MANIFEST:{…}")
     O->>O: parse manifest
-    O->>S: downloadFile(/outputs/fixed.pdf → app-private storage)
+    O->>S: downloadFile(/outputs/attempt-2/fixed.pdf → app-private storage)
     O->>St: persist GeneratedFile row (version chain)
     O->>M: tool result {ok, manifest}
     M-->>VM: final streamed text ("Done — headings are now blue…")
@@ -368,13 +398,17 @@ sequenceDiagram
 
 - Max **3** `run_python` attempts per task turn. Attempt counter shown on the progress card
   ("Working on it — attempt 2").
-- stderr is fed back verbatim (truncated 16 KB). Do NOT auto-mutate the code app-side; the model
-  fixes its own code.
+- Each attempt receives a new empty `/outputs/attempt-{n}/` as `{{OUTPUT_DIR}}`. The orchestrator
+  accepts a manifest only from the final successful attempt and ignores/deletes every prior attempt
+  directory, so partial or stale files can never enter a later result.
+- stderr is redacted and then truncated to 16 KB before being fed back. Do NOT auto-mutate the code
+  app-side; the model fixes its own code.
 - After attempt 3 fails: tool loop ends; orchestrator sends a final tool result
   `{failed: true, reason: "..."}` so the model can apologize with specifics; ErrorBanner shows a
   **Retry** action (re-runs the whole task — this is the retry-as-recovery pattern from the UX
   backlog).
-- `install_packages` attempts don't count against the 3.
+- The single bounded `install_packages` call does not count against the three Python attempts, but
+  does count against the task's overall tool-call limit.
 
 ### 7.3 Session lifecycle
 
@@ -456,7 +490,7 @@ One-line cost/privacy strip on the card while a session is live (Browser Flow pa
 
 ### 8.4 Settings page — `SettingsSandbox.kt`
 
-```
+```text
 ┌─ Sandbox ────────────────────────────────────┐
 │ Provider          (● E2B     ○ Daytona)      │
 │ API key           [••••••••••]   [Verify ✓]  │
@@ -524,7 +558,7 @@ data class GeneratedFileEntity(
     val fileName: String,
     val mimeType: String,
     val sizeBytes: Long,
-    val localPath: String,                   // app-private: files/sandbox_outputs/{id}/{fileName}
+    val localPath: String,                   // app-private: files/sandbox_outputs/{id}/payload
     val description: String,                 // from manifest
     val profile: String,
     val providerId: String,
@@ -535,6 +569,14 @@ data class GeneratedFileEntity(
 - `GeneratedFileStore` mirrors `GeneratedImageStore`: Room rows + files under app-private storage.
   **Outputs are downloaded from the sandbox immediately on task completion** (sandboxes are
   ephemeral — never treat the sandbox as storage). "Save" copies to public Downloads via MediaStore.
+- Download each output to `cache/sandbox_downloads/{uuid}.part` while enforcing declared content
+  length, the 50 MB per-file cap, the 100 MB per-task cap, and the 500 MB total stored-output quota.
+  Abort on the first byte over a limit and delete every partial file from that task. After a complete
+  download, flush/fsync, validate type and size, atomically rename it to
+  `files/sandbox_outputs/{uuid}/payload`, then insert the Room row in one store operation.
+- On startup, recovery deletes stale `.part` files and final files with no Room row; rows whose final
+  file is missing become a visible "Download failed — Retry" state. Tests cover crashes before and
+  after the atomic rename and before the Room insert.
 - DAO: by message (card rendering), by chat, all (future "Generated files" gallery — same gallery
   the image feature will get), delete cascade with chat deletion (follow existing image-store
   cascade behavior).
@@ -555,7 +597,8 @@ data class GeneratedFileEntity(
 | Upload network failure | IO exception | One auto-retry, then ErrorBanner + Retry |
 | Code fails ×3 | retry policy | Model apologizes with specifics; ErrorBanner Retry re-runs task |
 | exec timeout | timedOut flag | Counts as a failed attempt; stderr substitute: "Execution timed out after Ns" |
-| Manifest missing/corrupt | parser | One extra model turn: tool result `{error: "manifest missing — print ECHO_MANIFEST as your last line"}`; if still missing → fall back to listing `/outputs/` and render everything found, log divergence |
+| Manifest missing/corrupt/unsafe | strict parser + canonical path validation | One extra model turn with a repair error; if still invalid, fail the task and render no files (never list-directory fallback) |
+| Output exceeds quota | declared size or streaming byte counter | Cancel remaining downloads, delete all task partials, and show the applicable per-file/task/storage limit |
 | Output download fails | IO exception | Retry ×2; then card shows file with "Download failed — Retry" state (session may still be in reuse window) |
 | App killed mid-task | FGS restart | Foreground service pattern: task state is in-memory → task marked failed on restart with Retry (v1 accepts this; resumability is a v2 concern) |
 | Sandbox leak | belt-and-braces | App-side destroy on all paths + provider-side TTL ≤ 10 min |
@@ -568,12 +611,18 @@ data class GeneratedFileEntity(
   do NOT log request bodies — maintain existing discipline).
 - **User files:** transit only between the phone and the *user's own* sandbox account. State this
   in the settings page copy and the cost strip. Files in the sandbox die with the session.
+- **Tool output visibility:** sanitized tool results are sent to the user's selected model provider
+  so it can interpret results and repair failed code. The UI must disclose this beside provider
+  selection. Never send raw stdout by default: return the parsed manifest plus bounded result data;
+  return stderr only after redacting API keys, authorization headers, environment values and known
+  provider-token formats. Prompts prohibit printing full input files or secrets to stdout/stderr.
 - **Model-written code runs in the provider VM, not on the phone.** The app never executes model
   output locally. The manifest is parsed as strict data, never evaluated.
 - **Downloaded outputs:** app-private storage; only user actions (Save/Share/Open) expose them, via
   FileProvider with per-file grants.
-- **Size caps:** default 25 MB upload (settings-adjustable up to 100 MB), streaming upload with
-  progress. Protects mobile data and the user's sandbox bill.
+- **Size caps:** default 25 MB upload (settings-adjustable up to 100 MB), plus fixed 50 MB per-output,
+  100 MB per-task and 500 MB stored-output quotas. Uploads/downloads stream with progress and abort
+  with partial-file cleanup at the first byte beyond a limit.
 - **Allowlist for install_packages** (§6.1) bounds arbitrary-dependency execution and cost.
 
 ---
@@ -584,9 +633,11 @@ Follow the house style: plain JUnit in `app/src/test/`, characterization + contr
 
 | Test | Type |
 |---|---|
-| `ManifestParserTest` — sentinel found last-line, mid-noise, corrupt JSON, empty outputs, absent | unit |
-| `BootstrapComposerTest` — profile → exact uv command from lockfile; pinned versions asserted | unit |
-| `SandboxRetryPolicyTest` — 3-attempt cap, install_packages exemption, stderr passthrough truncation | unit |
+| `ManifestParserTest` — sentinel parsing plus absolute, traversal, separator, symlink and wrong-attempt path rejection | unit |
+| `BootstrapComposerTest` — profile → pinned base digest, system lock and Python lock; native tools/fonts verified | unit |
+| `SandboxRetryPolicyTest` — 3-attempt cap, isolated output directories, bounded install call, stderr redaction + truncation | unit |
+| `SandboxDownloadQuotaTest` — declared/streamed per-file and per-task limits; all partials cleaned on failure | unit (fake engine) |
+| `GeneratedFileStoreRecoveryTest` — atomic rename/Room crash boundaries, orphan and missing-file recovery | unit + instrumented |
 | `SandboxSessionLifecycleTest` — reuse window hit/miss, profile switch = new session, teardown on cancel | unit (fake engine) |
 | `SandboxToolSchemaTest` — tool JSON matches spec (schema snapshot) | characterization |
 | `AllowlistTest` — accepted/rejected packages | unit |
