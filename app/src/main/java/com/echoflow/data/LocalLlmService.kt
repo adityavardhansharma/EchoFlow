@@ -75,6 +75,7 @@ class LocalLlmService(private val context: Context) {
     private var lrtLastHistorySize = -1
     private var lrtSystemPrompt: String? = null
     private var lrtParams: InferenceParams? = null
+    @Volatile private var lrtConversationReusable = true
 
     /** Search results waiting to be sent on the next [continueGeneration] round. */
     private var lrtPendingContext: String? = null
@@ -243,6 +244,7 @@ class LocalLlmService(private val context: Context) {
         lrtSystemPrompt = null
         lrtPendingContext = null
         lrtParams = null
+        lrtConversationReusable = true
     }
 
     private fun generateLitert(
@@ -262,6 +264,7 @@ class LocalLlmService(private val context: Context) {
                 ensureLitertEngine(model, maxTokens)
 
                 val incremental = lrtConversation != null &&
+                    lrtConversationReusable &&
                     lrtChatId == chatId &&
                     lrtSystemPrompt == systemPrompt &&
                     lrtParams == params &&
@@ -272,6 +275,10 @@ class LocalLlmService(private val context: Context) {
                 } else {
                     if (history.size > 1) _modelLoading.value = true
                     closeLrtConversationInternal()
+                    val prior = history.dropLast(1).filter { it.role == "user" || it.role == "assistant" }
+                    val initialMessages = prior.map { turn ->
+                        if (turn.role == "user") Message.user(turn.content) else Message.model(turn.content)
+                    }
                     lrtConversation = lrtEngine!!.createConversation(
                         ConversationConfig(
                             samplerConfig = SamplerConfig(
@@ -281,21 +288,16 @@ class LocalLlmService(private val context: Context) {
                             ),
                             systemInstruction = systemPrompt.takeIf { it.isNotBlank() }
                                 ?.let { Contents.of(mutableListOf<Content>(Content.Text(it))) },
+                            initialMessages = initialMessages,
                         )
                     )
                     lrtChatId = chatId
                     lrtSystemPrompt = systemPrompt
                     lrtParams = params
 
-                    // Replay older turns as a transcript preamble; the engine applies the
-                    // model's chat template to the message itself.
-                    val prior = history.dropLast(1).filter { it.role == "user" || it.role == "assistant" }
-                    text = if (prior.isNotEmpty()) {
-                        "Previous conversation:\n" + transcriptOf(prior) +
-                            "\n\nCurrent message:\n" + history.last().content
-                    } else {
-                        history.last().content
-                    }
+                    // Prior turns are supplied as native role-aware messages above. Keeping the
+                    // current user message separate lets the bundle's own chat template render it.
+                    text = history.last().content
                 }
                 lrtLastHistorySize = history.size
             } finally {
@@ -332,6 +334,8 @@ class LocalLlmService(private val context: Context) {
 
     private fun sendLitertMessage(producer: ProducerScope<StreamChunk>, text: String, image: Content? = null) {
         val conversation = lrtConversation ?: throw Exception("No active on-device conversation.")
+        val repetitionDetector = SevereRepetitionDetector()
+        val terminal = AtomicBoolean(false)
         generating.set(true)
         try {
             val parts = mutableListOf<Content>(Content.Text(text))
@@ -346,21 +350,36 @@ class LocalLlmService(private val context: Context) {
                         }
                         val chunk = message.toString()
                         if (chunk.isNotEmpty()) {
-                            producer.trySend(StreamChunk.Content(chunk))
+                            if (repetitionDetector.append(chunk)) {
+                                // Degenerate generations can leave a LiteRT conversation wedged.
+                                // Stop this response and force a fresh native conversation next turn.
+                                lrtConversationReusable = false
+                                if (terminal.compareAndSet(false, true)) {
+                                    generating.set(false)
+                                    runCatching { conversation.cancelProcess() }
+                                    producer.close()
+                                }
+                            } else {
+                                producer.trySend(StreamChunk.Content(chunk))
+                            }
                         }
                     }
 
                     override fun onDone() {
-                        generating.set(false)
-                        producer.close()
+                        if (terminal.compareAndSet(false, true)) {
+                            generating.set(false)
+                            producer.close()
+                        }
                     }
 
                     override fun onError(throwable: Throwable) {
-                        generating.set(false)
-                        if (throwable is java.util.concurrent.CancellationException) {
-                            producer.close()
-                        } else {
-                            producer.close(Exception("On-device model error: ${throwable.message?.take(160)}"))
+                        if (terminal.compareAndSet(false, true)) {
+                            generating.set(false)
+                            if (throwable is java.util.concurrent.CancellationException) {
+                                producer.close()
+                            } else {
+                                producer.close(Exception("On-device model error: ${throwable.message?.take(160)}"))
+                            }
                         }
                     }
                 },
@@ -374,6 +393,7 @@ class LocalLlmService(private val context: Context) {
 
     private fun onLitertFlowClosed() {
         if (activeRuntime == LocalLlmRuntime.LITERT && generating.getAndSet(false)) {
+            lrtConversationReusable = false
             runCatching { lrtConversation?.cancelProcess() }
         }
     }
