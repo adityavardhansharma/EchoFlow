@@ -334,8 +334,6 @@ class LocalLlmService(private val context: Context) {
 
     private fun sendLitertMessage(producer: ProducerScope<StreamChunk>, text: String, image: Content? = null) {
         val conversation = lrtConversation ?: throw Exception("No active on-device conversation.")
-        val repetitionDetector = SevereRepetitionDetector()
-        val terminal = AtomicBoolean(false)
         generating.set(true)
         try {
             val parts = mutableListOf<Content>(Content.Text(text))
@@ -350,36 +348,21 @@ class LocalLlmService(private val context: Context) {
                         }
                         val chunk = message.toString()
                         if (chunk.isNotEmpty()) {
-                            if (repetitionDetector.append(chunk)) {
-                                // Degenerate generations can leave a LiteRT conversation wedged.
-                                // Stop this response and force a fresh native conversation next turn.
-                                lrtConversationReusable = false
-                                if (terminal.compareAndSet(false, true)) {
-                                    generating.set(false)
-                                    runCatching { conversation.cancelProcess() }
-                                    producer.close()
-                                }
-                            } else {
-                                producer.trySend(StreamChunk.Content(chunk))
-                            }
+                            producer.trySend(StreamChunk.Content(chunk))
                         }
                     }
 
                     override fun onDone() {
-                        if (terminal.compareAndSet(false, true)) {
-                            generating.set(false)
-                            producer.close()
-                        }
+                        generating.set(false)
+                        producer.close()
                     }
 
                     override fun onError(throwable: Throwable) {
-                        if (terminal.compareAndSet(false, true)) {
-                            generating.set(false)
-                            if (throwable is java.util.concurrent.CancellationException) {
-                                producer.close()
-                            } else {
-                                producer.close(Exception("On-device model error: ${throwable.message?.take(160)}"))
-                            }
+                        generating.set(false)
+                        if (throwable is java.util.concurrent.CancellationException) {
+                            producer.close()
+                        } else {
+                            producer.close(Exception("On-device model error: ${throwable.message?.take(160)}"))
                         }
                     }
                 },
@@ -392,9 +375,11 @@ class LocalLlmService(private val context: Context) {
     }
 
     private fun onLitertFlowClosed() {
-        if (activeRuntime == LocalLlmRuntime.LITERT && generating.getAndSet(false)) {
+        if (activeRuntime == LocalLlmRuntime.LITERT && generating.get()) {
             lrtConversationReusable = false
-            runCatching { lrtConversation?.cancelProcess() }
+            if (generating.getAndSet(false)) {
+                runCatching { lrtConversation?.cancelProcess() }
+            }
         }
     }
 
