@@ -33,6 +33,24 @@ class LocalLlmPromptingTest {
         )
     }
 
+    @Test
+    fun severeRepetitionDetectorIgnoresOrdinaryRepeatedWords() {
+        val detector = SevereRepetitionDetector()
+
+        assertEquals(false, detector.append("very very very very useful"))
+    }
+
+    @Test
+    fun severeRepetitionDetectorFindsSustainedTranscriptLoopAcrossChunks() {
+        val detector = SevereRepetitionDetector()
+        val loop = "Human: hi EchoFlow: hello "
+
+        assertEquals(false, detector.append(loop))
+        assertEquals(false, detector.append(loop))
+        assertEquals(false, detector.append(loop))
+        assertEquals(true, detector.append(loop))
+    }
+
     private fun model(fileName: String) =
         LocalModel("local/test", "Test", fileName, 1L, "imported", 0L)
 
