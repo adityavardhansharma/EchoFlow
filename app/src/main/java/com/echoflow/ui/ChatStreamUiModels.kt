@@ -97,5 +97,6 @@ sealed class StreamSegment {
         val aspectRatio: String,
         val status: String,
         val generating: Boolean,
+        val error: String? = null,
     ) : StreamSegment()
 }

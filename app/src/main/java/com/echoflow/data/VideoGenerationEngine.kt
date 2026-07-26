@@ -78,7 +78,9 @@ class OpenRouterVideoGenerationEngine(
                 frameImageDataUrl = startImage,
             )
         } catch (e: Exception) {
-            store.markFailed(video, GeneratedVideo.STATUS_FAILED, e.message)
+            // Emit the failed row before rethrowing: the card is already on screen showing a
+            // dot field, and an error banner alone would leave it dancing forever.
+            emit(VideoGenerationEvent.Progress(store.markFailed(video, GeneratedVideo.STATUS_FAILED, e.message), 0L))
             throw e
         }
         video = store.markSubmitted(video, handle.id, handle.pollingUrl)
@@ -119,6 +121,7 @@ class OpenRouterVideoGenerationEngine(
                     video, GeneratedVideo.STATUS_FAILED,
                     "The video took longer than ${TIMEOUT_MS / 60_000} minutes and was given up on.",
                 )
+                emit(VideoGenerationEvent.Progress(failed, System.currentTimeMillis() - startedAt))
                 throw VideoGenerationException.GenerationFailed(failed.error.orEmpty())
             }
             delay(interval)
@@ -132,8 +135,12 @@ class OpenRouterVideoGenerationEngine(
             if (!state.isTerminal) continue
 
             if (!state.succeeded) {
-                val message = state.error ?: "The video generation ${state.status}."
-                val failed = store.markFailed(video, state.status, message)
+                // Re-emit after markFailed, not before: the status change above carries no
+                // reason yet, and the card renders the provider's message verbatim.
+                val failed = store.markFailed(
+                    video, state.status, state.error ?: "The video generation ${state.status}.",
+                )
+                emit(VideoGenerationEvent.Progress(failed, System.currentTimeMillis() - startedAt))
                 throw VideoGenerationException.GenerationFailed(failed.error.orEmpty())
             }
 
@@ -144,7 +151,10 @@ class OpenRouterVideoGenerationEngine(
                     store.completeWithDownload(video, stream)
                 }
             } catch (e: Exception) {
-                store.markFailed(video, GeneratedVideo.STATUS_FAILED, e.message ?: "Could not download the video.")
+                val failed = store.markFailed(
+                    video, GeneratedVideo.STATUS_FAILED, e.message ?: "Could not download the video.",
+                )
+                emit(VideoGenerationEvent.Progress(failed, System.currentTimeMillis() - startedAt))
                 throw e
             }
             emit(VideoGenerationEvent.VideoFile(downloaded))

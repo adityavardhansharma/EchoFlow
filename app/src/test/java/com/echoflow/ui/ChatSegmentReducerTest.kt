@@ -66,6 +66,20 @@ class ChatSegmentReducerTest {
         assertEquals("completed", resolved.status)
     }
 
+    @Test fun `a failing video settles the card instead of leaving it generating`() {
+        // Without this the placeholder dances on forever behind an error banner, which reads
+        // as "still working" rather than "this went wrong".
+        val segments = mutableListOf<StreamSegment>()
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenStarted("vid-1", "ripple", "16:9"))
+        ChatSegmentReducer.reduce(
+            segments,
+            StreamChunk.VideoGenProgress("vid-1", "failed", "the provider ran out of capacity"),
+        )
+        val failed = segments.single() as StreamSegment.Video
+        assertEquals("failed", failed.status)
+        assertEquals("the provider ran out of capacity", failed.error)
+    }
+
     @Test fun `a video event for another job never touches this one's card`() {
         // Two clips can be in flight across chats; matching on id rather than "the last
         // pending card" is what keeps one job's completion from resolving the other's.

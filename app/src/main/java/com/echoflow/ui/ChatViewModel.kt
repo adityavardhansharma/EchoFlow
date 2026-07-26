@@ -1017,7 +1017,7 @@ class ChatViewModel(
                             is VideoGenerationEvent.Queued ->
                                 StreamChunk.VideoGenStarted(event.video.id, videoPattern, videoAspectRatio)
                             is VideoGenerationEvent.Progress ->
-                                StreamChunk.VideoGenProgress(event.video.id, event.video.status)
+                                StreamChunk.VideoGenProgress(event.video.id, event.video.status, event.video.error)
                             is VideoGenerationEvent.VideoFile ->
                                 StreamChunk.VideoGenerated(event.video.id, event.video.filePath.orEmpty())
                         }

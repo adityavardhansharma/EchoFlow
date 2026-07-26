@@ -222,7 +222,8 @@ internal object ChatSegmentReducer {
             is StreamChunk.VideoGenProgress -> {
                 val idx = segments.indexOfLast { it is StreamSegment.Video && it.videoId == chunk.videoId }
                 if (idx >= 0) {
-                    segments[idx] = (segments[idx] as StreamSegment.Video).copy(status = chunk.status)
+                    segments[idx] = (segments[idx] as StreamSegment.Video)
+                        .copy(status = chunk.status, error = chunk.error)
                 }
             }
             is StreamChunk.VideoGenerated -> {

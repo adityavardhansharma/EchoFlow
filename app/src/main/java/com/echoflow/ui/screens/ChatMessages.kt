@@ -315,6 +315,7 @@ internal fun StreamingAssistantBubble(
                             aspectRatio = segment.aspectRatio,
                             status = segment.status,
                             animate = true,
+                            errorMessage = segment.error,
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }

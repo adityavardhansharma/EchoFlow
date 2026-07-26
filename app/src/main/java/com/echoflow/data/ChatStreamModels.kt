@@ -110,10 +110,15 @@ sealed class StreamChunk {
         val aspectRatio: String,
     ) : StreamChunk()
 
-    /** The job moved to a new non-terminal state ("in_progress", "downloading", …). */
+    /**
+     * The job changed state. Mostly non-terminal progress ("in_progress", "downloading"), but
+     * a failure is also delivered here — with the provider's [error] — so the card can settle
+     * into its failed form instead of dancing on forever behind an error banner.
+     */
     data class VideoGenProgress(
         val videoId: String,
         val status: String,
+        val error: String? = null,
     ) : StreamChunk()
 
     /** The clip finished and the MP4 is on disk at [filePath]. */
