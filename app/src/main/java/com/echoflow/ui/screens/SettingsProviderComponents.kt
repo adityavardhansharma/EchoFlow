@@ -681,7 +681,7 @@ internal fun directProviderSummary(config: CustomProviderConfig, provider: Custo
 
 internal fun directProviderAttachmentText(provider: CustomModelProvider): String = when (provider) {
     CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
-    CustomModelProvider.XAi -> "Image attachments are enabled for selected xAI vision models. PDFs are off."
+    CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
 }
 

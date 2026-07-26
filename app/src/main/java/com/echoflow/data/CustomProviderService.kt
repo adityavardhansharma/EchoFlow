@@ -91,6 +91,19 @@ object CustomProviderCapabilities {
 
     fun cerebrasSupportsPdfs(model: String): Boolean = false
 
+    /**
+     * xAI's model list includes text-only and multimodal entries. Keep this allowlist
+     * conservative so unknown or newly-added model IDs fail locally instead of sending an
+     * unsupported image_url payload to the chat completions endpoint.
+     */
+    fun xAiSupportsImages(model: String): Boolean {
+        val id = model.trim().lowercase()
+        if (id == "latest" || id == "grok-latest") return true
+        return listOf("grok-4.3", "grok-4.20", "grok-4.5").any { family ->
+            id == family || id.startsWith("$family-")
+        }
+    }
+
     fun xAiSupportsPdfs(model: String): Boolean = false
 }
 

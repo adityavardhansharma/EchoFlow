@@ -638,8 +638,9 @@ class ChatViewModel(
             }
 
             val customImageAllowed = when (customProvider) {
-                "openai", "claude", "gemini", "xai" -> true
+                "openai", "claude", "gemini" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
+                "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
                 else -> false
@@ -658,7 +659,11 @@ class ChatViewModel(
                 return@launch
             }
             if (customProviderActive && !imageGenMode && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
-                _errorMessage.value = "Images are off for this custom endpoint. Turn them on in Settings → Echo Labs → Custom API Endpoint."
+                _errorMessage.value = if (customProvider == "xai") {
+                    "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
+                } else {
+                    "Images are off for this custom endpoint. Turn them on in Settings → Echo Labs → Custom API Endpoint."
+                }
                 return@launch
             }
 
