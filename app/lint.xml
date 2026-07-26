@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      media3 marks most of its surface @UnstableApi, including PlayerSurface and the Compose
+      player state helpers that the generated-video card is built from. Kotlin's own
+      @OptIn(UnstableApi::class) satisfies the compiler but not this lint check, which only
+      recognizes the Java @androidx.annotation.OptIn form. Opting in here — the mechanism the
+      check itself documents — keeps the acknowledgement in one visible place instead of
+      sprinkling a second, redundant annotation across every player composable.
+    -->
+    <issue id="UnsafeOptInUsageError">
+        <option name="opt-in" value="androidx.media3.common.util.UnstableApi" />
+    </issue>
+</lint>

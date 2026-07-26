@@ -85,7 +85,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
@@ -352,7 +351,6 @@ internal fun GeneratedVideoActions(
  * is used rather than a SurfaceView so the player clips correctly to the card's rounded
  * corners and scrolls with the message list instead of punching through it.
  */
-@OptIn(UnstableApi::class)
 @Composable
 private fun InlineVideoPlayer(filePath: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -386,7 +384,6 @@ private fun InlineVideoPlayer(filePath: String, modifier: Modifier = Modifier) {
 }
 
 /** Fullscreen playback, matching the workspace overlays' dark treatment. */
-@OptIn(UnstableApi::class)
 @Composable
 fun GeneratedVideoViewer(filePath: String, onDismiss: () -> Unit) {
     val context = LocalContext.current

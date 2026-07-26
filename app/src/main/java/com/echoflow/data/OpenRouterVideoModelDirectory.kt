@@ -46,7 +46,9 @@ data class OpenRouterVideoModelInfo(
                 null -> null
             },
         ).joinToString(", ")
-        return "~$" + String.format("%.2f", price.usdPerSecond) + "/sec" +
+        // Locale-fixed: the figure is quoted in USD alongside a "$", so a locale that swaps
+        // in a decimal comma would read as a different currency convention entirely.
+        return "~$" + String.format(java.util.Locale.US, "%.2f", price.usdPerSecond) + "/sec" +
             if (qualifier.isEmpty()) "" else " $qualifier"
     }
 
