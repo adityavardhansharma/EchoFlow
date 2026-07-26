@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -114,7 +115,7 @@ private val SettledMaxHeight = 420.dp
  *                dots still dancing. The unhurried "something finished" beat.
  *   Revealing  — the scanline sweeps down: image unmasked above the line, dots dissolving
  *                as it passes them, then a small spring settle.
- *   Settled    — plain image with save/share and the fullscreen viewer. Persisted chats
+ *   Settled    — plain image with copy/save/share and the fullscreen viewer. Persisted chats
  *                ([animate] = false) start here directly with zero motion.
  */
 @Composable
@@ -123,6 +124,7 @@ fun GeneratedImageSegment(
     pattern: String,
     previousImagePath: String?,
     animate: Boolean,
+    onCopy: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -257,30 +259,55 @@ fun GeneratedImageSegment(
         AnimatedVisibility(visible = settled, enter = fadeIn()) {
             Column {
                 Spacer(Modifier.height(Spacing.xs))
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    FilledTonalIconButton(
-                        onClick = {
-                            filePath ?: return@FilledTonalIconButton
+                GeneratedImageActions(
+                    onCopy = onCopy,
+                    onDownload = {
+                        filePath?.let { path ->
                             scope.launch {
-                                val ok = withContext(Dispatchers.IO) { saveGeneratedImageToGallery(context, filePath) != null }
+                                val ok = withContext(Dispatchers.IO) { saveGeneratedImageToGallery(context, path) != null }
                                 Toast.makeText(context, if (ok) "Saved to Pictures/EchoFlow" else "Couldn't save the image", Toast.LENGTH_SHORT).show()
                             }
-                        },
-                        modifier = Modifier.size(32.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    ) { Icon(Icons.Default.Download, "Save to gallery", Modifier.size(16.dp)) }
-                    FilledTonalIconButton(
-                        onClick = { filePath?.let { scope.launch { shareGeneratedImage(context, it) } } },
-                        modifier = Modifier.size(32.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    ) { Icon(Icons.Default.Share, "Share", Modifier.size(16.dp)) }
-                }
+                        }
+                    },
+                    onShare = { filePath?.let { scope.launch { shareGeneratedImage(context, it) } } },
+                )
             }
         }
     }
 
     if (viewerOpen && filePath != null) {
         GeneratedImageViewer(filePath = filePath, onDismiss = { viewerOpen = false })
+    }
+}
+
+@Composable
+internal fun GeneratedImageActions(
+    onCopy: (() -> Unit)?,
+    onDownload: () -> Unit,
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+    ) {
+        onCopy?.let { copy ->
+            FilledTonalIconButton(
+                onClick = copy,
+                modifier = Modifier.size(48.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(20.dp)) }
+        }
+        FilledTonalIconButton(
+            onClick = onDownload,
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) { Icon(Icons.Default.Download, "Save to gallery", Modifier.size(20.dp)) }
+        FilledTonalIconButton(
+            onClick = onShare,
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) { Icon(Icons.Default.Share, "Share", Modifier.size(20.dp)) }
     }
 }
 
