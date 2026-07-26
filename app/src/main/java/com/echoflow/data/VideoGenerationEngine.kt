@@ -46,6 +46,42 @@ class OpenRouterVideoGenerationEngine(
 ) {
 
     fun generate(request: VideoGenerationRequest): Flow<VideoGenerationEvent> = flow {
+        stopIfJobRemoved { runGeneration(request) }
+    }
+
+    /**
+     * Picks a job back up from its stored handle — used on a cold start, after the process was
+     * killed mid-render. A job with no provider handle never reached OpenRouter and is failed
+     * outright rather than left waiting forever.
+     */
+    fun resume(video: GeneratedVideo, apiKey: String): Flow<VideoGenerationEvent> = flow {
+        stopIfJobRemoved {
+            if (video.jobId == null || video.pollingUrl == null) {
+                store.markFailed(
+                    video, GeneratedVideo.STATUS_FAILED, "The generation was interrupted before it started.",
+                )
+                return@stopIfJobRemoved
+            }
+            emit(VideoGenerationEvent.Progress(video, 0L))
+            awaitAndDownload(video, apiKey, startedAt = video.createdAt)
+        }
+    }
+
+    /**
+     * Ends a run quietly when its row disappears mid-render — the user deleted the
+     * conversation, so there is no failure to report and nowhere left to report it. Wrapping
+     * the whole run rather than individual writes means every store call is covered, including
+     * the ones inside error handling. Every other exception still propagates.
+     */
+    private suspend inline fun stopIfJobRemoved(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: VideoGenerationException.JobRemoved) {
+            return
+        }
+    }
+
+    private suspend fun FlowCollector<VideoGenerationEvent>.runGeneration(request: VideoGenerationRequest) {
         // Capabilities are per-model and an unsupported value is a hard 400, so reconcile the
         // user's framing preferences first. A directory outage is not fatal: the preferences
         // are simply dropped and the provider's own defaults apply.
@@ -90,20 +126,6 @@ class OpenRouterVideoGenerationEngine(
     }
 
     /**
-     * Picks a job back up from its stored handle — used on a cold start, after the process was
-     * killed mid-render. A job with no provider handle never reached OpenRouter and is failed
-     * outright rather than left waiting forever.
-     */
-    fun resume(video: GeneratedVideo, apiKey: String): Flow<VideoGenerationEvent> = flow {
-        if (video.jobId == null || video.pollingUrl == null) {
-            store.markFailed(video, GeneratedVideo.STATUS_FAILED, "The generation was interrupted before it started.")
-            return@flow
-        }
-        emit(VideoGenerationEvent.Progress(video, 0L))
-        awaitAndDownload(video, apiKey, startedAt = video.createdAt)
-    }
-
-    /**
      * Polls until the job reaches a terminal state, then streams the MP4 to disk. The interval
      * ramps from [FIRST_POLL_MS] to [MAX_POLL_MS]: clips rarely land in under half a minute,
      * so a tight loop would only burn battery and rate limit for no earlier result.
@@ -127,7 +149,7 @@ class OpenRouterVideoGenerationEngine(
             delay(interval)
             interval = (interval * 2).coerceAtMost(MAX_POLL_MS)
 
-            val state = service.poll(apiKey, video.pollingUrl!!)
+            val state = service.poll(apiKey, video.pollingUrl!!, video.jobId!!)
             if (state.status != video.status) {
                 video = store.markStatus(video, state.status)
                 emit(VideoGenerationEvent.Progress(video, System.currentTimeMillis() - startedAt))

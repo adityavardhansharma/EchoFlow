@@ -4,6 +4,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -35,6 +36,12 @@ sealed class VideoGenerationException(message: String, cause: Throwable? = null)
     class SubmitFailed(message: String, cause: Throwable? = null) : VideoGenerationException(message, cause)
     class GenerationFailed(message: String, cause: Throwable? = null) : VideoGenerationException(message, cause)
     class DownloadFailed(message: String, cause: Throwable? = null) : VideoGenerationException(message, cause)
+
+    /**
+     * The job's row is gone — its conversation was deleted while the clip was rendering.
+     * Distinct from a failure because nothing went wrong and there is no one left to tell.
+     */
+    class JobRemoved : VideoGenerationException("The video's conversation was deleted.")
 }
 
 /**
@@ -119,17 +126,22 @@ class OpenRouterVideoService {
                 ?: throw VideoGenerationException.SubmitFailed("OpenRouter did not return a video job id.")
             VideoJobHandle(
                 id = id,
-                // A job is always pollable at its canonical URL; the returned one is preferred
-                // because OpenRouter may route a job to a provider-specific host.
-                pollingUrl = (map["polling_url"] as? String)?.takeIf { it.isNotBlank() } ?: "$BASE_URL/videos/$id",
+                pollingUrl = trustedPollingUrl(map["polling_url"] as? String, id),
                 status = (map["status"] as? String) ?: GeneratedVideo.STATUS_PENDING,
             )
         }
     }
 
-    /** One status check. Non-terminal statuses simply mean "keep waiting". */
-    suspend fun poll(apiKey: String, pollingUrl: String): VideoJobState = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(pollingUrl).headers(authHeaders(apiKey)).get().build()
+    /**
+     * One status check. Non-terminal statuses simply mean "keep waiting".
+     *
+     * [pollingUrl] is re-checked against the trusted origin on every call rather than only
+     * where it was first received: it is persisted between launches, so trusting the stored
+     * value would leave the bearer token one bad row away from a foreign host.
+     */
+    suspend fun poll(apiKey: String, pollingUrl: String, jobId: String): VideoJobState = withContext(Dispatchers.IO) {
+        val url = trustedPollingUrl(pollingUrl, jobId)
+        val request = Request.Builder().url(url).headers(authHeaders(apiKey)).get().build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
@@ -200,8 +212,27 @@ class OpenRouterVideoService {
         else -> ProviderHttpSupport.errorMessage("OpenRouter", code, body)
     }
 
-    private companion object {
-        const val BASE_URL = "https://openrouter.ai/api/v1"
-        val JSON_MEDIA_TYPE = "application/json".toMediaType()
+    companion object {
+        private const val API_HOST = "openrouter.ai"
+        private const val BASE_URL = "https://$API_HOST/api/v1"
+        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /**
+         * The only place the bearer token is allowed to go. `polling_url` is an absolute URL
+         * chosen by the response body, so forwarding it unchecked would turn any tampered,
+         * proxied or compromised response into a credential exfiltration path — the request
+         * carries the user's OpenRouter key.
+         *
+         * Anything that is not HTTPS on openrouter.ai (or a subdomain of it) is discarded in
+         * favour of the canonical job URL, which is always pollable anyway. Downgrading rather
+         * than failing keeps a legitimate response-shape change from breaking generation.
+         */
+        internal fun trustedPollingUrl(candidate: String?, jobId: String): String {
+            val url = candidate?.trim()?.takeIf { it.isNotEmpty() }?.toHttpUrlOrNull()
+            val trusted = url != null &&
+                url.scheme == "https" &&
+                (url.host == API_HOST || url.host.endsWith(".$API_HOST"))
+            return if (trusted) url.toString() else "$BASE_URL/videos/$jobId"
+        }
     }
 }
