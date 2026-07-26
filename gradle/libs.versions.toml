@@ -25,6 +25,9 @@ kotlinxCoroutinesTest = "1.10.2"
 core = "1.6.1"
 runner = "1.6.2"
 coilCompose = "2.7.0"
+# Playback for generated video clips. media3-ui-compose gives a Compose-native surface, so the
+# player wears EchoFlow's own controls instead of PlayerView's stock chrome.
+media3 = "1.10.1"
 retrofit = "2.12.0"
 converterMoshi = "2.12.0"
 kotlinxCoroutinesAndroid = "1.10.2"
@@ -97,6 +100,8 @@ latex-renderer = { group = "io.github.huarangmeng", name = "latex-renderer", ver
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coilCompose" }
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-ui-compose = { group = "androidx.media3", name = "media3-ui-compose", version.ref = "media3" }
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "converterMoshi" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }

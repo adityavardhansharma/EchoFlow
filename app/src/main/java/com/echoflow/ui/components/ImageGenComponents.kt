@@ -315,9 +315,12 @@ internal fun GeneratedImageActions(
  * The 21×21 dot field. All color comes from the Material scheme (dynamic color + dark mode
  * adaptive). [revealFraction] is read lazily in the draw phase: dots above the scanline are
  * gone, dots below it fade as the sweep approaches the bottom.
+ *
+ * Shared with video generation, which runs the same generating → stretch → reveal
+ * choreography onto a clip's aspect ratio.
  */
 @Composable
-private fun DotFieldCanvas(
+internal fun DotFieldCanvas(
     pattern: String,
     revealFraction: () -> Float,
     stretchFraction: () -> Float = { 0f },
@@ -400,19 +403,23 @@ private fun DotFieldCanvas(
     }
 }
 
-/** Shuffled-deck status phrases: no repeats until all 100 have been shown. */
+/** Shuffled-deck status phrases: no repeats until the whole pool has been shown. */
 @Composable
-private fun GeneratingPhraseLine(modifier: Modifier = Modifier) {
-    val deck = remember { PhraseDeck() }
-    var phrase by remember { mutableStateOf(ImageGenPhrases.ALL.first()) }
-    LaunchedEffect(Unit) {
+internal fun GeneratingPhraseLine(
+    phrases: List<String> = ImageGenPhrases.ALL,
+    intervalMs: Long = 2800,
+    modifier: Modifier = Modifier,
+) {
+    val deck = remember(phrases) { PhraseDeck(phrases) }
+    var phrase by remember(phrases) { mutableStateOf(phrases.first()) }
+    LaunchedEffect(phrases) {
         phrase = deck.next()
         while (true) {
-            delay(2800)
+            delay(intervalMs)
             phrase = deck.next()
         }
     }
-    Crossfade(targetState = phrase, label = "image-gen-phrase") { current ->
+    Crossfade(targetState = phrase, label = "generating-phrase") { current ->
         Text(
             current,
             style = MaterialTheme.typography.labelMedium,
