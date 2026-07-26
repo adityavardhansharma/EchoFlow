@@ -65,4 +65,27 @@ class SettingsRepositoryCharacterizationTest {
 
         assertEquals("openrouter", repository.getWebSearchProviderDirect())
     }
+
+    @Test
+    fun xAiProviderSettingsRoundTripThroughARecreatedRepository() {
+        val repository = SettingsRepository(context)
+        repository.saveCustomProviderConfig(
+            repository.getCustomProviderConfigDirect().copy(
+                cloudApisEnabled = true,
+                xAiEnabled = true,
+                xAiApiKey = "  xai-test-key  ",
+                xAiModel = "  grok-4.5  ",
+                xAiModels = "grok-4.5\ngrok-4.20",
+                xAiSelectedModels = "grok-4.5",
+            )
+        )
+
+        val restored = SettingsRepository(context).getCustomProviderConfigDirect()
+        assertTrue(restored.cloudApisEnabled)
+        assertTrue(restored.xAiEnabled)
+        assertEquals("xai-test-key", restored.xAiApiKey)
+        assertEquals("grok-4.5", restored.xAiModel)
+        assertEquals("grok-4.5\ngrok-4.20", restored.xAiModels)
+        assertEquals("grok-4.5", restored.xAiSelectedModels)
+    }
 }
