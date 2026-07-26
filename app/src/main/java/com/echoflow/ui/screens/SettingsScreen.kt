@@ -159,6 +159,7 @@ internal const val PageCustomProviderOpenAi = "custom_provider_openai"
 internal const val PageCustomProviderClaude = "custom_provider_claude"
 internal const val PageCustomProviderGemini = "custom_provider_gemini"
 internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
+internal const val PageCustomProviderXAi = "custom_provider_xai"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal val CustomProviderSectionGap = 28.dp
@@ -225,6 +226,7 @@ fun SettingsScreen(
             PageCustomProviderClaude -> DirectCloudBrandPage(viewModel, CustomModelProvider.Claude, onBack = { page = PageCustomProviderCloud })
             PageCustomProviderGemini -> DirectCloudBrandPage(viewModel, CustomModelProvider.Gemini, onBack = { page = PageCustomProviderCloud })
             PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = { page = PageCustomProviderCloud })
+            PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = { page = PageCustomProviderCloud })
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = { page = PageCustomProvider })
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = { page = PageCustomProvider })
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })

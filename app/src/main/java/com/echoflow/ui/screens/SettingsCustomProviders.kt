@@ -266,7 +266,7 @@ internal fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String
                 icon = Icons.Default.Language,
                 polygon = MaterialShapes.Gem,
                 title = "Direct Cloud APIs",
-                subtitle = endpointSubtitle(config.cloudApisEnabled, "OpenAI · Claude · Gemini · Cerebras"),
+                subtitle = endpointSubtitle(config.cloudApisEnabled, "OpenAI · Claude · Gemini · Cerebras · xAI"),
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
                 index = 0,
@@ -302,6 +302,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Claude to PageCustomProviderClaude,
         CustomModelProvider.Gemini to PageCustomProviderGemini,
         CustomModelProvider.Cerebras to PageCustomProviderCerebras,
+        CustomModelProvider.XAi to PageCustomProviderXAi,
     )
 
     SettingsPageScaffold(title = "Direct Cloud APIs", subtitle = "Brand keys and model lists", onBack = onBack) {

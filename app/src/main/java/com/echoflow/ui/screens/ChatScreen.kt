@@ -225,6 +225,8 @@ fun ChatScreen(
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
+                CustomProviderCapabilities.xAiSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_XAI))
             else -> true
         }
     }

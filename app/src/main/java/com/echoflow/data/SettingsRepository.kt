@@ -363,6 +363,11 @@ class SettingsRepository(context: Context) {
             cerebrasModel = prefs.getString("direct_cerebras_model", "").orEmpty(),
             cerebrasModels = prefs.getString("direct_cerebras_models", "").orEmpty(),
             cerebrasSelectedModels = prefs.getString("direct_cerebras_selected_models", "").orEmpty(),
+            xAiEnabled = prefs.getBoolean("direct_xai_enabled", false),
+            xAiApiKey = prefs.getString("direct_xai_api_key", "").orEmpty(),
+            xAiModel = prefs.getString("direct_xai_model", "").orEmpty(),
+            xAiModels = prefs.getString("direct_xai_models", "").orEmpty(),
+            xAiSelectedModels = prefs.getString("direct_xai_selected_models", "").orEmpty(),
             ollamaBaseUrl = prefs.getString("ollama_base_url", "http://localhost:11434").orEmpty(),
             ollamaModel = prefs.getString("ollama_model", "").orEmpty(),
             ollamaModels = prefs.getString("ollama_models", "").orEmpty(),
@@ -390,6 +395,8 @@ class SettingsRepository(context: Context) {
             geminiModel = config.geminiModel.trim(),
             cerebrasApiKey = config.cerebrasApiKey.trim(),
             cerebrasModel = config.cerebrasModel.trim(),
+            xAiApiKey = config.xAiApiKey.trim(),
+            xAiModel = config.xAiModel.trim(),
             ollamaBaseUrl = config.ollamaBaseUrl.trim(),
             ollamaModel = config.ollamaModel.trim(),
             openAiBaseUrl = config.openAiBaseUrl.trim(),
@@ -420,6 +427,11 @@ class SettingsRepository(context: Context) {
             .putString("direct_cerebras_model", clean.cerebrasModel)
             .putString("direct_cerebras_models", clean.cerebrasModels)
             .putString("direct_cerebras_selected_models", clean.cerebrasSelectedModels)
+            .putBoolean("direct_xai_enabled", clean.xAiEnabled)
+            .putString("direct_xai_api_key", clean.xAiApiKey)
+            .putString("direct_xai_model", clean.xAiModel)
+            .putString("direct_xai_models", clean.xAiModels)
+            .putString("direct_xai_selected_models", clean.xAiSelectedModels)
             .putString("ollama_base_url", clean.ollamaBaseUrl)
             .putString("ollama_model", clean.ollamaModel)
             .putString("ollama_models", clean.ollamaModels)

@@ -1,0 +1,11 @@
+<!-- xAI / Grok monochrome logomark. White so it sits on the provider's dark brand chip. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M6.469,8.776 L16.512,23 H12.048 L2.005,8.776 H6.469 Z M6.465,16.676 L8.698,19.84 L6.467,23 H2 L6.465,16.676 Z M22,2.582 V23 H18.341 V7.764 L22,2.582 Z M22,1 L12.048,15.095 L9.815,11.932 L17.533,1 H22 Z" />
+</vector>
