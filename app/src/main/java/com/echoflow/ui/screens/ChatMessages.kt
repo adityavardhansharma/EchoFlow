@@ -421,6 +421,9 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
             // reason → search → reason → search → answer keeps exactly the layout it
             // streamed with instead of merging all reasoning into one block.
             val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
+            val lastGeneratedImageIndex = persistedSegments.indexOfLast { segment ->
+                segment.type == "image" && segment.image != null
+            }
 
             message.localAttachmentUri?.let { uri ->
                 MessageAttachmentPreview(
@@ -509,6 +512,7 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                                         pattern = "ripple",
                                         previousImagePath = null,
                                         animate = false,
+                                        onCopy = onCopy.takeIf { index == lastGeneratedImageIndex },
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
@@ -559,7 +563,7 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                 }
             }
 
-            if (!streaming) {
+            if (!streaming && lastGeneratedImageIndex == -1) {
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalIconButton(
                     onClick = onCopy,
