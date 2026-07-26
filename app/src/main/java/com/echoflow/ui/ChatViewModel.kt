@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -258,6 +259,12 @@ class ChatViewModel(
     /** Guards against a second resume pass doubling up on a job already being polled. */
     private val resumingVideoIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
+    /**
+     * Resumed video jobs, by chat. These run outside [streamJobs] because they belong to no
+     * live turn, so deleting a conversation has to be able to find and stop them too.
+     */
+    private val videoResumeJobs = mutableMapOf<String, MutableSet<Job>>()
+
     init {
         viewModelScope.launch { resumeInterruptedVideos() }
     }
@@ -287,7 +294,7 @@ class ChatViewModel(
                 return@forEach
             }
             ensureVideoMessage(video)
-            viewModelScope.launch {
+            val job = viewModelScope.launch {
                 KeepAliveService.acquire(getApplication(), "Finishing a video…")
                 try {
                     videoEngine.resume(video, apiKey).collect { /* the row is the UI's source */ }
@@ -301,6 +308,15 @@ class ChatViewModel(
                 } finally {
                     KeepAliveService.release(getApplication())
                     resumingVideoIds.remove(video.id)
+                }
+            }
+            // Tracked so deleting the conversation can stop it — without this the resume
+            // keeps polling and writing against rows that have already cascaded away.
+            videoResumeJobs.getOrPut(video.chatId) { mutableSetOf() }.add(job)
+            job.invokeOnCompletion {
+                videoResumeJobs[video.chatId]?.let { jobs ->
+                    jobs.remove(job)
+                    if (jobs.isEmpty()) videoResumeJobs.remove(video.chatId)
                 }
             }
         }
@@ -575,6 +591,10 @@ class ChatViewModel(
 
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch {
+            // Stop anything still writing for this chat and WAIT for it. A video render keeps
+            // running for minutes and would otherwise carry on past the cascade — writing rows
+            // against a chat that no longer exists, and landing an MP4 that nothing points at.
+            cancelWorkForChat(thread.id)
             // Media files live outside Room; remove them while their rows (and paths) still exist.
             generatedImageStore.deleteFilesForChat(thread.id)
             generatedVideoStore.deleteFilesForChat(thread.id)
@@ -583,6 +603,16 @@ class ChatViewModel(
                 selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
             }
         }
+    }
+
+    /**
+     * Cancels the chat's in-flight stream and any video jobs resumed outside it, then joins
+     * them so the caller can safely delete rows and files afterwards. Cancellation alone is
+     * not enough: a coroutine is only stopped once it has actually unwound.
+     */
+    private suspend fun cancelWorkForChat(chatId: String) {
+        streamJobs.remove(chatId)?.cancelAndJoin()
+        videoResumeJobs.remove(chatId)?.forEach { it.cancelAndJoin() }
     }
 
     fun renameThread(thread: ChatThread, newTitle: String) {

@@ -67,25 +67,31 @@ class GeneratedVideoStore(
         videosDir.mkdirs()
         val finalFile = File(videosDir, "${video.id}.mp4")
         val tempFile = File(videosDir, "${video.id}.mp4.tmp")
+        // The row write is inside the guarded block, not after it: if the job disappears (or
+        // the coroutine is cancelled) between the rename and the update, an unguarded write
+        // would leave a finished MP4 on disk that no row points at and no cleanup can find.
         try {
             tempFile.outputStream().use { out -> body.use { it.copyTo(out) } }
             if (tempFile.length() == 0L) throw Exception("The downloaded video was empty.")
+            // A multi-megabyte download can still be in flight when the user deletes the
+            // conversation and its rows cascade away.
+            requireJobStillExists(video)
             if (!tempFile.renameTo(finalFile)) {
                 tempFile.copyTo(finalFile, overwrite = true)
                 tempFile.delete()
             }
+            update(
+                video.copy(
+                    filePath = finalFile.absolutePath,
+                    status = GeneratedVideo.STATUS_COMPLETED,
+                    error = null,
+                )
+            )
         } catch (e: Exception) {
             tempFile.delete()
             finalFile.delete()
             throw e
         }
-        update(
-            video.copy(
-                filePath = finalFile.absolutePath,
-                status = GeneratedVideo.STATUS_COMPLETED,
-                error = null,
-            )
-        )
     }
 
     /** The newest playable clip in this chat — what a follow-up turn continues from. */
@@ -103,16 +109,33 @@ class GeneratedVideoStore(
      * Removes this chat's video files from disk. Must run BEFORE the chat thread row is
      * deleted — the generated_videos rows cascade away with it, and MP4s are large enough
      * that orphaning them would visibly grow app storage.
+     *
+     * Files are located by row id rather than only by the recorded path, so a download that a
+     * process kill left half-written is swept up too: its row never got a filePath, but the
+     * partial file is named after the job and would otherwise sit there forever.
      */
     suspend fun deleteFilesForChat(chatId: String) = withContext(Dispatchers.IO) {
         dao.getForChat(chatId).forEach { video ->
             video.filePath?.let { path -> runCatching { File(path).delete() } }
+            runCatching { File(videosDir, "${video.id}.mp4").delete() }
+            runCatching { File(videosDir, "${video.id}.mp4.tmp").delete() }
         }
     }
 
     private suspend fun update(video: GeneratedVideo): GeneratedVideo {
+        requireJobStillExists(video)
         val updated = video.copy(updatedAt = System.currentTimeMillis())
         dao.upsert(updated)
         return updated
+    }
+
+    /**
+     * Every write after [createJob] is an update to a row that may no longer exist: deleting a
+     * conversation cascades its video rows away while the render is still running. The DAO
+     * upsert would happily re-insert one, either failing the foreign key or resurrecting a job
+     * pointing at a dead chat — so the caller is told to stop instead.
+     */
+    private suspend fun requireJobStillExists(video: GeneratedVideo) {
+        if (dao.getById(video.id) == null) throw VideoGenerationException.JobRemoved()
     }
 }

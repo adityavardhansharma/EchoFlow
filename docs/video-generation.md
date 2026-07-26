@@ -38,6 +38,26 @@ truth whether the clip finished a second ago or while the app was closed.
 If a turn is killed before it can persist a message at all, the resume pass inserts the card
 itself — otherwise the finished clip would have nothing in the conversation pointing at it.
 
+### Deleting a chat has to stop the render first
+
+A render outlives the turn that started it, so `deleteThread` cannot just remove rows. It
+cancels the chat's stream job **and** any resumed video jobs, and *joins* them — cancellation
+alone is not enough, since a coroutine is only stopped once it has unwound. Only then are
+files removed and the thread deleted.
+
+The store defends the same boundary independently, because cancellation always has a window:
+
+- Every write after `createJob` checks the row still exists. The DAO's `REPLACE` strategy
+  would otherwise re-insert a job pointing at a deleted chat.
+- `completeWithDownload` re-checks after the download and does the row write *inside* the
+  guarded block, so a job that disappears between the rename and the update cannot leave a
+  finished MP4 that nothing points at.
+- `deleteFilesForChat` sweeps by row id, not only by recorded path, catching half-written
+  `.tmp` files from a killed download that never got a `filePath`.
+
+`VideoGenerationException.JobRemoved` ends the run quietly — the conversation is gone, so
+there is no failure to report and nowhere to report it.
+
 ### Length is the model's call
 
 EchoFlow never sends `duration`. Models publish discrete supported lengths (Veo offers 4, 6
@@ -59,6 +79,19 @@ against the selected model's declared capabilities before anything is sent:
 
 The settings page disables unsupported chips rather than hiding them, so the page does not
 rearrange itself every time the model changes.
+
+## The API key only goes to OpenRouter
+
+`polling_url` is an **absolute URL supplied by the response body**, and the request that uses
+it carries the user's bearer token. Forwarding it unchecked would turn any tampered, proxied
+or compromised response into a credential exfiltration path.
+
+`OpenRouterVideoService.trustedPollingUrl` accepts only HTTPS on `openrouter.ai` or a
+subdomain of it, and falls back to the canonical `/videos/{id}` URL otherwise — a downgrade
+rather than a hard failure, so a legitimate response-shape change cannot break generation.
+The check runs on **every poll**, not just where the URL is first received: it is persisted
+across launches, and trusting the stored value would leave the token one bad row away from a
+foreign host.
 
 ## Pricing
 

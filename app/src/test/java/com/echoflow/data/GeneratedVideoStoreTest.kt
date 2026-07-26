@@ -101,6 +101,60 @@ class GeneratedVideoStoreTest {
         assertNull(database.generatedVideoDao().getById(submitted.id)?.filePath)
     }
 
+    @Test fun `a job whose chat was deleted mid-download leaves no orphan MP4`() = runBlocking {
+        val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
+        val submitted = store.markSubmitted(job, "job-42", "https://openrouter.ai/api/v1/videos/job-42")
+
+        // The conversation goes away while the download is in flight; the row cascades with it.
+        database.chatDao().deleteThread(ChatThread("chat-1", "Chat", 1L, 1L))
+        assertNull(database.generatedVideoDao().getById(submitted.id))
+
+        try {
+            store.completeWithDownload(submitted, ByteArrayInputStream(ByteArray(4096)))
+            throw AssertionError("Expected the removed job to be refused")
+        } catch (_: VideoGenerationException.JobRemoved) {
+            // Expected — the clip has nowhere to belong.
+        }
+
+        // Neither the finished file nor a temp file may survive, and the row must not come back.
+        assertTrue(File(context.filesDir, "generated_videos").listFiles().orEmpty().isEmpty())
+        assertNull(database.generatedVideoDao().getById(submitted.id))
+    }
+
+    @Test fun `status writes never resurrect a job whose chat was deleted`() = runBlocking {
+        val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
+        val submitted = store.markSubmitted(job, "job-42", "https://openrouter.ai/api/v1/videos/job-42")
+        database.chatDao().deleteThread(ChatThread("chat-1", "Chat", 1L, 1L))
+
+        // Both a progress update and a failure update would otherwise re-insert the row via
+        // the DAO's REPLACE strategy, pointing at a chat that no longer exists.
+        try {
+            store.markStatus(submitted, GeneratedVideo.STATUS_IN_PROGRESS)
+            throw AssertionError("Expected the removed job to be refused")
+        } catch (_: VideoGenerationException.JobRemoved) {
+        }
+        try {
+            store.markFailed(submitted, GeneratedVideo.STATUS_FAILED, "boom")
+            throw AssertionError("Expected the removed job to be refused")
+        } catch (_: VideoGenerationException.JobRemoved) {
+        }
+
+        assertNull(database.generatedVideoDao().getById(submitted.id))
+        assertTrue(store.unfinished().isEmpty())
+    }
+
+    @Test fun `deleting a chat sweeps partial downloads, not just recorded paths`() = runBlocking {
+        val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
+        // A process kill can leave a half-written temp file behind: the row never got a
+        // filePath, so path-based cleanup alone would never find it.
+        val dir = File(context.filesDir, "generated_videos").apply { mkdirs() }
+        val partial = File(dir, "${job.id}.mp4.tmp").apply { writeBytes(ByteArray(32)) }
+
+        store.deleteFilesForChat("chat-1")
+
+        assertFalse(partial.exists())
+    }
+
     @Test fun `deleting a chat's files removes the MP4s before the rows cascade away`() = runBlocking {
         val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
         val done = store.completeWithDownload(job, ByteArrayInputStream(ByteArray(16)))
