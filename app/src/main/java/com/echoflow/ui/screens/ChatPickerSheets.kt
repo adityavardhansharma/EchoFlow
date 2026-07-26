@@ -466,6 +466,7 @@ internal fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal:
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) -> "Direct Claude API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GEMINI) -> "Direct Gemini API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) -> "Direct Cerebras API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) -> "Direct xAI API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> "Ollama API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "OpenAI-compatible API"
         isLocal -> "Runs on this device — private & offline"

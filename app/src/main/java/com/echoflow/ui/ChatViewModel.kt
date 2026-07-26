@@ -565,6 +565,7 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
                 else -> null
@@ -575,6 +576,7 @@ class ChatViewModel(
                 "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
                 "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
                 "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
+                "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
                 else -> selectedModel
@@ -636,7 +638,7 @@ class ChatViewModel(
             }
 
             val customImageAllowed = when (customProvider) {
-                "openai", "claude", "gemini" -> true
+                "openai", "claude", "gemini", "xai" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
@@ -645,6 +647,7 @@ class ChatViewModel(
             val customPdfAllowed = when (customProvider) {
                 "openai", "claude", "gemini" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
+                "xai" -> CustomProviderCapabilities.xAiSupportsPdfs(requestModel)
                 "ollama" -> customProviderConfig.ollamaPdfsEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
                 else -> false
@@ -696,7 +699,7 @@ class ChatViewModel(
                 when (customProvider) {
                     "ollama" -> customProviderConfig.ollamaToolCallingEnabled
                     "openai-compatible" -> customProviderConfig.openAiCompatibleToolCallingEnabled
-                    else -> true // OpenAI / Claude / Gemini / Cerebras
+                    else -> true // OpenAI / Claude / Gemini / Cerebras / xAI
                 }
 
             // Echo Adviser / Echo Fusion: OpenRouter-only modes. Resolve the active profile/panel
