@@ -96,6 +96,31 @@ sealed class StreamChunk {
         val filePath: String? = null,
         val imageId: String? = null,
     ) : StreamChunk()
+
+    // ── Video generation (OpenRouter async job API) ──────────────────────────────────
+    /**
+     * A video-mode turn is in flight — the placeholder card shows immediately. [videoId] is
+     * the durable job row, known before the provider is even called, so the card survives a
+     * process death and can pick the run back up. [aspectRatio] is what the placeholder
+     * expands to once the clip lands.
+     */
+    data class VideoGenStarted(
+        val videoId: String,
+        val pattern: String,
+        val aspectRatio: String,
+    ) : StreamChunk()
+
+    /** The job moved to a new non-terminal state ("in_progress", "downloading", …). */
+    data class VideoGenProgress(
+        val videoId: String,
+        val status: String,
+    ) : StreamChunk()
+
+    /** The clip finished and the MP4 is on disk at [filePath]. */
+    data class VideoGenerated(
+        val videoId: String,
+        val filePath: String,
+    ) : StreamChunk()
 }
 
 // ── Echo Adviser / Echo Fusion result records ──────────────────────────────────────
@@ -189,12 +214,23 @@ data class ImageRef(
 )
 
 /**
+ * A reference to a persisted [com.echoflow.data.GeneratedVideo], embedded in a reply's
+ * timeline. Unlike [ImageRef] this stores the row id rather than only a path: a video row can
+ * still be mid-render when the message is written, so the renderer resolves the current state
+ * (and file) from the database rather than trusting a snapshot.
+ */
+data class VideoRef(
+    val videoId: String,
+    val filePath: String? = null,
+)
+
+/**
  * One block of a finished reply, persisted in arrival order so the rendered timeline
  * (reason → search → reason → search → answer) survives exactly as it streamed instead
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "image" | "stopped"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "image" | "video" | "stopped"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,
@@ -202,7 +238,8 @@ data class PersistedSegment(
     val fusion: FusionAnalysis? = null, // present when type == "fusion"
     val subagent: SubagentResult? = null, // present when type == "subagent"
     val artifact: ArtifactRef? = null, // present when type == "artifact"
-    val image: ImageRef? = null // present when type == "image"
+    val image: ImageRef? = null, // present when type == "image"
+    val video: VideoRef? = null // present when type == "video"
 )
 
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */

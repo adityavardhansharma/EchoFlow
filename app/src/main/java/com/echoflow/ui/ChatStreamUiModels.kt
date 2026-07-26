@@ -82,4 +82,20 @@ sealed class StreamSegment {
         val previousImagePath: String?,
         val generating: Boolean,
     ) : StreamSegment()
+
+    /**
+     * A generated video in the assistant stream: the same dot-field placeholder as images
+     * while [generating], expanding to [aspectRatio] and revealing the player once
+     * [filePath] lands. [videoId] identifies the durable job row, so the card keeps working
+     * across a process death — and [status] is the job's live state, which is worth showing
+     * because a clip takes minutes rather than seconds.
+     */
+    data class Video(
+        val videoId: String,
+        val filePath: String?,
+        val pattern: String,
+        val aspectRatio: String,
+        val status: String,
+        val generating: Boolean,
+    ) : StreamSegment()
 }

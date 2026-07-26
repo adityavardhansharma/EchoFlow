@@ -18,7 +18,8 @@ internal object AssistantMessagePersistence {
         val hasDurableCard = normalized.any {
             it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
                 (it is StreamSegment.Artifact && it.artifactId != null) ||
-                (it is StreamSegment.Image && it.filePath != null)
+                (it is StreamSegment.Image && it.filePath != null) ||
+                it is StreamSegment.Video
         }
         if (content.isEmpty() && !hasDurableCard && !stopped) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
@@ -50,6 +51,9 @@ internal object AssistantMessagePersistence {
         is StreamSegment.Image -> segment.filePath?.let { path ->
             PersistedSegment("image", image = ImageRef(segment.imageId.orEmpty(), path))
         }
+        // Persisted even without a file: a video row may still be rendering when the message
+        // is written, and the id is what lets the card resolve its live state afterwards.
+        is StreamSegment.Video -> PersistedSegment("video", video = VideoRef(segment.videoId, segment.filePath))
         is StreamSegment.Text -> segment.text.trim().takeIf(String::isNotEmpty)?.let { PersistedSegment("text", text = it) }
         is StreamSegment.AgentRun -> null
     }
