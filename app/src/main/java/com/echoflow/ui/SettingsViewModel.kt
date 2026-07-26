@@ -338,6 +338,7 @@ class SettingsViewModel(
                     CustomModelProvider.Claude -> customProviderService.fetchModels(provider, apiKey = config.claudeApiKey)
                     CustomModelProvider.Gemini -> customProviderService.fetchModels(provider, apiKey = config.geminiApiKey)
                     CustomModelProvider.Cerebras -> customProviderService.fetchModels(provider, apiKey = config.cerebrasApiKey)
+                    CustomModelProvider.XAi -> customProviderService.fetchModels(provider, apiKey = config.xAiApiKey)
                     CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
                     CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
                         provider,
@@ -351,6 +352,7 @@ class SettingsViewModel(
                         CustomModelProvider.Claude -> config.copy(claudeModels = result.message)
                         CustomModelProvider.Gemini -> config.copy(geminiModels = result.message)
                         CustomModelProvider.Cerebras -> config.copy(cerebrasModels = result.message)
+                        CustomModelProvider.XAi -> config.copy(xAiModels = result.message)
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
                         CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
                     }

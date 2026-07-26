@@ -42,6 +42,11 @@ data class CustomProviderConfig(
     val cerebrasModel: String,
     val cerebrasModels: String,
     val cerebrasSelectedModels: String,
+    val xAiEnabled: Boolean,
+    val xAiApiKey: String,
+    val xAiModel: String,
+    val xAiModels: String,
+    val xAiSelectedModels: String,
     val ollamaBaseUrl: String,
     val ollamaModel: String,
     val ollamaModels: String,
@@ -63,6 +68,7 @@ data class CustomProviderConfig(
         const val PREFIX_CLAUDE = "custom/claude/"
         const val PREFIX_GEMINI = "custom/gemini/"
         const val PREFIX_CEREBRAS = "custom/cerebras/"
+        const val PREFIX_XAI = "custom/xai/"
         const val PREFIX_OLLAMA = "custom/ollama/"
         const val PREFIX_OPENAI_COMPATIBLE = "custom/openai-compatible/"
     }
@@ -75,7 +81,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, XAi, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     fun cerebrasSupportsImages(model: String): Boolean {
@@ -84,6 +90,8 @@ object CustomProviderCapabilities {
     }
 
     fun cerebrasSupportsPdfs(model: String): Boolean = false
+
+    fun xAiSupportsPdfs(model: String): Boolean = false
 }
 
 data class ProviderValidationResult(
@@ -408,6 +416,7 @@ class CustomProviderService(private val context: Context? = null) {
                 CustomModelProvider.Claude -> fetchClaudeModels(apiKey)
                 CustomModelProvider.Gemini -> fetchGeminiModels(apiKey)
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
+                CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
             }
