@@ -48,6 +48,35 @@ class ChatSegmentReducerTest {
         assertEquals(true, image.generating)
     }
 
+    @Test fun `video generation tracks its job through progress to the finished clip`() {
+        val segments = mutableListOf<StreamSegment>()
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenStarted("vid-1", "rain", "9:16"))
+        val pending = segments.single() as StreamSegment.Video
+        assertEquals("rain", pending.pattern)
+        assertEquals("9:16", pending.aspectRatio)
+        assertEquals(true, pending.generating)
+
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenProgress("vid-1", "in_progress"))
+        assertEquals("in_progress", (segments.single() as StreamSegment.Video).status)
+
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenerated("vid-1", "/clip.mp4"))
+        val resolved = segments.single() as StreamSegment.Video
+        assertFalse(resolved.generating)
+        assertEquals("/clip.mp4", resolved.filePath)
+        assertEquals("completed", resolved.status)
+    }
+
+    @Test fun `a video event for another job never touches this one's card`() {
+        // Two clips can be in flight across chats; matching on id rather than "the last
+        // pending card" is what keeps one job's completion from resolving the other's.
+        val segments = mutableListOf<StreamSegment>()
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenStarted("vid-1", "ripple", "16:9"))
+        ChatSegmentReducer.reduce(segments, StreamChunk.VideoGenerated("vid-other", "/wrong.mp4"))
+        val untouched = segments.single() as StreamSegment.Video
+        assertNull(untouched.filePath)
+        assertEquals(true, untouched.generating)
+    }
+
     @Test fun `real output removes transient agent banner`() {
         val segments = mutableListOf<StreamSegment>()
         assertNull(ChatSegmentReducer.reduce(segments, StreamChunk.AgentRunStarted))
