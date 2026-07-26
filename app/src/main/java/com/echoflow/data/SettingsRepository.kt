@@ -118,6 +118,20 @@ class SettingsRepository(context: Context) {
     private val _experimentalImageModelsEnabled = MutableStateFlow(getExperimentalImageModelsEnabledDirect())
     val experimentalImageModelsEnabled: StateFlow<Boolean> = _experimentalImageModelsEnabled.asStateFlow()
 
+    // Video generation: OpenRouter-only. Framing and audio are the user's; length is the
+    // model's — there is no duration preference here on purpose.
+    private val _videoGenModel = MutableStateFlow(getVideoGenModelDirect())
+    val videoGenModel: StateFlow<String> = _videoGenModel.asStateFlow()
+
+    private val _videoAspectRatio = MutableStateFlow(getVideoAspectRatioDirect())
+    val videoAspectRatio: StateFlow<String> = _videoAspectRatio.asStateFlow()
+
+    private val _videoResolution = MutableStateFlow(getVideoResolutionDirect())
+    val videoResolution: StateFlow<String> = _videoResolution.asStateFlow()
+
+    private val _videoAudioEnabled = MutableStateFlow(getVideoAudioEnabledDirect())
+    val videoAudioEnabled: StateFlow<Boolean> = _videoAudioEnabled.asStateFlow()
+
     // Echo Adviser / Echo Fusion: which saved profile/panel is currently active in chat.
     private val _echoAdviserProfileId = MutableStateFlow(getEchoAdviserProfileIdDirect())
     val echoAdviserProfileId: StateFlow<String> = _echoAdviserProfileId.asStateFlow()
@@ -625,6 +639,49 @@ class SettingsRepository(context: Context) {
         _experimentalImageModelsEnabled.value = enabled
     }
 
+    // ── Video generation ───────────────────────────────────────────────────────────────
+    // Cloud only: OpenRouter is the sole route. There is deliberately no duration setting —
+    // the model decides how long each clip runs.
+
+    fun getVideoGenModelDirect(): String =
+        prefs.getString("video_gen_model", DEFAULT_VIDEO_MODEL_ID).orEmpty()
+            .ifBlank { DEFAULT_VIDEO_MODEL_ID }
+
+    fun saveVideoGenModel(id: String) {
+        prefs.edit().putString("video_gen_model", id).apply()
+        _videoGenModel.value = id
+    }
+
+    fun getVideoAspectRatioDirect(): String =
+        prefs.getString("video_aspect_ratio", VideoRequestPolicy.DEFAULT_ASPECT_RATIO).orEmpty()
+            .takeIf { it in VideoRequestPolicy.ASPECT_RATIOS } ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
+
+    fun saveVideoAspectRatio(ratio: String) {
+        val clean = ratio.takeIf { it in VideoRequestPolicy.ASPECT_RATIOS }
+            ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
+        prefs.edit().putString("video_aspect_ratio", clean).apply()
+        _videoAspectRatio.value = clean
+    }
+
+    fun getVideoResolutionDirect(): String =
+        prefs.getString("video_resolution", VideoRequestPolicy.DEFAULT_RESOLUTION).orEmpty()
+            .takeIf { it in VideoRequestPolicy.RESOLUTIONS } ?: VideoRequestPolicy.DEFAULT_RESOLUTION
+
+    fun saveVideoResolution(resolution: String) {
+        val clean = resolution.takeIf { it in VideoRequestPolicy.RESOLUTIONS }
+            ?: VideoRequestPolicy.DEFAULT_RESOLUTION
+        prefs.edit().putString("video_resolution", clean).apply()
+        _videoResolution.value = clean
+    }
+
+    /** Audio roughly doubles the per-second price, so it starts off and is opt-in. */
+    fun getVideoAudioEnabledDirect(): Boolean = prefs.getBoolean("video_generate_audio", false)
+
+    fun saveVideoAudioEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("video_generate_audio", enabled).apply()
+        _videoAudioEnabled.value = enabled
+    }
+
     /** Minutes of inactivity before Browser Flow auto-stops the session (cost guard). 0 = off. */
     fun getBrowserIdleMinutesDirect(): Int =
         prefs.getInt("browser_idle_minutes", 3)
@@ -641,6 +698,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_EXPERIMENTAL_IMAGE_MODELS_ENABLED = "experimental_image_models_enabled"
         const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
+
+        /** Veo 3.1 Fast: good quality without the flagship's per-second price. */
+        const val DEFAULT_VIDEO_MODEL_ID = "google/veo-3.1-fast"
+        const val DEFAULT_VIDEO_MODEL_NAME = "Veo 3.1 Fast"
         const val IMAGE_ENGINE_OPENROUTER = "openrouter"
         const val IMAGE_ENGINE_LOCAL = "local"
         const val LOCAL_IMAGE_ITERATIONS_DEFAULT = 20

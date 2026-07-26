@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Psychology
@@ -147,6 +148,7 @@ internal const val PageWebSearch = "web_search"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
 internal const val PageImageGen = "image_gen"
+internal const val PageVideoGen = "video_gen"
 internal const val PageDataAgent = "data_agent"
 internal const val PageBrowserFlow = "browser_flow"
 internal const val PageEchoLabs = "echo_labs"
@@ -214,6 +216,7 @@ fun SettingsScreen(
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
             PageImageGen -> ImageGenPage(viewModel, onBack = { page = PageHome })
+            PageVideoGen -> VideoGenPage(viewModel, onBack = { page = PageHome })
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = { page = PageHome })
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageEchoLabs })
             PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageEchoLabs })
@@ -305,6 +308,17 @@ internal fun SettingsHomePage(
             ?: if (imageGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID) "Gemini 2.5 Flash Image"
             else imageGenModelId
     }
+    val videoGenModelId by viewModel.videoGenModelId.collectAsState()
+    val videoModelsHome by viewModel.videoModels.collectAsState()
+    val videoAspectRatioHome by viewModel.videoAspectRatio.collectAsState()
+    val videoResolutionHome by viewModel.videoResolution.collectAsState()
+    val videoModelName = videoModelsHome.firstOrNull { it.id == videoGenModelId }?.name
+        ?: if (videoGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_ID) {
+            com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
+        } else {
+            videoGenModelId
+        }
+    val videoGenSubtitle = "$videoModelName · $videoAspectRatioHome · $videoResolutionHome"
     val deepResearchSubtitle = when {
         deepResearchModelId.isBlank() -> "No engine selected"
         else -> DeepResearchCatalog.providerEngineById(deepResearchModelId)?.name
@@ -354,7 +368,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 7,
+                index = 0, count = 8,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -364,7 +378,7 @@ internal fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 7,
+                index = 1, count = 8,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -374,7 +388,7 @@ internal fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 7,
+                index = 2, count = 8,
                 onClick = { onOpen(PageLocalModels) },
             )
             SettingsNavRow(
@@ -384,7 +398,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 7,
+                index = 3, count = 8,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -394,7 +408,7 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 7,
+                index = 4, count = 8,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -404,8 +418,18 @@ internal fun SettingsHomePage(
                 subtitle = imageGenSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 7,
+                index = 5, count = 8,
                 onClick = { onOpen(PageImageGen) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Movie,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Video generation",
+                subtitle = videoGenSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 6, count = 8,
+                onClick = { onOpen(PageVideoGen) },
             )
             SettingsNavRow(
                 icon = Icons.Default.AutoAwesome,
@@ -414,7 +438,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 6, count = 7,
+                index = 7, count = 8,
                 onClick = { onOpen(PageEchoLabs) },
             )
         }

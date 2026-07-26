@@ -35,7 +35,11 @@ import com.echoflow.data.LocalModelDao
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.OpenRouterModelDirectory
 import com.echoflow.data.OpenRouterModelInfo
+import com.echoflow.data.OpenRouterVideoModelDirectory
+import com.echoflow.data.OpenRouterVideoModelInfo
 import com.echoflow.data.SettingsRepository
+import com.echoflow.data.VideoModel
+import com.echoflow.data.VideoModelDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
@@ -58,6 +62,7 @@ class SettingsViewModel(
     private val imageModelDao: ImageModelDao,
     private val localImageModelDao: LocalImageModelDao,
     private val localImageModelManager: LocalImageModelManager,
+    private val videoModelDao: VideoModelDao,
     private val localInferenceGate: LocalInferenceGate
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
@@ -148,6 +153,14 @@ class SettingsViewModel(
     private val _localImageMessage = MutableStateFlow<String?>(null)
     val localImageMessage: StateFlow<String?> = _localImageMessage.asStateFlow()
 
+    // Video generation (OpenRouter only)
+    val videoGenModelId: StateFlow<String> = repository.videoGenModel
+    val videoAspectRatio: StateFlow<String> = repository.videoAspectRatio
+    val videoResolution: StateFlow<String> = repository.videoResolution
+    val videoAudioEnabled: StateFlow<Boolean> = repository.videoAudioEnabled
+    val videoModels: StateFlow<List<VideoModel>> = videoModelDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Echo Adviser / Echo Fusion
     val echoAdviserProfileId: StateFlow<String> = repository.echoAdviserProfileId
     val echoFusionPanelId: StateFlow<String> = repository.echoFusionPanelId
@@ -221,6 +234,39 @@ class SettingsViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    // OpenRouter video-model directory. Separate from the chat directory: video models live on
+    // their own endpoint and carry capability sets (ratios, resolutions, audio) instead of
+    // context lengths and token pricing.
+    private val videoDirectory = OpenRouterVideoModelDirectory()
+
+    private val _orVideoModels = MutableStateFlow<List<OpenRouterVideoModelInfo>>(emptyList())
+
+    private val _videoModelQuery = MutableStateFlow("")
+    val videoModelQuery: StateFlow<String> = _videoModelQuery.asStateFlow()
+
+    private val _videoDirectoryLoading = MutableStateFlow(false)
+    val videoDirectoryLoading: StateFlow<Boolean> = _videoDirectoryLoading.asStateFlow()
+
+    private val _videoDirectoryError = MutableStateFlow<String?>(null)
+    val videoDirectoryError: StateFlow<String?> = _videoDirectoryError.asStateFlow()
+
+    /** Directory filtered live as the user types; capped so the sheet stays snappy. */
+    val videoModelResults: StateFlow<List<OpenRouterVideoModelInfo>> =
+        combine(_orVideoModels, _videoModelQuery) { all, query ->
+            val q = query.trim()
+            if (q.isEmpty()) all
+            else all.filter { it.id.contains(q, true) || it.name.contains(q, true) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Capabilities of the selected video model, so the settings page can grey out ratios and
+     * resolutions it does not support instead of letting the user pick a guaranteed 400.
+     */
+    val selectedVideoModelCapabilities: StateFlow<OpenRouterVideoModelInfo?> =
+        combine(_orVideoModels, repository.videoGenModel) { all, selected ->
+            all.firstOrNull { it.id == selected }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val customModels: StateFlow<List<CustomModel>> = customModelDao.getAllCustomModels()
         .stateIn(
@@ -518,6 +564,52 @@ class SettingsViewModel(
         }
     }
 
+    // ── Video generation ─────────────────────────────────────────────────────────────────
+
+    fun saveVideoGenModel(id: String) = repository.saveVideoGenModel(id)
+    fun saveVideoAspectRatio(ratio: String) = repository.saveVideoAspectRatio(ratio)
+    fun saveVideoResolution(resolution: String) = repository.saveVideoResolution(resolution)
+    fun saveVideoAudioEnabled(enabled: Boolean) = repository.saveVideoAudioEnabled(enabled)
+
+    fun updateVideoModelQuery(query: String) {
+        _videoModelQuery.value = query
+    }
+
+    /** Loads the video directory once; safe to call every time the sheet or page opens. */
+    fun loadVideoModelDirectory() {
+        if (_orVideoModels.value.isNotEmpty() || _videoDirectoryLoading.value) return
+        viewModelScope.launch {
+            _videoDirectoryLoading.value = true
+            _videoDirectoryError.value = null
+            try {
+                _orVideoModels.value = videoDirectory.allModels()
+            } catch (e: Exception) {
+                _videoDirectoryError.value = e.message ?: "Could not load the video model directory."
+            } finally {
+                _videoDirectoryLoading.value = false
+            }
+        }
+    }
+
+    fun addVideoModel(id: String, name: String) {
+        viewModelScope.launch {
+            val cleanId = id.trim()
+            val cleanName = name.trim().ifEmpty { cleanId.substringAfterLast("/") }
+            if (cleanId.isNotEmpty()) {
+                videoModelDao.insert(VideoModel(cleanId, cleanName, System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun deleteVideoModel(id: String) {
+        viewModelScope.launch {
+            videoModelDao.delete(id)
+            if (repository.getVideoGenModelDirect() == id) {
+                repository.saveVideoGenModel(SettingsRepository.DEFAULT_VIDEO_MODEL_ID)
+            }
+        }
+    }
+
     fun addDeepResearchModel(id: String, name: String) {
         viewModelScope.launch {
             val cleanId = id.trim()
@@ -688,11 +780,12 @@ class SettingsViewModel(
             imageModelDao: ImageModelDao,
             localImageModelDao: LocalImageModelDao,
             localImageModelManager: LocalImageModelManager,
+            videoModelDao: VideoModelDao,
             localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, localImageModelDao, localImageModelManager, localInferenceGate) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, localImageModelDao, localImageModelManager, videoModelDao, localInferenceGate) as T
             }
         }
     }
