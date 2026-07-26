@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,6 +41,7 @@ class ChatViewModel(
     private val generatedImageDao: GeneratedImageDao,
     private val localImageModelDao: LocalImageModelDao,
     private val localImageModelManager: LocalImageModelManager,
+    private val generatedVideoDao: GeneratedVideoDao,
     private val localInferenceGate: LocalInferenceGate
 ) : AndroidViewModel(application) {
 
@@ -55,6 +57,17 @@ class ChatViewModel(
         LocalImageGenerationEngineRouter(
             mediaPipe = MediaPipeImageGenerationEngine(application, generatedImageStore),
             stableDiffusionCpp = StableDiffusionCppImageGenerationEngine(application, generatedImageStore),
+        )
+    }
+
+    // Video generation: MP4s on disk, async job rows in Room (see GeneratedVideoStore). The
+    // rows are what make a run outlive the process, so the store is created eagerly.
+    private val generatedVideoStore = GeneratedVideoStore(application, generatedVideoDao)
+    private val videoEngine by lazy {
+        OpenRouterVideoGenerationEngine(
+            service = OpenRouterVideoService(),
+            directory = OpenRouterVideoModelDirectory(),
+            store = generatedVideoStore,
         )
     }
 
@@ -232,6 +245,103 @@ class ChatViewModel(
     // Image generation mode: sticky, so follow-up turns keep editing the chat's latest image.
     val imageGenActive: StateFlow<Boolean> = modeIs<ChatMode.ImageGen>()
 
+    // Video generation mode: sticky like image mode, so a run of clips doesn't need the menu
+    // reopened between each one.
+    val videoGenActive: StateFlow<Boolean> = modeIs<ChatMode.VideoGen>()
+
+    /**
+     * The live row behind one video card. Cards resolve their state from here rather than
+     * from the persisted segment, so a clip that was still rendering when its message was
+     * written (or that finished while the app was dead) shows the truth on the next open.
+     */
+    fun observeVideo(videoId: String): Flow<GeneratedVideo?> = generatedVideoDao.observeById(videoId)
+
+    /** Guards against a second resume pass doubling up on a job already being polled. */
+    private val resumingVideoIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * Resumed video jobs, by chat. These run outside [streamJobs] because they belong to no
+     * live turn, so deleting a conversation has to be able to find and stop them too.
+     */
+    private val videoResumeJobs = mutableMapOf<String, MutableSet<Job>>()
+
+    init {
+        viewModelScope.launch { resumeInterruptedVideos() }
+    }
+
+    /**
+     * Picks up video jobs that were still rendering when the process last died. The clip is
+     * already paid for and OpenRouter keeps rendering it regardless, so abandoning the job
+     * would silently cost the user money for nothing.
+     *
+     * A run killed before its assistant message was written has no card in the conversation,
+     * so one is inserted here — pointing at the job row, which the card then follows live.
+     */
+    private suspend fun resumeInterruptedVideos() {
+        val unfinished = runCatching { generatedVideoStore.unfinished() }.getOrNull().orEmpty()
+        if (unfinished.isEmpty()) return
+        val apiKey = settingsRepository.getApiKeyDirect()
+
+        unfinished.forEach { video ->
+            if (video.id in resumingVideoIds) return@forEach
+            resumingVideoIds.add(video.id)
+
+            if (apiKey.isBlank() || video.jobId == null) {
+                generatedVideoStore.markFailed(
+                    video, GeneratedVideo.STATUS_FAILED,
+                    "The video was interrupted and could not be resumed.",
+                )
+                return@forEach
+            }
+            ensureVideoMessage(video)
+            val job = viewModelScope.launch {
+                KeepAliveService.acquire(getApplication(), "Finishing a video…")
+                try {
+                    videoEngine.resume(video, apiKey).collect { /* the row is the UI's source */ }
+                    ReplyNotifications.notifyReplyReady(
+                        getApplication(), video.chatId,
+                        title = "Your video is ready",
+                        text = "Tap to watch it in EchoFlow.",
+                    )
+                } catch (_: Exception) {
+                    // The row already carries the failure; the card renders it on next open.
+                } finally {
+                    KeepAliveService.release(getApplication())
+                    resumingVideoIds.remove(video.id)
+                }
+            }
+            // Tracked so deleting the conversation can stop it — without this the resume
+            // keeps polling and writing against rows that have already cascaded away.
+            videoResumeJobs.getOrPut(video.chatId) { mutableSetOf() }.add(job)
+            job.invokeOnCompletion {
+                videoResumeJobs[video.chatId]?.let { jobs ->
+                    jobs.remove(job)
+                    if (jobs.isEmpty()) videoResumeJobs.remove(video.chatId)
+                }
+            }
+        }
+    }
+
+    /** Adds the card for a recovered job when the killed turn never got to persist one. */
+    private suspend fun ensureVideoMessage(video: GeneratedVideo) {
+        val alreadyShown = messageDao.getMessagesForChatSync(video.chatId).any { message ->
+            ToolEventJson.segmentsFromJson(message.segmentsJson).any { it.video?.videoId == video.id }
+        }
+        if (alreadyShown) return
+        chatRepository.insertMessage(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                chatId = video.chatId,
+                role = "assistant",
+                content = "",
+                createdAt = System.currentTimeMillis(),
+                segmentsJson = ToolEventJson.segmentsToJson(
+                    listOf(PersistedSegment("video", video = VideoRef(video.id, video.filePath)))
+                ),
+            )
+        )
+    }
+
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val currentArtifact: StateFlow<Artifact?> = _currentChatThreadId
@@ -334,6 +444,7 @@ class ChatViewModel(
 
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
     fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
+    fun toggleVideoGen() = toggleMode(ChatMode.VideoGen)
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
@@ -442,6 +553,23 @@ class ChatViewModel(
             }.getOrNull()
         }
 
+    /**
+     * Re-encodes an attached image as a data URL for the video API's `frame_images`. Capped
+     * because the whole payload travels in one JSON submit — an oversized frame would fail
+     * the request rather than degrade, so an image over the cap is simply not sent and the
+     * turn falls back to text-to-video.
+     */
+    private suspend fun attachmentAsDataUrl(uriString: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = getApplication<Application>().contentResolver
+            val uri = Uri.parse(uriString)
+            val mimeType = resolver.getType(uri)?.takeIf { it.startsWith("image/", true) } ?: "image/png"
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@runCatching null
+            if (bytes.isEmpty() || bytes.size > MAX_FRAME_IMAGE_BYTES) return@runCatching null
+            "data:$mimeType;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        }.getOrNull()
+    }
+
     private fun imageExtensionFor(mimeType: String): String =
         when (mimeType.lowercase()) {
             "image/jpeg", "image/jpg" -> "jpg"
@@ -463,13 +591,28 @@ class ChatViewModel(
 
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch {
-            // Image files live outside Room; remove them while their rows (and paths) still exist.
+            // Stop anything still writing for this chat and WAIT for it. A video render keeps
+            // running for minutes and would otherwise carry on past the cascade — writing rows
+            // against a chat that no longer exists, and landing an MP4 that nothing points at.
+            cancelWorkForChat(thread.id)
+            // Media files live outside Room; remove them while their rows (and paths) still exist.
             generatedImageStore.deleteFilesForChat(thread.id)
+            generatedVideoStore.deleteFilesForChat(thread.id)
             chatDao.deleteThread(thread)
             if (_currentChatThreadId.value == thread.id) {
                 selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
             }
         }
+    }
+
+    /**
+     * Cancels the chat's in-flight stream and any video jobs resumed outside it, then joins
+     * them so the caller can safely delete rows and files afterwards. Cancellation alone is
+     * not enough: a coroutine is only stopped once it has actually unwound.
+     */
+    private suspend fun cancelWorkForChat(chatId: String) {
+        streamJobs.remove(chatId)?.cancelAndJoin()
+        videoResumeJobs.remove(chatId)?.forEach { it.cancelAndJoin() }
     }
 
     fun renameThread(thread: ChatThread, newTitle: String) {
@@ -557,6 +700,7 @@ class ChatViewModel(
             clearError()
 
             val imageGenMode = _chatMode.value is ChatMode.ImageGen
+            val videoGenMode = _chatMode.value is ChatMode.VideoGen
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
@@ -589,7 +733,9 @@ class ChatViewModel(
             // Echo Fusion always runs cloud models (the panel + judge), so it never uses the
             // on-device engine even if a local model is the global selection. Image generation
             // likewise always runs its own OpenRouter image model, whatever chat model is picked.
-            val isLocal = selectedModel.startsWith("local/") && _chatMode.value !is ChatMode.EchoFusion && !imageGenMode
+            // Video is the same story, and cloud-only besides — there is no on-device route.
+            val isLocal = selectedModel.startsWith("local/") &&
+                _chatMode.value !is ChatMode.EchoFusion && !imageGenMode && !videoGenMode
 
             val imageEngineLocal = imageGenMode &&
                 settingsRepository.getImageGenEngineDirect() == SettingsRepository.IMAGE_ENGINE_LOCAL
@@ -618,6 +764,21 @@ class ChatViewModel(
                     }
                 } else if (apiKey.isBlank()) {
                     _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                    return@launch
+                }
+            }
+
+            if (videoGenMode) {
+                if (prompt.isEmpty()) {
+                    _errorMessage.value = "Describe the video you want before sending."
+                    return@launch
+                }
+                if (apiKey.isBlank()) {
+                    _errorMessage.value = "Video generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                    return@launch
+                }
+                if (attachmentMime.equals("application/pdf", ignoreCase = true)) {
+                    _errorMessage.value = "Video generation works with image attachments only, not PDFs."
                     return@launch
                 }
             }
@@ -654,11 +815,11 @@ class ChatViewModel(
                 else -> false
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            if (customProviderActive && !imageGenMode && attachmentUri != null && pendingIsPdf && !customPdfAllowed) {
+            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
                 _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in Settings → Echo Labs → Custom API Endpoint."
                 return@launch
             }
-            if (customProviderActive && !imageGenMode && attachmentUri != null && !pendingIsPdf && !customImageAllowed) {
+            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = if (customProvider == "xai") {
                     "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
                 } else {
@@ -859,7 +1020,38 @@ class ChatViewModel(
             val imageEditUrl = if (imageGenMode && !imageEngineLocal) imagePrev?.let { generatedImageStore.asDataUrl(it) } else null
             val imagePattern = if (imageGenMode) listOf("ripple", "rain").random() else ""
 
+            // Video mode: framing comes from Settings; length never does. An image attachment
+            // becomes the clip's first frame where the model supports that.
+            val videoModelId = if (videoGenMode) settingsRepository.getVideoGenModelDirect() else ""
+            val videoAspectRatio = settingsRepository.getVideoAspectRatioDirect()
+            val videoStartImage = if (videoGenMode && attachmentUri != null && !pendingIsPdf) {
+                attachmentAsDataUrl(attachmentUri)
+            } else null
+            val videoPattern = if (videoGenMode) listOf("ripple", "rain").random() else ""
+
             val baseResponseFlow: Flow<StreamChunk> = when {
+                videoGenMode ->
+                    videoEngine.generate(
+                        VideoGenerationRequest(
+                            chatId = chatId,
+                            prompt = prompt,
+                            modelId = videoModelId,
+                            apiKey = apiKey,
+                            aspectRatio = videoAspectRatio,
+                            resolution = settingsRepository.getVideoResolutionDirect(),
+                            generateAudio = settingsRepository.getVideoAudioEnabledDirect(),
+                            startImageDataUrl = videoStartImage,
+                        )
+                    ).map { event ->
+                        when (event) {
+                            is VideoGenerationEvent.Queued ->
+                                StreamChunk.VideoGenStarted(event.video.id, videoPattern, videoAspectRatio)
+                            is VideoGenerationEvent.Progress ->
+                                StreamChunk.VideoGenProgress(event.video.id, event.video.status, event.video.error)
+                            is VideoGenerationEvent.VideoFile ->
+                                StreamChunk.VideoGenerated(event.video.id, event.video.filePath.orEmpty())
+                        }
+                    }
                 imageGenMode ->
                     flow {
                         emit(StreamChunk.ImageGenStarted(imagePattern, imagePrev != null, imagePrev?.filePath))
@@ -1041,9 +1233,13 @@ class ChatViewModel(
                 agentReq != null -> "Echo Agents"
                 advisorReq != null -> "Echo Adviser"
                 fusionReq != null -> "Echo Fusion"
+                // A clip renders for minutes, almost always with the app in the background —
+                // the ping is what tells the user it landed.
+                videoGenMode -> "Video"
                 else -> null
             }
             val keepAliveText = when {
+                videoGenMode -> "Rendering a video…"
                 imageGenMode -> "Creating an image…"
                 agentReq != null -> "Echo Agents — handing tasks to your Echo Agent…"
                 fusionReq != null -> "Echo Fusion — the panel is deliberating…"
@@ -1110,12 +1306,16 @@ class ChatViewModel(
                 if (imageGenMode && segments.any { it is StreamSegment.Image && !it.generating }) {
                     delay(2600)
                 }
+                // Video shares that choreography — the clip is the last chunk too.
+                if (videoGenMode && segments.any { it is StreamSegment.Video && !it.generating }) {
+                    delay(2600)
+                }
                 persistAssistantMessage(chatId, segments, interrupted = null)
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
                         getApplication(), chatId,
-                        title = "$echoLabel reply is ready",
-                        text = "Tap to read the answer in EchoFlow.",
+                        title = if (videoGenMode) "Your video is ready" else "$echoLabel reply is ready",
+                        text = if (videoGenMode) "Tap to watch it in EchoFlow." else "Tap to read the answer in EchoFlow.",
                     )
                 }
             } catch (e: CancellationException) {
@@ -1554,6 +1754,9 @@ class ChatViewModel(
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L
 
+        /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */
+        private const val MAX_FRAME_IMAGE_BYTES = 4 * 1024 * 1024
+
         fun provideFactory(
             application: Application,
             chatDao: ChatDao,
@@ -1572,6 +1775,7 @@ class ChatViewModel(
             generatedImageDao: GeneratedImageDao,
             localImageModelDao: LocalImageModelDao,
             localImageModelManager: LocalImageModelManager,
+            generatedVideoDao: GeneratedVideoDao,
             localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -1580,7 +1784,8 @@ class ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
                     agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao,
-                    generatedImageDao, localImageModelDao, localImageModelManager, localInferenceGate
+                    generatedImageDao, localImageModelDao, localImageModelManager, generatedVideoDao,
+                    localInferenceGate
                 ) as T
             }
         }

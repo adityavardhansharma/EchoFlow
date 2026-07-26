@@ -188,6 +188,18 @@ fun ChatScreen(
     } else {
         imageModelEntries.firstOrNull { it.first == imageGenModelId }?.second ?: imageGenModelId
     }
+    // "Create video" swaps the model picker to OpenRouter video models. Cloud only — there is
+    // no on-device route — so the local section of the picker stays empty.
+    val videoGenActive by chatViewModel.videoGenActive.collectAsState()
+    val videoGenModelId by settingsViewModel.videoGenModelId.collectAsState()
+    val videoModels by settingsViewModel.videoModels.collectAsState()
+    val videoModelEntries = remember(videoModels) {
+        val default = com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_ID to
+            com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
+        listOf(default) + videoModels.filter { it.id != default.first }.map { it.id to it.name }
+    }
+    val videoModelLabel = videoModelEntries.firstOrNull { it.first == videoGenModelId }?.second ?: videoGenModelId
+
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
@@ -350,6 +362,7 @@ fun ChatScreen(
                         bottomInset = messageBottomInset,
                         onCopy = { clipboard.setText(AnnotatedString(it)) },
                         onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
+                        observeVideo = chatViewModel::observeVideo,
                     )
                 }
             }
@@ -358,6 +371,7 @@ fun ChatScreen(
             ChatTopBar(
                 modifier = Modifier.align(Alignment.TopCenter),
                 modelName = when {
+                    videoGenActive -> videoModelLabel
                     imageGenActive -> imageModelLabel
                     echoFusionActive -> activePanel?.name ?: "Choose panel"
                     echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
@@ -415,6 +429,8 @@ fun ChatScreen(
                 onToggleArtifact = { chatViewModel.toggleArtifact() },
                 imageGenActive = imageGenActive,
                 onToggleImageGen = { chatViewModel.toggleImageGen() },
+                videoGenActive = videoGenActive,
+                onToggleVideoGen = { chatViewModel.toggleVideoGen() },
                 browserSession = browserSession,
                 browserSteps = browserSteps,
                 onBrowserOpen = { browserSession?.let { chatViewModel.openBrowserWorkspace(it.chatId) } },
@@ -482,7 +498,16 @@ fun ChatScreen(
     }
 
     if (showModelMenu) {
-        if (imageGenActive) {
+        if (videoGenActive) {
+            ModelPickerSheet(
+                models = videoModelEntries,
+                localModels = emptyList(),
+                selectedId = videoGenModelId,
+                onSelect = { settingsViewModel.saveVideoGenModel(it); showModelMenu = false },
+                onManage = { showModelMenu = false; onSettingsClicked() },
+                onDismiss = { showModelMenu = false },
+            )
+        } else if (imageGenActive) {
             ModelPickerSheet(
                 models = imageModelEntries,
                 localModels = localImageEntries,

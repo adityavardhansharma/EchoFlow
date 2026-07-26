@@ -5,7 +5,7 @@
 
 ### A privacy-first Android AI workspace
 
-Chat, local models, custom endpoints, web search, deep research, agents, and artifacts — no backend, no account, no telemetry.
+Chat, local models, custom endpoints, web search, deep research, agents, artifacts, and image/video generation — no backend, no account, no telemetry.
 
 [![Release](https://img.shields.io/github/v/release/adityavardhansharma/EchoFlow?style=flat-square&color=000000&label=release)](https://github.com/adityavardhansharma/EchoFlow/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-000000?style=flat-square)](LICENSE.txt)
@@ -73,6 +73,10 @@ Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search wo
 
 **Artifacts** — generate and revise self-contained pages, reports, and documents, versioned as you iterate.
 
+**Image generation** — describe an image, then edit it conversationally ("make the sky purple"). Runs on OpenRouter, or entirely on-device with a downloaded diffusion model.
+
+**Video generation** — describe a short clip and get it back in the conversation. Rendering takes minutes, so it keeps going with the app closed and picks itself back up if the app is killed mid-render. You choose the shape; the model chooses the length. See [docs/video-generation.md](docs/video-generation.md).
+
 **Echo Adviser** — let your model call in a stronger or more specialized model mid-answer when it's stuck.
 
 **Echo Fusion** — run several models on the same prompt and have a judge model compare and merge their answers.
@@ -95,7 +99,7 @@ Kotlin and Jetpack Compose (Material 3 Expressive), targeting Android 24+. Netwo
 
 ```text
 app/src/main/java/com/echoflow
-├── data           # Room entities/DAOs, provider services, settings, research, agents, browser, artifacts, local models
+├── data           # Room entities/DAOs, provider services, settings, research, agents, browser, artifacts, image/video generation, local models
 ├── ui             # ViewModels and app state
 ├── ui/components  # cards, reports, markdown, browser/data/research result UI
 ├── ui/screens     # chat and settings screens

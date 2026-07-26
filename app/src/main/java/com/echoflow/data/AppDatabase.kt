@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
         AgentProfile::class, BrowserSession::class, BrowserStep::class,
         Artifact::class, ArtifactVersion::class,
-        ImageModel::class, GeneratedImage::class, LocalImageModel::class
+        ImageModel::class, GeneratedImage::class, LocalImageModel::class,
+        VideoModel::class, GeneratedVideo::class
     ],
-    version = 15, // v15: runtime metadata for mixed local image engines
+    version = 16, // v16: OpenRouter video generation (models + async job/result rows)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +36,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun imageModelDao(): ImageModelDao
     abstract fun generatedImageDao(): GeneratedImageDao
     abstract fun localImageModelDao(): LocalImageModelDao
+    abstract fun videoModelDao(): VideoModelDao
+    abstract fun generatedVideoDao(): GeneratedVideoDao
 
     companion object {
         @Volatile
@@ -291,6 +294,41 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Video generation. `generated_videos` doubles as the async job store, so it carries
+         * the provider job id and polling URL alongside the downloaded file path — a run
+         * interrupted by a kill is resumable from these rows alone.
+         */
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS video_models (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "name TEXT NOT NULL, " +
+                        "addedAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS generated_videos (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "chatId TEXT NOT NULL, " +
+                        "prompt TEXT NOT NULL, " +
+                        "modelId TEXT NOT NULL, " +
+                        "jobId TEXT, " +
+                        "pollingUrl TEXT, " +
+                        "status TEXT NOT NULL, " +
+                        "filePath TEXT, " +
+                        "aspectRatio TEXT, " +
+                        "resolution TEXT, " +
+                        "error TEXT, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(chatId) REFERENCES chat_threads(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_generated_videos_chatId ON generated_videos (chatId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_generated_videos_status ON generated_videos (status)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -313,6 +351,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_12_13,
                     MIGRATION_13_14,
                     MIGRATION_14_15,
+                    MIGRATION_15_16,
                 )
                 .build()
                 INSTANCE = instance

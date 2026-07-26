@@ -77,6 +77,7 @@ import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
+import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -101,6 +102,8 @@ import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberMorph
 import com.echoflow.ui.theme.rememberMorphProgress
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 
@@ -124,6 +127,7 @@ internal fun MessagesPane(
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
     onArtifactOpen: () -> Unit = {},
+    observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
 ) {
     val listState = rememberLazyListState()
     var autoFollow by remember { mutableStateOf(true) }
@@ -161,7 +165,12 @@ internal fun MessagesPane(
         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = topInset, bottom = bottomInset),
     ) {
         items(messages, key = { it.id }) { msg ->
-            MessageBubble(msg, onCopy = { onCopy(msg.content) }, onArtifactOpen = onArtifactOpen)
+            MessageBubble(
+                msg,
+                onCopy = { onCopy(msg.content) },
+                onArtifactOpen = onArtifactOpen,
+                observeVideo = observeVideo,
+            )
         }
         researchRun?.let { run ->
             item(key = "research") { ResearchProgressCard(run = run, onCancel = onCancelResearch) }
@@ -298,6 +307,18 @@ internal fun StreamingAssistantBubble(
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
+                    is StreamSegment.Video -> {
+                        com.echoflow.ui.components.GeneratedVideoSegment(
+                            videoId = segment.videoId,
+                            filePath = segment.filePath,
+                            pattern = segment.pattern,
+                            aspectRatio = segment.aspectRatio,
+                            status = segment.status,
+                            animate = true,
+                            errorMessage = segment.error,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                    }
                     is StreamSegment.Text -> {
                         SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
                         if (!isLast) Spacer(Modifier.height(Spacing.s))
@@ -385,7 +406,14 @@ internal fun ErrorBanner(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, streaming: Boolean = false, onArtifactOpen: () -> Unit = {}, onCopy: () -> Unit) {
+internal fun MessageBubble(
+    message: ChatMessage,
+    modifier: Modifier = Modifier,
+    streaming: Boolean = false,
+    onArtifactOpen: () -> Unit = {},
+    observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    onCopy: () -> Unit,
+) {
     val isUser = message.role == "user"
     if (isUser) {
         Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -421,8 +449,11 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
             // reason → search → reason → search → answer keeps exactly the layout it
             // streamed with instead of merging all reasoning into one block.
             val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
-            val lastGeneratedImageIndex = persistedSegments.indexOfLast { segment ->
-                segment.type == "image" && segment.image != null
+            // Generated media carries its own copy/save/share row, so the bubble's own copy
+            // button is suppressed when a clip or image is the reply's last word.
+            val lastGeneratedMediaIndex = persistedSegments.indexOfLast { segment ->
+                (segment.type == "image" && segment.image != null) ||
+                    (segment.type == "video" && segment.video != null)
             }
 
             message.localAttachmentUri?.let { uri ->
@@ -512,7 +543,34 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                                         pattern = "ripple",
                                         previousImagePath = null,
                                         animate = false,
-                                        onCopy = onCopy.takeIf { index == lastGeneratedImageIndex },
+                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
+                                    )
+                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                            "video" -> {
+                                segment.video?.let { ref ->
+                                    // The row, not the segment, is the truth: a clip can still be
+                                    // rendering when its message is written (or finish while the
+                                    // app is dead), so the card follows the job live.
+                                    val live by remember(ref.videoId) { observeVideo(ref.videoId) }
+                                        .collectAsState(initial = null)
+                                    com.echoflow.ui.components.GeneratedVideoSegment(
+                                        videoId = ref.videoId,
+                                        filePath = live?.filePath ?: ref.filePath,
+                                        pattern = "ripple",
+                                        aspectRatio = live?.aspectRatio
+                                            ?: com.echoflow.data.VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
+                                        status = live?.status ?: if (ref.filePath != null) {
+                                            GeneratedVideo.STATUS_COMPLETED
+                                        } else {
+                                            GeneratedVideo.STATUS_IN_PROGRESS
+                                        },
+                                        // A message written before the file existed means the clip
+                                        // lands in front of the user — that one gets the reveal.
+                                        animate = ref.filePath == null,
+                                        errorMessage = live?.error,
+                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
@@ -563,7 +621,7 @@ internal fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier, 
                 }
             }
 
-            if (!streaming && lastGeneratedImageIndex == -1) {
+            if (!streaming && lastGeneratedMediaIndex == -1) {
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalIconButton(
                     onClick = onCopy,

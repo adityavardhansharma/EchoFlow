@@ -39,6 +39,7 @@ class EchoFlowAppGraph(application: Application) {
             database.imageModelDao(),
             database.localImageModelDao(),
             localImageModelManager,
+            database.videoModelDao(),
             localInferenceGate,
         )
     }
@@ -62,6 +63,7 @@ class EchoFlowAppGraph(application: Application) {
             database.generatedImageDao(),
             database.localImageModelDao(),
             localImageModelManager,
+            database.generatedVideoDao(),
             localInferenceGate,
         )
     }

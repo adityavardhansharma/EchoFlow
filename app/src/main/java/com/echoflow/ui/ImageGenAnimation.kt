@@ -133,6 +133,31 @@ internal class PhraseDeck(
     }
 }
 
+/**
+ * The pool shown under the placeholder while a video renders. Kept separate from the image
+ * pool because a clip takes minutes rather than seconds — the same phrase would come round
+ * again long before the wait ends, and the language is film-set rather than paint-and-canvas.
+ */
+internal object VideoGenPhrases {
+    val ALL: List<String> = listOf(
+        "Setting up the shot…", "Blocking the scene…", "Rolling camera…", "Finding the light…",
+        "Storyboarding the beats…", "Rigging the dolly…", "Choosing the lens…", "Marking the tape…",
+        "Rehearsing the move…", "Pulling focus…", "Framing the opening…", "Timing the pan…",
+        "Building the world…", "Casting the shadows…", "Painting the sky…", "Placing the horizon…",
+        "Cueing the motion…", "Easing the camera in…", "Holding the beat…", "Watching the light change…",
+        "Layering the background…", "Animating the foreground…", "Settling the physics…", "Tuning the motion blur…",
+        "Smoothing the frames…", "Checking continuity…", "Matching the colours…", "Grading the highlights…",
+        "Deepening the shadows…", "Balancing the exposure…", "Filling the frame…", "Clearing the frame…",
+        "Sweetening the ambience…", "Placing the sound…", "Syncing the audio…", "Letting the scene breathe…",
+        "Following the action…", "Tracking the subject…", "Widening the shot…", "Pushing in slowly…",
+        "Craning upward…", "Tilting to the sky…", "Finding the reflection…", "Catching the movement…",
+        "Rendering the details…", "Filling in the middle frames…", "Weathering the surfaces…", "Adding the drift…",
+        "Nudging the timing…", "Trimming the tail…", "Holding the last frame…", "Reviewing the take…",
+        "Going again from the top…", "Getting one more take…", "Choosing the best take…", "Cutting it together…",
+        "Smoothing the transition…", "Locking the edit…", "Rendering the final pass…", "Almost in the can…",
+    )
+}
+
 /** The 100-phrase pool shown under the placeholder while an image generates. */
 internal object ImageGenPhrases {
     val ALL: List<String> = listOf(

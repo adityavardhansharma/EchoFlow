@@ -1,5 +1,6 @@
 package com.echoflow.ui
 
+import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.StreamChunk
 
 /** Applies provider stream events to the ordered visual reply timeline. */
@@ -205,6 +206,35 @@ internal object ChatSegmentReducer {
                     )
                 }
                 if (idx >= 0) segments[idx] = done else segments.add(done)
+            }
+            is StreamChunk.VideoGenStarted -> {
+                segments.add(
+                    StreamSegment.Video(
+                        videoId = chunk.videoId,
+                        filePath = null,
+                        pattern = chunk.pattern,
+                        aspectRatio = chunk.aspectRatio,
+                        status = GeneratedVideo.STATUS_QUEUED,
+                        generating = true,
+                    )
+                )
+            }
+            is StreamChunk.VideoGenProgress -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Video && it.videoId == chunk.videoId }
+                if (idx >= 0) {
+                    segments[idx] = (segments[idx] as StreamSegment.Video)
+                        .copy(status = chunk.status, error = chunk.error)
+                }
+            }
+            is StreamChunk.VideoGenerated -> {
+                val idx = segments.indexOfLast { it is StreamSegment.Video && it.videoId == chunk.videoId }
+                if (idx >= 0) {
+                    segments[idx] = (segments[idx] as StreamSegment.Video).copy(
+                        filePath = chunk.filePath,
+                        status = GeneratedVideo.STATUS_COMPLETED,
+                        generating = false,
+                    )
+                }
             }
             is StreamChunk.ArtifactCompleted -> {
                 val idx = segments.indexOfLast { it is StreamSegment.Artifact && it.building }

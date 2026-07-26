@@ -44,6 +44,41 @@ class AssistantMessagePersistenceTest {
         assertNull(draft)
     }
 
+    @Test fun `a finished video persists both its job id and its file`() {
+        val draft = AssistantMessagePersistence.draft(
+            listOf(
+                StreamSegment.Video(
+                    videoId = "vid-1", filePath = "/data/clip.mp4", pattern = "ripple",
+                    aspectRatio = "16:9", status = "completed", generating = false,
+                )
+            ),
+            null, stopped = false,
+        )!!
+        val segment = draft.segments.single()
+        assertEquals("video", segment.type)
+        assertEquals("vid-1", segment.video?.videoId)
+        assertEquals("/data/clip.mp4", segment.video?.filePath)
+    }
+
+    @Test fun `a still-rendering video is persisted anyway so the card can be recovered`() {
+        // The opposite of the image rule on purpose: a clip takes minutes, the job outlives
+        // the turn, and without a row in the conversation there would be nothing pointing at
+        // the (already paid for) render once it finishes.
+        val draft = AssistantMessagePersistence.draft(
+            listOf(
+                StreamSegment.Video(
+                    videoId = "vid-2", filePath = null, pattern = "rain",
+                    aspectRatio = "9:16", status = "in_progress", generating = true,
+                )
+            ),
+            null, stopped = false,
+        )!!
+        val segment = draft.segments.single()
+        assertEquals("video", segment.type)
+        assertEquals("vid-2", segment.video?.videoId)
+        assertNull(segment.video?.filePath)
+    }
+
     @Test fun `normalizes reasoning only answer and appends interruption`() {
         val draft = AssistantMessagePersistence.draft(
             listOf(StreamSegment.Reasoning("work\nAnswer: result")), "timeout", stopped = false,
