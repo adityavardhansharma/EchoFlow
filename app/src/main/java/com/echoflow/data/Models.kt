@@ -183,6 +183,73 @@ data class GeneratedImage(
 )
 
 /**
+ * A cloud model the user has whitelisted for video generation. Separate from [ImageModel]
+ * because video runs on a different OpenRouter surface entirely (`/api/v1/videos`, an async
+ * job API) and its directory carries per-model capability sets rather than chat modalities.
+ */
+@Entity(tableName = "video_models")
+data class VideoModel(
+    @PrimaryKey val id: String, // OpenRouter id, e.g. "google/veo-3.1"
+    val name: String,
+    val addedAt: Long,
+)
+
+/**
+ * One video generation, from submitted job to downloaded MP4. Unlike images (a single
+ * synchronous stream) OpenRouter video is asynchronous — submit, poll, download — and a
+ * clip takes minutes, so this row is the durable job record as well as the result: the app
+ * can be killed mid-generation and resume polling [pollingUrl] from here on next launch.
+ *
+ * The MP4 lives as a file under filesDir/generated_videos/; [filePath] is only set once the
+ * download finished. Video bytes never enter Room or segmentsJson.
+ */
+@Entity(
+    tableName = "generated_videos",
+    foreignKeys = [
+        ForeignKey(
+            entity = ChatThread::class,
+            parentColumns = ["id"],
+            childColumns = ["chatId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("chatId"), Index("status")]
+)
+data class GeneratedVideo(
+    @PrimaryKey val id: String, // UUID — our row id, not the provider's job id
+    val chatId: String,
+    val prompt: String, // the user turn that produced this clip
+    val modelId: String, // the OpenRouter video model that ran
+    val jobId: String? = null, // provider job id, set once the submit call returns
+    val pollingUrl: String? = null, // absolute URL to poll; resumes a run after a cold start
+    val status: String = STATUS_QUEUED,
+    val filePath: String? = null, // absolute path of the MP4 once downloaded
+    val aspectRatio: String? = null, // the ratio we asked for (duration is always the model's call)
+    val resolution: String? = null,
+    val error: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long,
+) {
+    val isTerminal: Boolean get() = status in TERMINAL_STATUSES
+
+    companion object {
+        /** Our own pre-submit state; every other status is OpenRouter's own vocabulary. */
+        const val STATUS_QUEUED = "queued"
+        const val STATUS_PENDING = "pending"
+        const val STATUS_IN_PROGRESS = "in_progress"
+
+        /** Ours: the job completed and we are pulling the MP4 down. */
+        const val STATUS_DOWNLOADING = "downloading"
+        const val STATUS_COMPLETED = "completed"
+        const val STATUS_FAILED = "failed"
+        const val STATUS_CANCELLED = "cancelled"
+        const val STATUS_EXPIRED = "expired"
+
+        val TERMINAL_STATUSES = setOf(STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED, STATUS_EXPIRED)
+    }
+}
+
+/**
  * The durable record of one Deep Research run. This is the single source of truth: the
  * foreground service writes progress here and the UI observes it, so a run survives the
  * Activity/ViewModel being destroyed and can be resumed after the app is force-killed

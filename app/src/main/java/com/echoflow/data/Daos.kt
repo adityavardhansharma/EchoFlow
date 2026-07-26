@@ -176,6 +176,46 @@ interface GeneratedImageDao {
 }
 
 @Dao
+interface VideoModelDao {
+    @Query("SELECT * FROM video_models ORDER BY addedAt ASC")
+    fun getAll(): Flow<List<VideoModel>>
+
+    @Query("SELECT * FROM video_models ORDER BY addedAt ASC")
+    suspend fun getAllSync(): List<VideoModel>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(model: VideoModel)
+
+    @Query("DELETE FROM video_models WHERE id = :modelId")
+    suspend fun delete(modelId: String)
+}
+
+@Dao
+interface GeneratedVideoDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(video: GeneratedVideo)
+
+    @Query("SELECT * FROM generated_videos WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): GeneratedVideo?
+
+    @Query("SELECT * FROM generated_videos WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<GeneratedVideo?>
+
+    @Query("SELECT * FROM generated_videos WHERE chatId = :chatId ORDER BY createdAt ASC")
+    suspend fun getForChat(chatId: String): List<GeneratedVideo>
+
+    @Query("SELECT * FROM generated_videos WHERE chatId = :chatId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestForChat(chatId: String): GeneratedVideo?
+
+    /** Jobs left mid-flight by a kill or crash — polling resumes from these on next launch. */
+    @Query("SELECT * FROM generated_videos WHERE status NOT IN ('completed','failed','cancelled','expired')")
+    suspend fun getUnfinished(): List<GeneratedVideo>
+
+    @Query("DELETE FROM generated_videos WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
 interface ResearchRunDao {
     @Query("SELECT * FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled') ORDER BY createdAt DESC LIMIT 1")
     fun observeActiveForChat(chatId: String): Flow<ResearchRun?>
