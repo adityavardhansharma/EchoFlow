@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -67,10 +68,14 @@ fun ContextChipRow(
     val edgeFade = remember(scrollState) { { scrollState.canScrollForward to scrollState.canScrollBackward } }
     Row(
         modifier
+            // Offscreen FIRST: DstIn multiplies against the alpha of the layer beneath it, so
+            // the content has to already be in its own layer. With the order reversed the
+            // gradient has nothing to blend into and paints as a solid black bar.
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()
                 val (forward, backward) = edgeFade()
-                val fade = 16.dp.toPx()
+                val fade = 20.dp.toPx()
                 // Fade only the edge that has content beyond it, so the row never looks
                 // clipped when it happens to fit.
                 if (backward) drawRect(
@@ -86,7 +91,6 @@ fun ContextChipRow(
                     blendMode = BlendMode.DstIn,
                 )
             }
-            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
             .horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(Spacing.s),
         verticalAlignment = Alignment.CenterVertically,

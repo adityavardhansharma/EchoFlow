@@ -18,13 +18,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.Hub
@@ -275,7 +275,7 @@ fun SubagentCard(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(Modifier.padding(Spacing.m)) {
-                                Icon(Icons.Default.Assignment, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.AutoMirrored.Filled.Assignment, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(Spacing.s))
                                 Column {
                                     Text("Task brief", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -507,7 +507,7 @@ private fun FusionDeliberation(analysis: FusionAnalysis) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CompareArrows, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                    Icon(Icons.AutoMirrored.Filled.CompareArrows, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(Spacing.s))
                     Text("How the panel compared", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                     Icon(Icons.Default.KeyboardArrowDown, if (open) "Collapse" else "Expand", Modifier.size(20.dp).rotate(chevron), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -521,7 +521,7 @@ private fun FusionDeliberation(analysis: FusionAnalysis) {
                         }
                     }
                     if (analysis.contradictions.isNotEmpty()) {
-                        FusionSection("Disagreements", Icons.Default.CompareArrows, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) {
+                        FusionSection("Disagreements", Icons.AutoMirrored.Filled.CompareArrows, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) {
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
                                 analysis.contradictions.forEach { c ->
                                     Column {
