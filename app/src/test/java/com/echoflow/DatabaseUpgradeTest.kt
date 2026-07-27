@@ -56,20 +56,16 @@ class DatabaseUpgradeTest {
     }
 
     @Test
-    fun `production database upgrades version one through version sixteen without data loss`() {
+    fun `production database upgrades version one through version seventeen without data loss`() {
         val database = AppDatabase.getDatabase(context).also { openedDatabase = it }
 
         // v13 tables exist and are queryable after the chained migration.
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM image_models").use { it.moveToFirst() }
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM generated_images").use { it.moveToFirst() }
-        // v14: local_image_models is created and starts empty.
-        database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM local_image_models").use { cursor ->
-            cursor.moveToFirst()
-            assertEquals(0, cursor.getInt(0))
-        }
+        // v17: on-device image generation is gone, so v14's table must not survive.
         database.openHelper.readableDatabase.query(
-            "SELECT runtime, modelFileName FROM local_image_models LIMIT 0"
-        ).use { /* v15 columns are queryable */ }
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='local_image_models'"
+        ).use { cursor -> assertEquals(0, cursor.count) }
         // v16: video generation tables are created and start empty.
         database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM video_models").use { cursor ->
             cursor.moveToFirst()

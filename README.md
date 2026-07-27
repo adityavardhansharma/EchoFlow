@@ -73,7 +73,7 @@ Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search wo
 
 **Artifacts** — generate and revise self-contained pages, reports, and documents, versioned as you iterate.
 
-**Image generation** — describe an image, then edit it conversationally ("make the sky purple"). Runs on OpenRouter, or entirely on-device with a downloaded diffusion model.
+**Image generation** — describe an image, then edit it conversationally ("make the sky purple"). Runs on OpenRouter image models.
 
 **Video generation** — describe a short clip and get it back in the conversation. Rendering takes minutes, so it keeps going with the app closed and picks itself back up if the app is killed mid-render. You choose the shape; the model chooses the length. See [docs/video-generation.md](docs/video-generation.md).
 

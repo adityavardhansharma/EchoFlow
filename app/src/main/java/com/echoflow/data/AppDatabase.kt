@@ -13,10 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeepResearchModel::class, ResearchRun::class, AdvisorProfile::class, FusionPanel::class,
         AgentProfile::class, BrowserSession::class, BrowserStep::class,
         Artifact::class, ArtifactVersion::class,
-        ImageModel::class, GeneratedImage::class, LocalImageModel::class,
+        ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class
     ],
-    version = 16, // v16: OpenRouter video generation (models + async job/result rows)
+    version = 17, // v17: on-device image generation removed
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,7 +35,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artifactVersionDao(): ArtifactVersionDao
     abstract fun imageModelDao(): ImageModelDao
     abstract fun generatedImageDao(): GeneratedImageDao
-    abstract fun localImageModelDao(): LocalImageModelDao
     abstract fun videoModelDao(): VideoModelDao
     abstract fun generatedVideoDao(): GeneratedVideoDao
 
@@ -329,6 +328,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * On-device image generation is gone: the two diffusion runtimes were ~81 MB of the
+         * APK and the models they could actually run were not worth it. Only the install
+         * bookkeeping lives in Room — the bundles themselves are files under
+         * filesDir/image_models/, swept separately on first launch after the upgrade.
+         */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS local_image_models")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -352,6 +363,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_13_14,
                     MIGRATION_14_15,
                     MIGRATION_15_16,
+                    MIGRATION_16_17,
                 )
                 .build()
                 INSTANCE = instance

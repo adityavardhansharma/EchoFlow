@@ -3,10 +3,9 @@ package com.echoflow.data
 import kotlinx.coroutines.sync.Mutex
 
 /**
- * Coordinates on-device inference: exactly one local LLM generation OR one local image
- * generation may run at a time (both compete for the same RAM and accelerators), while
- * cloud requests remain unlimited. A single gate object replaces scattered "is something
- * local running?" flag checks.
+ * Coordinates on-device inference: exactly one local LLM generation may run at a time (they
+ * compete for the same RAM and accelerators), while cloud requests remain unlimited. A single
+ * gate object replaces scattered "is something local running?" flag checks.
  *
  * Non-queuing by design: a second local request fails fast with [LocalInferenceBusy]
  * (matching the app's existing "the on-device model is still responding" behaviour)
