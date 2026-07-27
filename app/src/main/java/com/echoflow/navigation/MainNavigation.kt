@@ -62,14 +62,27 @@ fun AdaptiveChatWorkspace(
     val threads by chatViewModel.filteredThreads.collectAsState()
     val query by chatViewModel.drawerSearchQuery.collectAsState()
     val selectedId by chatViewModel.currentChatThreadId.collectAsState()
+    val mode by chatViewModel.appMode.collectAsState()
+    val renderingChatIds by chatViewModel.renderingChatIds.collectAsState()
+    val otherModeMatches by chatViewModel.otherModeMatchCount.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= 600.dp) {
             Row(Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxHeight().width(320.dp)) {
-                    ChatDrawerContent(threads, selectedId, chatViewModel::selectThread,
-                        chatViewModel::startNewChat, chatViewModel::deleteThread,
-                        chatViewModel::renameThread, onSettingsClicked,
-                        searchQuery = query, onSearchQueryChange = chatViewModel::setDrawerSearchQuery)
+                    ChatDrawerContent(
+                        mode = mode,
+                        allThreads = threads,
+                        currentThreadId = selectedId,
+                        renderingChatIds = renderingChatIds,
+                        otherModeMatchCount = otherModeMatches,
+                        onThreadSelected = chatViewModel::selectThread,
+                        onNewChatClicked = chatViewModel::startNewChat,
+                        onDeleteThread = chatViewModel::deleteThread,
+                        onRenameThread = chatViewModel::renameThread,
+                        onSettingsClicked = onSettingsClicked,
+                        searchQuery = query,
+                        onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
+                    )
                 }
                 VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
                 Box(Modifier.weight(1f)) {
@@ -84,11 +97,21 @@ fun AdaptiveChatWorkspace(
                     drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
                     modifier = Modifier.widthIn(max = 340.dp),
                 ) {
-                    ChatDrawerContent(threads, selectedId, chatViewModel::selectThread,
-                        chatViewModel::startNewChat, chatViewModel::deleteThread,
-                        chatViewModel::renameThread, onSettingsClicked,
-                        { scope.launch { drawerState.close() } }, query,
-                        chatViewModel::setDrawerSearchQuery)
+                    ChatDrawerContent(
+                        mode = mode,
+                        allThreads = threads,
+                        currentThreadId = selectedId,
+                        renderingChatIds = renderingChatIds,
+                        otherModeMatchCount = otherModeMatches,
+                        onThreadSelected = chatViewModel::selectThread,
+                        onNewChatClicked = chatViewModel::startNewChat,
+                        onDeleteThread = chatViewModel::deleteThread,
+                        onRenameThread = chatViewModel::renameThread,
+                        onSettingsClicked = onSettingsClicked,
+                        onCloseDrawer = { scope.launch { drawerState.close() } },
+                        searchQuery = query,
+                        onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
+                    )
                 }
             }) {
                 ChatScreen(chatViewModel, settingsViewModel,

@@ -126,8 +126,16 @@ class ChatViewModel(
      * clip takes minutes and is usually started in one mode and waited for in another;
      * without this the split would simply hide the activity.
      */
+    /**
+     * Conversations with a clip in flight. Reads from the database rather than a job registry,
+     * which is the only source covering live turns, resumed jobs and process death alike.
+     */
+    val renderingChatIds: StateFlow<Set<String>> = generatedVideoDao.observeRenderingChatIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val renderingModes: StateFlow<Set<AppMode>> = generatedVideoDao.observeRenderingChatIds()
+    val renderingModes: StateFlow<Set<AppMode>> = renderingChatIds
         .flatMapLatest { chatIds ->
             if (chatIds.isEmpty()) flowOf(emptySet()) else chatRepository.allThreads().map { threads ->
                 threads.filter { it.id in chatIds }.map(ChatThread::mode).toSet()
