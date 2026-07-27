@@ -65,8 +65,8 @@ internal fun ImagineSurface(
     var textInput by remember { mutableStateOf("") }
     var showModelPicker by remember { mutableStateOf(false) }
 
-    // Capabilities drive the ratio chip and the cost hint, so load them as the surface opens
-    // rather than waiting for the user to go looking for the picker.
+    // Capabilities drive the ratio chip and the picker's cards, so load them as the surface
+    // opens rather than waiting for the user to go looking for the picker.
     LaunchedEffect(Unit) { settingsViewModel.loadVideoModelDirectory() }
 
     val isVideo = media == ImagineMedia.Video
@@ -91,8 +91,6 @@ internal fun ImagineSurface(
     } else {
         null
     }
-    val costHint = if (isVideo) videoCapabilities?.priceHint(videoResolution, audioEnabled) else null
-
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri) },
@@ -142,7 +140,6 @@ internal fun ImagineSurface(
             ratioNote = ratioNote,
             modelId = modelId,
             modelLabel = modelLabel,
-            costHint = costHint,
             onOpenModelPicker = { showModelPicker = true },
             audioSupported = videoCapabilities?.supportsAudio == true,
             audioEnabled = audioEnabled,

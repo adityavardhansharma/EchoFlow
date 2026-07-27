@@ -112,7 +112,6 @@ fun ModelPill(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    supporting: String? = null,
     leadingMark: (@Composable () -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -145,15 +144,6 @@ fun ModelPill(
                 overflow = TextOverflow.MiddleEllipsis,
                 modifier = Modifier.widthIn(max = 168.dp),
             )
-            if (supporting != null) {
-                Spacer(Modifier.width(Spacing.xs))
-                Text(
-                    supporting,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
             Icon(
                 Icons.Default.KeyboardArrowDown, null, Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,

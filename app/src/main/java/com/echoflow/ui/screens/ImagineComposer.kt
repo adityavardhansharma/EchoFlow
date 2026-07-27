@@ -83,7 +83,6 @@ internal fun ImagineComposer(
     ratioNote: String?,
     modelId: String,
     modelLabel: String,
-    costHint: String?,
     onOpenModelPicker: () -> Unit,
     audioSupported: Boolean,
     audioEnabled: Boolean,
@@ -168,12 +167,10 @@ internal fun ImagineComposer(
                     unsupportedNote = ratioNote,
                 )
             }
-            ModelPill(
-                modelId = modelId,
-                label = modelLabel,
-                supporting = costHint,
-                onClick = onOpenModelPicker,
-            )
+            // Name only. Cost, capabilities and resolutions belong in the picker, where you
+            // are actually comparing models — beside the prompt they are noise you have
+            // already decided about.
+            ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
             if (media == ImagineMedia.Video && audioSupported) {
                 SettingChip(
                     icon = Icons.Default.GraphicEq,
