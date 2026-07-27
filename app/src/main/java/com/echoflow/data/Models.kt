@@ -232,6 +232,14 @@ data class GeneratedVideo(
 ) {
     val isTerminal: Boolean get() = status in TERMINAL_STATUSES
 
+    /**
+     * There is a clip to show. Deliberately stricter than [isTerminal]: a run can reach a
+     * terminal state with nothing to play (failed, cancelled, expired), and a run whose
+     * conversation was deleted mid-render ends without ever getting a file — so "the job
+     * finished" is never the same question as "there is a video".
+     */
+    val isPlayable: Boolean get() = status == STATUS_COMPLETED && filePath != null
+
     companion object {
         /** Our own pre-submit state; every other status is OpenRouter's own vocabulary. */
         const val STATUS_QUEUED = "queued"
