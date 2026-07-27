@@ -104,15 +104,10 @@ internal fun ImagineSurface(
         if (messages.isEmpty() && !isStreaming && !progressLoading) {
             ImagineEmptyState(
                 media = media,
+                aspectRatio = ratio,
                 topInset = topBarInset,
                 bottomInset = bottomInset,
-                onStarter = { prompt, ratio ->
-                    textInput = prompt
-                    // The starter carries its own shape, so picking one also demonstrates
-                    // that the ratio chip exists and does something.
-                    if (isVideo) settingsViewModel.saveVideoAspectRatio(ratio)
-                    else settingsViewModel.saveImageAspectRatio(ratio)
-                },
+                onPrompt = { textInput = it },
             )
         } else {
             key(currentThreadId) {

@@ -2,11 +2,13 @@
 
 package com.echoflow.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +16,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,9 +50,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -66,9 +64,8 @@ import com.echoflow.data.VideoRequestPolicy
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.GeneratedImageSegment
 import com.echoflow.ui.components.GeneratedVideoSegment
-import com.echoflow.ui.components.DotFieldCanvas
-import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.flow.Flow
 
 /** Imagine's content column. Wider than a chat bubble — here the media is the subject. */
@@ -278,172 +275,6 @@ private fun AskAboutButton(onClick: () -> Unit) {
     }
 }
 
-/**
- * One way in: a prompt worth stealing, the shape it wants, and a tone to wear. Tapping sets
- * the ratio as well as the text — which is how the shape control introduces itself, since
- * almost nobody opens that chip unprompted.
- */
-private data class ImagineStarter(val prompt: String, val ratio: String, val tone: Int)
-
-/**
- * Imagine's opening screen.
- *
- * The hero is a **live dot field** — the exact texture that marks a generation in progress,
- * running at rest. It costs nothing (the canvas already exists) and it means the surface
- * teaches its own language before anything is made: the second time the user sees those dots,
- * they already read as "something is happening".
- *
- * Starters are shaped tiles rather than sentences in grey pills, each drawn at the ratio it
- * would produce, so the first thing on screen is a row of pictures-to-be.
- */
-@Composable
-internal fun ImagineEmptyState(
-    media: ImagineMedia,
-    topInset: Dp,
-    bottomInset: Dp,
-    onStarter: (String, String) -> Unit,
-) {
-    val video = media == ImagineMedia.Video
-    // Alternates per entry, exactly as a real generation does: never quite the same room twice.
-    val pattern = remember(media) { listOf("ripple", "rain").random() }
-    val starters = remember(media) {
-        if (video) {
-            listOf(
-                ImagineStarter("A paper boat running a rain-filled gutter", "16:9", 0),
-                ImagineStarter("Neon bleeding into a wet street", "9:16", 1),
-                ImagineStarter("Slow dolly through a greenhouse at sunrise", "21:9", 2),
-            )
-        } else {
-            listOf(
-                ImagineStarter("A lighthouse mid-storm, painted in gouache", "16:9", 0),
-                ImagineStarter("An astronaut rendered in stained glass", "9:16", 1),
-                ImagineStarter("Isometric cutaway of a tiny bookshop", "1:1", 2),
-            )
-        }
-    }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = topInset, bottom = bottomInset)
-            .padding(horizontal = Spacing.base),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Type sits *inside* the texture over a scrim — an editorial cover, not an icon with a
-        // caption underneath it.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 10f)
-                .clip(RoundedCornerShape(32.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            DotFieldCanvas(
-                pattern = pattern,
-                revealFraction = { 0f },
-                modifier = Modifier.matchParentSize(),
-            )
-            Box(
-                Modifier.matchParentSize().background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.45f to MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
-                        1f to MaterialTheme.colorScheme.surfaceContainerHigh,
-                    )
-                )
-            )
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = Spacing.l, end = Spacing.l, bottom = Spacing.l),
-            ) {
-                Text(
-                    "Make something.",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    if (video) "Describe a clip. The model decides how long it runs."
-                    else "Describe an image, then talk it into shape.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
-        SectionLabel("Start from")
-        Spacer(Modifier.height(Spacing.m))
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-        ) {
-            starters.forEach { starter ->
-                StarterTile(starter) { onStarter(starter.prompt, starter.ratio) }
-            }
-        }
-    }
-}
-
-/** Every tile is this tall; width follows the ratio. A contact sheet, not a ragged stack. */
-private val StarterTileHeight = 132.dp
-
-/** A prompt shown as the shape it would produce, rather than a sentence in a grey pill. */
-@Composable
-private fun StarterTile(starter: ImagineStarter, onClick: () -> Unit) {
-    val container = when (starter.tone) {
-        0 -> MaterialTheme.colorScheme.primaryContainer
-        1 -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
-    }
-    // Uniform height, width derived from the ratio — the way a strip of frames actually
-    // reads. Sizing by width instead would let a 9:16 tile tower over a 16:9 one and leave
-    // every caption sitting at a different height.
-    val ratio = VideoRequestPolicy.aspectRatioValue(starter.ratio)
-    val tileWidth = (StarterTileHeight.value * ratio).dp.coerceIn(96.dp, 228.dp)
-
-    Column(
-        Modifier
-            .width(tileWidth)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(bottom = Spacing.xs),
-    ) {
-        Box(
-            Modifier
-                .width(tileWidth)
-                .height(StarterTileHeight)
-                .clip(RoundedCornerShape(16.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(container, MaterialTheme.colorScheme.surfaceContainerHighest),
-                    )
-                ),
-            contentAlignment = Alignment.BottomEnd,
-        ) {
-            Text(
-                starter.ratio,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Spacing.s),
-            )
-        }
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            starter.prompt,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            // Fixed at two lines so the row keeps a straight baseline whatever the prompts say.
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = Spacing.xs),
-        )
-    }
-}
 
 /**
  * The caption for a result: the assistant's own sentence if it wrote one, otherwise nothing —
@@ -453,4 +284,115 @@ private fun StarterTile(starter: ImagineStarter, onClick: () -> Unit) {
 private fun promptCaptionOf(persisted: List<PersistedSegment>, message: ChatMessage): String? =
     persisted.firstOrNull { it.type == "text" }?.text?.takeIf { it.isNotBlank() }
         ?: message.content.takeIf { it.isNotBlank() }
+
+/** The frame's long side; both dimensions derive from the live ratio inside this bound. */
+private val EmptyFrameBounds = 288.dp
+
+/**
+ * Imagine's opening screen: an empty frame.
+ *
+ * No mascot, no feature tour, no marketing copy — the one image every creative tool in
+ * history shares is the blank canvas, so the blank canvas is the whole screen. It earns its
+ * keep twice over:
+ *
+ *  - The frame is drawn at the ratio currently selected in the composer and re-proportions
+ *    on a spring when that changes, so the empty state is a live preview of the shape you
+ *    are about to make — and the shape control teaches itself.
+ *  - The dots inside are the generation texture at rest. The app's story then reads in
+ *    order: still dots, dancing dots, picture.
+ */
+@Composable
+internal fun ImagineEmptyState(
+    media: ImagineMedia,
+    aspectRatio: String,
+    topInset: Dp,
+    bottomInset: Dp,
+    onPrompt: (String) -> Unit,
+) {
+    val reducedMotion = rememberReducedMotion()
+    val aspect by animateFloatAsState(
+        targetValue = VideoRequestPolicy.aspectRatioValue(aspectRatio),
+        animationSpec = if (reducedMotion) tween(0) else spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "empty-frame-aspect",
+    )
+    // Fit the live ratio inside a square bound. Width and height are both continuous
+    // functions of the animated value, so the frame morphs through 1:1 without a jump.
+    val frameWidth = if (aspect >= 1f) EmptyFrameBounds else EmptyFrameBounds * aspect
+    val frameHeight = if (aspect >= 1f) EmptyFrameBounds / aspect else EmptyFrameBounds
+
+    val example = if (media == ImagineMedia.Video) {
+        "Slow dolly through a greenhouse at sunrise"
+    } else {
+        "A lighthouse mid-storm, painted in gouache"
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(top = topInset, bottom = bottomInset)
+            .padding(horizontal = Spacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier
+                .width(frameWidth)
+                .height(frameHeight)
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            RestingDots(Modifier.matchParentSize())
+            // The frame IS the ratio — naming it links this shape to the chip that changes it.
+            Text(
+                aspectRatio,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.m),
+            )
+        }
+        Spacer(Modifier.height(Spacing.xl))
+        Text(
+            "It begins with a sentence.",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            "Try “$example”",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { onPrompt(example) },
+        )
+    }
+}
+
+/**
+ * The generation texture at rest: a sparse, motionless grid of dots. Deliberately static —
+ * this screen's only movement is the frame answering the ratio control.
+ */
+@Composable
+private fun RestingDots(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f)
+    Canvas(modifier) {
+        val cell = 20.dp.toPx()
+        val radius = 1.6.dp.toPx()
+        val cols = (size.width / cell).toInt()
+        val rows = (size.height / cell).toInt()
+        val originX = (size.width - cols * cell) / 2f + cell / 2f
+        val originY = (size.height - rows * cell) / 2f + cell / 2f
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                drawCircle(color, radius, Offset(originX + col * cell, originY + row * cell))
+            }
+        }
+    }
+}
 
