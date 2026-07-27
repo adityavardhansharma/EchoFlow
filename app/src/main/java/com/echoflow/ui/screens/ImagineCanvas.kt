@@ -2,7 +2,11 @@
 
 package com.echoflow.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +14,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,7 +66,8 @@ import com.echoflow.data.VideoRequestPolicy
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.GeneratedImageSegment
 import com.echoflow.ui.components.GeneratedVideoSegment
-import com.echoflow.ui.components.ImagineMark
+import com.echoflow.ui.components.DotFieldCanvas
+import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 
@@ -267,76 +279,169 @@ private fun AskAboutButton(onClick: () -> Unit) {
 }
 
 /**
- * Imagine's opening screen. The dot field does decorative duty here — the same texture that
- * marks a generation in progress, at rest, so the surface introduces its own language before
- * anything has been made.
+ * One way in: a prompt worth stealing, the shape it wants, and a tone to wear. Tapping sets
+ * the ratio as well as the text — which is how the shape control introduces itself, since
+ * almost nobody opens that chip unprompted.
+ */
+private data class ImagineStarter(val prompt: String, val ratio: String, val tone: Int)
+
+/**
+ * Imagine's opening screen.
+ *
+ * The hero is a **live dot field** — the exact texture that marks a generation in progress,
+ * running at rest. It costs nothing (the canvas already exists) and it means the surface
+ * teaches its own language before anything is made: the second time the user sees those dots,
+ * they already read as "something is happening".
+ *
+ * Starters are shaped tiles rather than sentences in grey pills, each drawn at the ratio it
+ * would produce, so the first thing on screen is a row of pictures-to-be.
  */
 @Composable
 internal fun ImagineEmptyState(
     media: ImagineMedia,
     topInset: Dp,
     bottomInset: Dp,
-    onPrompt: (String) -> Unit,
+    onStarter: (String, String) -> Unit,
 ) {
+    val video = media == ImagineMedia.Video
+    // Alternates per entry, exactly as a real generation does: never quite the same room twice.
+    val pattern = remember(media) { listOf("ripple", "rain").random() }
     val starters = remember(media) {
-        if (media == ImagineMedia.Video) {
+        if (video) {
             listOf(
-                "A paper boat drifting down a rain-filled gutter",
-                "Slow dolly through a greenhouse at sunrise",
-                "Neon signs reflecting in a wet street",
+                ImagineStarter("A paper boat running a rain-filled gutter", "16:9", 0),
+                ImagineStarter("Neon bleeding into a wet street", "9:16", 1),
+                ImagineStarter("Slow dolly through a greenhouse at sunrise", "21:9", 2),
             )
         } else {
             listOf(
-                "A lighthouse in a storm, painted in gouache",
-                "An isometric cutaway of a tiny bookshop",
-                "Portrait of an astronaut made of stained glass",
+                ImagineStarter("A lighthouse mid-storm, painted in gouache", "16:9", 0),
+                ImagineStarter("An astronaut rendered in stained glass", "9:16", 1),
+                ImagineStarter("Isometric cutaway of a tiny bookshop", "1:1", 2),
             )
         }
     }
+
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(top = topInset, bottom = bottomInset)
-            .padding(horizontal = Spacing.xl),
+            .padding(horizontal = Spacing.base),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        ImagineMark(size = 72.dp)
-        Spacer(Modifier.height(Spacing.l))
-        Text(
-            "Describe it. Watch it appear.",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            // Answers the only question this split can raise, before it is asked.
-            "Your older image chats stayed in Chat.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.xl))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(Spacing.s, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        // Type sits *inside* the texture over a scrim — an editorial cover, not an icon with a
+        // caption underneath it.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 10f)
+                .clip(RoundedCornerShape(32.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            starters.forEach { prompt ->
-                Surface(
-                    onClick = { onPrompt(prompt) },
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Text(
-                        prompt,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            DotFieldCanvas(
+                pattern = pattern,
+                revealFraction = { 0f },
+                modifier = Modifier.matchParentSize(),
+            )
+            Box(
+                Modifier.matchParentSize().background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.45f to MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
+                        1f to MaterialTheme.colorScheme.surfaceContainerHigh,
                     )
-                }
+                )
+            )
+            Column(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = Spacing.l, end = Spacing.l, bottom = Spacing.l),
+            ) {
+                Text(
+                    "Make something.",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (video) "Describe a clip. The model decides how long it runs."
+                    else "Describe an image, then talk it into shape.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
+
+        Spacer(Modifier.height(Spacing.xl))
+        SectionLabel("Start from")
+        Spacer(Modifier.height(Spacing.m))
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+        ) {
+            starters.forEach { starter ->
+                StarterTile(starter) { onStarter(starter.prompt, starter.ratio) }
+            }
+        }
+    }
+}
+
+/** Every tile is this tall; width follows the ratio. A contact sheet, not a ragged stack. */
+private val StarterTileHeight = 132.dp
+
+/** A prompt shown as the shape it would produce, rather than a sentence in a grey pill. */
+@Composable
+private fun StarterTile(starter: ImagineStarter, onClick: () -> Unit) {
+    val container = when (starter.tone) {
+        0 -> MaterialTheme.colorScheme.primaryContainer
+        1 -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    // Uniform height, width derived from the ratio — the way a strip of frames actually
+    // reads. Sizing by width instead would let a 9:16 tile tower over a 16:9 one and leave
+    // every caption sitting at a different height.
+    val ratio = VideoRequestPolicy.aspectRatioValue(starter.ratio)
+    val tileWidth = (StarterTileHeight.value * ratio).dp.coerceIn(96.dp, 228.dp)
+
+    Column(
+        Modifier
+            .width(tileWidth)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(bottom = Spacing.xs),
+    ) {
+        Box(
+            Modifier
+                .width(tileWidth)
+                .height(StarterTileHeight)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(container, MaterialTheme.colorScheme.surfaceContainerHighest),
+                    )
+                ),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            Text(
+                starter.ratio,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(Spacing.s),
+            )
+        }
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            starter.prompt,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            // Fixed at two lines so the row keeps a straight baseline whatever the prompts say.
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
     }
 }
 

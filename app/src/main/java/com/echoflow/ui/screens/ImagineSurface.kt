@@ -106,7 +106,13 @@ internal fun ImagineSurface(
                 media = media,
                 topInset = topBarInset,
                 bottomInset = bottomInset,
-                onPrompt = { textInput = it },
+                onStarter = { prompt, ratio ->
+                    textInput = prompt
+                    // The starter carries its own shape, so picking one also demonstrates
+                    // that the ratio chip exists and does something.
+                    if (isVideo) settingsViewModel.saveVideoAspectRatio(ratio)
+                    else settingsViewModel.saveImageAspectRatio(ratio)
+                },
             )
         } else {
             key(currentThreadId) {
