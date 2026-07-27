@@ -298,16 +298,9 @@ internal fun SettingsHomePage(
     }
     val imageGenModelId by viewModel.imageGenModelId.collectAsState()
     val imageModelsHome by viewModel.imageModels.collectAsState()
-    val imageGenEngineHome by viewModel.imageGenEngine.collectAsState()
-    val localImageModelsHome by viewModel.localImageModels.collectAsState()
-    val localImageModelIdHome by viewModel.localImageModelId.collectAsState()
-    val imageGenSubtitle = if (imageGenEngineHome == com.echoflow.data.SettingsRepository.IMAGE_ENGINE_LOCAL) {
-        "On device · " + (localImageModelsHome.firstOrNull { it.id == localImageModelIdHome }?.name ?: "pick a model")
-    } else {
-        imageModelsHome.firstOrNull { it.id == imageGenModelId }?.name
-            ?: if (imageGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID) "Gemini 2.5 Flash Image"
-            else imageGenModelId
-    }
+    val imageGenSubtitle = imageModelsHome.firstOrNull { it.id == imageGenModelId }?.name
+        ?: if (imageGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID) "Gemini 2.5 Flash Image"
+        else imageGenModelId
     val videoGenModelId by viewModel.videoGenModelId.collectAsState()
     val videoModelsHome by viewModel.videoModels.collectAsState()
     val videoAspectRatioHome by viewModel.videoAspectRatio.collectAsState()

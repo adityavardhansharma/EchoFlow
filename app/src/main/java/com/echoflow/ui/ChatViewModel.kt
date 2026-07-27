@@ -39,8 +39,6 @@ class ChatViewModel(
     private val artifactDao: ArtifactDao,
     private val artifactVersionDao: ArtifactVersionDao,
     private val generatedImageDao: GeneratedImageDao,
-    private val localImageModelDao: LocalImageModelDao,
-    private val localImageModelManager: LocalImageModelManager,
     private val generatedVideoDao: GeneratedVideoDao,
     private val localInferenceGate: LocalInferenceGate
 ) : AndroidViewModel(application) {
@@ -51,14 +49,7 @@ class ChatViewModel(
     // Image generation: decoded PNGs on disk, version chain in Room (see GeneratedImageStore).
     private val generatedImageStore = GeneratedImageStore(application, generatedImageDao)
 
-    // Cloud and model-routed local image engines; the ViewModel never exposes pipeline choices.
     private val openRouterImageEngine by lazy { OpenRouterImageGenerationEngine(openRouterService, generatedImageStore) }
-    private val localImageEngine by lazy {
-        LocalImageGenerationEngineRouter(
-            mediaPipe = MediaPipeImageGenerationEngine(application, generatedImageStore),
-            stableDiffusionCpp = StableDiffusionCppImageGenerationEngine(application, generatedImageStore),
-        )
-    }
 
     // Video generation: MP4s on disk, async job rows in Room (see GeneratedVideoStore). The
     // rows are what make a run outlive the process, so the store is created eagerly.
@@ -737,32 +728,12 @@ class ChatViewModel(
             val isLocal = selectedModel.startsWith("local/") &&
                 _chatMode.value !is ChatMode.EchoFusion && !imageGenMode && !videoGenMode
 
-            val imageEngineLocal = imageGenMode &&
-                settingsRepository.getImageGenEngineDirect() == SettingsRepository.IMAGE_ENGINE_LOCAL
-            var localImageModel: LocalImageModel? = null
             if (imageGenMode) {
                 if (attachmentMime.equals("application/pdf", ignoreCase = true)) {
                     _errorMessage.value = "Image generation works with image attachments only, not PDFs."
                     return@launch
                 }
-                if (imageEngineLocal) {
-                    // On-device engine: no API key needed — but the model must be installed.
-                    val selectedId = settingsRepository.getLocalImageModelDirect()
-                    localImageModel = selectedId.takeIf { it.isNotBlank() }?.let { localImageModelDao.getById(it) }
-                    if (localImageModel == null || !localImageModelManager.isInstalled(localImageModel)) {
-                        _errorMessage.value = "Download an on-device image model in Settings → Image generation first."
-                        return@launch
-                    }
-                    val catalogEntry = LocalImageModelCatalog.entryById(localImageModel.id)
-                    if (catalogEntry != null && !localImageModelManager.deviceSupportsRuntime(catalogEntry)) {
-                        _errorMessage.value = "${localImageModel.name} needs Android 8.0 or newer."
-                        return@launch
-                    }
-                    if (catalogEntry != null && !localImageModelManager.deviceMeetsRam(catalogEntry)) {
-                        _errorMessage.value = "${localImageModel.name} needs more memory than this device has. Try the OpenRouter engine instead."
-                        return@launch
-                    }
-                } else if (apiKey.isBlank()) {
+                if (apiKey.isBlank()) {
                     _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
                     return@launch
                 }
@@ -1017,7 +988,7 @@ class ChatViewModel(
             val imageGenModelId = if (imageGenMode) settingsRepository.getImageGenModelDirect() else ""
             val imagePrev = if (imageGenMode) generatedImageStore.latestForChat(chatId) else null
             // The base64 re-encode is cloud-only: OpenRouter gets true conversational editing.
-            val imageEditUrl = if (imageGenMode && !imageEngineLocal) imagePrev?.let { generatedImageStore.asDataUrl(it) } else null
+            val imageEditUrl = if (imageGenMode) imagePrev?.let { generatedImageStore.asDataUrl(it) } else null
             val imagePattern = if (imageGenMode) listOf("ripple", "rain").random() else ""
 
             // Video mode: framing comes from Settings; length never does. An image attachment
@@ -1055,30 +1026,16 @@ class ChatViewModel(
                 imageGenMode ->
                     flow {
                         emit(StreamChunk.ImageGenStarted(imagePattern, imagePrev != null, imagePrev?.filePath))
-                        // On-device runtimes do not support instruction-based editing: a local
-                        // follow-up regenerates from the prior prompt plus the requested change,
-                        // linked into the same version chain via parentId.
-                        val localPrompt = if (imageEngineLocal && imagePrev != null) {
-                            "${imagePrev.prompt}, $prompt"
-                        } else prompt
                         val request = ImageGenerationRequest(
                             chatId = chatId,
-                            prompt = localPrompt,
-                            modelId = if (imageEngineLocal) localImageModel!!.id else imageGenModelId,
-                            iterations = settingsRepository.getLocalImageIterationsDirect(),
-                            seed = if (settingsRepository.getLocalImageSeedModeDirect() == "fixed") {
-                                settingsRepository.getLocalImageFixedSeedDirect()
-                            } else null,
+                            prompt = prompt,
+                            modelId = imageGenModelId,
                             previousImage = imagePrev,
                             apiKey = apiKey,
                             history = fullHistory,
                             systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
                             editImageDataUrl = imageEditUrl,
                             params = inferenceParams,
-                            localModel = localImageModel,
-                            localModelInstallDir = localImageModel?.let {
-                                localImageModelManager.directoryFor(it).absolutePath
-                            },
                         )
                         val relay: suspend (ImageGenerationEvent) -> Unit = { event ->
                             when (event) {
@@ -1092,14 +1049,7 @@ class ChatViewModel(
                                 )
                             }
                         }
-                        if (imageEngineLocal) {
-                            // Local diffusion and local LLM inference never overlap.
-                            localInferenceGate.withExclusive("image generation") {
-                                localImageEngine.generate(request).collect(relay)
-                            }
-                        } else {
-                            openRouterImageEngine.generate(request).collect(relay)
-                        }
+                        openRouterImageEngine.generate(request).collect(relay)
                     }
                 agentReq != null ->
                     openRouterService.sendWithAgentTools(
@@ -1745,7 +1695,6 @@ class ChatViewModel(
 
     override fun onCleared() {
         localLlmService.releaseAll()
-        localImageEngine.close()
         super.onCleared()
     }
 
@@ -1773,8 +1722,6 @@ class ChatViewModel(
             artifactDao: ArtifactDao,
             artifactVersionDao: ArtifactVersionDao,
             generatedImageDao: GeneratedImageDao,
-            localImageModelDao: LocalImageModelDao,
-            localImageModelManager: LocalImageModelManager,
             generatedVideoDao: GeneratedVideoDao,
             localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
@@ -1784,7 +1731,7 @@ class ChatViewModel(
                     application, chatDao, messageDao, settingsRepository, localModelDao,
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
                     agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao,
-                    generatedImageDao, localImageModelDao, localImageModelManager, generatedVideoDao,
+                    generatedImageDao, generatedVideoDao,
                     localInferenceGate
                 ) as T
             }

@@ -8,12 +8,10 @@
         <exclude domain="sharedpref" path="secure_settings_prefs.xml" />
         <exclude domain="sharedpref" path="settings_prefs.xml" />
         <exclude domain="file" path="models/" />
-        <exclude domain="file" path="image_models/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="secure_settings_prefs.xml" />
         <exclude domain="sharedpref" path="settings_prefs.xml" />
         <exclude domain="file" path="models/" />
-        <exclude domain="file" path="image_models/" />
     </device-transfer>
 </data-extraction-rules>

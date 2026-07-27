@@ -21,12 +21,6 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.FusionPanelDao
 import com.echoflow.data.ImageModel
 import com.echoflow.data.ImageModelDao
-import com.echoflow.data.LocalImageCatalogEntry
-import com.echoflow.data.LocalImageDownloadState
-import com.echoflow.data.LocalImageModel
-import com.echoflow.data.LocalImageModelDao
-import com.echoflow.data.LocalImageModelManager
-import com.echoflow.data.LocalInferenceGate
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.InferenceParams
@@ -60,10 +54,7 @@ class SettingsViewModel(
     private val fusionPanelDao: FusionPanelDao,
     private val agentProfileDao: AgentProfileDao,
     private val imageModelDao: ImageModelDao,
-    private val localImageModelDao: LocalImageModelDao,
-    private val localImageModelManager: LocalImageModelManager,
     private val videoModelDao: VideoModelDao,
-    private val localInferenceGate: LocalInferenceGate
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
     private val customProviderService = CustomProviderService()
@@ -138,20 +129,6 @@ class SettingsViewModel(
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
     val imageModels: StateFlow<List<ImageModel>> = imageModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // On-device image generation
-    val imageGenEngine: StateFlow<String> = repository.imageGenEngine
-    val localImageModelId: StateFlow<String> = repository.localImageModel
-    val localImageIterations: StateFlow<Int> = repository.localImageIterations
-    val localImageSeedMode: StateFlow<String> = repository.localImageSeedMode
-    val localImageFixedSeed: StateFlow<Int> = repository.localImageFixedSeed
-    val experimentalImageModelsEnabled: StateFlow<Boolean> = repository.experimentalImageModelsEnabled
-    val localImageModels: StateFlow<List<LocalImageModel>> = localImageModelDao.getAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val localImageDownloadStates: StateFlow<Map<String, LocalImageDownloadState>> = localImageModelManager.states
-
-    private val _localImageMessage = MutableStateFlow<String?>(null)
-    val localImageMessage: StateFlow<String?> = _localImageMessage.asStateFlow()
 
     // Video generation (OpenRouter only)
     val videoGenModelId: StateFlow<String> = repository.videoGenModel
@@ -284,20 +261,6 @@ class SettingsViewModel(
 
     init {
         viewModelScope.launch { downloadManager.pruneOrphans() }
-        viewModelScope.launch {
-            // The background Worker can finish in a recreated process with its own repository
-            // instance. Reconcile this ViewModel's hot flow with the durable preference and the
-            // files that are actually runnable whenever Room changes.
-            localImageModelDao.getAll().collect { models ->
-                val installed = models.filter(localImageModelManager::isInstalled)
-                val persisted = repository.getLocalImageModelDirect()
-                val desired = persisted.takeIf { selected -> installed.any { it.id == selected } }
-                    ?: installed.firstOrNull()?.id.orEmpty()
-                if (persisted != desired || repository.localImageModel.value != desired) {
-                    repository.saveLocalImageModel(desired)
-                }
-            }
-        }
     }
 
     fun saveApiKey(key: String) {
@@ -470,80 +433,6 @@ class SettingsViewModel(
     // ── Image generation ─────────────────────────────────────────────────────────────────
 
     fun saveImageGenModel(id: String) = repository.saveImageGenModel(id)
-
-    fun saveImageGenEngine(engine: String) = repository.saveImageGenEngine(engine)
-    fun saveLocalImageModel(id: String) = repository.saveLocalImageModel(id)
-    fun saveLocalImageIterations(value: Int) = repository.saveLocalImageIterations(value)
-    fun saveLocalImageSeedMode(mode: String) = repository.saveLocalImageSeedMode(mode)
-    fun saveLocalImageFixedSeed(seed: Int) = repository.saveLocalImageFixedSeed(seed)
-    fun saveExperimentalImageModelsEnabled(enabled: Boolean) {
-        repository.saveExperimentalImageModelsEnabled(enabled)
-        if (enabled) _localImageMessage.value = null
-    }
-
-    fun localImageRuntimeSupported(entry: LocalImageCatalogEntry): Boolean =
-        localImageModelManager.deviceSupportsRuntime(entry)
-
-    /** Picker path: choosing an on-device model also switches the engine to local. */
-    fun selectLocalImageModel(id: String) {
-        repository.saveLocalImageModel(id)
-        repository.saveImageGenEngine(com.echoflow.data.SettingsRepository.IMAGE_ENGINE_LOCAL)
-    }
-
-    /** Picker path: choosing a cloud image model also switches the engine to OpenRouter. */
-    fun selectCloudImageModel(id: String) {
-        repository.saveImageGenModel(id)
-        repository.saveImageGenEngine(com.echoflow.data.SettingsRepository.IMAGE_ENGINE_OPENROUTER)
-    }
-
-    fun downloadLocalImageModel(entry: LocalImageCatalogEntry) {
-        val experimentalEnabled = repository.getExperimentalImageModelsEnabledDirect()
-        if (!localImageModelManager.deviceSupportsRuntime(entry)) {
-            _localImageMessage.value = "${entry.name} needs Android 8.0 or newer."
-            return
-        }
-        if (!entry.canDownload(experimentalEnabled)) {
-            _localImageMessage.value = if (entry.experimental && !experimentalEnabled) {
-                "Turn on Show experimental models to download ${entry.name}."
-            } else {
-                "${entry.name} isn't ready to download yet."
-            }
-            return
-        }
-        _localImageMessage.value = null
-        localImageModelManager.download(entry)
-    }
-
-    fun cancelLocalImageDownload(entryId: String) = localImageModelManager.cancel(entryId)
-
-    fun retryLocalImageDownload(entry: LocalImageCatalogEntry) {
-        localImageModelManager.clearFailed(entry.id)
-        downloadLocalImageModel(entry)
-    }
-
-    fun clearLocalImageMessage() {
-        _localImageMessage.value = null
-    }
-
-    fun deleteLocalImageModel(model: LocalImageModel) {
-        viewModelScope.launch {
-            if (localInferenceGate.isBusy) {
-                _localImageMessage.value = "Wait for the current on-device task to finish before deleting a model."
-                return@launch
-            }
-            try {
-                localImageModelManager.delete(model)
-                if (repository.getLocalImageModelDirect() == model.id) {
-                    // Fall over to another installed model, or clear the selection entirely.
-                    val remaining = localImageModelDao.getAllSync()
-                        .firstOrNull { it.id != model.id && localImageModelManager.isInstalled(it) }
-                    repository.saveLocalImageModel(remaining?.id.orEmpty())
-                }
-            } catch (error: Exception) {
-                _localImageMessage.value = error.message ?: "Couldn't delete ${model.name}."
-            }
-        }
-    }
 
     fun addImageModel(id: String, name: String) {
         viewModelScope.launch {
@@ -778,14 +667,11 @@ class SettingsViewModel(
             fusionPanelDao: FusionPanelDao,
             agentProfileDao: AgentProfileDao,
             imageModelDao: ImageModelDao,
-            localImageModelDao: LocalImageModelDao,
-            localImageModelManager: LocalImageModelManager,
             videoModelDao: VideoModelDao,
-            localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, localImageModelDao, localImageModelManager, videoModelDao, localInferenceGate) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, videoModelDao) as T
             }
         }
     }

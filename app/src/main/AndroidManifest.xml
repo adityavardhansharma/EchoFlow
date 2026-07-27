@@ -4,7 +4,7 @@
 
     <!-- LiteRT-LM may declare a higher library minSdk than ours; local models only run
          on modern arm64 devices in practice, so merging it in is safe. -->
-    <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm,com.llamatik" />
+    <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -22,8 +22,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.EchoFlow">
 
-        <!-- MediaPipe Image Generator runs diffusion on the GPU where a vendor OpenCL
-             driver exists; all are optional so devices without them still install. -->
+        <!-- LiteRT-LM offloads local LLM inference to the GPU where a vendor OpenCL driver
+             exists; all are optional so devices without them still install. -->
         <uses-native-library
             android:name="libOpenCL.so"
             android:required="false" />
@@ -64,14 +64,6 @@
             android:name=".data.DeepResearchForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <!-- Experimental checkpoints run out-of-process so an unsupported model or native
-             memory failure cannot terminate the app or damage its persisted data. -->
-        <service
-            android:name=".data.StableDiffusionGenerationService"
-            android:exported="false"
-            android:process=":image_generation"
-            android:stopWithTask="false" />
     </application>
 
 </manifest>

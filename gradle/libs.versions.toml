@@ -43,18 +43,12 @@ okhttp = "4.10.0"
 # 0.10.35 (Apr 2026) — required for Gemma 4 / newer .litertlm bundles; the 0.10.2x
 # runtimes abort natively when loading them.
 mediapipeTasksGenai = "0.10.35"
-# On-device diffusion (Image Generator) ships in its own artifact, NOT in tasks-genai.
-# It also has its own release cadence: 0.10.26.1 is the newest published version —
-# 0.10.35 exists only for tasks-genai (verified against the Google Maven metadata).
-mediapipeImageGenerator = "0.10.26.1"
 # Standalone LiteRT-LM engine — what AI Edge Gallery actually runs .litertlm bundles on
 # (gemma-4 crashes under the MediaPipe wrapper even at 0.10.35). Gallery pins 0.11.0.
 litertlm = "0.11.0"
 # llama.cpp-backed GGUF runtime (prebuilt arm64-v8a + x86_64 .so via the published AAR).
 # Used only for .gguf models; .task/.litertlm keep their existing runtimes.
 llamacppKotlin = "0.4.0"
-# Prebuilt Android binding for stable-diffusion.cpp. Kept behind the experimental-model toggle.
-llamatik = "1.9.0"
 moshiKotlin = "1.15.2"
 moshiKotlinCodegen = "1.15.2"
 datastorePreferences = "1.1.7"
@@ -115,10 +109,8 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "loggingInterceptor" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipeTasksGenai" }
-mediapipe-tasks-vision-image-generator = { group = "com.google.mediapipe", name = "tasks-vision-image-generator", version.ref = "mediapipeImageGenerator" }
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 llamacpp-kotlin = { group = "io.github.ljcamargo", name = "llamacpp-kotlin", version.ref = "llamacppKotlin" }
-llamatik = { group = "com.llamatik", name = "library-android", version.ref = "llamatik" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshiKotlin" }
 moshi-kotlin-codegen = { group = "com.squareup.moshi", name = "moshi-kotlin-codegen", version.ref = "moshiKotlinCodegen" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }

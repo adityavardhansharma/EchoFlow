@@ -12,5 +12,4 @@
     <exclude domain="sharedpref" path="settings_prefs.xml" />
     <!-- Downloaded models are reproducible and can exceed Android's backup quota. -->
     <exclude domain="file" path="models/" />
-    <exclude domain="file" path="image_models/" />
 </full-backup-content>

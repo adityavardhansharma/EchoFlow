@@ -171,23 +171,12 @@ fun ChatScreen(
     val imageGenActive by chatViewModel.imageGenActive.collectAsState()
     val imageGenModelId by settingsViewModel.imageGenModelId.collectAsState()
     val imageModels by settingsViewModel.imageModels.collectAsState()
-    val imageGenEngine by settingsViewModel.imageGenEngine.collectAsState()
-    val localImageModels by settingsViewModel.localImageModels.collectAsState()
-    val localImageModelId by settingsViewModel.localImageModelId.collectAsState()
-    // "Create image" swaps the model picker to image models only: OpenRouter entries plus
-    // the installed on-device ones. Picking a row also selects the matching engine.
+    // "Create image" swaps the model picker to the OpenRouter image models.
     val imageModelEntries = remember(imageModels) {
         val default = com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID to "Gemini 2.5 Flash Image"
         listOf(default) + imageModels.filter { it.id != default.first }.map { it.id to it.name }
     }
-    val localImageEntries = remember(localImageModels) { localImageModels.map { it.id to it.name } }
-    val imageEngineIsLocal = imageGenEngine == com.echoflow.data.SettingsRepository.IMAGE_ENGINE_LOCAL
-    val selectedImageModelId = if (imageEngineIsLocal) localImageModelId else imageGenModelId
-    val imageModelLabel = if (imageEngineIsLocal) {
-        localImageModels.firstOrNull { it.id == localImageModelId }?.name ?: "Pick an image model"
-    } else {
-        imageModelEntries.firstOrNull { it.first == imageGenModelId }?.second ?: imageGenModelId
-    }
+    val imageModelLabel = imageModelEntries.firstOrNull { it.first == imageGenModelId }?.second ?: imageGenModelId
     // "Create video" swaps the model picker to OpenRouter video models. Cloud only — there is
     // no on-device route — so the local section of the picker stays empty.
     val videoGenActive by chatViewModel.videoGenActive.collectAsState()
@@ -510,15 +499,9 @@ fun ChatScreen(
         } else if (imageGenActive) {
             ModelPickerSheet(
                 models = imageModelEntries,
-                localModels = localImageEntries,
-                selectedId = selectedImageModelId,
-                onSelect = { id ->
-                    // Selecting a model also selects its engine; the normal chat LLM
-                    // selection is untouched either way.
-                    if (id.startsWith("local-image/")) settingsViewModel.selectLocalImageModel(id)
-                    else settingsViewModel.selectCloudImageModel(id)
-                    showModelMenu = false
-                },
+                localModels = emptyList(),
+                selectedId = imageGenModelId,
+                onSelect = { settingsViewModel.saveImageGenModel(it); showModelMenu = false },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
             )
