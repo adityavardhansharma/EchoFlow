@@ -248,114 +248,24 @@ class ChatViewModel(
      */
     fun observeVideo(videoId: String): Flow<GeneratedVideo?> = generatedVideoDao.observeById(videoId)
 
-    /** Guards against a second resume pass doubling up on a job already being polled. */
-    private val resumingVideoIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
     /**
-     * Resumed video jobs, by chat. These run outside [streamJobs] because they belong to no
-     * live turn, so deleting a conversation has to be able to find and stop them too.
-     *
-     * Concurrent rather than plain: entries are removed from job-completion handlers, which
-     * are not guaranteed to run on the dispatcher that registered them.
+     * Renders that outlive their turn — resumed on launch, cancelled when their chat is
+     * deleted. None of this is chat streaming, so none of it lives here.
      */
-    private val videoResumeJobs = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Job>>()
-
-    private fun concurrentJobSet(): MutableSet<Job> =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Job, Boolean>())
+    private val videoRecovery by lazy {
+        VideoJobRecovery(
+            context = application,
+            store = generatedVideoStore,
+            engine = videoEngine,
+            settings = settingsRepository,
+            chatDao = chatDao,
+            messageDao = messageDao,
+            scope = viewModelScope,
+        )
+    }
 
     init {
-        viewModelScope.launch { resumeInterruptedVideos() }
-    }
-
-    /**
-     * Picks up video jobs that were still rendering when the process last died. The clip is
-     * already paid for and OpenRouter keeps rendering it regardless, so abandoning the job
-     * would silently cost the user money for nothing.
-     *
-     * A run killed before its assistant message was written has no card in the conversation,
-     * so one is inserted here — pointing at the job row, which the card then follows live.
-     */
-    private suspend fun resumeInterruptedVideos() {
-        val unfinished = runCatching { generatedVideoStore.unfinished() }.getOrNull().orEmpty()
-        if (unfinished.isEmpty()) return
-        val apiKey = settingsRepository.getApiKeyDirect()
-
-        unfinished.forEach { video ->
-            if (video.id in resumingVideoIds) return@forEach
-            resumingVideoIds.add(video.id)
-
-            if (apiKey.isBlank() || video.jobId == null) {
-                generatedVideoStore.markFailed(
-                    video, GeneratedVideo.STATUS_FAILED,
-                    "The video was interrupted and could not be resumed.",
-                )
-                return@forEach
-            }
-            ensureVideoMessage(video)
-            // LAZY, then registered, then started. Launching eagerly would leave a window —
-            // however brief, and however much the current dispatcher happens to close it —
-            // where the writer is running but cancelWorkForChat cannot see it, so deleting
-            // the conversation would race a job it has no way to cancel or join.
-            val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
-                KeepAliveService.acquire(getApplication(), "Finishing a video…")
-                try {
-                    videoEngine.resume(video, apiKey).collect { /* the row is the UI's source */ }
-                    notifyIfVideoReady(video.id)
-                } catch (_: Exception) {
-                    // The row already carries the failure; the card renders it on next open.
-                } finally {
-                    KeepAliveService.release(getApplication())
-                    resumingVideoIds.remove(video.id)
-                }
-            }
-            videoResumeJobs.getOrPut(video.chatId) { concurrentJobSet() }.add(job)
-            job.invokeOnCompletion {
-                videoResumeJobs[video.chatId]?.let { jobs ->
-                    jobs.remove(job)
-                    if (jobs.isEmpty()) videoResumeJobs.remove(video.chatId)
-                }
-            }
-            job.start()
-        }
-    }
-
-    /**
-     * Announces a finished clip only when one actually exists. The resume flow also ends
-     * *normally* when its row was deleted mid-render, so keying the notification off "the
-     * flow completed" would announce a video for a conversation the user just deleted — and
-     * tapping it would open nothing.
-     */
-    private suspend fun notifyIfVideoReady(videoId: String) {
-        val finished = runCatching { generatedVideoStore.byId(videoId) }.getOrNull() ?: return
-        if (!finished.isPlayable) return
-        ReplyNotifications.notifyReplyReady(
-            getApplication(), finished.chatId,
-            title = "Your video is ready",
-            text = "Tap to watch it in EchoFlow.",
-        )
-    }
-
-    /** Adds the card for a recovered job when the killed turn never got to persist one. */
-    private suspend fun ensureVideoMessage(video: GeneratedVideo) {
-        // The conversation can be deleted between reading the unfinished rows and getting
-        // here; inserting into it would fail the foreign key and take the resume pass with it.
-        if (chatDao.getThreadById(video.chatId) == null) return
-        val alreadyShown = messageDao.getMessagesForChatSync(video.chatId).any { message ->
-            ToolEventJson.segmentsFromJson(message.segmentsJson).any { it.video?.videoId == video.id }
-        }
-        if (alreadyShown) return
-        chatRepository.insertMessage(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
-                chatId = video.chatId,
-                role = "assistant",
-                content = "",
-                createdAt = System.currentTimeMillis(),
-                segmentsJson = ToolEventJson.segmentsToJson(
-                    listOf(PersistedSegment("video", video = VideoRef(video.id, video.filePath)))
-                ),
-            )
-        )
+        viewModelScope.launch { videoRecovery.resumeInterrupted() }
     }
 
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
@@ -628,7 +538,7 @@ class ChatViewModel(
      */
     private suspend fun cancelWorkForChat(chatId: String) {
         streamJobs.remove(chatId)?.cancelAndJoin()
-        videoResumeJobs.remove(chatId)?.forEach { it.cancelAndJoin() }
+        videoRecovery.cancelForChat(chatId)
     }
 
     fun renameThread(thread: ChatThread, newTitle: String) {
@@ -1291,7 +1201,18 @@ class ChatViewModel(
                     // mid-render, so announce a clip only once one actually exists.
                     segments.filterIsInstance<StreamSegment.Video>()
                         .lastOrNull { it.filePath != null }
-                        ?.let { notifyIfVideoReady(it.videoId) }
+                        ?.let { segment ->
+                            // "The flow completed" is not "there is a video": a run whose chat
+                            // was deleted mid-render also completes normally, with no file.
+                            val clip = runCatching { generatedVideoStore.byId(segment.videoId) }.getOrNull()
+                            if (clip?.isPlayable == true) {
+                                ReplyNotifications.notifyReplyReady(
+                                    getApplication(), chatId,
+                                    title = "Your video is ready",
+                                    text = "Tap to watch it in EchoFlow.",
+                                )
+                            }
+                        }
                 } else if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
                         getApplication(), chatId,
