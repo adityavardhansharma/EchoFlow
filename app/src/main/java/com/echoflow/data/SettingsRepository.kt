@@ -607,8 +607,14 @@ class SettingsRepository(context: Context) {
     fun getLastThreadIdDirect(mode: AppMode): String? =
         prefs.getString("last_thread_${mode.storageKey}", null)?.takeIf { it.isNotBlank() }
 
-    fun saveLastThreadId(mode: AppMode, chatId: String?) {
-        prefs.edit().putString("last_thread_${mode.storageKey}", chatId.orEmpty()).apply()
+    /**
+     * Only real conversations are remembered. The id is non-null on purpose: writing a blank
+     * here would *erase* the position rather than record one, and an unsaved empty thread is
+     * nothing to come back to anyway — so "no conversation open" must leave the previous
+     * memory intact instead of overwriting it.
+     */
+    fun saveLastThreadId(mode: AppMode, chatId: String) {
+        prefs.edit().putString("last_thread_${mode.storageKey}", chatId).apply()
     }
 
     // ── Image generation ───────────────────────────────────────────────────────────────

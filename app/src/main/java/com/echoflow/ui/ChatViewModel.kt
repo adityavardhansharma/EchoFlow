@@ -103,7 +103,7 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
-        settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+        _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
         viewModelScope.launch {
@@ -344,7 +344,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val thread = chatRepository.thread(chatId) ?: return@launch
             if (thread.mode != appMode.value) {
-                settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+                _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
                 settingsRepository.saveAppMode(thread.mode)
                 _drawerSearchQuery.value = ""
             }
@@ -480,7 +480,7 @@ class ChatViewModel(
                 _errorMessage.value = "That file is no longer available."
                 return@launch
             }
-            settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+            _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
             settingsRepository.saveAppMode(AppMode.Chat)
             _drawerSearchQuery.value = ""
             setMode(ChatMode.Normal)
@@ -541,8 +541,12 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
-        // Parked so this mode reopens here after a round trip through the other one.
-        settingsRepository.saveLastThreadId(appMode.value, chatId)
+        // Parked so this mode reopens here after a round trip through the other one. A null
+        // means "blank composer" — from the new-conversation button, or from the hop into Chat
+        // that "Ask about this" makes — and must leave the remembered position alone. Writing
+        // it through would throw away wherever the user actually was. The blank thread earns
+        // its place in the memory once sendMessage gives it an identity.
+        chatId?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
         clearPendingAttachment()
         clearError()
     }
@@ -977,6 +981,9 @@ class ChatViewModel(
                 isFirstMsgInChat = true
                 chatId = chatRepository.createThread(mode = appMode.value).id
                 _currentChatThreadId.value = chatId
+                // The blank thread is real now, so this mode returns here rather than to
+                // whatever came before it.
+                settingsRepository.saveLastThreadId(appMode.value, chatId)
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
