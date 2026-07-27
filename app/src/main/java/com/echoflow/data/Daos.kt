@@ -208,6 +208,18 @@ interface GeneratedVideoDao {
     @Query("SELECT * FROM generated_videos WHERE status NOT IN ('completed','failed','cancelled','expired')")
     suspend fun getUnfinished(): List<GeneratedVideo>
 
+    /**
+     * Conversations with a render in flight. The database is the honest source for this —
+     * it covers live turns and resumed jobs alike, and survives process death, which no
+     * in-memory job registry does. Drives the "still working" pulse in the mode switch and
+     * the drawer.
+     */
+    @Query(
+        "SELECT DISTINCT chatId FROM generated_videos " +
+            "WHERE status NOT IN ('completed','failed','cancelled','expired')"
+    )
+    fun observeRenderingChatIds(): Flow<List<String>>
+
     @Query("DELETE FROM generated_videos WHERE id = :id")
     suspend fun delete(id: String)
 }

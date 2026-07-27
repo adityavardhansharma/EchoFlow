@@ -91,14 +91,51 @@ class ChatViewModel(
         chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
     )
 
-    val allThreads: StateFlow<List<ChatThread>> = chatRepository.allThreads()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    // ── App mode ─────────────────────────────────────────────────────────────────────────
 
-    // Drawer search: matches conversation titles and full message text.
+    /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
+    val appMode: StateFlow<AppMode> = settingsRepository.appMode
+
+    /**
+     * Switches surface, parking the current conversation so this mode returns to it later and
+     * restoring whatever the target mode had open. Switching is free: renders and streams keep
+     * running in the mode you left, and [renderingModes] is what says so.
+     */
+    fun switchMode(mode: AppMode) {
+        if (mode == appMode.value) return
+        settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+        settingsRepository.saveAppMode(mode)
+        _drawerSearchQuery.value = ""
+        viewModelScope.launch {
+            // Only restore a thread that still exists and still belongs to this mode.
+            val remembered = settingsRepository.getLastThreadIdDirect(mode)
+                ?.let { chatRepository.thread(it) }
+                ?.takeIf { it.mode == mode }
+            _currentChatThreadId.value = remembered?.id
+        }
+    }
+
+    /** This mode's conversations. The two histories never mix. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allThreads: StateFlow<List<ChatThread>> = appMode
+        .flatMapLatest { chatRepository.threadsForMode(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Modes with a render in flight, so the switch can show which one is still working. A
+     * clip takes minutes and is usually started in one mode and waited for in another;
+     * without this the split would simply hide the activity.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val renderingModes: StateFlow<Set<AppMode>> = generatedVideoDao.observeRenderingChatIds()
+        .flatMapLatest { chatIds ->
+            if (chatIds.isEmpty()) flowOf(emptySet()) else chatRepository.allThreads().map { threads ->
+                threads.filter { it.id in chatIds }.map(ChatThread::mode).toSet()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    // Drawer search: matches conversation titles and full message text, scoped to the mode.
     private val _drawerSearchQuery = MutableStateFlow("")
     val drawerSearchQuery: StateFlow<String> = _drawerSearchQuery.asStateFlow()
 
@@ -122,6 +159,19 @@ class ChatViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    /**
+     * How many conversations the *other* mode would have matched. A filtered list that hides
+     * a result the user knows exists is the one way this design can feel like data loss, so
+     * the drawer says where it went instead of staying silent.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val otherModeMatchCount: StateFlow<Int> = combine(appMode, _drawerSearchQuery) { mode, query ->
+        mode to query.trim()
+    }.flatMapLatest { (mode, query) ->
+        if (query.isBlank()) flowOf(0)
+        else chatRepository.searchMatchCount(if (mode == AppMode.Chat) AppMode.Imagine else AppMode.Chat, query)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
@@ -266,6 +316,32 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
+        viewModelScope.launch {
+            // Reopen where the user left off, but only if that conversation still exists and
+            // still belongs to the mode we are restoring into.
+            val mode = appMode.value
+            settingsRepository.getLastThreadIdDirect(mode)
+                ?.let { chatRepository.thread(it) }
+                ?.takeIf { it.mode == mode }
+                ?.let { _currentChatThreadId.value = it.id }
+        }
+    }
+
+    /**
+     * Opens a conversation from outside the UI — a notification tap — switching to whichever
+     * mode owns it first. Without the switch the thread would be selected while its own
+     * history was filtered out of view, which looks exactly like the app losing it.
+     */
+    fun openThreadFromNotification(chatId: String) {
+        viewModelScope.launch {
+            val thread = chatRepository.thread(chatId) ?: return@launch
+            if (thread.mode != appMode.value) {
+                settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+                settingsRepository.saveAppMode(thread.mode)
+                _drawerSearchQuery.value = ""
+            }
+            selectThread(thread.id)
+        }
     }
 
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
@@ -421,6 +497,8 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
+        // Parked so this mode reopens here after a round trip through the other one.
+        settingsRepository.saveLastThreadId(appMode.value, chatId)
         clearPendingAttachment()
         clearError()
     }
@@ -853,7 +931,7 @@ class ChatViewModel(
 
             if (chatId == null) {
                 isFirstMsgInChat = true
-                chatId = chatRepository.createThread().id
+                chatId = chatRepository.createThread(mode = appMode.value).id
                 _currentChatThreadId.value = chatId
             }
 

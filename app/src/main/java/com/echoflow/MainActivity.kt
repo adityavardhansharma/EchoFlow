@@ -84,11 +84,12 @@ class MainActivity : ComponentActivity() {
                 factory = appGraph.chatViewModelFactory
             )
 
-            // Notification tap → jump to that conversation once the ViewModel is ready.
+            // Notification tap → jump to that conversation, switching modes if it lives in the
+            // other one (a finished video is routinely waited for from the opposite surface).
             val pendingChat by openChatRequest.collectAsState()
             LaunchedEffect(pendingChat) {
                 pendingChat?.let { chatId ->
-                    chatVm.selectThread(chatId)
+                    chatVm.openThreadFromNotification(chatId)
                     openChatRequest.value = null
                 }
             }
