@@ -79,6 +79,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -99,10 +100,10 @@ import kotlin.math.hypot
 /** The compact side of the placeholder square while the model is still painting. */
 private val PlaceholderSize = 216.dp
 
-/** The widest the settled image may render inside the reply. */
-private val SettledMaxWidth = 340.dp
+/** The widest a settled image renders inside a chat reply. Imagine overrides this. */
+internal val ChatMediaWidth = 340.dp
 
-/** The tallest the settled image may render; taller aspects are capped and center-cropped. */
+/** The tallest a settled image renders; taller aspects are capped and center-cropped. */
 private val SettledMaxHeight = 420.dp
 
 /**
@@ -125,6 +126,8 @@ fun GeneratedImageSegment(
     previousImagePath: String?,
     animate: Boolean,
     onCopy: (() -> Unit)? = null,
+    maxWidth: Dp = ChatMediaWidth,
+    actions: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -144,7 +147,7 @@ fun GeneratedImageSegment(
     // The display footprint: true aspect at bubble width, capped so height never exceeds
     // SettledMaxHeight (the stretch targets exactly what the settled image will occupy,
     // so the reveal ends with zero snap or reflow).
-    val minAspect = SettledMaxWidth.value / SettledMaxHeight.value
+    val minAspect = maxWidth.value / SettledMaxHeight.value
     val displayAspect = (rawAspect ?: 1f).coerceAtLeast(minAspect)
 
     var settled by rememberSaveable(filePath) { mutableStateOf(!animate && filePath != null) }
@@ -170,7 +173,7 @@ fun GeneratedImageSegment(
 
     // Both dimensions of the card interpolate together from the placeholder square to the
     // settled footprint, driven by the single stretch value.
-    val morphMaxWidth = (PlaceholderSize.value + (SettledMaxWidth.value - PlaceholderSize.value) * stretch.value).dp
+    val morphMaxWidth = (PlaceholderSize.value + (maxWidth.value - PlaceholderSize.value) * stretch.value).dp
     val morphAspect = 1f + (displayAspect - 1f) * stretch.value
 
     // Persisted history starts settled with the aspect still decoding for a few ms — hold the
@@ -270,6 +273,7 @@ fun GeneratedImageSegment(
                         }
                     },
                     onShare = { filePath?.let { scope.launch { shareGeneratedImage(context, it) } } },
+                    extra = actions,
                 )
             }
         }
@@ -286,6 +290,7 @@ internal fun GeneratedImageActions(
     onDownload: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
+    extra: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier,
@@ -308,6 +313,7 @@ internal fun GeneratedImageActions(
             modifier = Modifier.size(48.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         ) { Icon(Icons.Default.Share, "Share", Modifier.size(20.dp)) }
+        extra?.invoke()
     }
 }
 

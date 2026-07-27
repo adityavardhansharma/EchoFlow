@@ -24,6 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -56,6 +58,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +84,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -102,11 +106,11 @@ import java.io.File
 /** The compact side of the placeholder square while the clip is still rendering. */
 private val PlaceholderSize = 216.dp
 
-/** The widest a settled clip may render inside the reply. */
-private val SettledMaxWidth = 340.dp
+/** The widest a settled clip renders inside a chat reply. Imagine overrides this. */
+internal val ChatVideoWidth = 340.dp
 
-/** The tallest a settled clip may render; taller aspects are capped. */
-private val SettledMaxHeight = 420.dp
+/** The tallest a settled clip renders; taller aspects are capped. */
+private val SettledMaxHeight = 560.dp
 
 /** The clip's real dimensions and opening frame, read once from the file. */
 private data class VideoPoster(val aspect: Float, val frame: ImageBitmap?)
@@ -136,6 +140,9 @@ fun GeneratedVideoSegment(
     animate: Boolean,
     errorMessage: String? = null,
     onCopy: (() -> Unit)? = null,
+    maxWidth: Dp = ChatVideoWidth,
+    actions: (@Composable () -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -146,7 +153,7 @@ fun GeneratedVideoSegment(
     if (status == GeneratedVideo.STATUS_FAILED || status == GeneratedVideo.STATUS_CANCELLED ||
         status == GeneratedVideo.STATUS_EXPIRED
     ) {
-        VideoFailureCard(status, errorMessage, modifier)
+        VideoFailureCard(status, errorMessage, onRetry, maxWidth, modifier)
         return
     }
 
@@ -157,7 +164,7 @@ fun GeneratedVideoSegment(
         value = filePath?.let { path -> withContext(Dispatchers.IO) { readVideoPoster(path, requestedAspect) } }
     }
 
-    val minAspect = SettledMaxWidth.value / SettledMaxHeight.value
+    val minAspect = maxWidth.value / SettledMaxHeight.value
     val displayAspect = (poster?.aspect ?: requestedAspect).coerceAtLeast(minAspect)
 
     var settled by rememberSaveable(filePath) { mutableStateOf(!animate && filePath != null) }
@@ -180,7 +187,7 @@ fun GeneratedVideoSegment(
     )
     val scanColor = MaterialTheme.colorScheme.primary
 
-    val morphMaxWidth = (PlaceholderSize.value + (SettledMaxWidth.value - PlaceholderSize.value) * stretch.value).dp
+    val morphMaxWidth = (PlaceholderSize.value + (maxWidth.value - PlaceholderSize.value) * stretch.value).dp
     val morphAspect = 1f + (displayAspect - 1f) * stretch.value
 
     // Persisted history starts settled with the poster still decoding for a few ms — hold the
@@ -302,6 +309,7 @@ fun GeneratedVideoSegment(
                         }
                     },
                     onShare = { filePath?.let { scope.launch { shareGeneratedVideo(context, it) } } },
+                    extra = actions,
                 )
             }
         }
@@ -319,6 +327,7 @@ internal fun GeneratedVideoActions(
     onDownload: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
+    extra: (@Composable () -> Unit)? = null,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
         onCopy?.let { copy ->
@@ -343,6 +352,7 @@ internal fun GeneratedVideoActions(
             modifier = Modifier.size(48.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         ) { Icon(Icons.Default.Share, "Share", Modifier.size(20.dp)) }
+        extra?.invoke()
     }
 }
 
@@ -438,11 +448,17 @@ fun GeneratedVideoViewer(filePath: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun VideoFailureCard(status: String, errorMessage: String?, modifier: Modifier = Modifier) {
+private fun VideoFailureCard(
+    status: String,
+    errorMessage: String?,
+    onRetry: (() -> Unit)?,
+    maxWidth: Dp,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.errorContainer,
-        modifier = modifier.fillMaxWidth().widthIn(max = SettledMaxWidth),
+        modifier = modifier.fillMaxWidth().widthIn(max = maxWidth),
     ) {
         Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
@@ -464,6 +480,16 @@ private fun VideoFailureCard(status: String, errorMessage: String?, modifier: Mo
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         textAlign = TextAlign.Start,
                     )
+                }
+                // A failed render used to be a dead end, which is a poor way to end a wait
+                // the user paid for in both money and minutes.
+                if (onRetry != null) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    TextButton(onClick = onRetry, contentPadding = PaddingValues(0.dp)) {
+                        Icon(Icons.Default.Refresh, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text("Try again", color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
                 }
             }
         }

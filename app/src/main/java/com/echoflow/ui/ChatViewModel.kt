@@ -455,6 +455,42 @@ class ChatViewModel(
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
     fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
     fun toggleVideoGen() = toggleMode(ChatMode.VideoGen)
+
+    // ── Imagine ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sends an Imagine turn. The media switch *is* the capability, so the surface sets the
+     * generation mode from what the user is making rather than asking them to arm it from a
+     * menu first — which is the entire reason image and video left Chat's "+" menu.
+     */
+    fun sendImagineMessage(prompt: String, media: ImagineMedia) {
+        setMode(if (media == ImagineMedia.Video) ChatMode.VideoGen else ChatMode.ImageGen)
+        sendMessage(prompt)
+    }
+
+    /**
+     * The bridge out of Imagine: opens a fresh Chat conversation with this piece of media
+     * attached. Without it, "what is in this picture?" is a dead end that ends in the user
+     * screenshotting their own app.
+     */
+    fun askAboutMediaInChat(filePath: String) {
+        viewModelScope.launch {
+            val file = File(filePath)
+            if (!file.exists()) {
+                _errorMessage.value = "That file is no longer available."
+                return@launch
+            }
+            settingsRepository.saveLastThreadId(appMode.value, _currentChatThreadId.value)
+            settingsRepository.saveAppMode(AppMode.Chat)
+            _drawerSearchQuery.value = ""
+            setMode(ChatMode.Normal)
+            selectThread(null)
+            setPendingAttachment(
+                Uri.fromFile(file),
+                if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
+            )
+        }
+    }
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)

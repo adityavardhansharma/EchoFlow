@@ -18,7 +18,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import com.echoflow.data.ImagineMedia
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -145,6 +154,72 @@ fun ModelPill(
                 Icons.Default.KeyboardArrowDown, null, Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * Image or video, chosen inside the chip row.
+ *
+ * A **flat** connected pair, unlike the mode switch's floating tray. That difference is a
+ * rule, not an inconsistency: elevation belongs to chrome hovering over scrolling content,
+ * while controls resting inside a row stay flat — the same distinction that already separates
+ * the floating composer from an in-page text field.
+ */
+@Composable
+fun MediaToggle(
+    selected: ImagineMedia,
+    onSelect: (ImagineMedia) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier.selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        ImagineMedia.entries.forEach { media ->
+            val isSelected = media == selected
+            val label = if (media == ImagineMedia.Video) "Video" else "Image"
+            // Outer corners round, inner corners tight, so the pair reads as one control.
+            val shape = when (media) {
+                ImagineMedia.Image -> RoundedCornerShape(
+                    topStartPercent = 50, bottomStartPercent = 50, topEndPercent = 20, bottomEndPercent = 20,
+                )
+                ImagineMedia.Video -> RoundedCornerShape(
+                    topStartPercent = 20, bottomStartPercent = 20, topEndPercent = 50, bottomEndPercent = 50,
+                )
+            }
+            Surface(
+                shape = shape,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHighest,
+                modifier = Modifier
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = {
+                            if (!isSelected) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSelect(media)
+                            }
+                        },
+                    )
+                    .semantics { contentDescription = "$label mode" },
+            ) {
+                Row(
+                    Modifier.padding(horizontal = Spacing.m, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val tint = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    Icon(
+                        if (media == ImagineMedia.Video) Icons.Default.Movie else Icons.Default.Image,
+                        null, Modifier.size(16.dp), tint = tint,
+                    )
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1)
+                }
+            }
         }
     }
 }
