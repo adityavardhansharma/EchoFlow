@@ -86,6 +86,8 @@ import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
+import com.echoflow.ui.components.ContextChipRow
+import com.echoflow.ui.components.ModelPill
 import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
@@ -147,6 +149,9 @@ internal fun InputToolbar(
     onToggleImageGen: () -> Unit,
     videoGenActive: Boolean,
     onToggleVideoGen: () -> Unit,
+    modelId: String,
+    modelLabel: String,
+    onOpenModelPicker: () -> Unit,
     browserSession: com.echoflow.data.BrowserSession?,
     browserSteps: List<com.echoflow.data.BrowserStep>,
     onBrowserOpen: () -> Unit,
@@ -231,65 +236,61 @@ internal fun InputToolbar(
             }
         }
 
-        // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive || artifactActive || imageGenActive || videoGenActive) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s),
-                modifier = Modifier.padding(start = Spacing.s, bottom = Spacing.s),
-            ) {
-                if (webSearchChipOn) {
-                    CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
-                }
-                if (browserFlowActive) {
-                    CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
-                }
-                if (artifactActive) {
-                    CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
-                }
-                if (imageGenActive) {
-                    CapabilityChip(Icons.Default.Brush, "Create image", onRemove = onToggleImageGen)
-                }
-                if (videoGenActive) {
-                    CapabilityChip(Icons.Default.Movie, "Create video", onRemove = onToggleVideoGen)
-                }
-                if (echoAdviserActive) {
-                    CapabilityChip(
-                        Icons.Default.Psychology,
-                        advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
-                        onRemove = onToggleEchoAdviser,
-                    )
-                }
-                if (echoFusionActive) {
-                    CapabilityChip(
-                        Icons.Default.AccountTree,
-                        fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
-                        onRemove = onToggleEchoFusion,
-                    )
-                }
-                if (echoAgentActive) {
-                    CapabilityChip(
-                        Icons.Default.Hub,
-                        agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
-                        onRemove = onToggleEchoAgent,
-                    )
-                }
-                if (deepResearchActive) {
-                    CapabilityChip(
-                        Icons.Default.Science,
-                        researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
-                        onRemove = onToggleDeepResearch,
-                    )
-                    // Exa Agent's depth/cost dial lives here, not in the engine list.
-                    if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
-                }
-                if (dataAgentActive) {
-                    CapabilityChip(
-                        Icons.Default.Science,
-                        dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
-                        onRemove = onToggleDataAgent,
-                    )
-                }
+        // What this next message will be sent with: the model first, then whatever
+        // capabilities are on. Always visible — the model is never implicit.
+        ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
+            ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
+            if (webSearchChipOn) {
+                CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+            }
+            if (browserFlowActive) {
+                CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
+            }
+            if (artifactActive) {
+                CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
+            }
+            if (imageGenActive) {
+                CapabilityChip(Icons.Default.Brush, "Create image", onRemove = onToggleImageGen)
+            }
+            if (videoGenActive) {
+                CapabilityChip(Icons.Default.Movie, "Create video", onRemove = onToggleVideoGen)
+            }
+            if (echoAdviserActive) {
+                CapabilityChip(
+                    Icons.Default.Psychology,
+                    advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
+                    onRemove = onToggleEchoAdviser,
+                )
+            }
+            if (echoFusionActive) {
+                CapabilityChip(
+                    Icons.Default.AccountTree,
+                    fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
+                    onRemove = onToggleEchoFusion,
+                )
+            }
+            if (echoAgentActive) {
+                CapabilityChip(
+                    Icons.Default.Hub,
+                    agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
+                    onRemove = onToggleEchoAgent,
+                )
+            }
+            if (deepResearchActive) {
+                CapabilityChip(
+                    Icons.Default.Science,
+                    researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
+                    onRemove = onToggleDeepResearch,
+                )
+                // Exa Agent's depth/cost dial lives here, not in the engine list.
+                if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+            }
+            if (dataAgentActive) {
+                CapabilityChip(
+                    Icons.Default.Science,
+                    dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
+                    onRemove = onToggleDataAgent,
+                )
             }
         }
 

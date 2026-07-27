@@ -77,6 +77,7 @@ import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
+import com.echoflow.data.AppMode
 import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
@@ -87,6 +88,7 @@ import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
+import com.echoflow.ui.components.ModeSwitch
 import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
@@ -338,8 +340,23 @@ internal fun StreamingAssistantBubble(
     }
 }
 
+/**
+ * The floating top bar: place on the left, **identity** in the middle, action on the right.
+ *
+ * The centre slot belongs to the most permanent thing on screen, which is which surface you
+ * are on — so the mode switch lives here and the model selector moved down to the composer,
+ * where it sits with the other controls you change mid-thought.
+ */
 @Composable
-internal fun ChatTopBar(modelName: String, researchMode: Boolean, onMenu: () -> Unit, onModel: () -> Unit, onNewChat: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ChatTopBar(
+    mode: AppMode,
+    onSelectMode: (AppMode) -> Unit,
+    renderingModes: Set<AppMode>,
+    onMenu: () -> Unit,
+    onNewChat: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val newLabel = if (mode == AppMode.Imagine) "New creation" else "New conversation"
     CenterAlignedTopAppBar(
         modifier = modifier,
         navigationIcon = {
@@ -351,29 +368,11 @@ internal fun ChatTopBar(modelName: String, researchMode: Boolean, onMenu: () -> 
             ) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
         },
         title = {
-            // Model selector as a Material 3 Expressive split button — both halves open the picker.
-            // In Deep Research mode it selects the research engine instead of the chat model.
-            SplitButtonLayout(
-                leadingButton = {
-                    SplitButtonDefaults.LeadingButton(onClick = onModel) {
-                        if (researchMode) {
-                            Icon(Icons.Default.Science, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(Spacing.xs))
-                        }
-                        Text(
-                            modelName,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 150.dp),
-                        )
-                    }
-                },
-                trailingButton = {
-                    // TrailingButton is a toggle in M3; we just use its tap to open the picker.
-                    SplitButtonDefaults.TrailingButton(checked = false, onCheckedChange = { onModel() }) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Choose model", Modifier.size(20.dp))
-                    }
-                },
+            ModeSwitch(
+                selected = mode,
+                onSelect = onSelectMode,
+                renderingModes = renderingModes,
+                modifier = Modifier.widthIn(max = 220.dp),
             )
         },
         actions = {
@@ -383,7 +382,7 @@ internal fun ChatTopBar(modelName: String, researchMode: Boolean, onMenu: () -> 
                 restShape = MaterialShapes.Cookie7Sided, pressedShape = MaterialShapes.Sunny,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 pulseOnClick = true,
-            ) { Icon(Icons.Default.Add, "New conversation", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+            ) { Icon(Icons.Default.Add, newLabel, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
     )

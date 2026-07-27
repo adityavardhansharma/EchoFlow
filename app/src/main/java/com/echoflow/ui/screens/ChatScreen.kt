@@ -204,6 +204,9 @@ fun ChatScreen(
 
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
+    val appMode by chatViewModel.appMode.collectAsState()
+    val renderingModes by chatViewModel.renderingModes.collectAsState()
+
 
     val drEngineLabel = remember(drModelId, drModels) {
         DeepResearchCatalog.providerEngineById(drModelId)?.name
@@ -306,6 +309,28 @@ fun ChatScreen(
         ?: customProviderModels.firstOrNull { it.id == selectedModelID }?.let { "${it.group}: ${it.name}" }
         ?: localModelsList.firstOrNull { it.id == selectedModelID }?.name
         ?: selectedModelID
+
+    // The pill shows — and the picker changes — whichever selector the active capability
+    // actually uses. One derivation feeds both, so they can never disagree about what a tap
+    // is going to open.
+    val contextModelId = when {
+        videoGenActive -> videoGenModelId
+        imageGenActive -> imageGenModelId
+        echoFusionActive -> activePanel?.models?.firstOrNull().orEmpty()
+        dataAgentActive -> dataAgentEngineId
+        deepResearchActive -> drModelId
+        else -> selectedModelID
+    }
+    val contextModelLabel = when {
+        videoGenActive -> videoModelLabel
+        imageGenActive -> imageModelLabel
+        echoFusionActive -> activePanel?.name ?: "Choose panel"
+        echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
+        echoAgentActive -> activeAgent?.let { "$modelShortName · ${it.name}" } ?: "Pick an Echo Agent"
+        dataAgentActive -> dataAgentLabel
+        deepResearchActive -> drEngineLabel
+        else -> modelShortName
+    }
     val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
 
     val imagePicker = rememberLauncherForActivityResult(
@@ -359,19 +384,10 @@ fun ChatScreen(
             // Floating, transparent top bar (chat scrolls behind it).
             ChatTopBar(
                 modifier = Modifier.align(Alignment.TopCenter),
-                modelName = when {
-                    videoGenActive -> videoModelLabel
-                    imageGenActive -> imageModelLabel
-                    echoFusionActive -> activePanel?.name ?: "Choose panel"
-                    echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
-                    echoAgentActive -> activeAgent?.let { "$modelShortName · ${it.name}" } ?: "Pick an Echo Agent"
-                    dataAgentActive -> dataAgentLabel
-                    deepResearchActive -> drEngineLabel
-                    else -> modelShortName
-                },
-                researchMode = deepResearchActive || dataAgentActive,
+                mode = appMode,
+                onSelectMode = chatViewModel::switchMode,
+                renderingModes = renderingModes,
                 onMenu = onMenuClicked,
-                onModel = { showModelMenu = true },
                 onNewChat = { chatViewModel.startNewChat() },
             )
 
@@ -420,6 +436,9 @@ fun ChatScreen(
                 onToggleImageGen = { chatViewModel.toggleImageGen() },
                 videoGenActive = videoGenActive,
                 onToggleVideoGen = { chatViewModel.toggleVideoGen() },
+                modelId = contextModelId,
+                modelLabel = contextModelLabel,
+                onOpenModelPicker = { showModelMenu = true },
                 browserSession = browserSession,
                 browserSteps = browserSteps,
                 onBrowserOpen = { browserSession?.let { chatViewModel.openBrowserWorkspace(it.chatId) } },
