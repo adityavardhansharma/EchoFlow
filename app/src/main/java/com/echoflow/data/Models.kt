@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
@@ -10,8 +11,20 @@ data class ChatThread(
     @PrimaryKey val id: String,
     val title: String,
     val createdAt: Long,
-    val updatedAt: Long
-)
+    val updatedAt: Long,
+    /**
+     * Which surface this conversation belongs to — [AppMode.storageKey]. Stamped once at
+     * creation from the active mode and never changed afterwards.
+     *
+     * The default is what makes the split safe for existing users: every thread that predates
+     * the two-mode split becomes a Chat thread, including ones full of generated images. We
+     * never inspect a thread's content to classify it — a conversation with forty messages and
+     * three images was a conversation, and reclassifying it would feel like losing it.
+     */
+    @ColumnInfo(defaultValue = "'chat'") val kind: String = AppMode.Chat.storageKey,
+) {
+    val mode: AppMode get() = AppMode.fromStorage(kind)
+}
 
 @Entity(
     tableName = "chat_messages",

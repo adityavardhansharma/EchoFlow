@@ -8,6 +8,21 @@ interface ChatDao {
     @Query("SELECT * FROM chat_threads ORDER BY updatedAt DESC")
     fun getAllThreads(): Flow<List<ChatThread>>
 
+    /** The drawer's list: one mode's conversations, newest first. */
+    @Query("SELECT * FROM chat_threads WHERE kind = :kind ORDER BY updatedAt DESC")
+    fun getThreadsByKind(kind: String): Flow<List<ChatThread>>
+
+    /**
+     * How many conversations the *other* mode holds that match a search. Drives the drawer's
+     * "also N results in Imagine" hint, so a filtered list never reads as a lost one.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM chat_threads WHERE kind = :kind AND " +
+            "(title LIKE '%' || :query || '%' OR id IN " +
+            "(SELECT DISTINCT chatId FROM chat_messages WHERE content LIKE '%' || :query || '%'))"
+    )
+    fun countMatchingInKind(kind: String, query: String): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertThread(thread: ChatThread)
 

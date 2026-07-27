@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class
     ],
-    version = 17, // v17: on-device image generation removed
+    version = 18, // v18: conversations belong to a mode (chat | imagine)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -340,6 +340,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Chat and Imagine become separate surfaces, each with its own history. The default
+         * on this column IS the grandfather rule: every conversation that already exists —
+         * including ones full of generated images — becomes a Chat thread, with no content
+         * inspection and nothing rewritten. New threads are stamped from the active mode.
+         */
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -364,6 +376,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_14_15,
                     MIGRATION_15_16,
                     MIGRATION_16_17,
+                    MIGRATION_17_18,
                 )
                 .build()
                 INSTANCE = instance

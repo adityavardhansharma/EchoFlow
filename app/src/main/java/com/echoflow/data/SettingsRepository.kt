@@ -94,6 +94,10 @@ class SettingsRepository(context: Context) {
     val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
 
     // Image generation: which image-output OpenRouter model the "Create image" mode uses.
+    // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
+    private val _appMode = MutableStateFlow(getAppModeDirect())
+    val appMode: StateFlow<AppMode> = _appMode.asStateFlow()
+
     private val _imageGenModel = MutableStateFlow(getImageGenModelDirect())
     val imageGenModel: StateFlow<String> = _imageGenModel.asStateFlow()
 
@@ -553,6 +557,27 @@ class SettingsRepository(context: Context) {
         _artifactsOffline.value = enabled
     }
 
+    // ── App mode ───────────────────────────────────────────────────────────────────────
+
+    fun getAppModeDirect(): AppMode = AppMode.fromStorage(prefs.getString(KEY_APP_MODE, null))
+
+    fun saveAppMode(mode: AppMode) {
+        prefs.edit().putString(KEY_APP_MODE, mode.storageKey).apply()
+        _appMode.value = mode
+    }
+
+    /**
+     * The conversation each mode had open, remembered separately. Without this, switching
+     * Chat → Imagine → Chat would drop the user somewhere other than where they left off,
+     * which reads as losing your place rather than changing rooms.
+     */
+    fun getLastThreadIdDirect(mode: AppMode): String? =
+        prefs.getString("last_thread_${mode.storageKey}", null)?.takeIf { it.isNotBlank() }
+
+    fun saveLastThreadId(mode: AppMode, chatId: String?) {
+        prefs.edit().putString("last_thread_${mode.storageKey}", chatId.orEmpty()).apply()
+    }
+
     // ── Image generation ───────────────────────────────────────────────────────────────
 
     fun getImageGenModelDirect(): String =
@@ -616,6 +641,7 @@ class SettingsRepository(context: Context) {
     }
 
     companion object {
+        private const val KEY_APP_MODE = "app_mode"
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"

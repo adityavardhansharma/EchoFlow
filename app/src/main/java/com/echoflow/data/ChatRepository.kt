@@ -18,18 +18,40 @@ class ChatRepository(
     val artifactVersionDao: ArtifactVersionDao,
 ) {
     fun allThreads(): Flow<List<ChatThread>> = chatDao.getAllThreads()
+
+    /** One mode's conversations. The drawer never mixes the two. */
+    fun threadsForMode(mode: AppMode): Flow<List<ChatThread>> = chatDao.getThreadsByKind(mode.storageKey)
+
+    /** How many of the *other* mode's conversations a search would have matched. */
+    fun searchMatchCount(mode: AppMode, query: String): Flow<Int> =
+        chatDao.countMatchingInKind(mode.storageKey, query)
+
     fun messagesForChat(chatId: String): Flow<List<ChatMessage>> = messageDao.getMessagesForChat(chatId)
     fun searchChatIdsByContent(query: String): Flow<List<String>> = messageDao.searchChatIdsByContent(query)
 
-    suspend fun createThread(title: String = "New Conversation", now: Long = System.currentTimeMillis()): ChatThread {
+    /**
+     * Creates a conversation owned by [mode]. This is the single place a thread's kind is
+     * ever decided; it is immutable afterwards, so there is no drift to keep in sync.
+     */
+    suspend fun createThread(
+        mode: AppMode = AppMode.Chat,
+        title: String = defaultTitleFor(mode),
+        now: Long = System.currentTimeMillis(),
+    ): ChatThread {
         val thread = ChatThread(
             id = UUID.randomUUID().toString(),
             title = title,
             createdAt = now,
             updatedAt = now,
+            kind = mode.storageKey,
         )
         chatDao.insertThread(thread)
         return thread
+    }
+
+    private fun defaultTitleFor(mode: AppMode) = when (mode) {
+        AppMode.Chat -> "New Conversation"
+        AppMode.Imagine -> "New Creation"
     }
 
     suspend fun touchThread(chatId: String, now: Long = System.currentTimeMillis()) {
