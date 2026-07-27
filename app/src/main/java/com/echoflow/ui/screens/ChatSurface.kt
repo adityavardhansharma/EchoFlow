@@ -174,26 +174,6 @@ internal fun ChatSurface(
     val echoAgentEnabled by settingsViewModel.echoAgentEnabled.collectAsState()
 
     val artifactActive by chatViewModel.artifactActive.collectAsState()
-    val imageGenActive by chatViewModel.imageGenActive.collectAsState()
-    val imageGenModelId by settingsViewModel.imageGenModelId.collectAsState()
-    val imageModels by settingsViewModel.imageModels.collectAsState()
-    // "Create image" swaps the model picker to the OpenRouter image models.
-    val imageModelEntries = remember(imageModels) {
-        val default = com.echoflow.data.SettingsRepository.DEFAULT_IMAGE_MODEL_ID to "Gemini 2.5 Flash Image"
-        listOf(default) + imageModels.filter { it.id != default.first }.map { it.id to it.name }
-    }
-    val imageModelLabel = imageModelEntries.firstOrNull { it.first == imageGenModelId }?.second ?: imageGenModelId
-    // "Create video" swaps the model picker to OpenRouter video models. Cloud only — there is
-    // no on-device route — so the local section of the picker stays empty.
-    val videoGenActive by chatViewModel.videoGenActive.collectAsState()
-    val videoGenModelId by settingsViewModel.videoGenModelId.collectAsState()
-    val videoModels by settingsViewModel.videoModels.collectAsState()
-    val videoModelEntries = remember(videoModels) {
-        val default = com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_ID to
-            com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
-        listOf(default) + videoModels.filter { it.id != default.first }.map { it.id to it.name }
-    }
-    val videoModelLabel = videoModelEntries.firstOrNull { it.first == videoGenModelId }?.second ?: videoGenModelId
 
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
@@ -317,16 +297,12 @@ internal fun ChatSurface(
     // actually uses. One derivation feeds both, so they can never disagree about what a tap
     // is going to open.
     val contextModelId = when {
-        videoGenActive -> videoGenModelId
-        imageGenActive -> imageGenModelId
         echoFusionActive -> activePanel?.models?.firstOrNull().orEmpty()
         dataAgentActive -> dataAgentEngineId
         deepResearchActive -> drModelId
         else -> selectedModelID
     }
     val contextModelLabel = when {
-        videoGenActive -> videoModelLabel
-        imageGenActive -> imageModelLabel
         echoFusionActive -> activePanel?.name ?: "Choose panel"
         echoAdviserActive -> activeAdvisor?.let { "$modelShortName · ${it.name}" } ?: "Pick an advisor"
         echoAgentActive -> activeAgent?.let { "$modelShortName · ${it.name}" } ?: "Pick an Echo Agent"
@@ -418,10 +394,6 @@ internal fun ChatSurface(
             onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
             artifactActive = artifactActive,
             onToggleArtifact = { chatViewModel.toggleArtifact() },
-            imageGenActive = imageGenActive,
-            onToggleImageGen = { chatViewModel.toggleImageGen() },
-            videoGenActive = videoGenActive,
-            onToggleVideoGen = { chatViewModel.toggleVideoGen() },
             modelId = contextModelId,
             modelLabel = contextModelLabel,
             onOpenModelPicker = { showModelMenu = true },
@@ -482,25 +454,7 @@ internal fun ChatSurface(
 }
 
     if (showModelMenu) {
-        if (videoGenActive) {
-            ModelPickerSheet(
-                models = videoModelEntries,
-                localModels = emptyList(),
-                selectedId = videoGenModelId,
-                onSelect = { settingsViewModel.saveVideoGenModel(it); showModelMenu = false },
-                onManage = { showModelMenu = false; onSettingsClicked() },
-                onDismiss = { showModelMenu = false },
-            )
-        } else if (imageGenActive) {
-            ModelPickerSheet(
-                models = imageModelEntries,
-                localModels = emptyList(),
-                selectedId = imageGenModelId,
-                onSelect = { settingsViewModel.saveImageGenModel(it); showModelMenu = false },
-                onManage = { showModelMenu = false; onSettingsClicked() },
-                onDismiss = { showModelMenu = false },
-            )
-        } else if (echoFusionActive) {
+        if (echoFusionActive) {
             FusionPickerSheet(
                 panels = fusionPanels,
                 selectedId = echoFusionPanelId,

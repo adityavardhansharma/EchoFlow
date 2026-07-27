@@ -1090,7 +1090,10 @@ class ChatViewModel(
                             previousImage = imagePrev,
                             apiKey = apiKey,
                             history = fullHistory,
-                            systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
+                            systemPrompt = SystemPrompts.buildImageGen(
+                                editing = imageEditUrl != null,
+                                aspectRatio = settingsRepository.getImageAspectRatioDirect(),
+                            ),
                             editImageDataUrl = imageEditUrl,
                             params = inferenceParams,
                         )

@@ -145,10 +145,6 @@ internal fun InputToolbar(
     onToggleBrowserFlow: () -> Unit,
     artifactActive: Boolean,
     onToggleArtifact: () -> Unit,
-    imageGenActive: Boolean,
-    onToggleImageGen: () -> Unit,
-    videoGenActive: Boolean,
-    onToggleVideoGen: () -> Unit,
     modelId: String,
     modelLabel: String,
     onOpenModelPicker: () -> Unit,
@@ -249,12 +245,6 @@ internal fun InputToolbar(
             if (artifactActive) {
                 CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
             }
-            if (imageGenActive) {
-                CapabilityChip(Icons.Default.Brush, "Create image", onRemove = onToggleImageGen)
-            }
-            if (videoGenActive) {
-                CapabilityChip(Icons.Default.Movie, "Create video", onRemove = onToggleVideoGen)
-            }
             if (echoAdviserActive) {
                 CapabilityChip(
                     Icons.Default.Psychology,
@@ -343,10 +333,6 @@ internal fun InputToolbar(
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         artifactOn = artifactActive,
-                        imageGenOn = imageGenActive,
-                        onToggleImageGen = { plusMenuOpen = false; onToggleImageGen() },
-                        videoGenOn = videoGenActive,
-                        onToggleVideoGen = { plusMenuOpen = false; onToggleVideoGen() },
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
@@ -371,8 +357,6 @@ internal fun InputToolbar(
                                 dataAgentActive -> "Describe the data to extract…"
                                 deepResearchActive -> "Research a topic…"
                                 artifactActive -> "Describe an artifact to build…"
-                                imageGenActive -> "Describe an image — or a change…"
-                                videoGenActive -> "Describe a video…"
                                 else -> "Ask anything…"
                             }
                         )
@@ -425,10 +409,6 @@ internal fun PlusMenu(
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
     artifactOn: Boolean,
-    imageGenOn: Boolean,
-    onToggleImageGen: () -> Unit,
-    videoGenOn: Boolean,
-    onToggleVideoGen: () -> Unit,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -441,21 +421,30 @@ internal fun PlusMenu(
     onToggleArtifact: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
-        if (showImage) {
-            DropdownMenuItem(
-                text = { Text("Image") },
-                leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
-                onClick = onImage,
-            )
+        // Attachments first, and labelled: they add context to this message, while everything
+        // below changes how the model works. Mixing the two in one flat list was the menu's
+        // real problem, not its length.
+        if (showImage || showFiles) {
+            MenuSectionLabel("Attach")
+            // Image is offered for cloud models and vision-capable on-device bundles.
+            if (showImage) {
+                DropdownMenuItem(
+                    text = { Text("Image") },
+                    leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
+                    onClick = onImage,
+                )
+            }
+            if (showFiles) {
+                DropdownMenuItem(
+                    text = { Text("Files") },
+                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                    onClick = onFiles,
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
         }
-        if (showFiles) {
-            DropdownMenuItem(
-                text = { Text("Files") },
-                leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
-                onClick = onFiles,
-            )
-        }
+
+        MenuSectionLabel("Capabilities")
         DropdownMenuItem(
             text = { Text("Web search") },
             leadingIcon = { Icon(Icons.Default.TravelExplore, null) },
@@ -474,20 +463,6 @@ internal fun PlusMenu(
             leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
             trailingIcon = { if (artifactOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
             onClick = onToggleArtifact,
-        )
-        // Create image — generate and conversationally edit images (OpenRouter image models).
-        DropdownMenuItem(
-            text = { Text("Create image") },
-            leadingIcon = { Icon(Icons.Default.Brush, null) },
-            trailingIcon = { if (imageGenOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleImageGen,
-        )
-        // Create video — render a short clip through OpenRouter's async video models.
-        DropdownMenuItem(
-            text = { Text("Create video") },
-            leadingIcon = { Icon(Icons.Default.Movie, null) },
-            trailingIcon = { if (videoGenOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleVideoGen,
         )
         // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
         if (dataAgentAvailable) {
@@ -511,6 +486,7 @@ internal fun PlusMenu(
         // profile/panel is missing, sending surfaces a "set it up" message.
         if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
             HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+            MenuSectionLabel("Echo Labs")
         }
         if (echoAdviserAvailable) {
             DropdownMenuItem(
@@ -640,4 +616,15 @@ internal fun ShapedIconButton(
             ),
         contentAlignment = Alignment.Center,
     ) { content() }
+}
+
+/** A quiet header inside the "+" menu, so its two halves read as different kinds of choice. */
+@Composable
+private fun MenuSectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = Spacing.m, top = Spacing.s, bottom = Spacing.xs),
+    )
 }

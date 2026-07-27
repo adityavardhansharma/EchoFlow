@@ -292,7 +292,11 @@ object SystemPrompts {
      * text. On edit turns the newest user message carries the previous version, and the model
      * revises exactly what was asked while keeping everything else consistent.
      */
-    fun buildImageGen(editing: Boolean, currentDate: String = currentDate()): String {
+    fun buildImageGen(
+        editing: Boolean,
+        aspectRatio: String? = null,
+        currentDate: String = currentDate(),
+    ): String {
         val base = """
         You are EchoFlow's image generator. Current date: $currentDate.
 
@@ -300,12 +304,18 @@ object SystemPrompts {
         Alongside the image, write one short, friendly sentence about what you made — no
         markdown headers, no lists, no long explanations.
         """.trimIndent()
+        // Image models take framing from the prompt, not a parameter (unlike the video API,
+        // where an unsupported ratio is a hard 400). So the user's choice is stated as an
+        // instruction — best effort by nature, which is why nothing downstream depends on it.
+        val framing = aspectRatio?.takeIf { it.isNotBlank() }?.let {
+            "Compose the image with an aspect ratio of $it."
+        }
         val editRules = """
         The user's newest message includes the current version of their image. This is an EDIT:
         apply only the requested changes and keep everything else — subject, composition,
         style, lighting — as consistent with the provided image as possible.
         """.trimIndent()
-        return if (editing) base + "\n\n" + editRules else base
+        return listOfNotNull(base, framing, editRules.takeIf { editing }).joinToString("\n\n")
     }
 
     /**
