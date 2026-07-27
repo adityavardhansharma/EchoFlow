@@ -58,6 +58,16 @@ The store defends the same boundary independently, because cancellation always h
 `VideoGenerationException.JobRemoved` ends the run quietly — the conversation is gone, so
 there is no failure to report and nowhere to report it.
 
+Two consequences of that quiet ending are easy to get wrong:
+
+- Resumed jobs are started **lazily**, registered, and only then started, so a job can never
+  be running before the map that `cancelWorkForChat` consults knows about it. Launching
+  eagerly leaves a window whose width depends on dispatcher internals.
+- The "your video is ready" notification is gated on `GeneratedVideo.isPlayable`, not on the
+  flow completing. A run whose chat was deleted mid-render *completes normally* and has no
+  file, so keying off completion would announce a clip for a conversation that no longer
+  exists — and tapping it would open nothing.
+
 ### Length is the model's call
 
 EchoFlow never sends `duration`. Models publish discrete supported lengths (Veo offers 4, 6

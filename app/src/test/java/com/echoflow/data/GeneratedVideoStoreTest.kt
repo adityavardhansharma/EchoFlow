@@ -101,6 +101,24 @@ class GeneratedVideoStoreTest {
         assertNull(database.generatedVideoDao().getById(submitted.id)?.filePath)
     }
 
+    @Test fun `only a downloaded clip counts as playable`() = runBlocking {
+        // What gates the "your video is ready" notification. A finished flow is not the same
+        // question as a finished video: a run whose chat was deleted mid-render ends normally
+        // and never gets a file, and announcing that would point the user at nothing.
+        val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
+        assertFalse(job.isPlayable)
+        assertFalse(store.markStatus(job, GeneratedVideo.STATUS_IN_PROGRESS).isPlayable)
+        assertFalse(store.markFailed(job, GeneratedVideo.STATUS_FAILED, "boom").isPlayable)
+        // Completed but file-less can only be a bug; it must still not read as playable.
+        assertFalse(job.copy(status = GeneratedVideo.STATUS_COMPLETED, filePath = null).isPlayable)
+
+        val done = store.completeWithDownload(
+            store.markStatus(job, GeneratedVideo.STATUS_DOWNLOADING),
+            ByteArrayInputStream(ByteArray(64)),
+        )
+        assertTrue(done.isPlayable)
+    }
+
     @Test fun `a job whose chat was deleted mid-download leaves no orphan MP4`() = runBlocking {
         val job = store.createJob("chat-1", "a kite", "google/veo-3.1", "16:9", "720p")
         val submitted = store.markSubmitted(job, "job-42", "https://openrouter.ai/api/v1/videos/job-42")
