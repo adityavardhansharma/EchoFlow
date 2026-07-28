@@ -64,6 +64,7 @@ internal fun ImagineSurface(
 
     var textInput by remember { mutableStateOf("") }
     var showModelPicker by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
 
     // Capabilities drive the ratio chip and the picker's cards, so load them as the surface
     // opens rather than waiting for the user to go looking for the picker.
@@ -132,24 +133,13 @@ internal fun ImagineSurface(
             onText = { textInput = it },
             media = media,
             onSelectMedia = settingsViewModel::saveImagineMedia,
-            aspectRatio = ratio,
-            supportedRatios = supportedRatios,
-            onSelectRatio = {
-                if (isVideo) settingsViewModel.saveVideoAspectRatio(it) else settingsViewModel.saveImageAspectRatio(it)
-            },
-            ratioNote = ratioNote,
             modelId = modelId,
             modelLabel = modelLabel,
             onOpenModelPicker = { showModelPicker = true },
-            audioSupported = videoCapabilities?.supportsAudio == true,
-            audioEnabled = audioEnabled,
-            onToggleAudio = { settingsViewModel.saveVideoAudioEnabled(!audioEnabled) },
+            onOpenOptions = { showOptions = true },
             pendingUri = pendingUri?.toString(),
             pendingName = pendingName,
             onClearAttachment = { chatViewModel.clearPendingAttachment() },
-            onAttach = {
-                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
             onReceiveImage = { uri -> chatViewModel.setPendingPastedImage(uri) },
             isBusy = isStreaming || progressLoading,
             blockedReason = null,
@@ -159,6 +149,36 @@ internal fun ImagineSurface(
                 chatViewModel.sendImagineMessage(prompt, media)
             },
             onStop = { chatViewModel.stopStreaming() },
+        )
+    }
+
+    if (showOptions) {
+        ImagineOptionsSheet(
+            options = ImagineOptions(
+                media = media,
+                aspectRatio = ratio,
+                supportedRatios = supportedRatios,
+                ratioNote = ratioNote,
+                resolution = videoResolution,
+                // Image models take no resolution argument at all, so the section is absent
+                // rather than showing a control the request would silently drop.
+                supportedResolutions = if (isVideo) videoCapabilities?.resolutions.orEmpty() else emptyList(),
+                priceFor = { candidate -> videoCapabilities?.priceHint(candidate, audioEnabled) },
+                audioSupported = videoCapabilities?.supportsAudio == true,
+                audioEnabled = audioEnabled,
+                attachmentUri = pendingUri?.toString(),
+                attachmentName = pendingName,
+            ),
+            onSelectRatio = {
+                if (isVideo) settingsViewModel.saveVideoAspectRatio(it) else settingsViewModel.saveImageAspectRatio(it)
+            },
+            onSelectResolution = settingsViewModel::saveVideoResolution,
+            onToggleAudio = { settingsViewModel.saveVideoAudioEnabled(!audioEnabled) },
+            onAttach = {
+                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onClearAttachment = { chatViewModel.clearPendingAttachment() },
+            onDismiss = { showOptions = false },
         )
     }
 
