@@ -29,12 +29,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,6 +61,7 @@ import com.echoflow.data.ToolEventJson
 import com.echoflow.data.VideoRequestPolicy
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.GeneratedImageSegment
+import com.echoflow.ui.components.MediaAction
 import com.echoflow.ui.components.GeneratedVideoSegment
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
@@ -89,7 +87,7 @@ internal fun ImagineCanvas(
     topInset: Dp,
     bottomInset: Dp,
     observeVideo: (String) -> Flow<GeneratedVideo?>,
-    onAskAbout: (String) -> Unit,
+    onUseAsReference: (String) -> Unit,
     onRetry: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -136,7 +134,7 @@ internal fun ImagineCanvas(
             ImagineResult(
                 message = message,
                 observeVideo = observeVideo,
-                onAskAbout = onAskAbout,
+                onUseAsReference = onUseAsReference,
                 onRetry = onRetry,
             )
         }
@@ -153,7 +151,7 @@ internal fun ImagineCanvas(
 private fun ImagineResult(
     message: ChatMessage,
     observeVideo: (String) -> Flow<GeneratedVideo?>,
-    onAskAbout: (String) -> Unit,
+    onUseAsReference: (String) -> Unit,
     onRetry: (String) -> Unit,
 ) {
     if (message.role == "user") return // the prompt shows as its result's caption instead
@@ -172,7 +170,7 @@ private fun ImagineResult(
                         previousImagePath = null,
                         animate = false,
                         maxWidth = ImagineMediaWidth,
-                        actions = { AskAboutButton { onAskAbout(ref.filePath) } },
+                        actions = listOf(referenceAction { onUseAsReference(ref.filePath) }),
                     )
                 }
                 "video" -> segment.video?.let { ref ->
@@ -191,7 +189,9 @@ private fun ImagineResult(
                         animate = ref.filePath == null,
                         errorMessage = live?.error,
                         maxWidth = ImagineMediaWidth,
-                        actions = filePath?.let { path -> { AskAboutButton { onAskAbout(path) } } },
+                        actions = filePath?.let { path ->
+                            listOf(referenceAction { onUseAsReference(path) })
+                        }.orEmpty(),
                         onRetry = live?.prompt?.let { prompt -> { onRetry(prompt) } },
                     )
                 }
@@ -263,18 +263,9 @@ private fun PromptCaption(text: String) {
     )
 }
 
-@Composable
-private fun AskAboutButton(onClick: () -> Unit) {
-    FilledTonalIconButton(
-        onClick = onClick,
-        modifier = Modifier.size(48.dp),
-        colors = IconButtonDefaults.filledTonalIconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
-    ) {
-        Icon(Icons.AutoMirrored.Filled.Chat, "Ask about this in Chat", Modifier.size(20.dp))
-    }
-}
+/** Sends this result back to the composer as the reference for the next thing you make. */
+private fun referenceAction(onClick: () -> Unit) =
+    MediaAction(Icons.Default.AddPhotoAlternate, "Reference", onClick)
 
 
 /**

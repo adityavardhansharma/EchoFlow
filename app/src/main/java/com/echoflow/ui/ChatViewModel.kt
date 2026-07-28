@@ -479,27 +479,24 @@ class ChatViewModel(
     }
 
     /**
-     * The bridge out of Imagine: opens a fresh Chat conversation with this piece of media
-     * attached. Without it, "what is in this picture?" is a dead end that ends in the user
-     * screenshotting their own app.
+     * Carries a finished result forward as the reference for the next Imagine turn.
+     *
+     * This used to open a Chat conversation with the media attached, on the theory that people
+     * would want to ask questions about what they had made. They do not — a picture you wrote
+     * the prompt for holds no mysteries. What they want is *another go*: the same subject in a
+     * different style, or that frame as the seed of a clip. Keeping the media inside Imagine
+     * turns the dead end into the loop the mode exists for.
      */
-    fun askAboutMediaInChat(filePath: String) {
-        viewModelScope.launch {
-            val file = File(filePath)
-            if (!file.exists()) {
-                _errorMessage.value = "That file is no longer available."
-                return@launch
-            }
-            parkCurrentPosition()
-            settingsRepository.saveAppMode(AppMode.Chat)
-            _drawerSearchQuery.value = ""
-            setMode(ChatMode.Normal)
-            selectThread(null)
-            setPendingAttachment(
-                Uri.fromFile(file),
-                if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
-            )
+    fun useMediaAsReference(filePath: String) {
+        val file = File(filePath)
+        if (!file.exists()) {
+            _errorMessage.value = "That file is no longer available."
+            return
         }
+        setPendingAttachment(
+            Uri.fromFile(file),
+            if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
+        )
     }
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)

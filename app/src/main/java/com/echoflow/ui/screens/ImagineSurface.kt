@@ -118,7 +118,7 @@ internal fun ImagineSurface(
                     topInset = topBarInset,
                     bottomInset = bottomInset,
                     observeVideo = chatViewModel::observeVideo,
-                    onAskAbout = chatViewModel::askAboutMediaInChat,
+                    onUseAsReference = chatViewModel::useMediaAsReference,
                     onRetry = { textInput = it },
                 )
             }
