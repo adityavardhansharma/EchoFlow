@@ -1,11 +1,9 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 
 package com.echoflow.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.ImagineMedia
 import com.echoflow.ui.components.AspectRatioGrid
+import com.echoflow.ui.components.ConnectedOption
+import com.echoflow.ui.components.ConnectedOptionRow
 import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.theme.Spacing
 
@@ -226,46 +226,11 @@ private fun ResolutionOptions(
         )
         return
     }
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-        verticalArrangement = Arrangement.spacedBy(Spacing.s),
-    ) {
-        supported.forEach { resolution ->
-            val isSelected = resolution == selected
-            Surface(
-                onClick = { onSelect(resolution) },
-                shape = MaterialTheme.shapes.large,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-            ) {
-                Column(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s)) {
-                    Text(
-                        resolution,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    )
-                    priceFor(resolution)?.let { price ->
-                        Text(
-                            price,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
+    ConnectedOptionRow(
+        options = supported.map { ConnectedOption(key = it, label = it, caption = priceFor(it)) },
+        selectedKey = selected,
+        onSelect = onSelect,
+    )
 }
 
 @Composable
