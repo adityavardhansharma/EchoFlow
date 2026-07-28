@@ -487,7 +487,7 @@ class ChatViewModel(
      * different style, or that frame as the seed of a clip. Keeping the media inside Imagine
      * turns the dead end into the loop the mode exists for.
      */
-    fun useMediaAsReference(filePath: String) {
+    fun useMediaAsReference(filePath: String, label: String? = null) {
         val file = File(filePath)
         if (!file.exists()) {
             _errorMessage.value = "That file is no longer available."
@@ -496,8 +496,26 @@ class ChatViewModel(
         setPendingAttachment(
             Uri.fromFile(file),
             if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
+            overrideName = label,
         )
     }
+
+    /**
+     * The most recent generated image in the open conversation, if there is one.
+     *
+     * Exposed so switching Image → Video can offer it as a first frame. Read from the message
+     * timeline rather than the image store because the timeline is what the user can see: an
+     * image belonging to this conversation but scrolled off a deleted turn is not what anyone
+     * means by "my last image".
+     */
+    val lastGeneratedImagePath: StateFlow<String?> = currentMessages
+        .map { messages ->
+            messages.asReversed().asSequence()
+                .flatMap { ToolEventJson.segmentsFromJson(it.segmentsJson).asReversed().asSequence() }
+                .firstOrNull { it.type == "image" }
+                ?.image?.filePath
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
@@ -563,7 +581,7 @@ class ChatViewModel(
         _errorMessage.value = null
     }
 
-    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null) {
+    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) {
         viewModelScope.launch {
             _pendingAttachmentUri.value = uri
             val resolver = getApplication<Application>().contentResolver
@@ -573,7 +591,8 @@ class ChatViewModel(
             val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
             _pendingAttachmentMimeType.value = mimeType
 
-            // Get display name
+            // Get display name. An override wins outright: a file the app generated has a UUID
+            // for a name, and showing that tells the user nothing about why it is attached.
             var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
             runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -581,7 +600,7 @@ class ChatViewModel(
                     displayName = cursor.getString(nameIndex)
                 }
             }
-            _pendingAttachmentName.value = displayName
+            _pendingAttachmentName.value = overrideName ?: displayName
         }
     }
 

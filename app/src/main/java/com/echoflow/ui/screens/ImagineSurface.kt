@@ -29,6 +29,43 @@ import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 
 /**
+ * Hands the image you were just looking at to video, as its opening frame.
+ *
+ * Flipping Image → Video almost always means "now animate that". Making the user find the
+ * file they generated ten seconds ago, in a system picker, among ten thousand camera photos,
+ * to hand the app back something it already had, is the kind of gap that makes a two-mode tool
+ * feel like two apps.
+ *
+ * Every guard here exists to keep it from being presumptuous:
+ *
+ *  - it fires only on the *transition*, so clearing the attachment is final rather than
+ *    something the next recomposition undoes;
+ *  - it never displaces an attachment already in the composer, since a deliberate choice
+ *    outranks a guess;
+ *  - it stays silent when the chosen model cannot take a first frame, because attaching
+ *    something the request will drop is worse than attaching nothing.
+ *
+ * The label says where the file came from. An auto-attachment that cannot explain itself is
+ * indistinguishable from a bug.
+ */
+@Composable
+private fun CarryImageIntoVideo(
+    media: ImagineMedia,
+    lastImagePath: String?,
+    modelTakesFirstFrame: Boolean,
+    alreadyAttached: Boolean,
+    onCarry: (String) -> Unit,
+) {
+    var previous by remember { mutableStateOf(media) }
+    LaunchedEffect(media) {
+        val justSwitchedToVideo = previous == ImagineMedia.Image && media == ImagineMedia.Video
+        previous = media
+        if (!justSwitchedToVideo || alreadyAttached || !modelTakesFirstFrame) return@LaunchedEffect
+        lastImagePath?.let(onCarry)
+    }
+}
+
+/**
  * The Imagine surface: describe something, watch it appear, refine it.
  *
  * Structurally a timeline like Chat — which keeps the entire streaming, segment and
@@ -50,6 +87,7 @@ internal fun ImagineSurface(
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
     val pendingUri by chatViewModel.pendingAttachmentUri.collectAsState()
     val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
+    val lastImagePath by chatViewModel.lastGeneratedImagePath.collectAsState()
 
     val media by settingsViewModel.imagineMedia.collectAsState()
     val imageModels by settingsViewModel.imageModels.collectAsState()
@@ -66,11 +104,19 @@ internal fun ImagineSurface(
     var showModelPicker by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
 
-    // Capabilities drive the ratio chip and the picker's cards, so load them as the surface
+    // Capabilities drive the options sheet and the picker's cards, so load them as the surface
     // opens rather than waiting for the user to go looking for the picker.
     LaunchedEffect(Unit) { settingsViewModel.loadVideoModelDirectory() }
 
     val isVideo = media == ImagineMedia.Video
+
+    CarryImageIntoVideo(
+        media = media,
+        lastImagePath = lastImagePath,
+        modelTakesFirstFrame = videoCapabilities?.supportsFirstFrame == true,
+        alreadyAttached = pendingUri != null,
+        onCarry = { chatViewModel.useMediaAsReference(it, label = "First frame · your last image") },
+    )
     val modelEntries = remember(media, imageModels, videoModels) {
         val default = if (isVideo) {
             SettingsRepository.DEFAULT_VIDEO_MODEL_ID to SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
