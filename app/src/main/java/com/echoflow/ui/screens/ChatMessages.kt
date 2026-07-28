@@ -382,7 +382,10 @@ internal fun ChatTopBar(
                 restShape = MaterialShapes.Cookie7Sided, pressedShape = MaterialShapes.Sunny,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 pulseOnClick = true,
-            ) { Icon(Icons.Default.Add, newLabel, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+                // A pencil, not a plus. The composer's "+" adds to the message you are
+                // writing; this starts a new one. Two plus buttons on one screen meaning two
+                // unrelated things is a coin flip every time you reach for either.
+            ) { Icon(Icons.Default.Create, newLabel, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
     )
