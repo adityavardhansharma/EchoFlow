@@ -103,10 +103,23 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
+        if (mode == AppMode.Chat) clearImagineArmedModes()
         parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
         restorePosition(mode)
+    }
+
+    /**
+     * Image/video gen is armed by Imagine for a single send. If that sticky [ChatMode]
+     * survives a surface switch, every later Chat message generates media instead of
+     * answering — which is exactly what happens when a long video render tempts the user
+     * into Chat while the last Imagine mode is still live.
+     */
+    private fun clearImagineArmedModes() {
+        if (_chatMode.value is ChatMode.ImageGen || _chatMode.value is ChatMode.VideoGen) {
+            setMode(ChatMode.Normal)
+        }
     }
 
     /**
@@ -400,6 +413,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val thread = chatRepository.thread(chatId) ?: return@launch
             if (thread.mode != appMode.value) {
+                if (thread.mode == AppMode.Chat) clearImagineArmedModes()
                 parkCurrentPosition()
                 settingsRepository.saveAppMode(thread.mode)
                 _drawerSearchQuery.value = ""
@@ -518,6 +532,9 @@ class ChatViewModel(
      * Sends an Imagine turn. The media switch *is* the capability, so the surface sets the
      * generation mode from what the user is making rather than asking them to arm it from a
      * menu first — which is the entire reason image and video left Chat's "+" menu.
+     *
+     * The mode is one-shot: [sendMessage] consumes it before launching so a later Chat send
+     * cannot inherit ImageGen/VideoGen after the user switches surfaces mid-render.
      */
     fun sendImagineMessage(prompt: String, media: ImagineMedia) {
         setMode(if (media == ImagineMedia.Video) ChatMode.VideoGen else ChatMode.ImageGen)
@@ -824,12 +841,17 @@ class ChatViewModel(
             if (streamJobs[chatId]?.isActive == true) return
         }
 
+        // Capture and consume image/video gen before the coroutine starts. These modes are
+        // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
+        // media for every later question after the user switches away mid-render.
+        val imageGenMode = _chatMode.value is ChatMode.ImageGen
+        val videoGenMode = _chatMode.value is ChatMode.VideoGen
+        if (imageGenMode || videoGenMode) clearImagineArmedModes()
+
         viewModelScope.launch {
             clearPendingAttachment()
             clearError()
 
-            val imageGenMode = _chatMode.value is ChatMode.ImageGen
-            val videoGenMode = _chatMode.value is ChatMode.VideoGen
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
