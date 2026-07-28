@@ -2,6 +2,10 @@
 
 package com.echoflow.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.ImagineMedia
+import com.echoflow.data.VideoRequestPolicy
 import com.echoflow.ui.components.AspectRatioGrid
 import com.echoflow.ui.components.ConnectedOption
 import com.echoflow.ui.components.ConnectedOptionRow
@@ -71,8 +76,10 @@ internal data class ImagineOptions(
  *
  * Resolution appears only when the model actually offers a choice — a single-option model gets
  * a plain line of text rather than a picker with one button, and a model that declares nothing
- * gets no section at all. Prices sit under each option because resolution is the setting most
- * likely to quietly triple a bill, and the moment to know that is while choosing.
+ * gets no section at all. Its price rides beside the heading as one live figure that answers
+ * the tap you just made: resolution is the setting most likely to quietly triple a bill, and
+ * the moment to know that is while choosing. A price under every option instead turns picking
+ * a quality into reading a rate card.
  */
 @Composable
 internal fun ImagineOptionsSheet(
@@ -117,11 +124,16 @@ internal fun ImagineOptionsSheet(
             }
 
             if (isVideo && options.supportedResolutions.isNotEmpty()) {
-                Section("Resolution") {
+                // The resolution actually in force, which is not always the one stored: a
+                // preference of 1080p on a 720p-only model runs at 720p, and the sheet has to
+                // agree with what will be sent.
+                val resolution = VideoRequestPolicy
+                    .resolveResolution(options.resolution, options.supportedResolutions)
+                    ?: options.resolution
+                Section("Resolution", trailing = options.priceFor(resolution)) {
                     ResolutionOptions(
-                        selected = options.resolution,
+                        selected = resolution,
                         supported = options.supportedResolutions,
-                        priceFor = options.priceFor,
                         onSelect = onSelectResolution,
                     )
                 }
@@ -140,10 +152,39 @@ internal fun ImagineOptionsSheet(
     }
 }
 
+/**
+ * A heading, and optionally one live value on the right.
+ *
+ * The right slot is where anything that changes with the selection goes. Putting it there
+ * instead of inside the options themselves means there is exactly one of it, it has room to
+ * stay legible, and the control below can be a row of plain choices.
+ */
 @Composable
-private fun Section(label: String, content: @Composable () -> Unit) {
+private fun Section(
+    label: String,
+    trailing: String? = null,
+    content: @Composable () -> Unit,
+) {
     Column {
-        SectionLabel(label)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel(label, Modifier.weight(1f))
+            trailing?.let {
+                // Crossfaded rather than swapped: the figure is answering the tap you just
+                // made, and a hard cut reads as a different number appearing, not this one
+                // changing.
+                AnimatedContent(
+                    targetState = it,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "section-readout-$label",
+                ) { value ->
+                    Text(
+                        value,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(Spacing.s))
         content()
     }
@@ -212,22 +253,20 @@ private fun AttachmentRow(
 private fun ResolutionOptions(
     selected: String,
     supported: List<String>,
-    priceFor: (String) -> String?,
     onSelect: (String) -> Unit,
 ) {
-    // One option is information, not a decision. Rendering it as a chip you cannot meaningfully
-    // press invites people to press it and wonder what they did wrong.
+    // One option is information, not a decision. Rendering it as a segment you cannot
+    // meaningfully press invites people to press it and wonder what they did wrong.
     if (supported.size == 1) {
-        val only = supported.single()
         Text(
-            listOfNotNull(only, priceFor(only)).joinToString(" · "),
+            supported.single(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         return
     }
     ConnectedOptionRow(
-        options = supported.map { ConnectedOption(key = it, label = it, caption = priceFor(it)) },
+        options = supported.map { ConnectedOption(key = it, label = it) },
         selectedKey = selected,
         onSelect = onSelect,
     )

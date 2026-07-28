@@ -7,12 +7,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,14 +34,10 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
 
-/** One segment: a short [label], and an optional second line of detail. */
-data class ConnectedOption(
-    val key: String,
-    val label: String,
-    val caption: String? = null,
-)
+/** One segment. A short label and nothing else — detail belongs beside the section heading. */
+data class ConnectedOption(val key: String, val label: String)
 
-private val TrackHeight = 52.dp
+private val TrackHeight = 44.dp
 
 /** Full round at this height — the selected segment reads as a pill lifted out of the track. */
 private val FullCorner = TrackHeight / 2
@@ -56,10 +53,16 @@ private val TightCorner = 6.dp
  * accident. One track edge to edge reads as a designed control, and equal segments say what is
  * true: these are peers, and exactly one of them is on.
  *
+ * **One line per segment, always.** An earlier version stacked a price under each label, and
+ * three prices side by side turn a control into a comparison table: everything is shouting, the
+ * segments get cramped, and picking a quality becomes an audit. Anything that varies with the
+ * selection belongs beside the section heading as a single live readout, where there is room
+ * for it to be legible and only one of it at a time.
+ *
  * The Material 3 Expressive move is that selection is **shape**, not just colour. The chosen
  * segment springs to a full pill and takes a little more of the track, while its neighbours
  * tighten and give the space up. Nothing crossfades in place; the selection physically travels,
- * which is what makes a two-state control feel like an object rather than a repaint.
+ * which is what makes a segmented control feel like an object rather than a repaint.
  */
 @Composable
 fun ConnectedOptionRow(
@@ -100,21 +103,35 @@ fun ConnectedOptionRow(
                 animationSpec = if (reducedMotion) tween(0) else spring(stiffness = Spring.StiffnessMediumLow),
                 label = "connected-end-${option.key}",
             )
+            // Deliberately the same pair the aspect-ratio options use. Two segmented controls
+            // in one sheet wearing two different selection colours is the single loudest way
+            // to make a considered layout look assembled from parts.
             val container by animateColorAsState(
                 targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
-                    MaterialTheme.colorScheme.surfaceContainerHighest
+                    MaterialTheme.colorScheme.surfaceContainerHigh
                 },
                 label = "connected-container-${option.key}",
             )
             val content = if (isSelected) {
-                MaterialTheme.colorScheme.onPrimary
+                MaterialTheme.colorScheme.onPrimaryContainer
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             }
 
+            // Surface's own selectable overload, not a Modifier.selectable passed in from
+            // outside: a modifier given to Surface is applied *before* Surface clips itself to
+            // its shape, so its ripple ignores the corners and flashes a hard rectangle over a
+            // rounded segment on every tap.
             Surface(
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(option.key)
+                    }
+                },
                 color = container,
                 shape = RoundedCornerShape(
                     topStart = startCorner, bottomStart = startCorner,
@@ -123,44 +140,23 @@ fun ConnectedOptionRow(
                 modifier = Modifier
                     .weight(weight)
                     .fillMaxWidth()
-                    .selectable(
-                        selected = isSelected,
-                        role = Role.RadioButton,
-                        onClick = {
-                            if (!isSelected) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelect(option.key)
-                            }
-                        },
-                    )
                     .semantics {
-                        contentDescription = listOfNotNull(option.label, option.caption).joinToString(", ")
+                        role = Role.RadioButton
+                        contentDescription = option.label
                     },
             ) {
-                Column(
-                    Modifier.padding(horizontal = Spacing.xs),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                Box(
+                    Modifier.fillMaxSize().padding(horizontal = Spacing.xs),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         option.label,
                         style = MaterialTheme.typography.labelLarge,
                         color = content,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
                     )
-                    option.caption?.let { caption ->
-                        Text(
-                            caption,
-                            style = MaterialTheme.typography.labelSmall,
-                            // Held back so the row scans as a set of choices first and a price
-                            // list second — you pick a quality, then check what it costs.
-                            color = content.copy(alpha = 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
                 }
             }
         }

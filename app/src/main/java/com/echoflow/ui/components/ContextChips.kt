@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +46,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -183,22 +183,24 @@ fun MediaToggle(
                     topStartPercent = 20, bottomStartPercent = 20, topEndPercent = 50, bottomEndPercent = 50,
                 )
             }
+            // Surface's selectable overload rather than a Modifier.selectable passed in: a
+            // modifier reaches Surface before it clips to its shape, so the ripple would
+            // ignore the corners and flash a rectangle over the pill.
             Surface(
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(media)
+                    }
+                },
                 shape = shape,
                 color = if (isSelected) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier
-                    .selectable(
-                        selected = isSelected,
-                        role = Role.RadioButton,
-                        onClick = {
-                            if (!isSelected) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelect(media)
-                            }
-                        },
-                    )
-                    .semantics { contentDescription = "$label mode" },
+                modifier = Modifier.semantics {
+                    role = Role.RadioButton
+                    contentDescription = "$label mode"
+                },
             ) {
                 Row(
                     Modifier.padding(horizontal = Spacing.m, vertical = 7.dp),
