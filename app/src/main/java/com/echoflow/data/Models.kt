@@ -50,7 +50,9 @@ data class ChatMessage(
     val localAttachmentName: String? = null,
     val toolEventsJson: String? = null, // JSON List<ToolEvent>: web searches the model ran for this answer
     val citationsJson: String? = null, // JSON List<Citation>: deduped sources backing this answer
-    val segmentsJson: String? = null // JSON List<PersistedSegment>: ordered reply timeline (reasoning/search/text interleaved)
+    val segmentsJson: String? = null, // JSON List<PersistedSegment>: ordered reply timeline (reasoning/search/text interleaved)
+    /** JSON List<ReplyVersion>: prior assistant answers for this turn, kept when the user edits their prompt. */
+    val replyVersionsJson: String? = null,
 )
 
 @Entity(tableName = "custom_models")

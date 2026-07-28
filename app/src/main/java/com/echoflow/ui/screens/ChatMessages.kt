@@ -79,6 +79,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.AppMode
 import com.echoflow.data.GeneratedVideo
+import com.echoflow.data.ReplyVersioning
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -130,6 +131,11 @@ internal fun MessagesPane(
     onCopy: (String) -> Unit,
     onArtifactOpen: () -> Unit = {},
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    lastUserMessageId: String? = null,
+    onEditUserMessage: (String) -> Unit = {},
+    replyVersionIndexFor: (String, Int) -> Int = { _, total -> (total - 1).coerceAtLeast(0) },
+    onReplyVersionChange: (String, Int) -> Unit = { _, _ -> },
+    canEditMessages: Boolean = true,
 ) {
     val listState = rememberLazyListState()
     var autoFollow by remember { mutableStateOf(true) }
@@ -169,9 +175,17 @@ internal fun MessagesPane(
         items(messages, key = { it.id }) { msg ->
             MessageBubble(
                 msg,
-                onCopy = { onCopy(msg.content) },
+                onCopy = { text -> onCopy(text) },
                 onArtifactOpen = onArtifactOpen,
                 observeVideo = observeVideo,
+                canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
+                onEditUserMessage = onEditUserMessage,
+                replyVersionIndex = if (msg.role == "assistant") {
+                    replyVersionIndexFor(msg.id, ReplyVersioning.totalVersions(msg))
+                } else {
+                    0
+                },
+                onReplyVersionChange = onReplyVersionChange,
             )
         }
         researchRun?.let { run ->
@@ -414,13 +428,22 @@ internal fun MessageBubble(
     streaming: Boolean = false,
     onArtifactOpen: () -> Unit = {},
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
-    onCopy: () -> Unit,
+    onCopy: (String) -> Unit,
+    canEditUserMessage: Boolean = false,
+    onEditUserMessage: (String) -> Unit = {},
+    replyVersionIndex: Int = 0,
+    onReplyVersionChange: (String, Int) -> Unit = { _, _ -> },
 ) {
     val isUser = message.role == "user"
     if (isUser) {
-        Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 320.dp)) {
-                message.localAttachmentUri?.let { uri ->
+        UserMessageBubble(
+            content = message.content,
+            canEdit = canEditUserMessage,
+            onCopy = { onCopy(message.content) },
+            onEdit = { onEditUserMessage(message.id) },
+            modifier = modifier,
+            attachment = message.localAttachmentUri?.let { uri ->
+                {
                     MessageAttachmentPreview(
                         uri = uri,
                         mimeType = message.localAttachmentMimeType,
@@ -428,16 +451,11 @@ internal fun MessageBubble(
                         modifier = Modifier.padding(bottom = Spacing.s),
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(26.dp, 26.dp, 8.dp, 26.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Text(message.content, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = Spacing.m))
-                }
-            }
-        }
+            },
+        )
     } else {
+        val totalVersions = ReplyVersioning.totalVersions(message)
+        val displayMessage = ReplyVersioning.displayMessage(message, replyVersionIndex)
         // ChatGPT / Claude style: no bubble, full content width.
         Column(modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -447,37 +465,87 @@ internal fun MessageBubble(
             }
             Spacer(Modifier.height(Spacing.s))
 
-            // Finished replies render their persisted timeline in arrival order, so
-            // reason → search → reason → search → answer keeps exactly the layout it
-            // streamed with instead of merging all reasoning into one block.
-            val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
-            // Generated media carries its own copy/save/share row, so the bubble's own copy
-            // button is suppressed when a clip or image is the reply's last word.
-            val lastGeneratedMediaIndex = persistedSegments.indexOfLast { segment ->
-                (segment.type == "image" && segment.image != null) ||
-                    (segment.type == "video" && segment.video != null)
-            }
-
-            message.localAttachmentUri?.let { uri ->
-                MessageAttachmentPreview(
-                    uri = uri,
-                    mimeType = message.localAttachmentMimeType,
-                    name = message.localAttachmentName,
-                    modifier = Modifier.padding(bottom = Spacing.s),
+            AnimatedReplyContent(targetIndex = replyVersionIndex) { versionIndex ->
+                AssistantReplyBody(
+                    message = ReplyVersioning.displayMessage(message, versionIndex),
+                    messageId = message.id,
+                    streaming = streaming,
+                    onArtifactOpen = onArtifactOpen,
+                    observeVideo = observeVideo,
+                    onCopy = onCopy,
                 )
             }
 
-            when {
+            if (!streaming) {
+                val copyText = ReplyVersioning.copyText(message, replyVersionIndex)
+                ReplyVersionBar(
+                    currentIndex = replyVersionIndex,
+                    totalVersions = totalVersions,
+                    onPrevious = {
+                        onReplyVersionChange(message.id, (replyVersionIndex - 1).coerceAtLeast(0))
+                    },
+                    onNext = {
+                        onReplyVersionChange(
+                            message.id,
+                            (replyVersionIndex + 1).coerceAtMost(totalVersions - 1),
+                        )
+                    },
+                    onCopy = {
+                        onCopy(copyText)
+                    },
+                    showCopy = {
+                        val segments = ToolEventJson.segmentsFromJson(displayMessage.segmentsJson)
+                        val lastGeneratedMediaIndex = segments.indexOfLast { segment ->
+                            (segment.type == "image" && segment.image != null) ||
+                                (segment.type == "video" && segment.video != null)
+                        }
+                        lastGeneratedMediaIndex == -1
+                    }(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantReplyBody(
+    message: ChatMessage,
+    messageId: String,
+    streaming: Boolean,
+    onArtifactOpen: () -> Unit,
+    observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    onCopy: (String) -> Unit,
+) {
+    val persistedSegments = remember(messageId, message.segmentsJson) {
+        ToolEventJson.segmentsFromJson(message.segmentsJson)
+    }
+    val lastGeneratedMediaIndex = persistedSegments.indexOfLast { segment ->
+        (segment.type == "image" && segment.image != null) ||
+            (segment.type == "video" && segment.video != null)
+    }
+
+    message.localAttachmentUri?.let { uri ->
+        MessageAttachmentPreview(
+            uri = uri,
+            mimeType = message.localAttachmentMimeType,
+            name = message.localAttachmentName,
+            modifier = Modifier.padding(bottom = Spacing.s),
+        )
+    }
+
+    when {
                 streaming -> {
                     // Live markdown, revealed at a smooth steady cadence (decoupled from bursty chunks).
                     if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
                 }
                 persistedSegments.isNotEmpty() -> {
-                    val planSteps = remember(message.id) {
+                    val planSteps = remember(messageId, message.segmentsJson) {
                         persistedSegments.firstOrNull { it.type == "plan" }?.text
                             ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
                     }
-                    val reportCitations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
+                    val reportCitations = remember(messageId, message.citationsJson) {
+                        ToolEventJson.citationsFromJson(message.citationsJson)
+                    }
                     persistedSegments.forEachIndexed { index, segment ->
                         when (segment.type) {
                             "reasoning" -> {
@@ -545,7 +613,9 @@ internal fun MessageBubble(
                                         pattern = "ripple",
                                         previousImagePath = null,
                                         animate = false,
-                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
+                                        onCopy = if (index == lastGeneratedMediaIndex) {
+                                            { onCopy(message.content) }
+                                        } else null,
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
@@ -572,7 +642,9 @@ internal fun MessageBubble(
                                         // lands in front of the user — that one gets the reveal.
                                         animate = ref.filePath == null,
                                         errorMessage = live?.error,
-                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
+                                        onCopy = if (index == lastGeneratedMediaIndex) {
+                                            { onCopy(message.content) }
+                                        } else null,
                                     )
                                     if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                                 }
@@ -588,7 +660,7 @@ internal fun MessageBubble(
                                     report = segment.text.orEmpty(),
                                     citations = reportCitations,
                                     planSteps = planSteps,
-                                    onCopy = onCopy,
+                                    onCopy = { onCopy(segment.text.orEmpty()) },
                                 )
                                 if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                             }
@@ -596,7 +668,7 @@ internal fun MessageBubble(
                                 DataResultCard(
                                     json = segment.text.orEmpty(),
                                     citations = reportCitations,
-                                    onCopy = onCopy,
+                                    onCopy = { onCopy(segment.text.orEmpty()) },
                                 )
                                 if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                             }
@@ -614,7 +686,9 @@ internal fun MessageBubble(
                         ReasoningSection(reasoning = reasoningText, active = false)
                         Spacer(Modifier.height(Spacing.s))
                     }
-                    val toolEvents = remember(message.id) { ToolEventJson.toolEventsFromJson(message.toolEventsJson) }
+                    val toolEvents = remember(messageId, message.toolEventsJson) {
+                        ToolEventJson.toolEventsFromJson(message.toolEventsJson)
+                    }
                     toolEvents.forEach { event ->
                         SearchActivityCard(query = event.query, sources = event.sources, active = false)
                         Spacer(Modifier.height(Spacing.s))
@@ -622,17 +696,6 @@ internal fun MessageBubble(
                     RichMarkdown(message.content, Modifier.fillMaxWidth())
                 }
             }
-
-            if (!streaming && lastGeneratedMediaIndex == -1) {
-                Spacer(Modifier.height(Spacing.xs))
-                FilledTonalIconButton(
-                    onClick = onCopy,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp)) }
-            }
-        }
-    }
 }
 
 /**

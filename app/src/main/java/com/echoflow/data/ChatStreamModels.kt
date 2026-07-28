@@ -247,6 +247,15 @@ data class PersistedSegment(
     val video: VideoRef? = null // present when type == "video"
 )
 
+/** One archived assistant answer for a user turn, stored before a prompt edit regenerates the reply. */
+data class ReplyVersion(
+    val content: String,
+    val reasoning: String? = null,
+    val toolEventsJson: String? = null,
+    val citationsJson: String? = null,
+    val segmentsJson: String? = null,
+)
+
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */
 object ToolEventJson {
     private val moshi: Moshi = Moshi.Builder()
@@ -282,4 +291,41 @@ object ToolEventJson {
 
     fun segmentsFromJson(json: String?): List<PersistedSegment> =
         json?.let { runCatching { segmentsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+
+    private val replyVersionsAdapter: JsonAdapter<List<ReplyVersion>> = moshi.adapter(
+        Types.newParameterizedType(List::class.java, ReplyVersion::class.java)
+    )
+
+    fun replyVersionsToJson(versions: List<ReplyVersion>): String? =
+        if (versions.isEmpty()) null else replyVersionsAdapter.toJson(versions)
+
+    fun replyVersionsFromJson(json: String?): List<ReplyVersion> =
+        json?.let { runCatching { replyVersionsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+}
+
+/** Helpers for browsing archived assistant answers on a [ChatMessage]. */
+object ReplyVersioning {
+    fun archivedVersions(message: ChatMessage): List<ReplyVersion> =
+        ToolEventJson.replyVersionsFromJson(message.replyVersionsJson)
+
+    fun totalVersions(message: ChatMessage): Int = archivedVersions(message).size + 1
+
+    /** Returns the message fields to render for [versionIndex] (0 = oldest, last = newest). */
+    fun displayMessage(message: ChatMessage, versionIndex: Int): ChatMessage {
+        val archived = archivedVersions(message)
+        val latestIndex = archived.size
+        val clamped = versionIndex.coerceIn(0, latestIndex)
+        if (clamped >= latestIndex) return message
+        val version = archived[clamped]
+        return message.copy(
+            content = version.content,
+            reasoning = version.reasoning,
+            toolEventsJson = version.toolEventsJson,
+            citationsJson = version.citationsJson,
+            segmentsJson = version.segmentsJson,
+        )
+    }
+
+    fun copyText(message: ChatMessage, versionIndex: Int): String =
+        displayMessage(message, versionIndex).content
 }

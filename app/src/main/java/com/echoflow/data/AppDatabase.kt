@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class
     ],
-    version = 18, // v18: conversations belong to a mode (chat | imagine)
+    version = 19, // v19: assistant reply version history on prompt edits
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -352,6 +352,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN replyVersionsJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -377,6 +383,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_15_16,
                     MIGRATION_16_17,
                     MIGRATION_17_18,
+                    MIGRATION_18_19,
                 )
                 .build()
                 INSTANCE = instance
