@@ -106,31 +106,46 @@ class ChatViewModel(
         parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
-        // Restoring hits the database, so it can still be suspended when the user switches
-        // again or taps a conversation. An untracked coroutine would then land its stale
-        // answer on top of wherever they actually are — showing the other mode's thread, and
-        // filing the next message into it. Cancel the previous attempt, and check on the way
-        // out that the mode has not moved on underneath us.
+        restorePosition(mode)
+    }
+
+    /**
+     * Reopens [mode]'s remembered position — the only path that does so.
+     *
+     * Restoring hits the database, so it can still be suspended when the user switches again
+     * or taps a conversation, and an unguarded coroutine then lands its stale answer on top of
+     * wherever they actually are: the wrong thread on screen, and the next message filed into
+     * it. Three guards, because they cover different races — the job is tracked so a second
+     * restore cancels the first; the mode is rechecked in case the switch was reversed; and
+     * the [NavigationGuard] catches navigation *within* the mode being restored, which the
+     * mode check alone cannot see and which is much the likeliest version.
+     *
+     * Startup used to do this same lookup with none of that, on the reasoning that nothing can
+     * have happened yet. Startup is exactly when it can: the database is cold, the lookup is at
+     * its slowest, and the drawer is one tap away. There is only one restore path now so that
+     * a future caller cannot reintroduce the gap by forgetting a guard.
+     */
+    private fun restorePosition(mode: AppMode) {
         modeRestoreJob?.cancel()
         modeRestoreJob = viewModelScope.launch {
-            val since = navigationEpoch
+            val token = navigation.begin()
             val restored = restoredThreadId(mode)
             // Anything that moved the user in the meantime — another switch, tapping a
             // conversation, a notification, a send that created a thread — outranks a lookup
             // that started before it.
-            if (appMode.value == mode && navigationEpoch == since) openThread(restored)
+            if (appMode.value == mode && navigation.stillCurrent(token)) openThread(restored)
         }
     }
 
     /**
      * Every change of which conversation is open, in one place.
      *
-     * The epoch exists so a suspended restore can tell whether the user has navigated since it
-     * began. Restoring reads the database, and an untracked coroutine landing its stale answer
-     * afterwards would show the wrong thread and file the next message into it.
+     * Routed through [NavigationGuard] so a suspended restore can tell whether the user has
+     * navigated since it began. Restoring reads the database, and a coroutine landing its
+     * stale answer afterwards would show the wrong thread and file the next message into it.
      */
     private fun openThread(chatId: String?) {
-        navigationEpoch++
+        navigation.navigated()
         _currentChatThreadId.value = chatId
     }
 
@@ -224,8 +239,8 @@ class ChatViewModel(
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
 
-    /** Bumped by [openThread]; read by suspended work that must not undo a later navigation. */
-    private var navigationEpoch = 0L
+    /** Held by [openThread] and by any restore that must not undo a later navigation. */
+    private val navigation = NavigationGuard()
 
     /** The in-flight mode restore, so a second switch cancels the first rather than racing it. */
     private var modeRestoreJob: Job? = null
@@ -370,10 +385,10 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
-        viewModelScope.launch {
-            // Reopen exactly where the user left off — including on a blank composer.
-            openThread(restoredThreadId(appMode.value))
-        }
+        // Reopen exactly where the user left off — including on a blank composer. Through the
+        // same guarded path as a mode switch, because a cold database makes this the slowest
+        // this lookup ever is, and the drawer is reachable throughout.
+        restorePosition(appMode.value)
     }
 
     /**
