@@ -600,22 +600,34 @@ class SettingsRepository(context: Context) {
     }
 
     /**
-     * The conversation each mode had open, remembered separately. Without this, switching
-     * Chat → Imagine → Chat would drop the user somewhere other than where they left off,
-     * which reads as losing your place rather than changing rooms.
+     * Where each mode was left, remembered separately, as one of three states:
+     *
+     *  - [ModePosition.Thread] — a conversation was open
+     *  - [ModePosition.Blank]  — a blank composer was open. That is a place the user chose to
+     *                            be, so it has to be returned to like any other
+     *  - [ModePosition.Unset]  — this mode has never been visited
+     *
+     * Collapsing Blank into Unset is precisely the bug this shape exists to prevent: leaving a
+     * fresh composer, switching modes and coming back would silently reopen an old
+     * conversation the user had already navigated away from.
      */
-    fun getLastThreadIdDirect(mode: AppMode): String? =
-        prefs.getString("last_thread_${mode.storageKey}", null)?.takeIf { it.isNotBlank() }
+    fun getLastPositionDirect(mode: AppMode): ModePosition =
+        when (val stored = prefs.getString(positionKey(mode), null)) {
+            null, "" -> ModePosition.Unset
+            BLANK_POSITION -> ModePosition.Blank
+            else -> ModePosition.Thread(stored)
+        }
 
-    /**
-     * Only real conversations are remembered. The id is non-null on purpose: writing a blank
-     * here would *erase* the position rather than record one, and an unsaved empty thread is
-     * nothing to come back to anyway — so "no conversation open" must leave the previous
-     * memory intact instead of overwriting it.
-     */
-    fun saveLastThreadId(mode: AppMode, chatId: String) {
-        prefs.edit().putString("last_thread_${mode.storageKey}", chatId).apply()
+    fun saveLastPosition(mode: AppMode, position: ModePosition) {
+        val stored = when (position) {
+            is ModePosition.Thread -> position.chatId
+            ModePosition.Blank -> BLANK_POSITION
+            ModePosition.Unset -> null
+        }
+        prefs.edit().putString(positionKey(mode), stored).apply()
     }
+
+    private fun positionKey(mode: AppMode) = "last_thread_${mode.storageKey}"
 
     // ── Image generation ───────────────────────────────────────────────────────────────
 
@@ -681,6 +693,13 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val KEY_APP_MODE = "app_mode"
+
+        /**
+         * Marks "a blank composer was open". A reserved token rather than an empty string,
+         * because empty is indistinguishable from never-written — and thread ids are UUIDs,
+         * so this can never collide with a real one.
+         */
+        private const val BLANK_POSITION = "__blank__"
         private const val KEY_IMAGINE_MEDIA = "imagine_media"
         private const val KEY_IMAGE_ASPECT = "image_aspect_ratio"
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"

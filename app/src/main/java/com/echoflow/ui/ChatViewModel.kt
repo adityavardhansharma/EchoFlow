@@ -103,17 +103,32 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
-        _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+        parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
-        viewModelScope.launch {
-            // Only restore a thread that still exists and still belongs to this mode.
-            val remembered = settingsRepository.getLastThreadIdDirect(mode)
-                ?.let { chatRepository.thread(it) }
-                ?.takeIf { it.mode == mode }
-            _currentChatThreadId.value = remembered?.id
-        }
+        viewModelScope.launch { _currentChatThreadId.value = restoredThreadId(mode) }
     }
+
+    /** Records where this mode is being left — including "on a blank composer". */
+    private fun parkCurrentPosition() {
+        val current = _currentChatThreadId.value
+        settingsRepository.saveLastPosition(
+            appMode.value,
+            if (current == null) ModePosition.Blank else ModePosition.Thread(current),
+        )
+    }
+
+    /**
+     * The thread to reopen for [mode], or null for a blank composer. A remembered thread that
+     * has since been deleted, or that somehow belongs to the other mode, also lands on blank
+     * rather than on someone else's conversation.
+     */
+    private suspend fun restoredThreadId(mode: AppMode): String? =
+        when (val position = settingsRepository.getLastPositionDirect(mode)) {
+            is ModePosition.Thread ->
+                chatRepository.thread(position.chatId)?.takeIf { it.mode == mode }?.id
+            ModePosition.Blank, ModePosition.Unset -> null
+        }
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -325,13 +340,8 @@ class ChatViewModel(
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
         viewModelScope.launch {
-            // Reopen where the user left off, but only if that conversation still exists and
-            // still belongs to the mode we are restoring into.
-            val mode = appMode.value
-            settingsRepository.getLastThreadIdDirect(mode)
-                ?.let { chatRepository.thread(it) }
-                ?.takeIf { it.mode == mode }
-                ?.let { _currentChatThreadId.value = it.id }
+            // Reopen exactly where the user left off — including on a blank composer.
+            _currentChatThreadId.value = restoredThreadId(appMode.value)
         }
     }
 
@@ -344,7 +354,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val thread = chatRepository.thread(chatId) ?: return@launch
             if (thread.mode != appMode.value) {
-                _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+                parkCurrentPosition()
                 settingsRepository.saveAppMode(thread.mode)
                 _drawerSearchQuery.value = ""
             }
@@ -480,7 +490,7 @@ class ChatViewModel(
                 _errorMessage.value = "That file is no longer available."
                 return@launch
             }
-            _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+            parkCurrentPosition()
             settingsRepository.saveAppMode(AppMode.Chat)
             _drawerSearchQuery.value = ""
             setMode(ChatMode.Normal)
@@ -541,12 +551,13 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
-        // Parked so this mode reopens here after a round trip through the other one. A null
-        // means "blank composer" — from the new-conversation button, or from the hop into Chat
-        // that "Ask about this" makes — and must leave the remembered position alone. Writing
-        // it through would throw away wherever the user actually was. The blank thread earns
-        // its place in the memory once sendMessage gives it an identity.
-        chatId?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+        // Parked so this mode reopens here after a round trip through the other one — and a
+        // null is parked too, because "I just started something new" is a position worth
+        // returning to, not an absence of one.
+        settingsRepository.saveLastPosition(
+            appMode.value,
+            if (chatId == null) ModePosition.Blank else ModePosition.Thread(chatId),
+        )
         clearPendingAttachment()
         clearError()
     }
@@ -983,7 +994,7 @@ class ChatViewModel(
                 _currentChatThreadId.value = chatId
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
-                settingsRepository.saveLastThreadId(appMode.value, chatId)
+                settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
