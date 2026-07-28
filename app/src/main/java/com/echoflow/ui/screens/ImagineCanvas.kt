@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.ImagineMedia
+import com.echoflow.data.ImaginePrompts
 import com.echoflow.data.PersistedSegment
 import com.echoflow.data.ToolEventJson
 import com.echoflow.data.VideoRequestPolicy
@@ -300,12 +301,10 @@ internal fun ImagineEmptyState(
     bottomInset: Dp,
     onPrompt: (String) -> Unit,
 ) {
-    val video = media == ImagineMedia.Video
-    val example = if (video) {
-        "Slow dolly through a greenhouse at sunrise"
-    } else {
-        "A lighthouse mid-storm, painted in gouache"
-    }
+    // Drawn once per visit to the blank canvas, and again if the medium changes — a video
+    // prompt has to describe motion, so the image pool would read as advice to ignore.
+    val headline = remember(media) { ImaginePrompts.headline(media) }
+    val example = remember(media) { ImaginePrompts.prompt(media) }
 
     Box(Modifier.fillMaxSize()) {
         ImagineField(Modifier.fillMaxSize())
@@ -319,7 +318,7 @@ internal fun ImagineEmptyState(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                if (video) "Picture it moving." else "Picture something.",
+                headline,
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
