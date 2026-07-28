@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -130,9 +130,10 @@ internal fun ImagineCanvas(
             top = topInset, bottom = bottomInset,
         ),
     ) {
-        items(messages, key = { it.id }) { message ->
+        itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
             ImagineResult(
                 message = message,
+                prompt = promptBehind(messages, index),
                 observeVideo = observeVideo,
                 onUseAsReference = onUseAsReference,
                 onRetry = onRetry,
@@ -140,7 +141,7 @@ internal fun ImagineCanvas(
         }
         if (segments.isNotEmpty()) {
             item(key = "streaming") {
-                LiveImagineResult(segments)
+                LiveImagineResult(segments, prompt = promptBehind(messages, messages.size))
             }
         }
     }
@@ -150,6 +151,7 @@ internal fun ImagineCanvas(
 @Composable
 private fun ImagineResult(
     message: ChatMessage,
+    prompt: String?,
     observeVideo: (String) -> Flow<GeneratedVideo?>,
     onUseAsReference: (String) -> Unit,
     onRetry: (String) -> Unit,
@@ -198,16 +200,16 @@ private fun ImagineResult(
                 else -> Unit
             }
         }
-        promptCaptionOf(persisted, message)?.let { caption ->
+        promptCaptionOf(persisted, message, prompt)?.let { caption ->
             Spacer(Modifier.height(Spacing.s))
-            PromptCaption(caption)
+            ImaginePromptLine(caption, onReuse = onRetry)
         }
     }
 }
 
 /** The in-flight generation, rendered with the full choreography. */
 @Composable
-private fun LiveImagineResult(segments: List<StreamSegment>) {
+private fun LiveImagineResult(segments: List<StreamSegment>, prompt: String?) {
     Column(
         Modifier.fillMaxWidth().widthIn(max = ImagineMediaWidth),
         horizontalAlignment = Alignment.Start,
@@ -231,36 +233,23 @@ private fun LiveImagineResult(segments: List<StreamSegment>) {
                     errorMessage = segment.error,
                     maxWidth = ImagineMediaWidth,
                 )
-                is StreamSegment.Text -> {
-                    if (segment.text.isNotBlank()) {
-                        Spacer(Modifier.height(Spacing.s))
-                        PromptCaption(segment.text)
-                    }
-                }
                 else -> Unit
             }
         }
+        // The prompt is already known while the render is running, so the caption is in place
+        // from the first frame instead of appearing after the fact and shifting the layout.
+        prompt?.let {
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+            )
+        }
     }
-}
-
-/** Expands on tap: one line keeps the sheet scannable, the full text is a tap away. */
-@Composable
-private fun PromptCaption(text: String) {
-    var expanded by remember(text) { mutableStateOf(false) }
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = if (expanded) Int.MAX_VALUE else 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.xs)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { expanded = !expanded },
-    )
 }
 
 /** Sends this result back to the composer as the reference for the next thing you make. */
@@ -269,13 +258,32 @@ private fun referenceAction(onClick: () -> Unit) =
 
 
 /**
- * The caption for a result: the assistant's own sentence if it wrote one, otherwise nothing —
- * the user's prompt is already the message directly above in the source data, and repeating it
- * under every image would double the reading for no gain.
+ * The caption for a result: the prompt that produced it, falling back to whatever the model
+ * said if the turn has no prompt to point at (a resumed job, or a reply with no user message
+ * behind it). The prompt wins because it is the reusable half — a model's own commentary is
+ * read once, while the sentence you wrote is the thing you will want to edit and send again.
  */
-private fun promptCaptionOf(persisted: List<PersistedSegment>, message: ChatMessage): String? =
-    persisted.firstOrNull { it.type == "text" }?.text?.takeIf { it.isNotBlank() }
-        ?: message.content.takeIf { it.isNotBlank() }
+private fun promptCaptionOf(
+    persisted: List<PersistedSegment>,
+    message: ChatMessage,
+    prompt: String?,
+): String? = prompt?.takeIf { it.isNotBlank() }
+    ?: persisted.firstOrNull { it.type == "text" }?.text?.takeIf { it.isNotBlank() }
+    ?: message.content.takeIf { it.isNotBlank() }
+
+/**
+ * The user turn that produced the message at [index] — the nearest one behind it.
+ *
+ * Walking backwards rather than assuming `index - 1` because a turn can carry more than one
+ * assistant message, and a retried generation leaves the original prompt further back than the
+ * immediately preceding row.
+ */
+private fun promptBehind(messages: List<ChatMessage>, index: Int): String? =
+    (index - 1 downTo 0).asSequence()
+        .map { messages[it] }
+        .firstOrNull { it.role == "user" }
+        ?.content
+        ?.takeIf { it.isNotBlank() }
 
 /**
  * Imagine's opening screen: a canvas that is already alive.
