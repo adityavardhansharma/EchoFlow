@@ -25,3 +25,17 @@ enum class AppMode(val storageKey: String) {
             entries.firstOrNull { it.storageKey == value } ?: Chat
     }
 }
+
+/**
+ * Where a mode was left when the user switched away from it.
+ *
+ * [Blank] exists because a blank composer is a *position* — somewhere the user deliberately
+ * navigated to by starting something new — and not the absence of one. Treating it as
+ * "nothing to remember" is what makes a mode silently reopen an old conversation instead of
+ * the fresh one you were looking at.
+ */
+sealed interface ModePosition {
+    data class Thread(val chatId: String) : ModePosition
+    data object Blank : ModePosition
+    data object Unset : ModePosition
+}

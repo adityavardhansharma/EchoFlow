@@ -103,17 +103,72 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
-        _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+        parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
-        viewModelScope.launch {
-            // Only restore a thread that still exists and still belongs to this mode.
-            val remembered = settingsRepository.getLastThreadIdDirect(mode)
-                ?.let { chatRepository.thread(it) }
-                ?.takeIf { it.mode == mode }
-            _currentChatThreadId.value = remembered?.id
+        restorePosition(mode)
+    }
+
+    /**
+     * Reopens [mode]'s remembered position — the only path that does so.
+     *
+     * Restoring hits the database, so it can still be suspended when the user switches again
+     * or taps a conversation, and an unguarded coroutine then lands its stale answer on top of
+     * wherever they actually are: the wrong thread on screen, and the next message filed into
+     * it. Three guards, because they cover different races — the job is tracked so a second
+     * restore cancels the first; the mode is rechecked in case the switch was reversed; and
+     * the [NavigationGuard] catches navigation *within* the mode being restored, which the
+     * mode check alone cannot see and which is much the likeliest version.
+     *
+     * Startup used to do this same lookup with none of that, on the reasoning that nothing can
+     * have happened yet. Startup is exactly when it can: the database is cold, the lookup is at
+     * its slowest, and the drawer is one tap away. There is only one restore path now so that
+     * a future caller cannot reintroduce the gap by forgetting a guard.
+     */
+    private fun restorePosition(mode: AppMode) {
+        modeRestoreJob?.cancel()
+        modeRestoreJob = viewModelScope.launch {
+            val token = navigation.begin()
+            val restored = restoredThreadId(mode)
+            // Anything that moved the user in the meantime — another switch, tapping a
+            // conversation, a notification, a send that created a thread — outranks a lookup
+            // that started before it.
+            if (appMode.value == mode && navigation.stillCurrent(token)) openThread(restored)
         }
     }
+
+    /**
+     * Every change of which conversation is open, in one place.
+     *
+     * Routed through [NavigationGuard] so a suspended restore can tell whether the user has
+     * navigated since it began. Restoring reads the database, and a coroutine landing its
+     * stale answer afterwards would show the wrong thread and file the next message into it.
+     */
+    private fun openThread(chatId: String?) {
+        navigation.navigated()
+        _currentChatThreadId.value = chatId
+    }
+
+    /** Records where this mode is being left — including "on a blank composer". */
+    private fun parkCurrentPosition() {
+        val current = _currentChatThreadId.value
+        settingsRepository.saveLastPosition(
+            appMode.value,
+            if (current == null) ModePosition.Blank else ModePosition.Thread(current),
+        )
+    }
+
+    /**
+     * The thread to reopen for [mode], or null for a blank composer. A remembered thread that
+     * has since been deleted, or that somehow belongs to the other mode, also lands on blank
+     * rather than on someone else's conversation.
+     */
+    private suspend fun restoredThreadId(mode: AppMode): String? =
+        when (val position = settingsRepository.getLastPositionDirect(mode)) {
+            is ModePosition.Thread ->
+                chatRepository.thread(position.chatId)?.takeIf { it.mode == mode }?.id
+            ModePosition.Blank, ModePosition.Unset -> null
+        }
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -183,6 +238,12 @@ class ChatViewModel(
 
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
+
+    /** Held by [openThread] and by any restore that must not undo a later navigation. */
+    private val navigation = NavigationGuard()
+
+    /** The in-flight mode restore, so a second switch cancels the first rather than racing it. */
+    private var modeRestoreJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val currentMessages: StateFlow<List<ChatMessage>> = _currentChatThreadId
@@ -324,15 +385,10 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
-        viewModelScope.launch {
-            // Reopen where the user left off, but only if that conversation still exists and
-            // still belongs to the mode we are restoring into.
-            val mode = appMode.value
-            settingsRepository.getLastThreadIdDirect(mode)
-                ?.let { chatRepository.thread(it) }
-                ?.takeIf { it.mode == mode }
-                ?.let { _currentChatThreadId.value = it.id }
-        }
+        // Reopen exactly where the user left off — including on a blank composer. Through the
+        // same guarded path as a mode switch, because a cold database makes this the slowest
+        // this lookup ever is, and the drawer is reachable throughout.
+        restorePosition(appMode.value)
     }
 
     /**
@@ -344,7 +400,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val thread = chatRepository.thread(chatId) ?: return@launch
             if (thread.mode != appMode.value) {
-                _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+                parkCurrentPosition()
                 settingsRepository.saveAppMode(thread.mode)
                 _drawerSearchQuery.value = ""
             }
@@ -419,7 +475,7 @@ class ChatViewModel(
         viewModelScope.launch {
             browserAgent.openWorkspaceFor.collect { chatId ->
                 if (chatId != null) {
-                    _currentChatThreadId.value = chatId
+                    openThread(chatId)
                     _browserWorkspaceChatId.value = chatId
                     browserAgent.clearWorkspaceRequest()
                 }
@@ -469,28 +525,47 @@ class ChatViewModel(
     }
 
     /**
-     * The bridge out of Imagine: opens a fresh Chat conversation with this piece of media
-     * attached. Without it, "what is in this picture?" is a dead end that ends in the user
-     * screenshotting their own app.
+     * Carries a finished result forward as the reference for the next Imagine turn.
+     *
+     * This used to open a Chat conversation with the media attached, on the theory that people
+     * would want to ask questions about what they had made. They do not — a picture you wrote
+     * the prompt for holds no mysteries. What they want is *another go*: the same subject in a
+     * different style, or that frame as the seed of a clip. Keeping the media inside Imagine
+     * turns the dead end into the loop the mode exists for.
      */
-    fun askAboutMediaInChat(filePath: String) {
-        viewModelScope.launch {
-            val file = File(filePath)
-            if (!file.exists()) {
-                _errorMessage.value = "That file is no longer available."
-                return@launch
-            }
-            _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
-            settingsRepository.saveAppMode(AppMode.Chat)
-            _drawerSearchQuery.value = ""
-            setMode(ChatMode.Normal)
-            selectThread(null)
-            setPendingAttachment(
-                Uri.fromFile(file),
-                if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
-            )
+    fun useMediaAsReference(filePath: String, label: String? = null) {
+        val file = File(filePath)
+        if (!file.exists()) {
+            _errorMessage.value = "That file is no longer available."
+            return
         }
+        // Both consumers take an image and only an image: image generation sends an image
+        // part, and video sends a first frame as an `image_url` data URL. Refusing here rather
+        // than trusting call sites, because the failure is silent — the composer would show a
+        // reference chip for a file the request drops or rejects.
+        if (!IMAGE_REFERENCE_EXTENSIONS.contains(file.extension.lowercase())) {
+            _errorMessage.value = "Only an image can be used as a reference."
+            return
+        }
+        setPendingAttachment(Uri.fromFile(file), "image/png", overrideName = label)
     }
+
+    /**
+     * The most recent generated image in the open conversation, if there is one.
+     *
+     * Exposed so switching Image → Video can offer it as a first frame. Read from the message
+     * timeline rather than the image store because the timeline is what the user can see: an
+     * image belonging to this conversation but scrolled off a deleted turn is not what anyone
+     * means by "my last image".
+     */
+    val lastGeneratedImagePath: StateFlow<String?> = currentMessages
+        .map { messages ->
+            messages.asReversed().asSequence()
+                .flatMap { ToolEventJson.segmentsFromJson(it.segmentsJson).asReversed().asSequence() }
+                .firstOrNull { it.type == "image" }
+                ?.image?.filePath
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
@@ -502,7 +577,7 @@ class ChatViewModel(
     // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
 
     fun openBrowserWorkspace(chatId: String) {
-        _currentChatThreadId.value = chatId
+        openThread(chatId)
         clearError()
         _browserWorkspaceChatId.value = chatId
     }
@@ -540,13 +615,14 @@ class ChatViewModel(
     }
 
     fun selectThread(chatId: String?) {
-        _currentChatThreadId.value = chatId
-        // Parked so this mode reopens here after a round trip through the other one. A null
-        // means "blank composer" — from the new-conversation button, or from the hop into Chat
-        // that "Ask about this" makes — and must leave the remembered position alone. Writing
-        // it through would throw away wherever the user actually was. The blank thread earns
-        // its place in the memory once sendMessage gives it an identity.
-        chatId?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+        openThread(chatId)
+        // Parked so this mode reopens here after a round trip through the other one — and a
+        // null is parked too, because "I just started something new" is a position worth
+        // returning to, not an absence of one.
+        settingsRepository.saveLastPosition(
+            appMode.value,
+            if (chatId == null) ModePosition.Blank else ModePosition.Thread(chatId),
+        )
         clearPendingAttachment()
         clearError()
     }
@@ -555,7 +631,7 @@ class ChatViewModel(
         _errorMessage.value = null
     }
 
-    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null) {
+    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) {
         viewModelScope.launch {
             _pendingAttachmentUri.value = uri
             val resolver = getApplication<Application>().contentResolver
@@ -565,7 +641,8 @@ class ChatViewModel(
             val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
             _pendingAttachmentMimeType.value = mimeType
 
-            // Get display name
+            // Get display name. An override wins outright: a file the app generated has a UUID
+            // for a name, and showing that tells the user nothing about why it is attached.
             var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
             runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -573,7 +650,7 @@ class ChatViewModel(
                     displayName = cursor.getString(nameIndex)
                 }
             }
-            _pendingAttachmentName.value = displayName
+            _pendingAttachmentName.value = overrideName ?: displayName
         }
     }
 
@@ -980,10 +1057,10 @@ class ChatViewModel(
             if (chatId == null) {
                 isFirstMsgInChat = true
                 chatId = chatRepository.createThread(mode = appMode.value).id
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
-                settingsRepository.saveLastThreadId(appMode.value, chatId)
+                settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
@@ -1473,7 +1550,7 @@ class ChatViewModel(
             var chatId = _currentChatThreadId.value
             if (chatId == null) {
                 chatId = chatRepository.createThread(now = now).id
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
                 chatRepository.renameThread(chatId, fallbackTitle)
@@ -1549,9 +1626,9 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
             } else {
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
             }
             // Title a fresh thread from the instruction (manager writes the message rows).
             chatDao.getThreadById(chatId)?.let { thread ->
@@ -1589,7 +1666,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
                 chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
@@ -1783,6 +1860,9 @@ class ChatViewModel(
     }
 
     companion object {
+        /** What may be handed forward as a reference or a first frame. */
+        private val IMAGE_REFERENCE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
+
         private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L

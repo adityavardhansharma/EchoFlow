@@ -54,7 +54,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -141,7 +140,7 @@ fun GeneratedVideoSegment(
     errorMessage: String? = null,
     onCopy: (() -> Unit)? = null,
     maxWidth: Dp = ChatVideoWidth,
-    actions: (@Composable () -> Unit)? = null,
+    actions: List<MediaAction> = emptyList(),
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -327,33 +326,18 @@ internal fun GeneratedVideoActions(
     onDownload: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
-    extra: (@Composable () -> Unit)? = null,
+    extra: List<MediaAction> = emptyList(),
 ) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-        onCopy?.let { copy ->
-            FilledTonalIconButton(
-                onClick = copy,
-                modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(20.dp)) }
-        }
-        FilledTonalIconButton(
-            onClick = onFullscreen,
-            modifier = Modifier.size(48.dp),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) { Icon(Icons.Default.Fullscreen, "Play fullscreen", Modifier.size(20.dp)) }
-        FilledTonalIconButton(
-            onClick = onDownload,
-            modifier = Modifier.size(48.dp),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) { Icon(Icons.Default.Download, "Save to gallery", Modifier.size(20.dp)) }
-        FilledTonalIconButton(
-            onClick = onShare,
-            modifier = Modifier.size(48.dp),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) { Icon(Icons.Default.Share, "Share", Modifier.size(20.dp)) }
-        extra?.invoke()
-    }
+    MediaActionBar(
+        modifier = modifier,
+        actions = buildList {
+            onCopy?.let { add(MediaAction(Icons.Default.ContentCopy, "Copy", it)) }
+            add(MediaAction(Icons.Default.Fullscreen, "Full screen", onFullscreen))
+            add(MediaAction(Icons.Default.Download, "Save", onDownload))
+            add(MediaAction(Icons.Default.Share, "Share", onShare))
+            addAll(extra)
+        },
+    )
 }
 
 /**

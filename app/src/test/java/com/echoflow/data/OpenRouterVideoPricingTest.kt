@@ -88,6 +88,23 @@ class OpenRouterVideoPricingTest {
 
     @Test fun `an unpriced model has no hint instead of a zero`() {
         assertNull(OpenRouterVideoModelInfo(id = "x/y", name = "Y").priceHint("720p"))
+        assertNull(OpenRouterVideoModelInfo(id = "x/y", name = "Y").pricePerSecond("720p"))
+    }
+
+    @Test fun `the bare figure drops qualifiers the surrounding label already carries`() {
+        val veo = OpenRouterVideoModelInfo(
+            id = "google/veo-3.1-fast",
+            name = "Veo 3.1 Fast",
+            prices = OpenRouterVideoModelDirectory.parsePricing(
+                mapOf(
+                    "duration_seconds_with_audio_720p" to "0.10",
+                    "duration_seconds_without_audio_720p" to "0.08",
+                )
+            ),
+        )
+        // Under a button that says 720p, "at 720p, without audio" is the button read back.
+        assertEquals("~$0.08/sec", veo.pricePerSecond("720p", audio = false))
+        assertEquals("~$0.10/sec", veo.pricePerSecond("720p", audio = true))
     }
 
     @Test fun `first frame support is read from the declared frame image types`() {

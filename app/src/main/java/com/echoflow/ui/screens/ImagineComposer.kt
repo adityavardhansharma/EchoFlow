@@ -11,7 +11,6 @@ import androidx.compose.foundation.content.TransferableContent
 import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.content.hasMediaType
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,11 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -42,10 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,20 +49,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.echoflow.data.ImagineMedia
-import com.echoflow.ui.components.AspectRatioPopover
 import com.echoflow.ui.components.ContextChipRow
 import com.echoflow.ui.components.MediaToggle
 import com.echoflow.ui.components.ModelPill
-import com.echoflow.ui.components.SettingChip
 import com.echoflow.ui.theme.Spacing
 
 /**
  * Imagine's prompt bar.
  *
- * Same floating-pill material as Chat's composer, but the row above it carries creation
- * controls instead of capability chips: what to make, how it is framed, which model, and
- * whether it has sound. Framing is promoted here from Settings on purpose — in a creative
- * tool the shape of the thing you are making is a per-prompt decision, not a preference.
+ * Same floating-pill material as Chat's composer, but the row above it carries the two
+ * decisions that change *what you are making*: the medium, and the model. Shape, resolution,
+ * audio and the reference image used to sit up here too, and four settings above an empty text
+ * box makes a creative tool read as a settings screen. They moved behind the "+", which is
+ * where per-request choices belong — one tap away, invisible until wanted.
  */
 @Composable
 internal fun ImagineComposer(
@@ -77,20 +69,13 @@ internal fun ImagineComposer(
     onText: (String) -> Unit,
     media: ImagineMedia,
     onSelectMedia: (ImagineMedia) -> Unit,
-    aspectRatio: String,
-    supportedRatios: List<String>?,
-    onSelectRatio: (String) -> Unit,
-    ratioNote: String?,
     modelId: String,
     modelLabel: String,
     onOpenModelPicker: () -> Unit,
-    audioSupported: Boolean,
-    audioEnabled: Boolean,
-    onToggleAudio: () -> Unit,
+    onOpenOptions: () -> Unit,
     pendingUri: String?,
     pendingName: String?,
     onClearAttachment: () -> Unit,
-    onAttach: () -> Unit,
     onReceiveImage: (Uri) -> Unit,
     isBusy: Boolean,
     blockedReason: String?,
@@ -98,7 +83,6 @@ internal fun ImagineComposer(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var ratioMenuOpen by remember { mutableStateOf(false) }
     val imageReceiver = remember(onReceiveImage) {
         object : ReceiveContentListener {
             override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
@@ -151,35 +135,10 @@ internal fun ImagineComposer(
 
         ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
             MediaToggle(selected = media, onSelect = onSelectMedia)
-            Box {
-                SettingChip(
-                    icon = Icons.Default.AspectRatio,
-                    label = aspectRatio,
-                    onClick = { ratioMenuOpen = true },
-                    description = "Shape: $aspectRatio. Tap to change.",
-                )
-                AspectRatioPopover(
-                    expanded = ratioMenuOpen,
-                    selected = aspectRatio,
-                    supported = supportedRatios,
-                    onSelect = onSelectRatio,
-                    onDismiss = { ratioMenuOpen = false },
-                    unsupportedNote = ratioNote,
-                )
-            }
             // Name only. Cost, capabilities and resolutions belong in the picker, where you
             // are actually comparing models — beside the prompt they are noise you have
             // already decided about.
             ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
-            if (media == ImagineMedia.Video && audioSupported) {
-                SettingChip(
-                    icon = Icons.Default.GraphicEq,
-                    label = if (audioEnabled) "Audio on" else "Audio off",
-                    onClick = onToggleAudio,
-                    active = audioEnabled,
-                    description = if (audioEnabled) "Audio on. Tap to turn off." else "Audio off. Tap to turn on.",
-                )
-            }
         }
 
         AnimatedVisibility(visible = blockedReason != null) {
@@ -199,9 +158,10 @@ internal fun ImagineComposer(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                // Imagine's "+" is one thing, so it is a button rather than a menu.
+                // Everything this prompt is made *with*. Same meaning as Chat's "+": it adds
+                // to the message you are writing.
                 ShapedIconButton(
-                    onClick = onAttach,
+                    onClick = onOpenOptions,
                     enabled = true,
                     size = 44.dp,
                     restShape = MaterialShapes.Cookie6Sided,
@@ -210,8 +170,8 @@ internal fun ImagineComposer(
                     pulseOnClick = true,
                 ) {
                     Icon(
-                        if (media == ImagineMedia.Video) Icons.Default.Movie else Icons.Default.Image,
-                        if (media == ImagineMedia.Video) "Add a first frame" else "Add a reference image",
+                        Icons.Default.Add,
+                        "Reference image, shape and quality",
                         Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
@@ -221,9 +181,14 @@ internal fun ImagineComposer(
                     value = text,
                     onValueChange = onText,
                     placeholder = {
+                        // Both placeholders are short enough to hold one line at any font
+                        // scale. The image copy used to wrap, which quietly made the pill a
+                        // different height in each medium — the composer must not resize
+                        // when you flip a toggle that changes nothing about the input.
                         Text(
-                            if (media == ImagineMedia.Video) "Describe your video…"
-                            else "Describe what you want to see…"
+                            if (media == ImagineMedia.Video) "Describe a shot…" else "Describe an image…",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     },
                     maxLines = 6,

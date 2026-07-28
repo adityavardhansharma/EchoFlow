@@ -33,8 +33,8 @@ class GeneratedVideoActionsTest {
         }
 
         val copy = composeRule.onNodeWithContentDescription("Copy").assertHasClickAction()
-        val fullscreen = composeRule.onNodeWithContentDescription("Play fullscreen").assertHasClickAction()
-        val download = composeRule.onNodeWithContentDescription("Save to gallery").assertHasClickAction()
+        val fullscreen = composeRule.onNodeWithContentDescription("Full screen").assertHasClickAction()
+        val download = composeRule.onNodeWithContentDescription("Save").assertHasClickAction()
         val share = composeRule.onNodeWithContentDescription("Share").assertHasClickAction()
 
         val copyTop = copy.fetchSemanticsNode().boundsInRoot.top

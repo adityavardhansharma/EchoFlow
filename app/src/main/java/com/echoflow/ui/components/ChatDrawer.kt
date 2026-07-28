@@ -18,7 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -155,7 +155,9 @@ fun ChatDrawerContent(
                 .graphicsLayer { scaleX = newChatScale; scaleY = newChatScale }
                 .testTag("drawer_new_chat_button"),
         ) {
-            // Fun: a medallion that morphs Sunny → Cookie while the + spins, on click.
+            // Fun: a medallion that morphs Sunny → Cookie on click. The pencil swells with the
+            // morph but never spins — the "+" could rotate because it looks the same at every
+            // angle, and a tumbling pencil just reads as a glitch.
             val p = plusAnim.value
             val plusMorph = rememberMorph(MaterialShapes.Sunny, MaterialShapes.Cookie7Sided)
             Box(
@@ -163,8 +165,8 @@ fun ChatDrawerContent(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.Add, null,
-                    Modifier.size(18.dp).rotate(p * 360f).scale(1f + 0.3f * (1f - abs(p - 0.5f) * 2f)),
+                    Icons.Default.Create, null,
+                    Modifier.size(18.dp).scale(1f + 0.3f * (1f - abs(p - 0.5f) * 2f)),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }

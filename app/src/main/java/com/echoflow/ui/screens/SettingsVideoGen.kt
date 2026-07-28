@@ -156,7 +156,7 @@ internal fun VideoGenSection(viewModel: SettingsViewModel) {
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Shape", "How the clip is framed")
         CapabilityChipRow(
-            values = VideoRequestPolicy.ASPECT_RATIOS,
+            values = VideoRequestPolicy.aspectRatioOffering(capabilities?.aspectRatios),
             selected = aspectRatio,
             supported = capabilities?.aspectRatios,
             onSelect = viewModel::saveVideoAspectRatio,
@@ -165,7 +165,7 @@ internal fun VideoGenSection(viewModel: SettingsViewModel) {
         Spacer(Modifier.height(Spacing.l))
         PageSection("Resolution", "Higher costs more per second")
         CapabilityChipRow(
-            values = VideoRequestPolicy.RESOLUTIONS,
+            values = VideoRequestPolicy.resolutionOffering(capabilities?.resolutions),
             selected = resolution,
             supported = capabilities?.resolutions,
             onSelect = viewModel::saveVideoResolution,

@@ -29,8 +29,11 @@ one:
 - The Imagine empty state says outright that older image chats stayed in Chat.
 - A scoped search reports how many results the *other* mode holds.
 
-Each mode also remembers its own open conversation, so a round trip returns you where you
-were rather than somewhere else.
+Each mode also remembers where it was left, so a round trip returns you where you were rather
+than somewhere else. "Where" has three states, not two — `ModePosition` is a thread, **Blank**,
+or Unset. Blank exists because a fresh composer is a position the user deliberately navigated
+to by pressing new; folding it into "nothing to remember" is exactly what makes a mode silently
+reopen the conversation you had just left.
 
 ## Nothing hides work
 
@@ -81,21 +84,56 @@ whether it has audio are settings, not separate features.
 The media switch *is* the capability — choosing Video and pressing send is the whole gesture,
 which is why both left Chat's "+" menu.
 
-Framing is promoted out of Settings into a chip beside the prompt, because in a creative tool
-the shape of the thing you are making is a per-prompt decision. Each option is drawn at its
-true proportion and springs to its new shape as the selection moves — the composer-scale echo
-of the card's stretch-to-aspect animation.
+### What sits where
 
-Video framing is a hard contract (an out-of-set ratio is a 400 from OpenRouter), so unsupported
-options are disabled with the reason. Image framing is an instruction in the prompt, so every
-ratio stays available.
+Only two controls live beside the prompt: the **medium** and the **model** — the two decisions
+that change what you are making. Everything that shapes a single request (reference image,
+shape, resolution, audio) lives behind the composer's **+**. Four settings stacked above an
+empty text box makes a creative tool read as a settings screen.
 
-Results are a contact sheet, not a conversation: no assistant header, no user bubble, media at
-480dp rather than a 340dp chat bubble, prompt as the caption. The generating → stretch → reveal
-choreography is unchanged, just given a larger stage.
+That fixes the "+" too. One rule holds app-wide: **+ adds to the message you are writing, the
+pencil starts a new one.** Two plus buttons a thumb's width apart meaning two unrelated things
+is a coin flip whose cost is a lost draft.
 
-Two dead ends have exits: **Ask about this** opens a Chat conversation with the media attached,
-and a failed render offers a retry.
+Framing is promoted out of Settings because in a creative tool the shape of the thing you are
+making is a per-prompt decision. Each option is drawn at its true proportion and springs to its
+new shape as the selection moves — the composer-scale echo of the card's stretch-to-aspect
+animation. Video framing is a hard contract (an out-of-set ratio is a 400 from OpenRouter), so
+unsupported options are disabled with the reason; image framing is an instruction in the
+prompt, so every ratio stays available.
+
+Resolution shows only what the chosen model accepts, priced per option — it is the setting most
+likely to quietly triple a bill. One supported value renders as a line of text rather than a
+picker with a single button; none renders nothing.
+
+### Results
+
+A contact sheet, not a conversation: no assistant header, no user bubble, media at 480dp rather
+than a 340dp chat bubble. The generating → stretch → reveal choreography is unchanged, just
+given a larger stage.
+
+The prompt prints underneath as a caption — quiet type, no container, aligned to the media
+rather than to a speaker. Tapping it loads it back into the composer, so every past result is a
+starting point; long-press copies it. Actions sit in one low pill (Save · Share · Reference)
+rather than a line of 48dp circles competing with the picture.
+
+**Reference** replaces the old "Ask about this". A picture you wrote the prompt for holds no
+mysteries, so sending it to Chat was a dead end dressed as an exit; attaching it to the next
+Imagine turn is the loop the mode exists for. Switching Image → Video carries the last image
+over automatically as a first frame — guarded so it fires only on the transition, never
+displaces a deliberate attachment, and stays quiet when the model cannot accept one.
+
+### The blank canvas
+
+A living, touchable dot field, full bleed, built from the same material as the generation
+placeholder. It answers a finger, so the first gesture anyone makes here gets a reply. Every
+value in it is tuned *down* — the difference between a texture that feels expensive and one
+that feels like a screensaver is entirely restraint.
+
+Over it: one headline and one example prompt, drawn from a pool of a hundred per medium. A
+single fixed example makes a surface read as a demo. The video pool is written separately
+because video prompts have to describe motion, and image phrasing there teaches people to ask
+for a still.
 
 ## Provider identity
 
@@ -117,8 +155,11 @@ The same mark appears in the composer pill, picker rows and Imagine cards from o
 | Mode switch | `ui/components/ModeSwitch.kt` |
 | Model pill, media toggle, chip row | `ui/components/ContextChips.kt` |
 | Provider marks | `ui/components/ProviderIdentity.kt` |
-| Ratio popover | `ui/components/AspectRatioPicker.kt` |
+| Ratio grid | `ui/components/AspectRatioPicker.kt` |
+| Result action bar | `ui/components/MediaActionBar.kt` |
+| Blank-canvas copy | `data/ImaginePrompts.kt` |
 | Drawer list + recency | `ui/components/DrawerThreadList.kt` |
 | Router / surfaces | `ui/screens/ChatScreen.kt`, `ChatSurface.kt`, `ImagineSurface.kt` |
-| Imagine canvas + composer + picker | `ui/screens/ImagineCanvas.kt`, `ImagineComposer.kt`, `ImaginePickerSheet.kt` |
+| Imagine canvas + composer + sheets | `ui/screens/ImagineCanvas.kt`, `ImagineComposer.kt`, `ImagineOptionsSheet.kt`, `ImaginePickerSheet.kt` |
+| Field + prompt line | `ui/screens/ImagineField.kt`, `ImaginePromptLine.kt` |
 | Merged settings | `ui/screens/SettingsImagine.kt` |

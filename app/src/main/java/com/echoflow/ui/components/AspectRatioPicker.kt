@@ -44,57 +44,47 @@ import com.echoflow.ui.theme.rememberReducedMotion
 private val GlyphBounds = 26.dp
 
 /**
- * Framing, chosen from a small anchored popover rather than a full sheet — it is a two-second
- * decision and a modal sheet would make it feel like a bigger one.
+ * The framing options, as a grid of true-proportion glyphs.
  *
- * Each option is drawn at its **true proportion**, and the outline springs to its new shape as
- * the selection moves. That is the composer-scale echo of the card's stretch-to-aspect
+ * Each option is drawn at its **actual shape**, and the outline springs to its new proportion
+ * as the selection moves. That is the composer-scale echo of the card's stretch-to-aspect
  * animation: the same idea in miniature, so the control and the result speak the same language.
  *
- * [supported] dims what the current model cannot do rather than hiding it, so the popover
- * never rearranges itself between openings. A null or empty set means the model takes its
- * framing from elsewhere and every option stays live.
+ * [supported] dims what the current model cannot do rather than hiding it, so the grid never
+ * rearranges itself between openings — the position of a shape is a thing people remember. A
+ * null or empty set means the model takes its framing from elsewhere and every option is live.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AspectRatioPopover(
-    expanded: Boolean,
+fun AspectRatioGrid(
     selected: String,
     supported: List<String>?,
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
     unsupportedNote: String? = null,
 ) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-    ) {
-        Column(Modifier.padding(horizontal = Spacing.m, vertical = Spacing.s).widthIn(max = 260.dp)) {
-            SectionLabel("Shape")
-            Spacer(Modifier.height(Spacing.s))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s),
-            ) {
-                VideoRequestPolicy.ASPECT_RATIOS.forEach { ratio ->
-                    val enabled = supported.isNullOrEmpty() || ratio in supported
-                    AspectRatioOption(
-                        ratio = ratio,
-                        selected = ratio == selected,
-                        enabled = enabled,
-                        onClick = { onSelect(ratio); onDismiss() },
-                    )
-                }
-            }
-            if (unsupportedNote != null) {
-                Spacer(Modifier.height(Spacing.s))
-                Text(
-                    unsupportedNote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(modifier) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            VideoRequestPolicy.ASPECT_RATIOS.forEach { ratio ->
+                val enabled = supported.isNullOrEmpty() || ratio in supported
+                AspectRatioOption(
+                    ratio = ratio,
+                    selected = ratio == selected,
+                    enabled = enabled,
+                    onClick = { onSelect(ratio) },
                 )
             }
+        }
+        if (unsupportedNote != null) {
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                unsupportedNote,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

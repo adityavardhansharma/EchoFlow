@@ -24,9 +24,88 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ImagineMedia
+import com.echoflow.data.armsCarryIntoVideo
+import com.echoflow.data.CarryDecision
+import com.echoflow.data.FirstFrameSupport
+import com.echoflow.data.carryImageIntoVideoDecision
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
+
+/**
+ * Hands the image you were just looking at to video, as its opening frame.
+ *
+ * Flipping Image → Video almost always means "now animate that". Making the user find the
+ * file they generated ten seconds ago, in a system picker, among ten thousand camera photos,
+ * to hand the app back something it already had, is the kind of gap that makes a two-mode tool
+ * feel like two apps.
+ *
+ * Every guard here exists to keep it from being presumptuous:
+ *
+ *  - it fires only on the *transition*, so clearing the attachment is final rather than
+ *    something the next recomposition undoes;
+ *  - it never displaces an attachment already in the composer, since a deliberate choice
+ *    outranks a guess;
+ *  - it stays silent when the chosen model cannot take a first frame, because attaching
+ *    something the request will drop is worse than attaching nothing.
+ *
+ * The switch is instant; the things it depends on are not. Model capabilities come off the
+ * network and the image comes out of a database, so flipping to Video quickly used to be
+ * judged against `false` and `null`, answer "no", and never ask again — the transition was
+ * spent and the first frame silently never appeared. So the transition **arms** the hand-off
+ * and a second effect performs it when the data lands.
+ *
+ * An armed hand-off has to expire, or it becomes a trap. It belongs to one moment in one
+ * conversation, so it is dropped on a real no, on going back to Image, and on opening another
+ * conversation — otherwise it sits waiting and fires on some later, unrelated change, which is
+ * a worse bug than never firing at all.
+ *
+ * The label says where the file came from. An auto-attachment that cannot explain itself is
+ * indistinguishable from a bug.
+ */
+@Composable
+private fun CarryImageIntoVideo(
+    media: ImagineMedia,
+    threadId: String?,
+    lastImagePath: String?,
+    firstFrame: FirstFrameSupport,
+    alreadyAttached: Boolean,
+    onCarry: (String) -> Unit,
+) {
+    var previous by remember { mutableStateOf(media) }
+    // Null means disarmed. Holding the conversation it was armed in — rather than a bare flag
+    // plus a separate effect watching the thread — keeps the two from racing on a frame where
+    // both change.
+    var armedIn by remember { mutableStateOf<ArmedCarry?>(null) }
+
+    LaunchedEffect(media) {
+        if (armsCarryIntoVideo(previous, media)) armedIn = ArmedCarry(threadId)
+        // Going back to Image ends the moment.
+        if (media == ImagineMedia.Image) armedIn = null
+        previous = media
+    }
+
+    LaunchedEffect(armedIn, threadId, lastImagePath, firstFrame, alreadyAttached) {
+        val armed = armedIn ?: return@LaunchedEffect
+        // Opening another conversation ends it too: its last image is not the one you were
+        // looking at when you flipped the switch.
+        if (armed.threadId != threadId) {
+            armedIn = null
+            return@LaunchedEffect
+        }
+        when (carryImageIntoVideoDecision(lastImagePath, firstFrame, alreadyAttached)) {
+            CarryDecision.Wait -> Unit // nothing has answered yet; stay armed and ask again
+            CarryDecision.Drop -> armedIn = null
+            CarryDecision.Carry -> {
+                lastImagePath?.let(onCarry)
+                armedIn = null
+            }
+        }
+    }
+}
+
+/** An armed hand-off, and the conversation it was armed in. */
+private data class ArmedCarry(val threadId: String?)
 
 /**
  * The Imagine surface: describe something, watch it appear, refine it.
@@ -50,6 +129,7 @@ internal fun ImagineSurface(
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
     val pendingUri by chatViewModel.pendingAttachmentUri.collectAsState()
     val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
+    val lastImagePath by chatViewModel.lastGeneratedImagePath.collectAsState()
 
     val media by settingsViewModel.imagineMedia.collectAsState()
     val imageModels by settingsViewModel.imageModels.collectAsState()
@@ -64,12 +144,27 @@ internal fun ImagineSurface(
 
     var textInput by remember { mutableStateOf("") }
     var showModelPicker by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
 
-    // Capabilities drive the ratio chip and the picker's cards, so load them as the surface
+    // Capabilities drive the options sheet and the picker's cards, so load them as the surface
     // opens rather than waiting for the user to go looking for the picker.
     LaunchedEffect(Unit) { settingsViewModel.loadVideoModelDirectory() }
 
     val isVideo = media == ImagineMedia.Video
+
+    CarryImageIntoVideo(
+        media = media,
+        threadId = currentThreadId,
+        lastImagePath = lastImagePath,
+        // Null capabilities means the directory has not answered yet, which is emphatically
+        // not the same as a model that has told us it cannot take a first frame.
+        firstFrame = when (val caps = videoCapabilities) {
+            null -> FirstFrameSupport.Unknown
+            else -> if (caps.supportsFirstFrame) FirstFrameSupport.Supported else FirstFrameSupport.Unsupported
+        },
+        alreadyAttached = pendingUri != null,
+        onCarry = { chatViewModel.useMediaAsReference(it, label = "First frame · your last image") },
+    )
     val modelEntries = remember(media, imageModels, videoModels) {
         val default = if (isVideo) {
             SettingsRepository.DEFAULT_VIDEO_MODEL_ID to SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
@@ -118,7 +213,7 @@ internal fun ImagineSurface(
                     topInset = topBarInset,
                     bottomInset = bottomInset,
                     observeVideo = chatViewModel::observeVideo,
-                    onAskAbout = chatViewModel::askAboutMediaInChat,
+                    onUseAsReference = chatViewModel::useMediaAsReference,
                     onRetry = { textInput = it },
                 )
             }
@@ -132,24 +227,13 @@ internal fun ImagineSurface(
             onText = { textInput = it },
             media = media,
             onSelectMedia = settingsViewModel::saveImagineMedia,
-            aspectRatio = ratio,
-            supportedRatios = supportedRatios,
-            onSelectRatio = {
-                if (isVideo) settingsViewModel.saveVideoAspectRatio(it) else settingsViewModel.saveImageAspectRatio(it)
-            },
-            ratioNote = ratioNote,
             modelId = modelId,
             modelLabel = modelLabel,
             onOpenModelPicker = { showModelPicker = true },
-            audioSupported = videoCapabilities?.supportsAudio == true,
-            audioEnabled = audioEnabled,
-            onToggleAudio = { settingsViewModel.saveVideoAudioEnabled(!audioEnabled) },
+            onOpenOptions = { showOptions = true },
             pendingUri = pendingUri?.toString(),
             pendingName = pendingName,
             onClearAttachment = { chatViewModel.clearPendingAttachment() },
-            onAttach = {
-                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
             onReceiveImage = { uri -> chatViewModel.setPendingPastedImage(uri) },
             isBusy = isStreaming || progressLoading,
             blockedReason = null,
@@ -159,6 +243,36 @@ internal fun ImagineSurface(
                 chatViewModel.sendImagineMessage(prompt, media)
             },
             onStop = { chatViewModel.stopStreaming() },
+        )
+    }
+
+    if (showOptions) {
+        ImagineOptionsSheet(
+            options = ImagineOptions(
+                media = media,
+                aspectRatio = ratio,
+                supportedRatios = supportedRatios,
+                ratioNote = ratioNote,
+                resolution = videoResolution,
+                // Image models take no resolution argument at all, so the section is absent
+                // rather than showing a control the request would silently drop.
+                supportedResolutions = if (isVideo) videoCapabilities?.resolutions.orEmpty() else emptyList(),
+                priceFor = { candidate -> videoCapabilities?.pricePerSecond(candidate, audioEnabled) },
+                audioSupported = videoCapabilities?.supportsAudio == true,
+                audioEnabled = audioEnabled,
+                attachmentUri = pendingUri?.toString(),
+                attachmentName = pendingName,
+            ),
+            onSelectRatio = {
+                if (isVideo) settingsViewModel.saveVideoAspectRatio(it) else settingsViewModel.saveImageAspectRatio(it)
+            },
+            onSelectResolution = settingsViewModel::saveVideoResolution,
+            onToggleAudio = { settingsViewModel.saveVideoAudioEnabled(!audioEnabled) },
+            onAttach = {
+                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onClearAttachment = { chatViewModel.clearPendingAttachment() },
+            onDismiss = { showOptions = false },
         )
     }
 

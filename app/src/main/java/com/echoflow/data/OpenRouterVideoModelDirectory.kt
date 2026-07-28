@@ -32,6 +32,18 @@ data class OpenRouterVideoModelInfo(
     val supportsFirstFrame: Boolean get() = frameImageTypes.any { it.equals("first_frame", ignoreCase = true) }
 
     /**
+     * "~$0.10/sec" — the figure alone, for places that already say what it is priced for.
+     *
+     * Inside a resolution picker the qualifiers are the row's own label read back to you, and
+     * they leave options of wildly different widths for no information: "~$0.08/sec at 720p,
+     * without audio" under a button that says 720p.
+     */
+    fun pricePerSecond(resolution: String?, audio: Boolean? = null): String? {
+        val price = bestPrice(resolution, audio) ?: return null
+        return "~$" + String.format(java.util.Locale.US, "%.2f", price.usdPerSecond) + "/sec"
+    }
+
+    /**
      * "~$0.10/sec at 720p" — the one number that decides whether a user picks this model.
      * Matches the user's actual settings where the provider prices them separately, and falls
      * back to the cheapest variant so the quote is never an unpleasant surprise.
