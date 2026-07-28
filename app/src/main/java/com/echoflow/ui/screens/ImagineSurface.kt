@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ImagineMedia
 import com.echoflow.data.armsCarryIntoVideo
-import com.echoflow.data.shouldCarryImageIntoVideo
+import com.echoflow.data.CarryDecision
+import com.echoflow.data.FirstFrameSupport
+import com.echoflow.data.carryImageIntoVideoDecision
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -51,7 +53,12 @@ import com.echoflow.ui.SettingsViewModel
  * network and the image comes out of a database, so flipping to Video quickly used to be
  * judged against `false` and `null`, answer "no", and never ask again — the transition was
  * spent and the first frame silently never appeared. So the transition **arms** the hand-off
- * and a second effect performs it when the data lands, or drops it if you leave Video first.
+ * and a second effect performs it when the data lands.
+ *
+ * An armed hand-off has to expire, or it becomes a trap. It belongs to one moment in one
+ * conversation, so it is dropped on a real no, on going back to Image, and on opening another
+ * conversation — otherwise it sits waiting and fires on some later, unrelated change, which is
+ * a worse bug than never firing at all.
  *
  * The label says where the file came from. An auto-attachment that cannot explain itself is
  * indistinguishable from a bug.
@@ -59,42 +66,46 @@ import com.echoflow.ui.SettingsViewModel
 @Composable
 private fun CarryImageIntoVideo(
     media: ImagineMedia,
+    threadId: String?,
     lastImagePath: String?,
-    modelTakesFirstFrame: Boolean,
+    firstFrame: FirstFrameSupport,
     alreadyAttached: Boolean,
     onCarry: (String) -> Unit,
 ) {
     var previous by remember { mutableStateOf(media) }
-    var armed by remember { mutableStateOf(false) }
+    // Null means disarmed. Holding the conversation it was armed in — rather than a bare flag
+    // plus a separate effect watching the thread — keeps the two from racing on a frame where
+    // both change.
+    var armedIn by remember { mutableStateOf<ArmedCarry?>(null) }
 
     LaunchedEffect(media) {
-        if (armsCarryIntoVideo(previous, media)) armed = true
-        // Going back to Image ends the moment. Without this the hand-off could still be
-        // waiting on capabilities and fire into a session the user has since moved on from.
-        if (media == ImagineMedia.Image) armed = false
+        if (armsCarryIntoVideo(previous, media)) armedIn = ArmedCarry(threadId)
+        // Going back to Image ends the moment.
+        if (media == ImagineMedia.Image) armedIn = null
         previous = media
     }
 
-    LaunchedEffect(armed, lastImagePath, modelTakesFirstFrame, alreadyAttached) {
-        if (!armed) return@LaunchedEffect
-        // Something is already in the composer, so there is nothing to offer and nothing to
-        // keep waiting for.
-        if (alreadyAttached) {
-            armed = false
+    LaunchedEffect(armedIn, threadId, lastImagePath, firstFrame, alreadyAttached) {
+        val armed = armedIn ?: return@LaunchedEffect
+        // Opening another conversation ends it too: its last image is not the one you were
+        // looking at when you flipped the switch.
+        if (armed.threadId != threadId) {
+            armedIn = null
             return@LaunchedEffect
         }
-        val carry = shouldCarryImageIntoVideo(
-            armed = true,
-            lastImagePath = lastImagePath,
-            modelTakesFirstFrame = modelTakesFirstFrame,
-            composerAlreadyHasAttachment = false,
-        )
-        // Not a refusal, just not yet: stay armed so a late directory load still counts.
-        if (!carry) return@LaunchedEffect
-        lastImagePath?.let(onCarry)
-        armed = false
+        when (carryImageIntoVideoDecision(lastImagePath, firstFrame, alreadyAttached)) {
+            CarryDecision.Wait -> Unit // nothing has answered yet; stay armed and ask again
+            CarryDecision.Drop -> armedIn = null
+            CarryDecision.Carry -> {
+                lastImagePath?.let(onCarry)
+                armedIn = null
+            }
+        }
     }
 }
+
+/** An armed hand-off, and the conversation it was armed in. */
+private data class ArmedCarry(val threadId: String?)
 
 /**
  * The Imagine surface: describe something, watch it appear, refine it.
@@ -143,8 +154,14 @@ internal fun ImagineSurface(
 
     CarryImageIntoVideo(
         media = media,
+        threadId = currentThreadId,
         lastImagePath = lastImagePath,
-        modelTakesFirstFrame = videoCapabilities?.supportsFirstFrame == true,
+        // Null capabilities means the directory has not answered yet, which is emphatically
+        // not the same as a model that has told us it cannot take a first frame.
+        firstFrame = when (val caps = videoCapabilities) {
+            null -> FirstFrameSupport.Unknown
+            else -> if (caps.supportsFirstFrame) FirstFrameSupport.Supported else FirstFrameSupport.Unsupported
+        },
         alreadyAttached = pendingUri != null,
         onCarry = { chatViewModel.useMediaAsReference(it, label = "First frame · your last image") },
     )
