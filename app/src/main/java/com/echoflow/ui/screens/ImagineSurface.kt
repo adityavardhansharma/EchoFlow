@@ -215,7 +215,7 @@ internal fun ImagineSurface(
                 // Image models take no resolution argument at all, so the section is absent
                 // rather than showing a control the request would silently drop.
                 supportedResolutions = if (isVideo) videoCapabilities?.resolutions.orEmpty() else emptyList(),
-                priceFor = { candidate -> videoCapabilities?.priceHint(candidate, audioEnabled) },
+                priceFor = { candidate -> videoCapabilities?.pricePerSecond(candidate, audioEnabled) },
                 audioSupported = videoCapabilities?.supportsAudio == true,
                 audioEnabled = audioEnabled,
                 attachmentUri = pendingUri?.toString(),
