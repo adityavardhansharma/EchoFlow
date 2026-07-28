@@ -2,6 +2,7 @@
 
 package com.echoflow.ui.components
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -21,38 +22,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
+import com.echoflow.R
 import com.echoflow.data.CustomProviderConfig
 import com.echoflow.ui.theme.RoundedPolygonShape
 
 /**
- * Who runs a model, expressed as a shape and a tonal colour pair.
+ * Who runs a model: their logo, set in a shaped medallion with a tonal colour pair.
  *
  * In a multi-provider app, provenance *is* information — it is the privacy story, the cost
- * story and the latency story at once — so every model needs to be identifiable at a glance.
- * Real vendor logos are a trademark minefield, but the app already owns a better answer:
- * [MaterialShapes]. A stable shape per provider is legally clean, instantly scannable, and is
- * literally the design language the rest of the app is built from.
+ * story and the latency story at once — so every model needs to be identifiable at a glance,
+ * and nothing is as fast to read as the logo someone already knows.
  *
- * Colour comes from **theme roles** rather than brand hex values, so identity survives dynamic
- * colour and all six accents intact. Shape carries most of the distinction; the colour role
- * adds a second axis without ever fighting the user's palette.
+ * The medallion is what keeps a wall of other people's trademarks from looking like a sponsor
+ * page. Every mark is drawn monochrome and **tinted by a theme role**, never a brand hex, so a
+ * list of twenty models stays one palette — the user's palette, surviving dynamic colour and
+ * all six accents — instead of twenty competing corporate ones. The [MaterialShapes] container
+ * adds a second axis of distinction and ties the whole set back to the app's own language.
+ *
+ * A provider with no logo on file falls back to its shape plus a generic glyph, which is why
+ * the set never looks half-finished. Adding one is a drawable and a constructor argument:
+ * drop a monochrome `logo_<name>.xml` into `res/drawable` and name it here.
  */
 enum class ProviderIdentity(
     val label: String,
     val shape: RoundedPolygon,
     private val tone: Tone,
+    @DrawableRes val logo: Int? = null,
 ) {
-    OpenAi("OpenAI", MaterialShapes.Cookie6Sided, Tone.Secondary),
-    Anthropic("Anthropic", MaterialShapes.Sunny, Tone.Primary),
-    Google("Google", MaterialShapes.Clover4Leaf, Tone.Tertiary),
+    OpenAi("OpenAI", MaterialShapes.Cookie6Sided, Tone.Secondary, R.drawable.logo_openai),
+    Anthropic("Anthropic", MaterialShapes.Sunny, Tone.Primary, R.drawable.logo_claude),
+    Google("Google", MaterialShapes.Clover4Leaf, Tone.Tertiary, R.drawable.logo_gemini),
     Meta("Meta", MaterialShapes.Oval, Tone.Secondary),
     Mistral("Mistral", MaterialShapes.Pentagon, Tone.Tertiary),
     DeepSeek("DeepSeek", MaterialShapes.Gem, Tone.Primary),
     Qwen("Qwen", MaterialShapes.Puffy, Tone.Secondary),
-    XAi("xAI", MaterialShapes.Diamond, Tone.Primary),
+    XAi("xAI", MaterialShapes.Diamond, Tone.Primary, R.drawable.logo_xai),
     Kling("Kling", MaterialShapes.Flower, Tone.Tertiary),
     ByteDance("ByteDance", MaterialShapes.Burst, Tone.Secondary),
     OnDevice("On device", MaterialShapes.Cookie9Sided, Tone.Tertiary),
@@ -122,19 +130,31 @@ fun ProviderMark(
             .background(container),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = identity.glyph,
-            contentDescription = null,
-            modifier = Modifier.size(size * 0.46f),
-            tint = content,
-        )
+        val logo = identity.logo
+        if (logo != null) {
+            // Logos carry detail a UI glyph does not, so they get more of the medallion —
+            // below roughly this size OpenAI's knot and Anthropic's burst turn to mush.
+            Icon(
+                painter = painterResource(logo),
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.58f),
+                tint = content,
+            )
+        } else {
+            Icon(
+                imageVector = identity.glyph,
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.46f),
+                tint = content,
+            )
+        }
     }
 }
 
 /**
- * A tiny glyph inside the shape. Deliberately generic — the *shape* is what identifies the
- * provider; the glyph only says what kind of thing it is, so nothing here can be mistaken for
- * a vendor's actual logo.
+ * The stand-in for a provider with no logo on file. Deliberately generic: it says what kind of
+ * thing the model is and leaves the *shape* to say who made it, so a missing logo reads as a
+ * quieter member of the set rather than a hole in it.
  */
 private val ProviderIdentity.glyph: ImageVector
     get() = when (this) {
