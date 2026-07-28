@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ImagineMedia
+import com.echoflow.data.armsCarryIntoVideo
 import com.echoflow.data.shouldCarryImageIntoVideo
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
@@ -46,6 +47,12 @@ import com.echoflow.ui.SettingsViewModel
  *  - it stays silent when the chosen model cannot take a first frame, because attaching
  *    something the request will drop is worse than attaching nothing.
  *
+ * The switch is instant; the things it depends on are not. Model capabilities come off the
+ * network and the image comes out of a database, so flipping to Video quickly used to be
+ * judged against `false` and `null`, answer "no", and never ask again — the transition was
+ * spent and the first frame silently never appeared. So the transition **arms** the hand-off
+ * and a second effect performs it when the data lands, or drops it if you leave Video first.
+ *
  * The label says where the file came from. An auto-attachment that cannot explain itself is
  * indistinguishable from a bug.
  */
@@ -58,16 +65,34 @@ private fun CarryImageIntoVideo(
     onCarry: (String) -> Unit,
 ) {
     var previous by remember { mutableStateOf(media) }
+    var armed by remember { mutableStateOf(false) }
+
     LaunchedEffect(media) {
+        if (armsCarryIntoVideo(previous, media)) armed = true
+        // Going back to Image ends the moment. Without this the hand-off could still be
+        // waiting on capabilities and fire into a session the user has since moved on from.
+        if (media == ImagineMedia.Image) armed = false
+        previous = media
+    }
+
+    LaunchedEffect(armed, lastImagePath, modelTakesFirstFrame, alreadyAttached) {
+        if (!armed) return@LaunchedEffect
+        // Something is already in the composer, so there is nothing to offer and nothing to
+        // keep waiting for.
+        if (alreadyAttached) {
+            armed = false
+            return@LaunchedEffect
+        }
         val carry = shouldCarryImageIntoVideo(
-            from = previous,
-            to = media,
+            armed = true,
             lastImagePath = lastImagePath,
             modelTakesFirstFrame = modelTakesFirstFrame,
-            composerAlreadyHasAttachment = alreadyAttached,
+            composerAlreadyHasAttachment = false,
         )
-        previous = media
-        if (carry) lastImagePath?.let(onCarry)
+        // Not a refusal, just not yet: stay armed so a late directory load still counts.
+        if (!carry) return@LaunchedEffect
+        lastImagePath?.let(onCarry)
+        armed = false
     }
 }
 
