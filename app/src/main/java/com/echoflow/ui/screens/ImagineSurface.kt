@@ -104,7 +104,6 @@ internal fun ImagineSurface(
         if (messages.isEmpty() && !isStreaming && !progressLoading) {
             ImagineEmptyState(
                 media = media,
-                aspectRatio = ratio,
                 topInset = topBarInset,
                 bottomInset = bottomInset,
                 onPrompt = { textInput = it },

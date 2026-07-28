@@ -285,114 +285,58 @@ private fun promptCaptionOf(persisted: List<PersistedSegment>, message: ChatMess
     persisted.firstOrNull { it.type == "text" }?.text?.takeIf { it.isNotBlank() }
         ?: message.content.takeIf { it.isNotBlank() }
 
-/** The frame's long side; both dimensions derive from the live ratio inside this bound. */
-private val EmptyFrameBounds = 288.dp
-
 /**
- * Imagine's opening screen: an empty frame.
+ * Imagine's opening screen: a canvas that is already alive.
  *
- * No mascot, no feature tour, no marketing copy — the one image every creative tool in
- * history shares is the blank canvas, so the blank canvas is the whole screen. It earns its
- * keep twice over:
- *
- *  - The frame is drawn at the ratio currently selected in the composer and re-proportions
- *    on a spring when that changes, so the empty state is a live preview of the shape you
- *    are about to make — and the shape control teaches itself.
- *  - The dots inside are the generation texture at rest. The app's story then reads in
- *    order: still dots, dancing dots, picture.
+ * The field fills the surface edge to edge and answers a finger, so the very first gesture a
+ * user makes here gets a reply. Type sits inside it rather than on top of it — one line, and
+ * an example that fills the composer when tapped. Nothing else: the screen's job is to make
+ * the next action obvious, and the next action is to type.
  */
 @Composable
 internal fun ImagineEmptyState(
     media: ImagineMedia,
-    aspectRatio: String,
     topInset: Dp,
     bottomInset: Dp,
     onPrompt: (String) -> Unit,
 ) {
-    val reducedMotion = rememberReducedMotion()
-    val aspect by animateFloatAsState(
-        targetValue = VideoRequestPolicy.aspectRatioValue(aspectRatio),
-        animationSpec = if (reducedMotion) tween(0) else spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
-        label = "empty-frame-aspect",
-    )
-    // Fit the live ratio inside a square bound. Width and height are both continuous
-    // functions of the animated value, so the frame morphs through 1:1 without a jump.
-    val frameWidth = if (aspect >= 1f) EmptyFrameBounds else EmptyFrameBounds * aspect
-    val frameHeight = if (aspect >= 1f) EmptyFrameBounds / aspect else EmptyFrameBounds
-
-    val example = if (media == ImagineMedia.Video) {
+    val video = media == ImagineMedia.Video
+    val example = if (video) {
         "Slow dolly through a greenhouse at sunrise"
     } else {
         "A lighthouse mid-storm, painted in gouache"
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(top = topInset, bottom = bottomInset)
-            .padding(horizontal = Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(
+    Box(Modifier.fillMaxSize()) {
+        ImagineField(Modifier.fillMaxSize())
+
+        Column(
             Modifier
-                .width(frameWidth)
-                .height(frameHeight)
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .fillMaxSize()
+                .padding(top = topInset, bottom = bottomInset)
+                .padding(horizontal = Spacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            RestingDots(Modifier.matchParentSize())
-            // The frame IS the ratio — naming it links this shape to the chip that changes it.
             Text(
-                aspectRatio,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.m),
+                if (video) "Picture it moving." else "Picture something.",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(Spacing.m))
+            // Low-contrast and quiet: the field is the thing being looked at, and this is a
+            // way in for anyone who would rather start from something than from nothing.
+            Text(
+                "Try “$example”",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onPrompt(example) }
+                    .padding(horizontal = Spacing.m, vertical = Spacing.s),
             )
         }
-        Spacer(Modifier.height(Spacing.xl))
-        Text(
-            "It begins with a sentence.",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            "Try “$example”",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { onPrompt(example) },
-        )
     }
 }
-
-/**
- * The generation texture at rest: a sparse, motionless grid of dots. Deliberately static —
- * this screen's only movement is the frame answering the ratio control.
- */
-@Composable
-private fun RestingDots(modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f)
-    Canvas(modifier) {
-        val cell = 20.dp.toPx()
-        val radius = 1.6.dp.toPx()
-        val cols = (size.width / cell).toInt()
-        val rows = (size.height / cell).toInt()
-        val originX = (size.width - cols * cell) / 2f + cell / 2f
-        val originY = (size.height - rows * cell) / 2f + cell / 2f
-        for (row in 0 until rows) {
-            for (col in 0 until cols) {
-                drawCircle(color, radius, Offset(originX + col * cell, originY + row * cell))
-            }
-        }
-    }
-}
-
