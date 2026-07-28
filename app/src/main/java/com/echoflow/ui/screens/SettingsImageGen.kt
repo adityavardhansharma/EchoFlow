@@ -47,19 +47,8 @@ import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 
-/**
- * Image generation settings. Cloud only — OpenRouter image models, with the same directory
- * search the chat model picker uses.
- */
 @Composable
-internal fun ImageGenPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    SettingsPageScaffold(title = "Image generation", subtitle = "Create & edit images in chat", onBack = onBack) {
-        OpenRouterImageEngineSection(viewModel)
-    }
-}
-
-@Composable
-private fun OpenRouterImageEngineSection(viewModel: SettingsViewModel) {
+internal fun ImageGenSection(viewModel: SettingsViewModel) {
     val imageModels by viewModel.imageModels.collectAsState()
     val selectedId by viewModel.imageGenModelId.collectAsState()
     val orQuery by viewModel.orModelQuery.collectAsState()

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
@@ -147,8 +148,7 @@ internal const val PageCloudModels = "cloud_models"
 internal const val PageWebSearch = "web_search"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
-internal const val PageImageGen = "image_gen"
-internal const val PageVideoGen = "video_gen"
+internal const val PageImagine = "imagine"
 internal const val PageDataAgent = "data_agent"
 internal const val PageBrowserFlow = "browser_flow"
 internal const val PageEchoLabs = "echo_labs"
@@ -215,8 +215,7 @@ fun SettingsScreen(
             PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
             PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
-            PageImageGen -> ImageGenPage(viewModel, onBack = { page = PageHome })
-            PageVideoGen -> VideoGenPage(viewModel, onBack = { page = PageHome })
+            PageImagine -> ImaginePage(viewModel, onBack = { page = PageHome })
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = { page = PageHome })
             PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageEchoLabs })
             PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageEchoLabs })
@@ -303,15 +302,13 @@ internal fun SettingsHomePage(
         else imageGenModelId
     val videoGenModelId by viewModel.videoGenModelId.collectAsState()
     val videoModelsHome by viewModel.videoModels.collectAsState()
-    val videoAspectRatioHome by viewModel.videoAspectRatio.collectAsState()
-    val videoResolutionHome by viewModel.videoResolution.collectAsState()
     val videoModelName = videoModelsHome.firstOrNull { it.id == videoGenModelId }?.name
         ?: if (videoGenModelId == com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_ID) {
             com.echoflow.data.SettingsRepository.DEFAULT_VIDEO_MODEL_NAME
         } else {
             videoGenModelId
         }
-    val videoGenSubtitle = "$videoModelName · $videoAspectRatioHome · $videoResolutionHome"
+    val imagineSubtitle = "$imageGenSubtitle · $videoModelName"
     val deepResearchSubtitle = when {
         deepResearchModelId.isBlank() -> "No engine selected"
         else -> DeepResearchCatalog.providerEngineById(deepResearchModelId)?.name
@@ -361,7 +358,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 8,
+                index = 0, count = 7,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -371,7 +368,7 @@ internal fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 8,
+                index = 1, count = 7,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -381,7 +378,7 @@ internal fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 8,
+                index = 2, count = 7,
                 onClick = { onOpen(PageLocalModels) },
             )
             SettingsNavRow(
@@ -391,7 +388,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 8,
+                index = 3, count = 7,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -401,28 +398,18 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 8,
+                index = 4, count = 7,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
-                icon = Icons.Default.Brush,
+                icon = Icons.Default.AutoFixHigh,
                 polygon = MaterialShapes.Flower,
-                title = "Image generation",
-                subtitle = imageGenSubtitle,
+                title = "Imagine",
+                subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 8,
-                onClick = { onOpen(PageImageGen) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Movie,
-                polygon = MaterialShapes.Cookie6Sided,
-                title = "Video generation",
-                subtitle = videoGenSubtitle,
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 8,
-                onClick = { onOpen(PageVideoGen) },
+                index = 5, count = 7,
+                onClick = { onOpen(PageImagine) },
             )
             SettingsNavRow(
                 icon = Icons.Default.AutoAwesome,
@@ -431,7 +418,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 8,
+                index = 6, count = 7,
                 onClick = { onOpen(PageEchoLabs) },
             )
         }

@@ -93,7 +93,20 @@ class SettingsRepository(context: Context) {
     private val _artifactsOffline = MutableStateFlow(getArtifactsOfflineDirect())
     val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
 
-    // Image generation: which image-output OpenRouter model the "Create image" mode uses.
+    // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
+    private val _appMode = MutableStateFlow(getAppModeDirect())
+    val appMode: StateFlow<AppMode> = _appMode.asStateFlow()
+
+    // What Imagine is making. Sticky, because a run of clips should not need re-choosing.
+    private val _imagineMedia = MutableStateFlow(getImagineMediaDirect())
+    val imagineMedia: StateFlow<ImagineMedia> = _imagineMedia.asStateFlow()
+
+    // Framing for image turns. Video keeps its own, since the two have different model sets
+    // and an aspect ratio a video model accepts is not one an image model necessarily does.
+    private val _imageAspectRatio = MutableStateFlow(getImageAspectRatioDirect())
+    val imageAspectRatio: StateFlow<String> = _imageAspectRatio.asStateFlow()
+
+    // Which image-output OpenRouter model an image turn uses.
     private val _imageGenModel = MutableStateFlow(getImageGenModelDirect())
     val imageGenModel: StateFlow<String> = _imageGenModel.asStateFlow()
 
@@ -553,6 +566,57 @@ class SettingsRepository(context: Context) {
         _artifactsOffline.value = enabled
     }
 
+    // ── App mode ───────────────────────────────────────────────────────────────────────
+
+    fun getAppModeDirect(): AppMode = AppMode.fromStorage(prefs.getString(KEY_APP_MODE, null))
+
+    fun saveAppMode(mode: AppMode) {
+        prefs.edit().putString(KEY_APP_MODE, mode.storageKey).apply()
+        _appMode.value = mode
+    }
+
+    fun getImagineMediaDirect(): ImagineMedia =
+        ImagineMedia.fromStorage(prefs.getString(KEY_IMAGINE_MEDIA, null))
+
+    fun saveImagineMedia(media: ImagineMedia) {
+        prefs.edit().putString(KEY_IMAGINE_MEDIA, media.storageKey).apply()
+        _imagineMedia.value = media
+    }
+
+    /**
+     * Image framing. Unlike video, OpenRouter image models take their shape from the prompt
+     * rather than a parameter, so this is passed to the model as an instruction — which is why
+     * it is stored as one of our own labels rather than a provider enum.
+     */
+    fun getImageAspectRatioDirect(): String =
+        prefs.getString(KEY_IMAGE_ASPECT, VideoRequestPolicy.DEFAULT_ASPECT_RATIO).orEmpty()
+            .takeIf { it in VideoRequestPolicy.ASPECT_RATIOS } ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
+
+    fun saveImageAspectRatio(ratio: String) {
+        val clean = ratio.takeIf { it in VideoRequestPolicy.ASPECT_RATIOS }
+            ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
+        prefs.edit().putString(KEY_IMAGE_ASPECT, clean).apply()
+        _imageAspectRatio.value = clean
+    }
+
+    /**
+     * The conversation each mode had open, remembered separately. Without this, switching
+     * Chat → Imagine → Chat would drop the user somewhere other than where they left off,
+     * which reads as losing your place rather than changing rooms.
+     */
+    fun getLastThreadIdDirect(mode: AppMode): String? =
+        prefs.getString("last_thread_${mode.storageKey}", null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Only real conversations are remembered. The id is non-null on purpose: writing a blank
+     * here would *erase* the position rather than record one, and an unsaved empty thread is
+     * nothing to come back to anyway — so "no conversation open" must leave the previous
+     * memory intact instead of overwriting it.
+     */
+    fun saveLastThreadId(mode: AppMode, chatId: String) {
+        prefs.edit().putString("last_thread_${mode.storageKey}", chatId).apply()
+    }
+
     // ── Image generation ───────────────────────────────────────────────────────────────
 
     fun getImageGenModelDirect(): String =
@@ -616,6 +680,9 @@ class SettingsRepository(context: Context) {
     }
 
     companion object {
+        private const val KEY_APP_MODE = "app_mode"
+        private const val KEY_IMAGINE_MEDIA = "imagine_media"
+        private const val KEY_IMAGE_ASPECT = "image_aspect_ratio"
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"

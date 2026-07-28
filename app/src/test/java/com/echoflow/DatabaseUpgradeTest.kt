@@ -56,7 +56,7 @@ class DatabaseUpgradeTest {
     }
 
     @Test
-    fun `production database upgrades version one through version seventeen without data loss`() {
+    fun `production database upgrades version one through version eighteen without data loss`() {
         val database = AppDatabase.getDatabase(context).also { openedDatabase = it }
 
         // v13 tables exist and are queryable after the chained migration.
@@ -74,6 +74,15 @@ class DatabaseUpgradeTest {
         database.openHelper.readableDatabase.query(
             "SELECT jobId, pollingUrl, status, filePath FROM generated_videos LIMIT 0"
         ).use { /* v16 job columns are queryable */ }
+
+        // v18: the mode split grandfathers every existing conversation into Chat. This is the
+        // whole safety story of the two-sidebar design — nothing is reclassified by content.
+        database.openHelper.readableDatabase.query(
+            "SELECT kind FROM chat_threads WHERE id = 'thread-1'"
+        ).use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("chat", cursor.getString(0))
+        }
 
         database.openHelper.readableDatabase.query(
             "SELECT content, reasoning, localAttachmentUri, localAttachmentName " +

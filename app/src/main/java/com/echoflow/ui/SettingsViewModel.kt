@@ -21,6 +21,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.FusionPanelDao
 import com.echoflow.data.ImageModel
 import com.echoflow.data.ImageModelDao
+import com.echoflow.data.ImagineMedia
 import com.echoflow.data.DownloadState
 import com.echoflow.data.HuggingFaceModelSearch
 import com.echoflow.data.InferenceParams
@@ -129,6 +130,13 @@ class SettingsViewModel(
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
     val imageModels: StateFlow<List<ImageModel>> = imageModelDao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Imagine surface state
+    val imagineMedia: StateFlow<ImagineMedia> = repository.imagineMedia
+    val imageAspectRatio: StateFlow<String> = repository.imageAspectRatio
+
+    fun saveImagineMedia(media: ImagineMedia) = repository.saveImagineMedia(media)
+    fun saveImageAspectRatio(ratio: String) = repository.saveImageAspectRatio(ratio)
 
     // Video generation (OpenRouter only)
     val videoGenModelId: StateFlow<String> = repository.videoGenModel
@@ -459,6 +467,10 @@ class SettingsViewModel(
     fun saveVideoAspectRatio(ratio: String) = repository.saveVideoAspectRatio(ratio)
     fun saveVideoResolution(resolution: String) = repository.saveVideoResolution(resolution)
     fun saveVideoAudioEnabled(enabled: Boolean) = repository.saveVideoAudioEnabled(enabled)
+
+    /** Capabilities for any video model, so a picker row can show them before it is chosen. */
+    fun videoCapabilitiesFor(modelId: String): OpenRouterVideoModelInfo? =
+        _orVideoModels.value.firstOrNull { it.id == modelId }
 
     fun updateVideoModelQuery(query: String) {
         _videoModelQuery.value = query

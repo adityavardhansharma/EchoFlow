@@ -22,11 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -154,7 +154,7 @@ fun GlobalBrowserPill(
                 )
             }
             Spacer(Modifier.width(Spacing.xs))
-            Icon(Icons.Default.OpenInNew, "Open", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.inverseOnSurface)
+            Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.inverseOnSurface)
         }
     }
 }
@@ -256,7 +256,7 @@ fun BrowserSessionCard(
                     Text(session.lastOutput ?: "This step needs you.", style = MaterialTheme.typography.bodyMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         Button(onClick = onOpen) {
-                            Icon(Icons.Default.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open live browser")
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open live browser")
                         }
                         OutlinedButton(onClick = onCancel) { Text("Skip") }
                     }
@@ -316,7 +316,7 @@ fun BrowserSessionCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                     if (session.hasLiveBrowser) {
                         Button(onClick = onOpen, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open browser")
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open browser")
                         }
                     }
                     OutlinedButton(

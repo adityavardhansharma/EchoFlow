@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
@@ -37,8 +38,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.echoflow.data.AppMode
 import com.echoflow.data.ChatThread
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.rememberMorph
@@ -57,8 +60,11 @@ private val ButtonPressedShape = RoundedCornerShape(percent = 30)
 
 @Composable
 fun ChatDrawerContent(
+    mode: AppMode,
     allThreads: List<ChatThread>,
     currentThreadId: String?,
+    renderingChatIds: Set<String>,
+    otherModeMatchCount: Int,
     onThreadSelected: (String) -> Unit,
     onNewChatClicked: () -> Unit,
     onDeleteThread: (ChatThread) -> Unit,
@@ -68,6 +74,7 @@ fun ChatDrawerContent(
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
 ) {
+    val imagine = mode == AppMode.Imagine
     var threadToRename by remember { mutableStateOf<ChatThread?>(null) }
     var threadToDelete by remember { mutableStateOf<ChatThread?>(null) }
 
@@ -162,46 +169,63 @@ fun ChatDrawerContent(
                 )
             }
             Spacer(Modifier.width(Spacing.m))
-            Text("New conversation", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (imagine) "New creation" else "New conversation",
+                style = MaterialTheme.typography.titleSmall,
+            )
         }
 
         // Search across every conversation — titles and message text.
         if (onSearchQueryChange != null) {
             Spacer(Modifier.height(Spacing.m))
-            DrawerSearchField(query = searchQuery, onQueryChange = onSearchQueryChange)
+            DrawerSearchField(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                placeholder = if (imagine) "Search creations" else "Search conversations",
+            )
         }
 
         Spacer(Modifier.height(Spacing.l))
-        SectionLabel(if (searchQuery.isBlank()) "Recent" else "Results")
+        if (searchQuery.isNotBlank()) SectionLabel("Results")
 
-        if (searchQuery.isNotBlank() && allThreads.isEmpty()) {
-            Column(
-                Modifier.weight(1f).fillMaxWidth().padding(top = Spacing.xl),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Default.Search, null, Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        when {
+            searchQuery.isNotBlank() && allThreads.isEmpty() ->
+                DrawerEmptyState(
+                    icon = Icons.Default.Search,
+                    message = "Nothing here matches “$searchQuery”",
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.height(Spacing.s))
-                Text(
-                    "No conversations match “$searchQuery”",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            allThreads.isEmpty() ->
+                // Names where the other mode's history went. This is the one way the split can
+                // feel like data loss, and one sentence pre-empts the whole question.
+                DrawerEmptyState(
+                    icon = if (imagine) Icons.Default.AutoFixHigh else Icons.AutoMirrored.Filled.Chat,
+                    message = if (imagine) {
+                        "No creations yet.\nYour older image chats stayed in Chat."
+                    } else {
+                        "No conversations yet."
+                    },
+                    modifier = Modifier.weight(1f),
                 )
-            }
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                items(allThreads, key = { it.id }) { thread ->
-                    ThreadPill(
-                        thread = thread,
-                        selected = thread.id == currentThreadId,
-                        onClick = { onThreadSelected(thread.id); onCloseDrawer?.invoke() },
-                        onRename = { threadToRename = thread },
-                        onDelete = { threadToDelete = thread },
-                    )
-                }
-            }
+            else -> DrawerThreadList(
+                threads = allThreads,
+                currentThreadId = currentThreadId,
+                renderingChatIds = renderingChatIds,
+                onThreadSelected = { onThreadSelected(it.id); onCloseDrawer?.invoke() },
+                onRename = { threadToRename = it },
+                onDelete = { threadToDelete = it },
+                grouped = searchQuery.isBlank(),
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (otherModeMatchCount > 0) {
+            Text(
+                "$otherModeMatchCount also in ${if (imagine) "Chat" else "Imagine"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.m, top = Spacing.xs, bottom = Spacing.xs),
+            )
         }
 
         HorizontalDivider(Modifier.padding(vertical = Spacing.s), color = MaterialTheme.colorScheme.outlineVariant)
@@ -267,7 +291,7 @@ fun ChatDrawerContent(
  * grab that focus and pop the keyboard on every drawer swipe.
  */
 @Composable
-private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit) {
+private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit, placeholder: String) {
     var editing by remember { mutableStateOf(false) }
     var hadFocus by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -298,7 +322,7 @@ private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit) {
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
-                                    "Search conversations",
+                                    placeholder,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -323,7 +347,7 @@ private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit) {
                 LaunchedEffect(Unit) { focusRequester.requestFocus() }
             } else {
                 Text(
-                    query.ifEmpty { "Search conversations" },
+                    query.ifEmpty { placeholder },
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.onSurface,
@@ -371,44 +395,24 @@ private fun pressScale(
     )
 }
 
+/** Shared empty/no-results state for the drawer list. */
 @Composable
-private fun ThreadPill(
-    thread: ChatThread,
-    selected: Boolean,
-    onClick: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
+private fun DrawerEmptyState(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    message: String,
+    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = PillShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
+    Column(
+        modifier.fillMaxWidth().padding(top = Spacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            Modifier.padding(start = Spacing.base, end = Spacing.xs).heightIn(min = 52.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Chat, null, Modifier.size(20.dp),
-                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(Spacing.m))
-            Text(
-                thread.title,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            if (selected) {
-                IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Edit, "Rename", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.DeleteOutline, "Delete", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
+        Icon(icon, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }

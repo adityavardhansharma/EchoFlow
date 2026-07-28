@@ -36,13 +36,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -233,7 +233,7 @@ private fun BrowserViewport(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
             ) {
-                Icon(Icons.Default.OpenInNew, "Open in external browser", Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open in external browser", Modifier.size(20.dp))
             }
         }
     }
@@ -332,7 +332,7 @@ private fun OpeningState(domain: String, busy: Boolean, phase: String?) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            Icon(Icons.Default.OpenInNew, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Live view isn't available", style = MaterialTheme.typography.titleMedium)
         }
     }
@@ -526,7 +526,7 @@ private fun BrowserPauseBar(
                     Text(session.lastOutput ?: "This step needs you.", color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         Button(onClick = onOpenExternal) {
-                            Icon(Icons.Default.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open live browser")
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Open live browser")
                         }
                         OutlinedButton(onClick = onCancel) { Text("Skip") }
                     }

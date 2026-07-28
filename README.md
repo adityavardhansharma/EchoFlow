@@ -5,7 +5,7 @@
 
 ### A privacy-first Android AI workspace
 
-Chat, local models, custom endpoints, web search, deep research, agents, artifacts, and image/video generation — no backend, no account, no telemetry.
+Two surfaces — Chat for conversation, Imagine for images and video. Local models, custom endpoints, web search, deep research, agents, artifacts. No backend, no account, no telemetry.
 
 [![Release](https://img.shields.io/github/v/release/adityavardhansharma/EchoFlow?style=flat-square&color=000000&label=release)](https://github.com/adityavardhansharma/EchoFlow/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-000000?style=flat-square)](LICENSE.txt)
@@ -61,7 +61,7 @@ Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search wo
 
 ## What you can do with it
 
-**Chat** — streaming responses, markdown, code highlighting, reasoning traces, citations, and model switching mid-conversation.
+**Chat** — streaming responses, markdown, code highlighting, reasoning traces, citations, and model switching mid-conversation. Chat and Imagine keep separate histories; conversations that predate the split stay in Chat.
 
 **Web search** — toggle it per message or set a default. OpenRouter's search only works with OpenRouter models; Exa, Parallel, and Firecrawl work with anything.
 
@@ -73,9 +73,7 @@ Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search wo
 
 **Artifacts** — generate and revise self-contained pages, reports, and documents, versioned as you iterate.
 
-**Image generation** — describe an image, then edit it conversationally ("make the sky purple"). Runs on OpenRouter image models.
-
-**Video generation** — describe a short clip and get it back in the conversation. Rendering takes minutes, so it keeps going with the app closed and picks itself back up if the app is killed mid-render. You choose the shape; the model chooses the length. See [docs/video-generation.md](docs/video-generation.md).
+**Imagine** — a separate surface for making things. Describe an image and edit it conversationally ("make the sky purple"), or describe a short clip and get it back as video. Shape, model and audio live beside the prompt; results are presented as a contact sheet rather than a chat log. Rendering a clip takes minutes, so it keeps going with the app closed and picks itself back up if the app is killed mid-render — you choose the shape, the model chooses the length. See [docs/modes.md](docs/modes.md) and [docs/video-generation.md](docs/video-generation.md).
 
 **Echo Adviser** — let your model call in a stronger or more specialized model mid-answer when it's stuck.
 

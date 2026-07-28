@@ -91,14 +91,59 @@ class ChatViewModel(
         chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
     )
 
-    val allThreads: StateFlow<List<ChatThread>> = chatRepository.allThreads()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    // ── App mode ─────────────────────────────────────────────────────────────────────────
 
-    // Drawer search: matches conversation titles and full message text.
+    /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
+    val appMode: StateFlow<AppMode> = settingsRepository.appMode
+
+    /**
+     * Switches surface, parking the current conversation so this mode returns to it later and
+     * restoring whatever the target mode had open. Switching is free: renders and streams keep
+     * running in the mode you left, and [renderingModes] is what says so.
+     */
+    fun switchMode(mode: AppMode) {
+        if (mode == appMode.value) return
+        _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+        settingsRepository.saveAppMode(mode)
+        _drawerSearchQuery.value = ""
+        viewModelScope.launch {
+            // Only restore a thread that still exists and still belongs to this mode.
+            val remembered = settingsRepository.getLastThreadIdDirect(mode)
+                ?.let { chatRepository.thread(it) }
+                ?.takeIf { it.mode == mode }
+            _currentChatThreadId.value = remembered?.id
+        }
+    }
+
+    /** This mode's conversations. The two histories never mix. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allThreads: StateFlow<List<ChatThread>> = appMode
+        .flatMapLatest { chatRepository.threadsForMode(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Modes with a render in flight, so the switch can show which one is still working. A
+     * clip takes minutes and is usually started in one mode and waited for in another;
+     * without this the split would simply hide the activity.
+     */
+    /**
+     * Conversations with a clip in flight. Reads from the database rather than a job registry,
+     * which is the only source covering live turns, resumed jobs and process death alike.
+     */
+    val renderingChatIds: StateFlow<Set<String>> = generatedVideoDao.observeRenderingChatIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val renderingModes: StateFlow<Set<AppMode>> = renderingChatIds
+        .flatMapLatest { chatIds ->
+            if (chatIds.isEmpty()) flowOf(emptySet()) else chatRepository.allThreads().map { threads ->
+                threads.filter { it.id in chatIds }.map(ChatThread::mode).toSet()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    // Drawer search: matches conversation titles and full message text, scoped to the mode.
     private val _drawerSearchQuery = MutableStateFlow("")
     val drawerSearchQuery: StateFlow<String> = _drawerSearchQuery.asStateFlow()
 
@@ -122,6 +167,19 @@ class ChatViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    /**
+     * How many conversations the *other* mode would have matched. A filtered list that hides
+     * a result the user knows exists is the one way this design can feel like data loss, so
+     * the drawer says where it went instead of staying silent.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val otherModeMatchCount: StateFlow<Int> = combine(appMode, _drawerSearchQuery) { mode, query ->
+        mode to query.trim()
+    }.flatMapLatest { (mode, query) ->
+        if (query.isBlank()) flowOf(0)
+        else chatRepository.searchMatchCount(if (mode == AppMode.Chat) AppMode.Imagine else AppMode.Chat, query)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
@@ -248,114 +306,50 @@ class ChatViewModel(
      */
     fun observeVideo(videoId: String): Flow<GeneratedVideo?> = generatedVideoDao.observeById(videoId)
 
-    /** Guards against a second resume pass doubling up on a job already being polled. */
-    private val resumingVideoIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
     /**
-     * Resumed video jobs, by chat. These run outside [streamJobs] because they belong to no
-     * live turn, so deleting a conversation has to be able to find and stop them too.
-     *
-     * Concurrent rather than plain: entries are removed from job-completion handlers, which
-     * are not guaranteed to run on the dispatcher that registered them.
+     * Renders that outlive their turn — resumed on launch, cancelled when their chat is
+     * deleted. None of this is chat streaming, so none of it lives here.
      */
-    private val videoResumeJobs = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Job>>()
-
-    private fun concurrentJobSet(): MutableSet<Job> =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Job, Boolean>())
+    private val videoRecovery by lazy {
+        VideoJobRecovery(
+            context = application,
+            store = generatedVideoStore,
+            engine = videoEngine,
+            settings = settingsRepository,
+            chatDao = chatDao,
+            messageDao = messageDao,
+            scope = viewModelScope,
+        )
+    }
 
     init {
-        viewModelScope.launch { resumeInterruptedVideos() }
-    }
-
-    /**
-     * Picks up video jobs that were still rendering when the process last died. The clip is
-     * already paid for and OpenRouter keeps rendering it regardless, so abandoning the job
-     * would silently cost the user money for nothing.
-     *
-     * A run killed before its assistant message was written has no card in the conversation,
-     * so one is inserted here — pointing at the job row, which the card then follows live.
-     */
-    private suspend fun resumeInterruptedVideos() {
-        val unfinished = runCatching { generatedVideoStore.unfinished() }.getOrNull().orEmpty()
-        if (unfinished.isEmpty()) return
-        val apiKey = settingsRepository.getApiKeyDirect()
-
-        unfinished.forEach { video ->
-            if (video.id in resumingVideoIds) return@forEach
-            resumingVideoIds.add(video.id)
-
-            if (apiKey.isBlank() || video.jobId == null) {
-                generatedVideoStore.markFailed(
-                    video, GeneratedVideo.STATUS_FAILED,
-                    "The video was interrupted and could not be resumed.",
-                )
-                return@forEach
-            }
-            ensureVideoMessage(video)
-            // LAZY, then registered, then started. Launching eagerly would leave a window —
-            // however brief, and however much the current dispatcher happens to close it —
-            // where the writer is running but cancelWorkForChat cannot see it, so deleting
-            // the conversation would race a job it has no way to cancel or join.
-            val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
-                KeepAliveService.acquire(getApplication(), "Finishing a video…")
-                try {
-                    videoEngine.resume(video, apiKey).collect { /* the row is the UI's source */ }
-                    notifyIfVideoReady(video.id)
-                } catch (_: Exception) {
-                    // The row already carries the failure; the card renders it on next open.
-                } finally {
-                    KeepAliveService.release(getApplication())
-                    resumingVideoIds.remove(video.id)
-                }
-            }
-            videoResumeJobs.getOrPut(video.chatId) { concurrentJobSet() }.add(job)
-            job.invokeOnCompletion {
-                videoResumeJobs[video.chatId]?.let { jobs ->
-                    jobs.remove(job)
-                    if (jobs.isEmpty()) videoResumeJobs.remove(video.chatId)
-                }
-            }
-            job.start()
+        viewModelScope.launch { videoRecovery.resumeInterrupted() }
+        viewModelScope.launch {
+            // Reopen where the user left off, but only if that conversation still exists and
+            // still belongs to the mode we are restoring into.
+            val mode = appMode.value
+            settingsRepository.getLastThreadIdDirect(mode)
+                ?.let { chatRepository.thread(it) }
+                ?.takeIf { it.mode == mode }
+                ?.let { _currentChatThreadId.value = it.id }
         }
     }
 
     /**
-     * Announces a finished clip only when one actually exists. The resume flow also ends
-     * *normally* when its row was deleted mid-render, so keying the notification off "the
-     * flow completed" would announce a video for a conversation the user just deleted — and
-     * tapping it would open nothing.
+     * Opens a conversation from outside the UI — a notification tap — switching to whichever
+     * mode owns it first. Without the switch the thread would be selected while its own
+     * history was filtered out of view, which looks exactly like the app losing it.
      */
-    private suspend fun notifyIfVideoReady(videoId: String) {
-        val finished = runCatching { generatedVideoStore.byId(videoId) }.getOrNull() ?: return
-        if (!finished.isPlayable) return
-        ReplyNotifications.notifyReplyReady(
-            getApplication(), finished.chatId,
-            title = "Your video is ready",
-            text = "Tap to watch it in EchoFlow.",
-        )
-    }
-
-    /** Adds the card for a recovered job when the killed turn never got to persist one. */
-    private suspend fun ensureVideoMessage(video: GeneratedVideo) {
-        // The conversation can be deleted between reading the unfinished rows and getting
-        // here; inserting into it would fail the foreign key and take the resume pass with it.
-        if (chatDao.getThreadById(video.chatId) == null) return
-        val alreadyShown = messageDao.getMessagesForChatSync(video.chatId).any { message ->
-            ToolEventJson.segmentsFromJson(message.segmentsJson).any { it.video?.videoId == video.id }
+    fun openThreadFromNotification(chatId: String) {
+        viewModelScope.launch {
+            val thread = chatRepository.thread(chatId) ?: return@launch
+            if (thread.mode != appMode.value) {
+                _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+                settingsRepository.saveAppMode(thread.mode)
+                _drawerSearchQuery.value = ""
+            }
+            selectThread(thread.id)
         }
-        if (alreadyShown) return
-        chatRepository.insertMessage(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
-                chatId = video.chatId,
-                role = "assistant",
-                content = "",
-                createdAt = System.currentTimeMillis(),
-                segmentsJson = ToolEventJson.segmentsToJson(
-                    listOf(PersistedSegment("video", video = VideoRef(video.id, video.filePath)))
-                ),
-            )
-        )
     }
 
     /** The chat's current artifact (latest lineage), observed by the in-chat card and workspace. */
@@ -461,6 +455,42 @@ class ChatViewModel(
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
     fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
     fun toggleVideoGen() = toggleMode(ChatMode.VideoGen)
+
+    // ── Imagine ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sends an Imagine turn. The media switch *is* the capability, so the surface sets the
+     * generation mode from what the user is making rather than asking them to arm it from a
+     * menu first — which is the entire reason image and video left Chat's "+" menu.
+     */
+    fun sendImagineMessage(prompt: String, media: ImagineMedia) {
+        setMode(if (media == ImagineMedia.Video) ChatMode.VideoGen else ChatMode.ImageGen)
+        sendMessage(prompt)
+    }
+
+    /**
+     * The bridge out of Imagine: opens a fresh Chat conversation with this piece of media
+     * attached. Without it, "what is in this picture?" is a dead end that ends in the user
+     * screenshotting their own app.
+     */
+    fun askAboutMediaInChat(filePath: String) {
+        viewModelScope.launch {
+            val file = File(filePath)
+            if (!file.exists()) {
+                _errorMessage.value = "That file is no longer available."
+                return@launch
+            }
+            _currentChatThreadId.value?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
+            settingsRepository.saveAppMode(AppMode.Chat)
+            _drawerSearchQuery.value = ""
+            setMode(ChatMode.Normal)
+            selectThread(null)
+            setPendingAttachment(
+                Uri.fromFile(file),
+                if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
+            )
+        }
+    }
     fun toggleDeepResearch() = toggleMode(ChatMode.DeepResearch)
     fun toggleWebSearchChip() = toggleMode(ChatMode.WebSearch)
     fun toggleDataAgent() = toggleMode(ChatMode.DataAgent)
@@ -511,6 +541,12 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         _currentChatThreadId.value = chatId
+        // Parked so this mode reopens here after a round trip through the other one. A null
+        // means "blank composer" — from the new-conversation button, or from the hop into Chat
+        // that "Ask about this" makes — and must leave the remembered position alone. Writing
+        // it through would throw away wherever the user actually was. The blank thread earns
+        // its place in the memory once sendMessage gives it an identity.
+        chatId?.let { settingsRepository.saveLastThreadId(appMode.value, it) }
         clearPendingAttachment()
         clearError()
     }
@@ -628,7 +664,7 @@ class ChatViewModel(
      */
     private suspend fun cancelWorkForChat(chatId: String) {
         streamJobs.remove(chatId)?.cancelAndJoin()
-        videoResumeJobs.remove(chatId)?.forEach { it.cancelAndJoin() }
+        videoRecovery.cancelForChat(chatId)
     }
 
     fun renameThread(thread: ChatThread, newTitle: String) {
@@ -943,8 +979,11 @@ class ChatViewModel(
 
             if (chatId == null) {
                 isFirstMsgInChat = true
-                chatId = chatRepository.createThread().id
+                chatId = chatRepository.createThread(mode = appMode.value).id
                 _currentChatThreadId.value = chatId
+                // The blank thread is real now, so this mode returns here rather than to
+                // whatever came before it.
+                settingsRepository.saveLastThreadId(appMode.value, chatId)
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
@@ -1058,7 +1097,10 @@ class ChatViewModel(
                             previousImage = imagePrev,
                             apiKey = apiKey,
                             history = fullHistory,
-                            systemPrompt = SystemPrompts.buildImageGen(editing = imageEditUrl != null),
+                            systemPrompt = SystemPrompts.buildImageGen(
+                                editing = imageEditUrl != null,
+                                aspectRatio = settingsRepository.getImageAspectRatioDirect(),
+                            ),
                             editImageDataUrl = imageEditUrl,
                             params = inferenceParams,
                         )
@@ -1291,7 +1333,18 @@ class ChatViewModel(
                     // mid-render, so announce a clip only once one actually exists.
                     segments.filterIsInstance<StreamSegment.Video>()
                         .lastOrNull { it.filePath != null }
-                        ?.let { notifyIfVideoReady(it.videoId) }
+                        ?.let { segment ->
+                            // "The flow completed" is not "there is a video": a run whose chat
+                            // was deleted mid-render also completes normally, with no file.
+                            val clip = runCatching { generatedVideoStore.byId(segment.videoId) }.getOrNull()
+                            if (clip?.isPlayable == true) {
+                                ReplyNotifications.notifyReplyReady(
+                                    getApplication(), chatId,
+                                    title = "Your video is ready",
+                                    text = "Tap to watch it in EchoFlow.",
+                                )
+                            }
+                        }
                 } else if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
                         getApplication(), chatId,

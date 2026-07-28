@@ -80,7 +80,7 @@ import com.echoflow.ui.theme.Spacing
  * as choices that silently fail.
  */
 @Composable
-internal fun VideoGenPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+internal fun VideoGenSection(viewModel: SettingsViewModel) {
     val videoModels by viewModel.videoModels.collectAsState()
     val selectedId by viewModel.videoGenModelId.collectAsState()
     val aspectRatio by viewModel.videoAspectRatio.collectAsState()
@@ -105,7 +105,7 @@ internal fun VideoGenPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         listOf(default) + videoModels.filter { it.id != default.first }.map { it.id to it.name }
     }
 
-    SettingsPageScaffold(title = "Video generation", subtitle = "Create short clips in chat", onBack = onBack) {
+    Column {
         PageSection("How it works", null)
         Text(
             "Turn on “Create video” from the + menu in chat, then describe a clip. Generation " +

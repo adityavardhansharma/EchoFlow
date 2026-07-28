@@ -86,6 +86,8 @@ import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
+import com.echoflow.ui.components.ContextChipRow
+import com.echoflow.ui.components.ModelPill
 import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
@@ -143,10 +145,9 @@ internal fun InputToolbar(
     onToggleBrowserFlow: () -> Unit,
     artifactActive: Boolean,
     onToggleArtifact: () -> Unit,
-    imageGenActive: Boolean,
-    onToggleImageGen: () -> Unit,
-    videoGenActive: Boolean,
-    onToggleVideoGen: () -> Unit,
+    modelId: String,
+    modelLabel: String,
+    onOpenModelPicker: () -> Unit,
     browserSession: com.echoflow.data.BrowserSession?,
     browserSteps: List<com.echoflow.data.BrowserStep>,
     onBrowserOpen: () -> Unit,
@@ -231,65 +232,55 @@ internal fun InputToolbar(
             }
         }
 
-        // Active capability chips — always show what's on so behaviour is never hidden.
-        AnimatedVisibility(visible = webSearchChipOn || deepResearchActive || dataAgentActive || echoAdviserActive || echoFusionActive || echoAgentActive || browserFlowActive || artifactActive || imageGenActive || videoGenActive) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s),
-                modifier = Modifier.padding(start = Spacing.s, bottom = Spacing.s),
-            ) {
-                if (webSearchChipOn) {
-                    CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
-                }
-                if (browserFlowActive) {
-                    CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
-                }
-                if (artifactActive) {
-                    CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
-                }
-                if (imageGenActive) {
-                    CapabilityChip(Icons.Default.Brush, "Create image", onRemove = onToggleImageGen)
-                }
-                if (videoGenActive) {
-                    CapabilityChip(Icons.Default.Movie, "Create video", onRemove = onToggleVideoGen)
-                }
-                if (echoAdviserActive) {
-                    CapabilityChip(
-                        Icons.Default.Psychology,
-                        advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
-                        onRemove = onToggleEchoAdviser,
-                    )
-                }
-                if (echoFusionActive) {
-                    CapabilityChip(
-                        Icons.Default.AccountTree,
-                        fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
-                        onRemove = onToggleEchoFusion,
-                    )
-                }
-                if (echoAgentActive) {
-                    CapabilityChip(
-                        Icons.Default.Hub,
-                        agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
-                        onRemove = onToggleEchoAgent,
-                    )
-                }
-                if (deepResearchActive) {
-                    CapabilityChip(
-                        Icons.Default.Science,
-                        researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
-                        onRemove = onToggleDeepResearch,
-                    )
-                    // Exa Agent's depth/cost dial lives here, not in the engine list.
-                    if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
-                }
-                if (dataAgentActive) {
-                    CapabilityChip(
-                        Icons.Default.Science,
-                        dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
-                        onRemove = onToggleDataAgent,
-                    )
-                }
+        // What this next message will be sent with: the model first, then whatever
+        // capabilities are on. Always visible — the model is never implicit.
+        ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
+            ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
+            if (webSearchChipOn) {
+                CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+            }
+            if (browserFlowActive) {
+                CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
+            }
+            if (artifactActive) {
+                CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
+            }
+            if (echoAdviserActive) {
+                CapabilityChip(
+                    Icons.Default.Psychology,
+                    advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
+                    onRemove = onToggleEchoAdviser,
+                )
+            }
+            if (echoFusionActive) {
+                CapabilityChip(
+                    Icons.Default.AccountTree,
+                    fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
+                    onRemove = onToggleEchoFusion,
+                )
+            }
+            if (echoAgentActive) {
+                CapabilityChip(
+                    Icons.Default.Hub,
+                    agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
+                    onRemove = onToggleEchoAgent,
+                )
+            }
+            if (deepResearchActive) {
+                CapabilityChip(
+                    Icons.Default.Science,
+                    researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
+                    onRemove = onToggleDeepResearch,
+                )
+                // Exa Agent's depth/cost dial lives here, not in the engine list.
+                if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+            }
+            if (dataAgentActive) {
+                CapabilityChip(
+                    Icons.Default.Science,
+                    dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
+                    onRemove = onToggleDataAgent,
+                )
             }
         }
 
@@ -342,10 +333,6 @@ internal fun InputToolbar(
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         artifactOn = artifactActive,
-                        imageGenOn = imageGenActive,
-                        onToggleImageGen = { plusMenuOpen = false; onToggleImageGen() },
-                        videoGenOn = videoGenActive,
-                        onToggleVideoGen = { plusMenuOpen = false; onToggleVideoGen() },
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
                         onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
@@ -370,8 +357,6 @@ internal fun InputToolbar(
                                 dataAgentActive -> "Describe the data to extract…"
                                 deepResearchActive -> "Research a topic…"
                                 artifactActive -> "Describe an artifact to build…"
-                                imageGenActive -> "Describe an image — or a change…"
-                                videoGenActive -> "Describe a video…"
                                 else -> "Ask anything…"
                             }
                         )
@@ -424,10 +409,6 @@ internal fun PlusMenu(
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
     artifactOn: Boolean,
-    imageGenOn: Boolean,
-    onToggleImageGen: () -> Unit,
-    videoGenOn: Boolean,
-    onToggleVideoGen: () -> Unit,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -440,21 +421,30 @@ internal fun PlusMenu(
     onToggleArtifact: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        // Image is offered for cloud models and vision-capable on-device (.litertlm) bundles.
-        if (showImage) {
-            DropdownMenuItem(
-                text = { Text("Image") },
-                leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
-                onClick = onImage,
-            )
+        // Attachments first, and labelled: they add context to this message, while everything
+        // below changes how the model works. Mixing the two in one flat list was the menu's
+        // real problem, not its length.
+        if (showImage || showFiles) {
+            MenuSectionLabel("Attach")
+            // Image is offered for cloud models and vision-capable on-device bundles.
+            if (showImage) {
+                DropdownMenuItem(
+                    text = { Text("Image") },
+                    leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
+                    onClick = onImage,
+                )
+            }
+            if (showFiles) {
+                DropdownMenuItem(
+                    text = { Text("Files") },
+                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                    onClick = onFiles,
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
         }
-        if (showFiles) {
-            DropdownMenuItem(
-                text = { Text("Files") },
-                leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
-                onClick = onFiles,
-            )
-        }
+
+        MenuSectionLabel("Capabilities")
         DropdownMenuItem(
             text = { Text("Web search") },
             leadingIcon = { Icon(Icons.Default.TravelExplore, null) },
@@ -473,20 +463,6 @@ internal fun PlusMenu(
             leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
             trailingIcon = { if (artifactOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
             onClick = onToggleArtifact,
-        )
-        // Create image — generate and conversationally edit images (OpenRouter image models).
-        DropdownMenuItem(
-            text = { Text("Create image") },
-            leadingIcon = { Icon(Icons.Default.Brush, null) },
-            trailingIcon = { if (imageGenOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleImageGen,
-        )
-        // Create video — render a short clip through OpenRouter's async video models.
-        DropdownMenuItem(
-            text = { Text("Create video") },
-            leadingIcon = { Icon(Icons.Default.Movie, null) },
-            trailingIcon = { if (videoGenOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleVideoGen,
         )
         // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
         if (dataAgentAvailable) {
@@ -510,6 +486,7 @@ internal fun PlusMenu(
         // profile/panel is missing, sending surfaces a "set it up" message.
         if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
             HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+            MenuSectionLabel("Echo Labs")
         }
         if (echoAdviserAvailable) {
             DropdownMenuItem(
@@ -639,4 +616,15 @@ internal fun ShapedIconButton(
             ),
         contentAlignment = Alignment.Center,
     ) { content() }
+}
+
+/** A quiet header inside the "+" menu, so its two halves read as different kinds of choice. */
+@Composable
+private fun MenuSectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = Spacing.m, top = Spacing.s, bottom = Spacing.xs),
+    )
 }
