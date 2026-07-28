@@ -191,9 +191,12 @@ private fun ImagineResult(
                         animate = ref.filePath == null,
                         errorMessage = live?.error,
                         maxWidth = ImagineMediaWidth,
-                        actions = filePath?.let { path ->
-                            listOf(referenceAction { onUseAsReference(path) })
-                        }.orEmpty(),
+                        // No Reference here. Every path that consumes an attachment wants an
+                        // image — image generation sends an image part, and video sends a
+                        // first frame as an `image_url` data URL — so offering it on a clip
+                        // put an MP4 into the composer that the next request would either
+                        // reject or quietly ignore, while the chip claimed otherwise.
+                        actions = emptyList(),
                         onRetry = live?.prompt?.let { prompt -> { onRetry(prompt) } },
                     )
                 }

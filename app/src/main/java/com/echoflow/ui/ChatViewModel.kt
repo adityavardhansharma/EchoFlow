@@ -493,11 +493,15 @@ class ChatViewModel(
             _errorMessage.value = "That file is no longer available."
             return
         }
-        setPendingAttachment(
-            Uri.fromFile(file),
-            if (file.extension.equals("mp4", ignoreCase = true)) "video/mp4" else "image/png",
-            overrideName = label,
-        )
+        // Both consumers take an image and only an image: image generation sends an image
+        // part, and video sends a first frame as an `image_url` data URL. Refusing here rather
+        // than trusting call sites, because the failure is silent — the composer would show a
+        // reference chip for a file the request drops or rejects.
+        if (!IMAGE_REFERENCE_EXTENSIONS.contains(file.extension.lowercase())) {
+            _errorMessage.value = "Only an image can be used as a reference."
+            return
+        }
+        setPendingAttachment(Uri.fromFile(file), "image/png", overrideName = label)
     }
 
     /**
@@ -1810,6 +1814,9 @@ class ChatViewModel(
     }
 
     companion object {
+        /** What may be handed forward as a reference or a first frame. */
+        private val IMAGE_REFERENCE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
+
         private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L
