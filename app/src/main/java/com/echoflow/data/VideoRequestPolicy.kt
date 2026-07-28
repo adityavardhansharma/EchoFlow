@@ -10,14 +10,38 @@ package com.echoflow.data
  */
 object VideoRequestPolicy {
 
-    /** The ratios EchoFlow offers, widest-to-tallest. Also the fallback preference order. */
+    /**
+     * The ratios EchoFlow shows when it has nothing better to go on, widest-to-tallest. Also
+     * the fallback preference order.
+     *
+     * Not a whitelist. Providers publish their own vocabularies and add to them, so anything
+     * that treats this as the set of *permitted* values will silently discard a choice the
+     * user could see and press — see [resolutionOffering].
+     */
     val ASPECT_RATIOS = listOf("16:9", "9:16", "1:1", "4:3", "3:4", "21:9")
 
-    /** The resolutions EchoFlow offers, cheapest first. */
+    /** The resolutions EchoFlow shows when it has nothing better to go on, cheapest first. */
     val RESOLUTIONS = listOf("480p", "720p", "1080p")
 
     const val DEFAULT_ASPECT_RATIO = "16:9"
     const val DEFAULT_RESOLUTION = "720p"
+
+    /**
+     * Everything to put in front of the user: the house list, plus whatever this model declares
+     * that the house list has never heard of.
+     *
+     * The house list is always years behind the providers — it predates 4K entirely — so a
+     * screen built from it alone can never offer a model's best output, and a store that
+     * validates against it throws away the choice if some other screen manages to. Ordered by
+     * real pixel height so the row reads cheapest to dearest whatever gets added.
+     */
+    fun resolutionOffering(supported: List<String>?): List<String> =
+        (RESOLUTIONS + supported.orEmpty()).distinct()
+            .sortedBy { heightOf(it) ?: Int.MAX_VALUE }
+
+    /** The same union for framing, for the same reason. */
+    fun aspectRatioOffering(supported: List<String>?): List<String> =
+        (ASPECT_RATIOS + supported.orEmpty()).distinct()
 
     /**
      * The aspect ratio to send. Null means "say nothing and let the provider choose" — the
@@ -65,8 +89,20 @@ object VideoRequestPolicy {
         }
     }
 
-    private fun heightOf(resolution: String): Int? =
-        resolution.trim().removeSuffix("p").removeSuffix("P").toIntOrNull()
+    /**
+     * Pixel height for a resolution label, so "nearest offer" is a real comparison.
+     *
+     * K notation has to be understood, not just tolerated: with "4k" unrankable, a 4K
+     * preference on a 1080p model fell through to "whatever is listed first" rather than to
+     * the closest thing available, which is the entire point of the fallback.
+     */
+    private fun heightOf(resolution: String): Int? {
+        val value = resolution.trim().lowercase()
+        return when {
+            value.endsWith("k") -> value.dropLast(1).toFloatOrNull()?.let { (it * 540).toInt() }
+            else -> value.removeSuffix("p").toIntOrNull()
+        }
+    }
 
     private const val DEFAULT_RATIO_VALUE = 16f / 9f
 }

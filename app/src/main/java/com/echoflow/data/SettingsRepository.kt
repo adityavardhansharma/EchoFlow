@@ -653,25 +653,48 @@ class SettingsRepository(context: Context) {
     }
 
     fun getVideoAspectRatioDirect(): String =
-        prefs.getString("video_aspect_ratio", VideoRequestPolicy.DEFAULT_ASPECT_RATIO).orEmpty()
-            .takeIf { it in VideoRequestPolicy.ASPECT_RATIOS } ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
+        prefs.getString("video_aspect_ratio", null).orEmpty().trim()
+            .ifEmpty { VideoRequestPolicy.DEFAULT_ASPECT_RATIO }
 
-    fun saveVideoAspectRatio(ratio: String) {
-        val clean = ratio.takeIf { it in VideoRequestPolicy.ASPECT_RATIOS }
-            ?: VideoRequestPolicy.DEFAULT_ASPECT_RATIO
-        prefs.edit().putString("video_aspect_ratio", clean).apply()
-        _videoAspectRatio.value = clean
-    }
+    fun saveVideoAspectRatio(ratio: String) = saveVideoFraming(
+        key = "video_aspect_ratio",
+        value = ratio,
+        fallback = VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
+        state = _videoAspectRatio,
+    )
 
     fun getVideoResolutionDirect(): String =
-        prefs.getString("video_resolution", VideoRequestPolicy.DEFAULT_RESOLUTION).orEmpty()
-            .takeIf { it in VideoRequestPolicy.RESOLUTIONS } ?: VideoRequestPolicy.DEFAULT_RESOLUTION
+        prefs.getString("video_resolution", null).orEmpty().trim()
+            .ifEmpty { VideoRequestPolicy.DEFAULT_RESOLUTION }
 
-    fun saveVideoResolution(resolution: String) {
-        val clean = resolution.takeIf { it in VideoRequestPolicy.RESOLUTIONS }
-            ?: VideoRequestPolicy.DEFAULT_RESOLUTION
-        prefs.edit().putString("video_resolution", clean).apply()
-        _videoResolution.value = clean
+    fun saveVideoResolution(resolution: String) = saveVideoFraming(
+        key = "video_resolution",
+        value = resolution,
+        fallback = VideoRequestPolicy.DEFAULT_RESOLUTION,
+        state = _videoResolution,
+    )
+
+    /**
+     * Stores a framing preference as given, checking only that it is not blank.
+     *
+     * These used to be validated against [VideoRequestPolicy]'s house lists, which turned a
+     * stale constant into a silent veto: the picker offers whatever the *model* declares, so
+     * choosing 4K on a model that offers it wrote nothing and snapped the selection back to
+     * 720p, with no error and no way to tell why.
+     *
+     * A store cannot know what any given provider supports, and it does not need to. The
+     * reconciliation belongs at request time in [VideoRequestPolicy.resolveResolution], which
+     * runs against the actual model's capability set and already downgrades gracefully.
+     */
+    private fun saveVideoFraming(
+        key: String,
+        value: String,
+        fallback: String,
+        state: MutableStateFlow<String>,
+    ) {
+        val clean = value.trim().ifEmpty { fallback }
+        prefs.edit().putString(key, clean).apply()
+        state.value = clean
     }
 
     /** Audio roughly doubles the per-second price, so it starts off and is opt-in. */

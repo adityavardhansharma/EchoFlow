@@ -61,4 +61,33 @@ class VideoRequestPolicyTest {
         assertEquals("portrait", VideoRequestPolicy.orientationOf("9:16"))
         assertEquals("square", VideoRequestPolicy.orientationOf("1:1"))
     }
+
+    @Test
+    fun `the offering adds what the model declares to the house list, cheapest first`() {
+        // The house list predates 4K entirely, so a screen built from it alone can never
+        // offer a model's best output.
+        assertEquals(
+            listOf("480p", "720p", "1080p", "4K"),
+            VideoRequestPolicy.resolutionOffering(listOf("720p", "1080p", "4K")),
+        )
+        assertEquals(VideoRequestPolicy.RESOLUTIONS, VideoRequestPolicy.resolutionOffering(null))
+        assertEquals(
+            listOf("16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "5:4"),
+            VideoRequestPolicy.aspectRatioOffering(listOf("16:9", "5:4")),
+        )
+    }
+
+    @Test
+    fun `K notation ranks by real pixel height, not as an unknown`() {
+        // With "4K" unrankable the nearest-offer search fell through to "whatever is listed
+        // first", which is the entire point of the fallback thrown away.
+        assertEquals("1080p", VideoRequestPolicy.resolveResolution("4K", listOf("480p", "1080p")))
+        assertEquals("4K", VideoRequestPolicy.resolveResolution("8K", listOf("720p", "4K")))
+        assertEquals("720p", VideoRequestPolicy.resolveResolution("1080p", listOf("720p", "4K")))
+    }
+
+    @Test
+    fun `a resolution the model does declare is sent untouched`() {
+        assertEquals("4K", VideoRequestPolicy.resolveResolution("4K", listOf("720p", "1080p", "4K")))
+    }
 }
