@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ImagineMedia
+import com.echoflow.data.shouldCarryImageIntoVideo
 import com.echoflow.data.SettingsRepository
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -58,10 +59,15 @@ private fun CarryImageIntoVideo(
 ) {
     var previous by remember { mutableStateOf(media) }
     LaunchedEffect(media) {
-        val justSwitchedToVideo = previous == ImagineMedia.Image && media == ImagineMedia.Video
+        val carry = shouldCarryImageIntoVideo(
+            from = previous,
+            to = media,
+            lastImagePath = lastImagePath,
+            modelTakesFirstFrame = modelTakesFirstFrame,
+            composerAlreadyHasAttachment = alreadyAttached,
+        )
         previous = media
-        if (!justSwitchedToVideo || alreadyAttached || !modelTakesFirstFrame) return@LaunchedEffect
-        lastImagePath?.let(onCarry)
+        if (carry) lastImagePath?.let(onCarry)
     }
 }
 
