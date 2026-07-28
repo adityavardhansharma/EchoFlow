@@ -106,7 +106,32 @@ class ChatViewModel(
         parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
         _drawerSearchQuery.value = ""
-        viewModelScope.launch { _currentChatThreadId.value = restoredThreadId(mode) }
+        // Restoring hits the database, so it can still be suspended when the user switches
+        // again or taps a conversation. An untracked coroutine would then land its stale
+        // answer on top of wherever they actually are — showing the other mode's thread, and
+        // filing the next message into it. Cancel the previous attempt, and check on the way
+        // out that the mode has not moved on underneath us.
+        modeRestoreJob?.cancel()
+        modeRestoreJob = viewModelScope.launch {
+            val since = navigationEpoch
+            val restored = restoredThreadId(mode)
+            // Anything that moved the user in the meantime — another switch, tapping a
+            // conversation, a notification, a send that created a thread — outranks a lookup
+            // that started before it.
+            if (appMode.value == mode && navigationEpoch == since) openThread(restored)
+        }
+    }
+
+    /**
+     * Every change of which conversation is open, in one place.
+     *
+     * The epoch exists so a suspended restore can tell whether the user has navigated since it
+     * began. Restoring reads the database, and an untracked coroutine landing its stale answer
+     * afterwards would show the wrong thread and file the next message into it.
+     */
+    private fun openThread(chatId: String?) {
+        navigationEpoch++
+        _currentChatThreadId.value = chatId
     }
 
     /** Records where this mode is being left — including "on a blank composer". */
@@ -198,6 +223,12 @@ class ChatViewModel(
 
     private val _currentChatThreadId = MutableStateFlow<String?>(null)
     val currentChatThreadId: StateFlow<String?> = _currentChatThreadId.asStateFlow()
+
+    /** Bumped by [openThread]; read by suspended work that must not undo a later navigation. */
+    private var navigationEpoch = 0L
+
+    /** The in-flight mode restore, so a second switch cancels the first rather than racing it. */
+    private var modeRestoreJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val currentMessages: StateFlow<List<ChatMessage>> = _currentChatThreadId
@@ -341,7 +372,7 @@ class ChatViewModel(
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
         viewModelScope.launch {
             // Reopen exactly where the user left off — including on a blank composer.
-            _currentChatThreadId.value = restoredThreadId(appMode.value)
+            openThread(restoredThreadId(appMode.value))
         }
     }
 
@@ -429,7 +460,7 @@ class ChatViewModel(
         viewModelScope.launch {
             browserAgent.openWorkspaceFor.collect { chatId ->
                 if (chatId != null) {
-                    _currentChatThreadId.value = chatId
+                    openThread(chatId)
                     _browserWorkspaceChatId.value = chatId
                     browserAgent.clearWorkspaceRequest()
                 }
@@ -531,7 +562,7 @@ class ChatViewModel(
     // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
 
     fun openBrowserWorkspace(chatId: String) {
-        _currentChatThreadId.value = chatId
+        openThread(chatId)
         clearError()
         _browserWorkspaceChatId.value = chatId
     }
@@ -569,7 +600,7 @@ class ChatViewModel(
     }
 
     fun selectThread(chatId: String?) {
-        _currentChatThreadId.value = chatId
+        openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a
         // null is parked too, because "I just started something new" is a position worth
         // returning to, not an absence of one.
@@ -1011,7 +1042,7 @@ class ChatViewModel(
             if (chatId == null) {
                 isFirstMsgInChat = true
                 chatId = chatRepository.createThread(mode = appMode.value).id
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
@@ -1504,7 +1535,7 @@ class ChatViewModel(
             var chatId = _currentChatThreadId.value
             if (chatId == null) {
                 chatId = chatRepository.createThread(now = now).id
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
                 chatRepository.renameThread(chatId, fallbackTitle)
@@ -1580,9 +1611,9 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
             } else {
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
             }
             // Title a fresh thread from the instruction (manager writes the message rows).
             chatDao.getThreadById(chatId)?.let { thread ->
@@ -1620,7 +1651,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                _currentChatThreadId.value = chatId
+                openThread(chatId)
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
                 chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
