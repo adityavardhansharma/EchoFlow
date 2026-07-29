@@ -1166,13 +1166,18 @@ class ChatViewModel(
                     }
                 }
             } else {
-                preservedReplyVersionsJson = commitEditTurn(
-                    userMessageId = editingUserId,
-                    newContent = prompt,
-                    attachmentUri = attachmentUri,
-                    attachmentMime = attachmentMime,
-                    attachmentName = attachmentName,
-                ) ?: return@launch
+                preservedReplyVersionsJson = withContext(NonCancellable) {
+                    commitEditTurn(
+                        userMessageId = editingUserId,
+                        newContent = prompt,
+                        attachmentUri = attachmentUri,
+                        attachmentMime = attachmentMime,
+                        attachmentName = attachmentName,
+                    )
+                } ?: run {
+                    _errorMessage.value = "Could not edit message."
+                    return@launch
+                }
                 chatRepository.touchThread(chatId)
                 _editingUserMessageId.value = null
             }
@@ -1830,17 +1835,17 @@ class ChatViewModel(
                 segmentsJson = assistant.segmentsJson,
             )
             preservedVersionsJson = ToolEventJson.replyVersionsToJson(archived)
-            chatRepository.deleteMessage(assistant.id)
         }
 
-        chatRepository.insertMessage(
-            editedUserMessageForEditTurn(
+        chatRepository.applyEditedUserTurn(
+            updatedUser = editedUserMessageForEditTurn(
                 lastUser = lastUser,
                 newContent = newContent,
                 attachmentUri = attachmentUri,
                 attachmentMime = attachmentMime,
                 attachmentName = attachmentName,
-            )
+            ),
+            assistantMessageId = assistant?.id,
         )
         return preservedVersionsJson
     }

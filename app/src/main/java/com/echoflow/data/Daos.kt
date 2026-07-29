@@ -50,6 +50,15 @@ interface MessageDao {
     @Query("DELETE FROM chat_messages WHERE id = :messageId")
     suspend fun deleteMessageById(messageId: String)
 
+    /** Atomically persists an edited user turn and removes the assistant reply it replaces. */
+    @Transaction
+    suspend fun applyEditedUserTurn(updatedUser: ChatMessage, assistantMessageId: String?) {
+        insertMessage(updatedUser)
+        if (assistantMessageId != null) {
+            deleteMessageById(assistantMessageId)
+        }
+    }
+
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
 
