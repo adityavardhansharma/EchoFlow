@@ -37,18 +37,6 @@ internal object AssistantMessagePersistence {
         return AssistantMessageDraft(finalContent, reasoning, events, citations, persisted)
     }
 
-    /** Fallback draft so an edit-turn failure still re-attaches archived reply versions. */
-    fun failureStub(message: String): AssistantMessageDraft {
-        val text = message.trim().ifBlank { "Something went wrong generating a reply." }
-        return AssistantMessageDraft(
-            content = text,
-            reasoning = null,
-            toolEvents = emptyList(),
-            citations = emptyList(),
-            segments = listOf(PersistedSegment(type = "text", text = text)),
-        )
-    }
-
     private fun persistedSegment(segment: StreamSegment): PersistedSegment? = when (segment) {
         is StreamSegment.Reasoning -> segment.text.trim().takeIf(String::isNotEmpty)?.let { PersistedSegment("reasoning", text = it) }
         is StreamSegment.Search -> PersistedSegment("search", query = segment.query, sources = segment.sources)

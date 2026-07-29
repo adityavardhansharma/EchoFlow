@@ -362,7 +362,10 @@ internal fun ChatSurface(
                             ?: (total - 1).coerceAtLeast(0)
                     },
                     onReplyVersionChange = chatViewModel::selectReplyVersion,
-                    canEditMessages = !isStreaming && editingUserMessageId == null,
+                    canEditMessages = !isStreaming &&
+                        !progressLoading &&
+                        researchRun == null &&
+                        editingUserMessageId == null,
                 )
             }
         }

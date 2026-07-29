@@ -15,12 +15,6 @@ class AssistantMessagePersistenceTest {
         assertEquals("stopped", draft.segments.single().type)
     }
 
-    @Test fun `failureStub preserves a non-empty body for edit-turn recovery`() {
-        val draft = AssistantMessagePersistence.failureStub("Connection reset")
-        assertEquals("Connection reset", draft.content)
-        assertEquals("text", draft.segments.single().type)
-    }
-
     @Test fun `a finished image is durable even without answer text`() {
         val draft = AssistantMessagePersistence.draft(
             listOf(

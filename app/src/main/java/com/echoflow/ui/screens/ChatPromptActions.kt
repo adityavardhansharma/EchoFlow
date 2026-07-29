@@ -166,7 +166,7 @@ internal fun AnswerActionBar(
                 contentDescription = "Copy answer",
                 onClick = onCopy,
             ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = "Copy answer", Modifier.size(16.dp))
+                Icon(Icons.Default.ContentCopy, contentDescription = null, Modifier.size(16.dp))
             }
         }
     }
@@ -187,7 +187,7 @@ private fun VersionChevron(
     ) {
         Icon(
             icon,
-            contentDescription = contentDescription,
+            contentDescription = null,
             modifier = Modifier.size(15.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
                 alpha = if (enabled) 1f else 0.45f,

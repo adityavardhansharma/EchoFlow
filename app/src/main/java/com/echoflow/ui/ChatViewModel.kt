@@ -1152,6 +1152,9 @@ class ChatViewModel(
 
             // Carried into the new assistant row so prior answers survive regeneration.
             var archivedReplyVersionsJson: String? = null
+            // If an edited generation fails, restore this exact row instead of persisting the
+            // failed attempt as another browsable answer version.
+            var replacedAssistant: ChatMessage? = null
 
             if (editingUserId == null) {
                 // Insert User Message
@@ -1210,6 +1213,7 @@ class ChatViewModel(
                     return@launch
                 }
                 archivedReplyVersionsJson = editResult.archivedVersionsJson
+                replacedAssistant = editResult.replacedAssistant
                 chatRepository.touchThread(chatId)
             }
 
@@ -1520,6 +1524,16 @@ class ChatViewModel(
                 if (videoGenMode && segments.any { it is StreamSegment.Video && !it.generating }) {
                     delay(2600)
                 }
+                if (
+                    editingUserId != null &&
+                    AssistantMessagePersistence.draft(
+                        segments = segments,
+                        interrupted = null,
+                        stopped = false,
+                    ) == null
+                ) {
+                    throw IllegalStateException("The model returned no response. Try again.")
+                }
                 persistAssistantMessage(
                     chatId, segments, interrupted = null,
                     replyVersionsJson = archivedReplyVersionsJson,
@@ -1563,13 +1577,22 @@ class ChatViewModel(
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
-                persistAssistantMessage(
-                    chatId, segments, interrupted = e.message,
-                    replyVersionsJson = archivedReplyVersionsJson,
-                )
                 if (editingUserId != null) {
-                    // Keep edit mode so the user can fix the prompt and try again.
+                    // A transport/provider failure is not an answer version. Put the replaced
+                    // answer back exactly as it was and keep edit mode ready for a retry.
+                    withContext(NonCancellable) {
+                        val assistantToRestore = replacedAssistant
+                        if (assistantToRestore != null) {
+                            chatRepository.insertMessage(assistantToRestore)
+                        }
+                    }
                     _editingUserMessageId.value = editingUserId
+                } else {
+                    persistAssistantMessage(
+                        chatId,
+                        segments,
+                        interrupted = e.message,
+                    )
                 }
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
@@ -1856,7 +1879,10 @@ class ChatViewModel(
         return null
     }
 
-    private data class EditTurnResult(val archivedVersionsJson: String?)
+    private data class EditTurnResult(
+        val archivedVersionsJson: String?,
+        val replacedAssistant: ChatMessage?,
+    )
 
     /**
      * Updates the last user prompt, archives the previous assistant answer, and removes that
@@ -1880,9 +1906,7 @@ class ChatViewModel(
 
         var archivedJson = assistant?.replyVersionsJson
         if (assistant != null) {
-            val prior = ReplyVersions.archived(assistant).toMutableList()
-            prior += ReplyVersions.snapshot(assistant)
-            archivedJson = ToolEventJson.replyVersionsToJson(prior)
+            archivedJson = ReplyVersions.archiveCurrent(assistant)
             _replyVersionPick.value = _replyVersionPick.value - assistant.id
         }
 
@@ -1896,7 +1920,10 @@ class ChatViewModel(
             ),
             oldAssistantId = assistant?.id,
         )
-        return EditTurnResult(archivedJson)
+        return EditTurnResult(
+            archivedVersionsJson = archivedJson,
+            replacedAssistant = assistant,
+        )
     }
 
     private suspend fun persistAssistantMessage(
@@ -1906,14 +1933,7 @@ class ChatViewModel(
         stopped: Boolean = false,
         replyVersionsJson: String? = null,
     ) {
-        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped)
-            ?: if (replyVersionsJson != null) {
-                AssistantMessagePersistence.failureStub(
-                    interrupted ?: "Something went wrong generating a reply.",
-                )
-            } else {
-                null
-            } ?: return
+        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
         messageDao.insertMessage(
             ChatMessage(
                 id = UUID.randomUUID().toString(),

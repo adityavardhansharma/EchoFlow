@@ -354,4 +354,8 @@ object ReplyVersions {
         citationsJson = message.citationsJson,
         segmentsJson = message.segmentsJson,
     )
+
+    /** Append the current answer to its existing history before replacing the row. */
+    fun archiveCurrent(message: ChatMessage): String? =
+        ToolEventJson.replyVersionsToJson(archived(message) + snapshot(message))
 }

@@ -73,4 +73,24 @@ class ReplyVersionsTest {
         assertEquals("think", snap.reasoning)
         assertEquals(message.segmentsJson, snap.segmentsJson)
     }
+
+    @Test
+    fun `retrying after a failed edit archives the restored answer only once`() {
+        val restored = ChatMessage(
+            id = "a1",
+            chatId = "c1",
+            role = "assistant",
+            content = "original answer",
+            createdAt = 1L,
+            replyVersionsJson = ToolEventJson.replyVersionsToJson(
+                listOf(ReplyVersion(content = "older answer")),
+            ),
+        )
+
+        val firstAttempt = ReplyVersions.archiveCurrent(restored)
+        val retryAttempt = ReplyVersions.archiveCurrent(restored)
+
+        assertEquals(firstAttempt, retryAttempt)
+        assertEquals(2, ToolEventJson.replyVersionsFromJson(retryAttempt).size)
+    }
 }

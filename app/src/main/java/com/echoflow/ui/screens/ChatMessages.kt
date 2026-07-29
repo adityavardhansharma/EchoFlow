@@ -524,7 +524,12 @@ private fun AssistantAnswerBody(
         (segment.type == "image" && segment.image != null) ||
             (segment.type == "video" && segment.video != null)
     }
-    val copyAction: () -> Unit = { onCopy(ReplyVersions.copyText(message, ReplyVersions.count(message) - 1)) }
+    // [message] is already the selected snapshot. Reading its body directly keeps embedded
+    // report/data copy actions aligned with the version currently on screen.
+    val copyAction: () -> Unit = {
+        val timelineText = ReplyVersions.textFromSegments(message.segmentsJson)
+        onCopy(timelineText.ifBlank { message.content })
+    }
 
     message.localAttachmentUri?.let { uri ->
         MessageAttachmentPreview(
