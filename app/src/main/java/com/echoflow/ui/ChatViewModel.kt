@@ -176,11 +176,18 @@ class ChatViewModel(
         val lastUser = messages.lastOrNull { it.role == "user" } ?: return null
         if (lastUser.id != messageId) return null
         _editingUserMessageId.value = messageId
+        val uri = lastUser.localAttachmentUri?.let(Uri::parse)
+        if (uri != null) {
+            setPendingAttachment(uri, lastUser.localAttachmentMimeType, lastUser.localAttachmentName)
+        } else {
+            clearPendingAttachment()
+        }
         return lastUser.content
     }
 
     fun cancelEditMessage() {
         _editingUserMessageId.value = null
+        clearPendingAttachment()
     }
 
     fun selectReplyVersion(messageId: String, index: Int) {
@@ -840,7 +847,6 @@ class ChatViewModel(
     fun sendMessage(content: String) {
         val prompt = content.trim()
         val editingUserId: String? = _editingUserMessageId.value
-        _editingUserMessageId.value = null
         val attachmentUri = _pendingAttachmentUri.value?.toString()
         val attachmentMime = _pendingAttachmentMimeType.value
         val attachmentName = _pendingAttachmentName.value
@@ -882,14 +888,13 @@ class ChatViewModel(
         if (imageGenMode || videoGenMode) clearImagineArmedModes()
 
         viewModelScope.launch {
-            clearPendingAttachment()
             clearError()
 
-            var preservedReplyVersionsJson: String? = null
             if (editingUserId != null) {
-                val prepared = prepareEditTurn(editingUserId, prompt)
-                if (prepared == null) return@launch
-                preservedReplyVersionsJson = prepared
+                validateEditTurn(editingUserId, prompt)?.let { message ->
+                    _errorMessage.value = message
+                    return@launch
+                }
             }
 
             val apiKey = settingsRepository.getApiKeyDirect()
@@ -1128,6 +1133,7 @@ class ChatViewModel(
             if (streamJobs[chatId]?.isActive == true) return@launch
             coroutineContext[Job]?.let { streamJobs[chatId] = it }
 
+            var preservedReplyVersionsJson: String? = null
             if (editingUserId == null) {
                 // Insert User Message
                 val userMsg = ChatMessage(
@@ -1160,8 +1166,17 @@ class ChatViewModel(
                     }
                 }
             } else {
+                preservedReplyVersionsJson = commitEditTurn(
+                    userMessageId = editingUserId,
+                    newContent = prompt,
+                    attachmentUri = attachmentUri,
+                    attachmentMime = attachmentMime,
+                    attachmentName = attachmentName,
+                ) ?: return@launch
                 chatRepository.touchThread(chatId)
+                _editingUserMessageId.value = null
             }
+            clearPendingAttachment()
 
             // Load updated dialog history
             val fullHistory = chatRepository.history(chatId)
@@ -1773,22 +1788,33 @@ class ChatViewModel(
         currentResearchRun.value?.let { DeepResearchForegroundService.cancel(getApplication(), it.id) }
     }
 
-    private suspend fun prepareEditTurn(userMessageId: String, newContent: String): String? {
+    private suspend fun validateEditTurn(userMessageId: String, newContent: String): String? {
+        val chatId = _currentChatThreadId.value ?: return "No conversation open."
+        val messages = chatRepository.history(chatId)
+        val lastUser = messages.lastOrNull { it.role == "user" } ?: return "No message to edit."
+        if (lastUser.id != userMessageId) {
+            return "Only your most recent message can be edited."
+        }
+        if (newContent.isBlank()) {
+            return "Edited message cannot be empty."
+        }
+        if (_chatMode.value !is ChatMode.Normal && _chatMode.value !is ChatMode.WebSearch) {
+            return "Finish the active mode before editing a message."
+        }
+        return null
+    }
+
+    private suspend fun commitEditTurn(
+        userMessageId: String,
+        newContent: String,
+        attachmentUri: String?,
+        attachmentMime: String?,
+        attachmentName: String?,
+    ): String? {
         val chatId = _currentChatThreadId.value ?: return null
         val messages = chatRepository.history(chatId)
         val lastUser = messages.lastOrNull { it.role == "user" } ?: return null
-        if (lastUser.id != userMessageId) {
-            _errorMessage.value = "Only your most recent message can be edited."
-            return null
-        }
-        if (newContent.isBlank()) {
-            _errorMessage.value = "Edited message cannot be empty."
-            return null
-        }
-        if (_chatMode.value !is ChatMode.Normal && _chatMode.value !is ChatMode.WebSearch) {
-            _errorMessage.value = "Finish the active mode before editing a message."
-            return null
-        }
+        if (lastUser.id != userMessageId) return null
 
         val userIndex = messages.indexOfFirst { it.id == userMessageId }
         val assistant = messages.getOrNull(userIndex + 1)?.takeIf { it.role == "assistant" }
@@ -1808,7 +1834,13 @@ class ChatViewModel(
         }
 
         chatRepository.insertMessage(
-            lastUser.copy(content = newContent, createdAt = System.currentTimeMillis())
+            editedUserMessageForEditTurn(
+                lastUser = lastUser,
+                newContent = newContent,
+                attachmentUri = attachmentUri,
+                attachmentMime = attachmentMime,
+                attachmentName = attachmentName,
+            )
         )
         return preservedVersionsJson
     }
@@ -2010,3 +2042,17 @@ class ChatViewModel(
         }
     }
 }
+
+internal fun editedUserMessageForEditTurn(
+    lastUser: ChatMessage,
+    newContent: String,
+    attachmentUri: String?,
+    attachmentMime: String?,
+    attachmentName: String?,
+): ChatMessage = lastUser.copy(
+    content = newContent,
+    createdAt = System.currentTimeMillis(),
+    localAttachmentUri = attachmentUri,
+    localAttachmentMimeType = attachmentMime,
+    localAttachmentName = attachmentName,
+)
