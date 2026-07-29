@@ -8,8 +8,13 @@ import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -52,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberReducedMotion
 
 @Composable
 internal fun UserMessageBubble(
@@ -82,7 +88,7 @@ internal fun UserMessageBubble(
             )
             if (canEdit) {
                 DropdownMenuItem(
-                    text = { Text("Edit") },
+                    text = { Text("Edit prompt") },
                     leadingIcon = { Icon(Icons.Default.Edit, null) },
                     onClick = {
                         menuOpen = false
@@ -143,47 +149,52 @@ internal fun ReplyVersionBar(
     Row(
         modifier = modifier.padding(top = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         if (totalVersions > 1) {
+            // Quiet pager: small chevrons + "1/2" so version history never competes with the answer.
             Surface(
                 onClick = onPrevious,
                 enabled = currentIndex > 0,
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                    alpha = if (currentIndex > 0) 1f else 0.5f,
+                    alpha = if (currentIndex > 0) 0.9f else 0.4f,
                 ),
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(26.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                         "Previous answer",
-                        Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                            alpha = if (currentIndex > 0) 1f else 0.45f,
+                        ),
                     )
                 }
             }
             Text(
                 "${currentIndex + 1}/$totalVersions",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
             Surface(
                 onClick = onNext,
                 enabled = currentIndex < totalVersions - 1,
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                    alpha = if (currentIndex < totalVersions - 1) 1f else 0.5f,
+                    alpha = if (currentIndex < totalVersions - 1) 0.9f else 0.4f,
                 ),
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(26.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         "Next answer",
-                        Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                            alpha = if (currentIndex < totalVersions - 1) 1f else 0.45f,
+                        ),
                     )
                 }
             }
@@ -197,7 +208,7 @@ internal fun ReplyVersionBar(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
             ) {
-                Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp))
+                Icon(Icons.Default.ContentCopy, "Copy answer", Modifier.size(16.dp))
             }
         }
     }
@@ -209,10 +220,29 @@ internal fun AnimatedReplyContent(
     modifier: Modifier = Modifier,
     content: @Composable (Int) -> Unit,
 ) {
+    val reducedMotion = rememberReducedMotion()
+
     AnimatedContent(
         targetState = targetIndex,
         modifier = modifier,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        transitionSpec = {
+            if (reducedMotion) {
+                fadeIn(tween(120)) togetherWith fadeOut(tween(90))
+            } else {
+                val forward = targetState > initialState
+                val enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+                    slideInHorizontally(
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { if (forward) it / 12 else -it / 12 },
+                    )
+                val exit = fadeOut(tween(140)) +
+                    slideOutHorizontally(
+                        animationSpec = tween(140),
+                        targetOffsetX = { if (forward) -it / 16 else it / 16 },
+                    )
+                enter togetherWith exit
+            }
+        },
         label = "reply-version",
     ) { index ->
         content(index)

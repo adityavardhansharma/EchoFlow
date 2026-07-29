@@ -1190,7 +1190,9 @@ class ChatViewModel(
                         isLocal = isLocal,
                     ),
                 )
-                preservedReplyVersionsJson = withContext(NonCancellable) {
+                // Success is EditTurnCommit; null only means validation failed.
+                // An empty archive (no prior assistant) is still a successful commit.
+                val editCommit = withContext(NonCancellable) {
                     commitEditTurn(
                         userMessageId = editingUserId,
                         newContent = prompt,
@@ -1203,6 +1205,7 @@ class ChatViewModel(
                     _errorMessage.value = "Could not edit message."
                     return@launch
                 }
+                preservedReplyVersionsJson = editCommit.replyVersionsJson
                 chatRepository.touchThread(chatId)
             }
             clearPendingAttachment()
@@ -1843,13 +1846,19 @@ class ChatViewModel(
         return null
     }
 
+    /**
+     * Outcome of [commitEditTurn]. [replyVersionsJson] may be null when there was no prior
+     * assistant answer to archive — that is still a successful edit.
+     */
+    private data class EditTurnCommit(val replyVersionsJson: String?)
+
     private suspend fun commitEditTurn(
         userMessageId: String,
         newContent: String,
         attachmentUri: String?,
         attachmentMime: String?,
         attachmentName: String?,
-    ): String? {
+    ): EditTurnCommit? {
         val chatId = _currentChatThreadId.value ?: return null
         val messages = chatRepository.history(chatId)
         val lastUser = messages.lastOrNull { it.role == "user" } ?: return null
@@ -1882,7 +1891,7 @@ class ChatViewModel(
             ),
             assistantMessageId = assistant?.id,
         )
-        return preservedVersionsJson
+        return EditTurnCommit(preservedVersionsJson)
     }
 
     private suspend fun persistAssistantMessage(

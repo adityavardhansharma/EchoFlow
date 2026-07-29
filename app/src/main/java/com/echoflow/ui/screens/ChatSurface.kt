@@ -376,8 +376,13 @@ internal fun ChatSurface(
         }
 
 
-        // Floating input toolbar over the bottom of the chat.
-        Column(Modifier.align(Alignment.BottomCenter)) {
+        // Floating input toolbar over the bottom of the chat. Measure the whole stack
+        // (edit banner + composer) so the message list clears both.
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { inputHeightPx = it.height },
+        ) {
             if (editingUserMessageId != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -391,7 +396,7 @@ internal fun ChatSurface(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Editing message",
+                            "Editing prompt",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.weight(1f),
@@ -406,8 +411,7 @@ internal fun ChatSurface(
                 }
             }
         InputToolbar(
-            modifier = Modifier
-                .onSizeChanged { inputHeightPx = it.height },
+            modifier = Modifier,
             text = textInput,
             onText = { textInput = it },
             pendingUri = pendingUri?.toString(),
