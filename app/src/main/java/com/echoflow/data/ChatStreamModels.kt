@@ -326,6 +326,21 @@ object ReplyVersioning {
         )
     }
 
-    fun copyText(message: ChatMessage, versionIndex: Int): String =
-        displayMessage(message, versionIndex).content
+    fun copyText(message: ChatMessage, versionIndex: Int): String {
+        val displayed = displayMessage(message, versionIndex)
+        return copyTextFromSegments(displayed.segmentsJson).ifBlank { displayed.content }
+    }
+
+    /** Flattens visible answer text from a persisted segment timeline for clipboard copy. */
+    fun copyTextFromSegments(segmentsJson: String?): String {
+        val segments = ToolEventJson.segmentsFromJson(segmentsJson)
+        if (segments.isEmpty()) return ""
+        return segments.mapNotNull { segment ->
+            when (segment.type) {
+                "text", "report", "data" -> segment.text
+                "reasoning" -> segment.text?.let { text -> "Reasoning:\n$text" }
+                else -> null
+            }
+        }.filter { !it.isNullOrBlank() }.joinToString("\n\n")
+    }
 }

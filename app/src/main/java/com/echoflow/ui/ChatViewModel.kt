@@ -171,6 +171,21 @@ class ChatViewModel(
     private val _replyVersionIndex = MutableStateFlow<Map<String, Int>>(emptyMap())
     val replyVersionIndex: StateFlow<Map<String, Int>> = _replyVersionIndex.asStateFlow()
 
+    /** One-shot signal to reload composer text after a failed edit regeneration. */
+    private val _editTurnRestore = MutableStateFlow<EditTurnRestore?>(null)
+    val editTurnRestore: StateFlow<EditTurnRestore?> = _editTurnRestore.asStateFlow()
+
+    data class EditTurnRestore(val userMessageId: String, val prompt: String)
+
+    fun consumeEditTurnRestore() {
+        _editTurnRestore.value = null
+    }
+
+    private fun restoreEditTurn(userMessageId: String, prompt: String) {
+        _editingUserMessageId.value = userMessageId
+        _editTurnRestore.value = EditTurnRestore(userMessageId, prompt)
+    }
+
     fun beginEditUserMessage(messageId: String): String? {
         val messages = currentMessages.value
         val lastUser = messages.lastOrNull { it.role == "user" } ?: return null
@@ -891,7 +906,7 @@ class ChatViewModel(
             clearError()
 
             if (editingUserId != null) {
-                validateEditTurn(editingUserId, prompt)?.let { message ->
+                validateEditTurn(editingUserId, prompt, hasAttachment = attachmentUri != null)?.let { message ->
                     _errorMessage.value = message
                     return@launch
                 }
@@ -1166,6 +1181,15 @@ class ChatViewModel(
                     }
                 }
             } else {
+                setStreamState(
+                    chatId,
+                    ActiveStreamState(
+                        segments = emptyList(),
+                        statusNote = null,
+                        progressLoading = true,
+                        isLocal = isLocal,
+                    ),
+                )
                 preservedReplyVersionsJson = withContext(NonCancellable) {
                     commitEditTurn(
                         userMessageId = editingUserId,
@@ -1175,11 +1199,11 @@ class ChatViewModel(
                         attachmentName = attachmentName,
                     )
                 } ?: run {
+                    setStreamState(chatId, null)
                     _errorMessage.value = "Could not edit message."
                     return@launch
                 }
                 chatRepository.touchThread(chatId)
-                _editingUserMessageId.value = null
             }
             clearPendingAttachment()
 
@@ -1491,6 +1515,9 @@ class ChatViewModel(
                     delay(2600)
                 }
                 persistAssistantMessage(chatId, segments, interrupted = null, replyVersionsJson = preservedReplyVersionsJson)
+                if (editingUserId != null) {
+                    _editingUserMessageId.value = null
+                }
                 if (videoGenMode) {
                     // The video flow also completes normally when its row was deleted
                     // mid-render, so announce a clip only once one actually exists.
@@ -1526,6 +1553,9 @@ class ChatViewModel(
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
                 persistAssistantMessage(chatId, segments, interrupted = e.message, replyVersionsJson = preservedReplyVersionsJson)
+                if (editingUserId != null) {
+                    restoreEditTurn(editingUserId, prompt)
+                }
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
                         getApplication(), chatId,
@@ -1793,14 +1823,18 @@ class ChatViewModel(
         currentResearchRun.value?.let { DeepResearchForegroundService.cancel(getApplication(), it.id) }
     }
 
-    private suspend fun validateEditTurn(userMessageId: String, newContent: String): String? {
+    private suspend fun validateEditTurn(
+        userMessageId: String,
+        newContent: String,
+        hasAttachment: Boolean,
+    ): String? {
         val chatId = _currentChatThreadId.value ?: return "No conversation open."
         val messages = chatRepository.history(chatId)
         val lastUser = messages.lastOrNull { it.role == "user" } ?: return "No message to edit."
         if (lastUser.id != userMessageId) {
             return "Only your most recent message can be edited."
         }
-        if (newContent.isBlank()) {
+        if (newContent.isBlank() && !hasAttachment) {
             return "Edited message cannot be empty."
         }
         if (_chatMode.value !is ChatMode.Normal && _chatMode.value !is ChatMode.WebSearch) {
@@ -1835,6 +1869,7 @@ class ChatViewModel(
                 segmentsJson = assistant.segmentsJson,
             )
             preservedVersionsJson = ToolEventJson.replyVersionsToJson(archived)
+            _replyVersionIndex.value = _replyVersionIndex.value - assistant.id
         }
 
         chatRepository.applyEditedUserTurn(
@@ -1857,7 +1892,14 @@ class ChatViewModel(
         stopped: Boolean = false,
         replyVersionsJson: String? = null,
     ) {
-        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
+        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped)
+            ?: if (replyVersionsJson != null) {
+                AssistantMessagePersistence.interruptedOnlyDraft(
+                    interrupted ?: "Something went wrong generating a reply.",
+                )
+            } else {
+                null
+            } ?: return
         messageDao.insertMessage(
             ChatMessage(
                 id = UUID.randomUUID().toString(),

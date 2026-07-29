@@ -79,6 +79,18 @@ class AssistantMessagePersistenceTest {
         assertNull(segment.video?.filePath)
     }
 
+    @Test fun `keeps interrupted empty response so edit history is not orphaned`() {
+        val draft = AssistantMessagePersistence.draft(emptyList(), "network error", stopped = false)!!
+        assertTrue(draft.content.contains("network error"))
+        assertEquals("text", draft.segments.last().type)
+    }
+
+    @Test fun `interruptedOnlyDraft writes a minimal persisted stub`() {
+        val draft = AssistantMessagePersistence.interruptedOnlyDraft("Reply failed.")
+        assertEquals("Reply failed.", draft.content)
+        assertEquals("Reply failed.", draft.segments.single().text)
+    }
+
     @Test fun `normalizes reasoning only answer and appends interruption`() {
         val draft = AssistantMessagePersistence.draft(
             listOf(StreamSegment.Reasoning("work\nAnswer: result")), "timeout", stopped = false,

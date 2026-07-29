@@ -21,7 +21,7 @@ internal object AssistantMessagePersistence {
                 (it is StreamSegment.Image && it.filePath != null) ||
                 it is StreamSegment.Video
         }
-        if (content.isEmpty() && !hasDurableCard && !stopped) return null
+        if (content.isEmpty() && !hasDurableCard && !stopped && interrupted.isNullOrBlank()) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim().ifBlank { null }
         val events = normalized.mapIndexedNotNull { index, segment ->
@@ -35,6 +35,18 @@ internal object AssistantMessagePersistence {
         }
         val finalContent = interrupted?.let { "$content\n\n*[Connection lost: $it]*" } ?: content
         return AssistantMessageDraft(finalContent, reasoning, events, citations, persisted)
+    }
+
+    /** Persists a failure stub so edit-turn version history is not orphaned in Room. */
+    fun interruptedOnlyDraft(message: String): AssistantMessageDraft {
+        val text = message.trim()
+        return AssistantMessageDraft(
+            content = text,
+            reasoning = null,
+            toolEvents = emptyList(),
+            citations = emptyList(),
+            segments = listOf(PersistedSegment(type = "text", text = text)),
+        )
     }
 
     private fun persistedSegment(segment: StreamSegment): PersistedSegment? = when (segment) {

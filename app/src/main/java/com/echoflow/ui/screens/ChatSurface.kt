@@ -142,6 +142,7 @@ internal fun ChatSurface(
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
     val editingUserMessageId by chatViewModel.editingUserMessageId.collectAsState()
     val replyVersionIndices by chatViewModel.replyVersionIndex.collectAsState()
+    val editTurnRestore by chatViewModel.editTurnRestore.collectAsState()
 
     val lastUserMessageId = remember(messages) { messages.lastOrNull { it.role == "user" }?.id }
 
@@ -194,6 +195,14 @@ internal fun ChatSurface(
 
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(editTurnRestore) {
+        editTurnRestore?.let { restore ->
+            textInput = restore.prompt
+            chatViewModel.beginEditUserMessage(restore.userMessageId)
+            chatViewModel.consumeEditTurnRestore()
+        }
+    }
 
     val drEngineLabel = remember(drModelId, drModels) {
         DeepResearchCatalog.providerEngineById(drModelId)?.name
