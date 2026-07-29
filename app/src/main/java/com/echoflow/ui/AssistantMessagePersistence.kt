@@ -21,7 +21,7 @@ internal object AssistantMessagePersistence {
                 (it is StreamSegment.Image && it.filePath != null) ||
                 it is StreamSegment.Video
         }
-        if (content.isEmpty() && !hasDurableCard && !stopped) return null
+        if (content.isEmpty() && !hasDurableCard && !stopped && interrupted.isNullOrBlank()) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim().ifBlank { null }
         val events = normalized.mapIndexedNotNull { index, segment ->
@@ -35,6 +35,18 @@ internal object AssistantMessagePersistence {
         }
         val finalContent = interrupted?.let { "$content\n\n*[Connection lost: $it]*" } ?: content
         return AssistantMessageDraft(finalContent, reasoning, events, citations, persisted)
+    }
+
+    /** Fallback draft so an edit-turn failure still re-attaches archived reply versions. */
+    fun failureStub(message: String): AssistantMessageDraft {
+        val text = message.trim().ifBlank { "Something went wrong generating a reply." }
+        return AssistantMessageDraft(
+            content = text,
+            reasoning = null,
+            toolEvents = emptyList(),
+            citations = emptyList(),
+            segments = listOf(PersistedSegment(type = "text", text = text)),
+        )
     }
 
     private fun persistedSegment(segment: StreamSegment): PersistedSegment? = when (segment) {

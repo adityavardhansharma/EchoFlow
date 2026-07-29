@@ -56,7 +56,7 @@ class DatabaseUpgradeTest {
     }
 
     @Test
-    fun `production database upgrades version one through version eighteen without data loss`() {
+    fun `production database upgrades version one through version nineteen without data loss`() {
         val database = AppDatabase.getDatabase(context).also { openedDatabase = it }
 
         // v13 tables exist and are queryable after the chained migration.
@@ -82,6 +82,14 @@ class DatabaseUpgradeTest {
         ).use { cursor ->
             cursor.moveToFirst()
             assertEquals("chat", cursor.getString(0))
+        }
+
+        // v19: reply version history for prompt edits.
+        database.openHelper.readableDatabase.query(
+            "SELECT replyVersionsJson FROM chat_messages WHERE id = 'message-1'"
+        ).use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(null, cursor.getString(0))
         }
 
         database.openHelper.readableDatabase.query(

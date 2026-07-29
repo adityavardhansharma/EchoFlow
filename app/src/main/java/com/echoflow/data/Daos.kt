@@ -47,6 +47,19 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessage)
 
+    @Query("DELETE FROM chat_messages WHERE id = :messageId")
+    suspend fun deleteMessageById(messageId: String)
+
+    /**
+     * Prompt edit: write the updated user row and drop the assistant answer it replaces
+     * in one transaction so a crash never leaves a half-edited turn.
+     */
+    @Transaction
+    suspend fun replaceUserTurn(updatedUser: ChatMessage, oldAssistantId: String?) {
+        insertMessage(updatedUser)
+        if (oldAssistantId != null) deleteMessageById(oldAssistantId)
+    }
+
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
 

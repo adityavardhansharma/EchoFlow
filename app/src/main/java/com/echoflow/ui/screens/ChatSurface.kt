@@ -101,6 +101,7 @@ import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberMorph
 import com.echoflow.ui.theme.rememberMorphProgress
+import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.launch
 
 /** Single built-in model. Everything else the user adds in Settings. */
@@ -140,6 +141,10 @@ internal fun ChatSurface(
     val localModelsList by settingsViewModel.localModels.collectAsState()
     val localModelsEnabled by settingsViewModel.localModelsEnabled.collectAsState()
     val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
+    val editingUserMessageId by chatViewModel.editingUserMessageId.collectAsState()
+    val replyVersionPick by chatViewModel.replyVersionPick.collectAsState()
+    val lastUserMessageId = remember(messages) { messages.lastOrNull { it.role == "user" }?.id }
+    val reducedMotion = rememberReducedMotion()
 
     val deepResearchActive by chatViewModel.deepResearchActive.collectAsState()
     val webSearchChipOn by chatViewModel.webSearchChipOn.collectAsState()
@@ -348,16 +353,69 @@ internal fun ChatSurface(
                     onCopy = { clipboard.setText(AnnotatedString(it)) },
                     onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
                     observeVideo = chatViewModel::observeVideo,
+                    lastUserMessageId = lastUserMessageId,
+                    onEditUserMessage = { id ->
+                        chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
+                    },
+                    replyVersionIndexFor = { messageId, total ->
+                        replyVersionPick[messageId]?.coerceIn(0, (total - 1).coerceAtLeast(0))
+                            ?: (total - 1).coerceAtLeast(0)
+                    },
+                    onReplyVersionChange = chatViewModel::selectReplyVersion,
+                    canEditMessages = !isStreaming && editingUserMessageId == null,
                 )
             }
         }
 
 
-        // Floating input toolbar over the bottom of the chat.
-        InputToolbar(
-            modifier = Modifier
+        // Floating composer stack (optional edit banner + input). Measure the whole stack so
+        // the message list clears both the banner and the toolbar.
+        Column(
+            Modifier
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { inputHeightPx = it.height },
+        ) {
+            AnimatedVisibility(
+                visible = editingUserMessageId != null,
+                enter = if (reducedMotion) {
+                    fadeIn(tween(120))
+                } else {
+                    fadeIn(tween(160)) + expandVertically(expandFrom = Alignment.Bottom)
+                },
+                exit = if (reducedMotion) {
+                    fadeOut(tween(90))
+                } else {
+                    fadeOut(tween(120)) + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                },
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.base, vertical = Spacing.xs),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Editing prompt",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            chatViewModel.cancelEditMessage()
+                            textInput = ""
+                        }) {
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        InputToolbar(
+            modifier = Modifier,
             text = textInput,
             onText = { textInput = it },
             pendingUri = pendingUri?.toString(),
@@ -421,6 +479,7 @@ internal fun ChatSurface(
             onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
             onStop = { chatViewModel.stopStreaming() },
         )
+        }
 
 
         // One live browser session app-wide: starting a second is blocked with a choice.

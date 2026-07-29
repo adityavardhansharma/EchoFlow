@@ -79,6 +79,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.AppMode
 import com.echoflow.data.GeneratedVideo
+import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -130,6 +131,11 @@ internal fun MessagesPane(
     onCopy: (String) -> Unit,
     onArtifactOpen: () -> Unit = {},
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    lastUserMessageId: String? = null,
+    onEditUserMessage: (String) -> Unit = {},
+    replyVersionIndexFor: (messageId: String, total: Int) -> Int = { _, total -> (total - 1).coerceAtLeast(0) },
+    onReplyVersionChange: (messageId: String, index: Int) -> Unit = { _, _ -> },
+    canEditMessages: Boolean = true,
 ) {
     val listState = rememberLazyListState()
     var autoFollow by remember { mutableStateOf(true) }
@@ -167,11 +173,20 @@ internal fun MessagesPane(
         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = topInset, bottom = bottomInset),
     ) {
         items(messages, key = { it.id }) { msg ->
+            val versionTotal = if (msg.role == "assistant") ReplyVersions.count(msg) else 1
             MessageBubble(
                 msg,
-                onCopy = { onCopy(msg.content) },
+                onCopy = { text -> onCopy(text) },
                 onArtifactOpen = onArtifactOpen,
                 observeVideo = observeVideo,
+                canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
+                onEditUserMessage = onEditUserMessage,
+                replyVersionIndex = if (msg.role == "assistant") {
+                    replyVersionIndexFor(msg.id, versionTotal)
+                } else {
+                    0
+                },
+                onReplyVersionChange = onReplyVersionChange,
             )
         }
         researchRun?.let { run ->
@@ -414,13 +429,22 @@ internal fun MessageBubble(
     streaming: Boolean = false,
     onArtifactOpen: () -> Unit = {},
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
-    onCopy: () -> Unit,
+    onCopy: (String) -> Unit,
+    canEditUserMessage: Boolean = false,
+    onEditUserMessage: (String) -> Unit = {},
+    replyVersionIndex: Int = 0,
+    onReplyVersionChange: (String, Int) -> Unit = { _, _ -> },
 ) {
     val isUser = message.role == "user"
     if (isUser) {
-        Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 320.dp)) {
-                message.localAttachmentUri?.let { uri ->
+        UserPromptBubble(
+            content = message.content,
+            canEdit = canEditUserMessage,
+            onCopy = { onCopy(message.content) },
+            onEdit = { onEditUserMessage(message.id) },
+            modifier = modifier,
+            attachment = message.localAttachmentUri?.let { uri ->
+                {
                     MessageAttachmentPreview(
                         uri = uri,
                         mimeType = message.localAttachmentMimeType,
@@ -428,16 +452,11 @@ internal fun MessageBubble(
                         modifier = Modifier.padding(bottom = Spacing.s),
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(26.dp, 26.dp, 8.dp, 26.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Text(message.content, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = Spacing.m))
-                }
-            }
-        }
+            },
+        )
     } else {
+        val versionCount = ReplyVersions.count(message)
+        val displayMessage = ReplyVersions.display(message, replyVersionIndex)
         // ChatGPT / Claude style: no bubble, full content width.
         Column(modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -447,190 +466,232 @@ internal fun MessageBubble(
             }
             Spacer(Modifier.height(Spacing.s))
 
-            // Finished replies render their persisted timeline in arrival order, so
-            // reason → search → reason → search → answer keeps exactly the layout it
-            // streamed with instead of merging all reasoning into one block.
-            val persistedSegments = remember(message.id) { ToolEventJson.segmentsFromJson(message.segmentsJson) }
-            // Generated media carries its own copy/save/share row, so the bubble's own copy
-            // button is suppressed when a clip or image is the reply's last word.
-            val lastGeneratedMediaIndex = persistedSegments.indexOfLast { segment ->
-                (segment.type == "image" && segment.image != null) ||
-                    (segment.type == "video" && segment.video != null)
-            }
-
-            message.localAttachmentUri?.let { uri ->
-                MessageAttachmentPreview(
-                    uri = uri,
-                    mimeType = message.localAttachmentMimeType,
-                    name = message.localAttachmentName,
-                    modifier = Modifier.padding(bottom = Spacing.s),
+            AnimatedAnswerVersion(versionIndex = replyVersionIndex) { versionIndex ->
+                AssistantAnswerBody(
+                    message = ReplyVersions.display(message, versionIndex),
+                    messageKey = "${message.id}-$versionIndex",
+                    streaming = streaming,
+                    onArtifactOpen = onArtifactOpen,
+                    observeVideo = observeVideo,
+                    onCopy = onCopy,
                 )
             }
 
-            when {
-                streaming -> {
-                    // Live markdown, revealed at a smooth steady cadence (decoupled from bursty chunks).
-                    if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
+            if (!streaming) {
+                val segments = ToolEventJson.segmentsFromJson(displayMessage.segmentsJson)
+                val lastGeneratedMediaIndex = segments.indexOfLast { segment ->
+                    (segment.type == "image" && segment.image != null) ||
+                        (segment.type == "video" && segment.video != null)
                 }
-                persistedSegments.isNotEmpty() -> {
-                    val planSteps = remember(message.id) {
-                        persistedSegments.firstOrNull { it.type == "plan" }?.text
-                            ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+                AnswerActionBar(
+                    versionIndex = replyVersionIndex,
+                    versionCount = versionCount,
+                    onPreviousVersion = {
+                        onReplyVersionChange(message.id, (replyVersionIndex - 1).coerceAtLeast(0))
+                    },
+                    onNextVersion = {
+                        onReplyVersionChange(
+                            message.id,
+                            (replyVersionIndex + 1).coerceAtMost(versionCount - 1),
+                        )
+                    },
+                    onCopy = { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) },
+                    showCopy = lastGeneratedMediaIndex == -1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantAnswerBody(
+    message: ChatMessage,
+    messageKey: String,
+    streaming: Boolean,
+    onArtifactOpen: () -> Unit,
+    observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    onCopy: (String) -> Unit,
+) {
+    // Finished replies render their persisted timeline in arrival order, so
+    // reason → search → reason → search → answer keeps exactly the layout it
+    // streamed with instead of merging all reasoning into one block.
+    val persistedSegments = remember(messageKey, message.segmentsJson) {
+        ToolEventJson.segmentsFromJson(message.segmentsJson)
+    }
+    // Generated media carries its own copy/save/share row, so the bubble's own copy
+    // button is suppressed when a clip or image is the reply's last word.
+    val lastGeneratedMediaIndex = persistedSegments.indexOfLast { segment ->
+        (segment.type == "image" && segment.image != null) ||
+            (segment.type == "video" && segment.video != null)
+    }
+    val copyAction: () -> Unit = { onCopy(ReplyVersions.copyText(message, ReplyVersions.count(message) - 1)) }
+
+    message.localAttachmentUri?.let { uri ->
+        MessageAttachmentPreview(
+            uri = uri,
+            mimeType = message.localAttachmentMimeType,
+            name = message.localAttachmentName,
+            modifier = Modifier.padding(bottom = Spacing.s),
+        )
+    }
+
+    when {
+        streaming -> {
+            // Live markdown, revealed at a smooth steady cadence (decoupled from bursty chunks).
+            if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
+        }
+        persistedSegments.isNotEmpty() -> {
+            val planSteps = remember(messageKey) {
+                persistedSegments.firstOrNull { it.type == "plan" }?.text
+                    ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+            }
+            val reportCitations = remember(messageKey, message.citationsJson) {
+                ToolEventJson.citationsFromJson(message.citationsJson)
+            }
+            persistedSegments.forEachIndexed { index, segment ->
+                when (segment.type) {
+                    "reasoning" -> {
+                        ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
+                        Spacer(Modifier.height(Spacing.s))
                     }
-                    val reportCitations = remember(message.id) { ToolEventJson.citationsFromJson(message.citationsJson) }
-                    persistedSegments.forEachIndexed { index, segment ->
-                        when (segment.type) {
-                            "reasoning" -> {
-                                ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
-                                Spacer(Modifier.height(Spacing.s))
-                            }
-                            "search" -> {
-                                SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
-                                Spacer(Modifier.height(Spacing.s))
-                            }
-                            "advisor" -> {
-                                segment.advisor?.let { a ->
-                                    AdvisorCard(
-                                        advisorName = a.advisorName,
-                                        advisorModel = a.advisorModel,
-                                        prompt = a.prompt,
-                                        advice = a.advice,
-                                        active = false,
-                                    )
-                                    Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "fusion" -> {
-                                segment.fusion?.let { f ->
-                                    FusionCard(
-                                        panelName = f.panelName,
-                                        models = f.models,
-                                        analysis = f,
-                                        active = false,
-                                    )
-                                    Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "subagent" -> {
-                                segment.subagent?.let { s ->
-                                    SubagentCard(
-                                        taskName = s.taskName,
-                                        taskDescription = s.taskDescription,
-                                        workerModel = s.workerModel,
-                                        outcome = s.outcome,
-                                        error = s.error,
-                                        active = false,
-                                    )
-                                    Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "artifact" -> {
-                                segment.artifact?.let { a ->
-                                    ArtifactCard(
-                                        title = a.title,
-                                        artifactType = a.type,
-                                        version = a.version,
-                                        building = false,
-                                        charCount = 0,
-                                        truncated = false,
-                                        onOpen = onArtifactOpen,
-                                    )
-                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "image" -> {
-                                segment.image?.let { ref ->
-                                    com.echoflow.ui.components.GeneratedImageSegment(
-                                        filePath = ref.filePath,
-                                        pattern = "ripple",
-                                        previousImagePath = null,
-                                        animate = false,
-                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
-                                    )
-                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "video" -> {
-                                segment.video?.let { ref ->
-                                    // The row, not the segment, is the truth: a clip can still be
-                                    // rendering when its message is written (or finish while the
-                                    // app is dead), so the card follows the job live.
-                                    val live by remember(ref.videoId) { observeVideo(ref.videoId) }
-                                        .collectAsState(initial = null)
-                                    com.echoflow.ui.components.GeneratedVideoSegment(
-                                        videoId = ref.videoId,
-                                        filePath = live?.filePath ?: ref.filePath,
-                                        pattern = "ripple",
-                                        aspectRatio = live?.aspectRatio
-                                            ?: com.echoflow.data.VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
-                                        status = live?.status ?: if (ref.filePath != null) {
-                                            GeneratedVideo.STATUS_COMPLETED
-                                        } else {
-                                            GeneratedVideo.STATUS_IN_PROGRESS
-                                        },
-                                        // A message written before the file existed means the clip
-                                        // lands in front of the user — that one gets the reveal.
-                                        animate = ref.filePath == null,
-                                        errorMessage = live?.error,
-                                        onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
-                                    )
-                                    if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                                }
-                            }
-                            "stopped" -> {
-                                StoppedNotice()
-                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                            }
-                            // The plan is rendered as a disclosure inside the report card.
-                            "plan" -> Unit
-                            "report" -> {
-                                ReportCard(
-                                    report = segment.text.orEmpty(),
-                                    citations = reportCitations,
-                                    planSteps = planSteps,
-                                    onCopy = onCopy,
-                                )
-                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                            }
-                            "data" -> {
-                                DataResultCard(
-                                    json = segment.text.orEmpty(),
-                                    citations = reportCitations,
-                                    onCopy = onCopy,
-                                )
-                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                            }
-                            else -> {
-                                RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
-                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                            }
+                    "search" -> {
+                        SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                    "advisor" -> {
+                        segment.advisor?.let { a ->
+                            AdvisorCard(
+                                advisorName = a.advisorName,
+                                advisorModel = a.advisorModel,
+                                prompt = a.prompt,
+                                advice = a.advice,
+                                active = false,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
                         }
                     }
-                }
-                else -> {
-                    // Legacy messages saved before the timeline column existed.
-                    val reasoningText = message.reasoning
-                    if (!reasoningText.isNullOrBlank()) {
-                        ReasoningSection(reasoning = reasoningText, active = false)
-                        Spacer(Modifier.height(Spacing.s))
+                    "fusion" -> {
+                        segment.fusion?.let { f ->
+                            FusionCard(
+                                panelName = f.panelName,
+                                models = f.models,
+                                analysis = f,
+                                active = false,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
                     }
-                    val toolEvents = remember(message.id) { ToolEventJson.toolEventsFromJson(message.toolEventsJson) }
-                    toolEvents.forEach { event ->
-                        SearchActivityCard(query = event.query, sources = event.sources, active = false)
-                        Spacer(Modifier.height(Spacing.s))
+                    "subagent" -> {
+                        segment.subagent?.let { s ->
+                            SubagentCard(
+                                taskName = s.taskName,
+                                taskDescription = s.taskDescription,
+                                workerModel = s.workerModel,
+                                outcome = s.outcome,
+                                error = s.error,
+                                active = false,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
                     }
-                    RichMarkdown(message.content, Modifier.fillMaxWidth())
+                    "artifact" -> {
+                        segment.artifact?.let { a ->
+                            ArtifactCard(
+                                title = a.title,
+                                artifactType = a.type,
+                                version = a.version,
+                                building = false,
+                                charCount = 0,
+                                truncated = false,
+                                onOpen = onArtifactOpen,
+                            )
+                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        }
+                    }
+                    "image" -> {
+                        segment.image?.let { ref ->
+                            com.echoflow.ui.components.GeneratedImageSegment(
+                                filePath = ref.filePath,
+                                pattern = "ripple",
+                                previousImagePath = null,
+                                animate = false,
+                                onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
+                            )
+                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        }
+                    }
+                    "video" -> {
+                        segment.video?.let { ref ->
+                            // The row, not the segment, is the truth: a clip can still be
+                            // rendering when its message is written (or finish while the
+                            // app is dead), so the card follows the job live.
+                            val live by remember(ref.videoId) { observeVideo(ref.videoId) }
+                                .collectAsState(initial = null)
+                            com.echoflow.ui.components.GeneratedVideoSegment(
+                                videoId = ref.videoId,
+                                filePath = live?.filePath ?: ref.filePath,
+                                pattern = "ripple",
+                                aspectRatio = live?.aspectRatio
+                                    ?: com.echoflow.data.VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
+                                status = live?.status ?: if (ref.filePath != null) {
+                                    GeneratedVideo.STATUS_COMPLETED
+                                } else {
+                                    GeneratedVideo.STATUS_IN_PROGRESS
+                                },
+                                // A message written before the file existed means the clip
+                                // lands in front of the user — that one gets the reveal.
+                                animate = ref.filePath == null,
+                                errorMessage = live?.error,
+                                onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
+                            )
+                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        }
+                    }
+                    "stopped" -> {
+                        StoppedNotice()
+                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                    }
+                    // The plan is rendered as a disclosure inside the report card.
+                    "plan" -> Unit
+                    "report" -> {
+                        ReportCard(
+                            report = segment.text.orEmpty(),
+                            citations = reportCitations,
+                            planSteps = planSteps,
+                            onCopy = copyAction,
+                        )
+                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                    }
+                    "data" -> {
+                        DataResultCard(
+                            json = segment.text.orEmpty(),
+                            citations = reportCitations,
+                            onCopy = copyAction,
+                        )
+                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                    }
+                    else -> {
+                        RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
+                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                    }
                 }
             }
-
-            if (!streaming && lastGeneratedMediaIndex == -1) {
-                Spacer(Modifier.height(Spacing.xs))
-                FilledTonalIconButton(
-                    onClick = onCopy,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                ) { Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp)) }
+        }
+        else -> {
+            // Legacy messages saved before the timeline column existed.
+            val reasoningText = message.reasoning
+            if (!reasoningText.isNullOrBlank()) {
+                ReasoningSection(reasoning = reasoningText, active = false)
+                Spacer(Modifier.height(Spacing.s))
             }
+            val toolEvents = remember(messageKey, message.toolEventsJson) {
+                ToolEventJson.toolEventsFromJson(message.toolEventsJson)
+            }
+            toolEvents.forEach { event ->
+                SearchActivityCard(query = event.query, sources = event.sources, active = false)
+                Spacer(Modifier.height(Spacing.s))
+            }
+            RichMarkdown(message.content, Modifier.fillMaxWidth())
         }
     }
 }
