@@ -163,6 +163,7 @@ class ChatViewModel(
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         _editingUserMessageId.value = null
+        clearPendingAttachment()
     }
 
     // ── Prompt edit + reply versions ──────────────────────────────────────────────
