@@ -160,6 +160,54 @@ class ChatViewModel(
     private fun openThread(chatId: String?) {
         navigation.navigated()
         _currentChatThreadId.value = chatId
+        // Version pick is session-only; reopening always lands on the latest answer.
+        _replyVersionPick.value = emptyMap()
+        _editingUserMessageId.value = null
+        clearPendingAttachment()
+    }
+
+    // ── Prompt edit + reply versions ──────────────────────────────────────────────
+
+    /** User message currently loaded into the composer for edit; null when not editing. */
+    private val _editingUserMessageId = MutableStateFlow<String?>(null)
+    val editingUserMessageId: StateFlow<String?> = _editingUserMessageId.asStateFlow()
+
+    /**
+     * Which archived answer is shown for each assistant message id. Missing keys mean
+     * "show latest" so close/reopen always prefers the newest reply.
+     */
+    private val _replyVersionPick = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val replyVersionPick: StateFlow<Map<String, Int>> = _replyVersionPick.asStateFlow()
+
+    /**
+     * Start editing [messageId] if it is the last user prompt. Returns the text to put in
+     * the composer, or null when edit is not allowed.
+     */
+    fun beginEditUserMessage(messageId: String): String? {
+        val lastUser = currentMessages.value.lastOrNull { it.role == "user" } ?: return null
+        if (lastUser.id != messageId) return null
+        _editingUserMessageId.value = messageId
+        val uri = lastUser.localAttachmentUri?.let(Uri::parse)
+        if (uri != null) {
+            setPendingAttachment(uri, lastUser.localAttachmentMimeType, lastUser.localAttachmentName)
+        } else {
+            clearPendingAttachment()
+        }
+        return lastUser.content
+    }
+
+    fun cancelEditMessage() {
+        _editingUserMessageId.value = null
+        clearPendingAttachment()
+    }
+
+    fun selectReplyVersion(messageId: String, index: Int) {
+        _replyVersionPick.value = _replyVersionPick.value + (messageId to index.coerceAtLeast(0))
+    }
+
+    fun replyVersionIndex(messageId: String, total: Int): Int {
+        val latest = (total - 1).coerceAtLeast(0)
+        return _replyVersionPick.value[messageId]?.coerceIn(0, latest) ?: latest
     }
 
     /** Records where this mode is being left — including "on a blank composer". */
@@ -808,33 +856,38 @@ class ChatViewModel(
 
     fun sendMessage(content: String) {
         val prompt = content.trim()
+        val editingUserId = _editingUserMessageId.value
         val attachmentUri = _pendingAttachmentUri.value?.toString()
         val attachmentMime = _pendingAttachmentMimeType.value
         val attachmentName = _pendingAttachmentName.value
 
         if (prompt.isEmpty() && attachmentUri == null) return
 
-        // Deep Research and Data Agent are different pipelines (foreground service +
-        // provider/agent orchestration), so they short-circuit the normal streaming send.
-        if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
-            startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
-            return
-        }
-        if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
-            startDataAgent(prompt)
-            return
-        }
-        // Browser Flow: the owning chat is captured — every message drives the same live browser.
-        val activeBrowser = currentBrowserSession.value
-        if (activeBrowser != null && prompt.isNotEmpty()) {
-            clearPendingAttachment()
-            browserAgent.sendCommand(activeBrowser.chatId, prompt)
-            return
-        }
-        // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
-        if (_chatMode.value is ChatMode.BrowserFlow && prompt.isNotEmpty()) {
-            startBrowserSession(prompt)
-            return
+        // Prompt edit always uses the normal chat stream path (archive old answer, stream new).
+        // Special modes would fork into a different pipeline and lose the version chain.
+        if (editingUserId == null) {
+            // Deep Research and Data Agent are different pipelines (foreground service +
+            // provider/agent orchestration), so they short-circuit the normal streaming send.
+            if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
+                startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
+                return
+            }
+            if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
+                startDataAgent(prompt)
+                return
+            }
+            // Browser Flow: the owning chat is captured — every message drives the same live browser.
+            val activeBrowser = currentBrowserSession.value
+            if (activeBrowser != null && prompt.isNotEmpty()) {
+                clearPendingAttachment()
+                browserAgent.sendCommand(activeBrowser.chatId, prompt)
+                return
+            }
+            // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
+            if (_chatMode.value is ChatMode.BrowserFlow && prompt.isNotEmpty()) {
+                startBrowserSession(prompt)
+                return
+            }
         }
 
         _currentChatThreadId.value?.let { chatId ->
@@ -844,13 +897,22 @@ class ChatViewModel(
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
         // media for every later question after the user switches away mid-render.
-        val imageGenMode = _chatMode.value is ChatMode.ImageGen
-        val videoGenMode = _chatMode.value is ChatMode.VideoGen
+        // Edit-turn never generates media — it re-asks as a normal chat reply.
+        val imageGenMode = editingUserId == null && _chatMode.value is ChatMode.ImageGen
+        val videoGenMode = editingUserId == null && _chatMode.value is ChatMode.VideoGen
         if (imageGenMode || videoGenMode) clearImagineArmedModes()
 
         viewModelScope.launch {
-            clearPendingAttachment()
             clearError()
+
+            if (editingUserId != null) {
+                validateEditTurn(editingUserId, prompt, hasAttachment = attachmentUri != null)?.let { reason ->
+                    _errorMessage.value = reason
+                    return@launch
+                }
+            }
+
+            clearPendingAttachment()
 
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
@@ -1088,35 +1150,71 @@ class ChatViewModel(
             if (streamJobs[chatId]?.isActive == true) return@launch
             coroutineContext[Job]?.let { streamJobs[chatId] = it }
 
-            // Insert User Message
-            val userMsg = ChatMessage(
-                id = UUID.randomUUID().toString(),
-                chatId = chatId,
-                role = "user",
-                content = prompt,
-                createdAt = System.currentTimeMillis(),
-                localAttachmentUri = attachmentUri,
-                localAttachmentMimeType = attachmentMime,
-                localAttachmentName = attachmentName
-            )
-            chatRepository.insertMessage(userMsg)
+            // Carried into the new assistant row so prior answers survive regeneration.
+            var archivedReplyVersionsJson: String? = null
+            // If an edited generation fails, restore this exact row instead of persisting the
+            // failed attempt as another browsable answer version.
+            var replacedAssistant: ChatMessage? = null
 
-            // Update Thread Timestamp
-            chatRepository.touchThread(chatId)
+            if (editingUserId == null) {
+                // Insert User Message
+                val userMsg = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    role = "user",
+                    content = prompt,
+                    createdAt = System.currentTimeMillis(),
+                    localAttachmentUri = attachmentUri,
+                    localAttachmentMimeType = attachmentMime,
+                    localAttachmentName = attachmentName
+                )
+                chatRepository.insertMessage(userMsg)
 
-            // Trigger background Title generation. Local chats use the word fallback:
-            // no API key may exist, and the on-device engine is single-flight.
-            if (isFirstMsgInChat) {
-                if (isLocal || customProviderActive) {
-                    val words = prompt.split("\\s+".toRegex())
-                    val fallbackTitle = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
-                    chatRepository.renameThread(chatId, fallbackTitle)
-                } else {
-                    launch {
-                        val generatedTitle = openRouterService.generateTitle(apiKey, selectedModel, prompt)
-                        chatRepository.renameThread(chatId!!, generatedTitle)
+                // Update Thread Timestamp
+                chatRepository.touchThread(chatId)
+
+                // Trigger background Title generation. Local chats use the word fallback:
+                // no API key may exist, and the on-device engine is single-flight.
+                if (isFirstMsgInChat) {
+                    if (isLocal || customProviderActive) {
+                        val words = prompt.split("\\s+".toRegex())
+                        val fallbackTitle = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
+                        chatRepository.renameThread(chatId, fallbackTitle)
+                    } else {
+                        launch {
+                            val generatedTitle = openRouterService.generateTitle(apiKey, selectedModel, prompt)
+                            chatRepository.renameThread(chatId!!, generatedTitle)
+                        }
                     }
                 }
+            } else {
+                // Show thinking immediately while we drop the old answer and start the stream.
+                setStreamState(
+                    chatId,
+                    ActiveStreamState(
+                        segments = emptyList(),
+                        statusNote = null,
+                        progressLoading = true,
+                        isLocal = isLocal,
+                    ),
+                )
+                val editResult = withContext(NonCancellable) {
+                    commitEditTurn(
+                        userMessageId = editingUserId,
+                        newContent = prompt,
+                        attachmentUri = attachmentUri,
+                        attachmentMime = attachmentMime,
+                        attachmentName = attachmentName,
+                    )
+                }
+                if (editResult == null) {
+                    setStreamState(chatId, null)
+                    _errorMessage.value = "Could not edit message."
+                    return@launch
+                }
+                archivedReplyVersionsJson = editResult.archivedVersionsJson
+                replacedAssistant = editResult.replacedAssistant
+                chatRepository.touchThread(chatId)
             }
 
             // Load updated dialog history
@@ -1426,7 +1524,21 @@ class ChatViewModel(
                 if (videoGenMode && segments.any { it is StreamSegment.Video && !it.generating }) {
                     delay(2600)
                 }
-                persistAssistantMessage(chatId, segments, interrupted = null)
+                if (
+                    editingUserId != null &&
+                    AssistantMessagePersistence.draft(
+                        segments = segments,
+                        interrupted = null,
+                        stopped = false,
+                    ) == null
+                ) {
+                    throw IllegalStateException("The model returned no response. Try again.")
+                }
+                persistAssistantMessage(
+                    chatId, segments, interrupted = null,
+                    replyVersionsJson = archivedReplyVersionsJson,
+                )
+                if (editingUserId != null) _editingUserMessageId.value = null
                 if (videoGenMode) {
                     // The video flow also completes normally when its row was deleted
                     // mid-render, so announce a clip only once one actually exists.
@@ -1455,13 +1567,33 @@ class ChatViewModel(
                 // User tapped Stop — keep whatever streamed so far and surface no error banner.
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
                 withContext(NonCancellable) {
-                    persistAssistantMessage(chatId, segments, interrupted = null, stopped = true)
+                    persistAssistantMessage(
+                        chatId, segments, interrupted = null, stopped = true,
+                        replyVersionsJson = archivedReplyVersionsJson,
+                    )
                 }
+                if (editingUserId != null) _editingUserMessageId.value = null
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
-                persistAssistantMessage(chatId, segments, interrupted = e.message)
+                if (editingUserId != null) {
+                    // A transport/provider failure is not an answer version. Put the replaced
+                    // answer back exactly as it was and keep edit mode ready for a retry.
+                    withContext(NonCancellable) {
+                        val assistantToRestore = replacedAssistant
+                        if (assistantToRestore != null) {
+                            chatRepository.insertMessage(assistantToRestore)
+                        }
+                    }
+                    _editingUserMessageId.value = editingUserId
+                } else {
+                    persistAssistantMessage(
+                        chatId,
+                        segments,
+                        interrupted = e.message,
+                    )
+                }
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
                         getApplication(), chatId,
@@ -1729,11 +1861,76 @@ class ChatViewModel(
         currentResearchRun.value?.let { DeepResearchForegroundService.cancel(getApplication(), it.id) }
     }
 
+    private suspend fun validateEditTurn(
+        userMessageId: String,
+        newContent: String,
+        hasAttachment: Boolean,
+    ): String? {
+        val chatId = _currentChatThreadId.value ?: return "No conversation open."
+        val messages = chatRepository.history(chatId)
+        val lastUser = messages.lastOrNull { it.role == "user" } ?: return "No message to edit."
+        if (lastUser.id != userMessageId) return "Only your most recent message can be edited."
+        if (newContent.isBlank() && !hasAttachment) return "Edited message cannot be empty."
+        // Keep edit on the normal answer path so version history stays coherent.
+        val mode = _chatMode.value
+        if (mode !is ChatMode.Normal && mode !is ChatMode.WebSearch) {
+            return "Turn off the active mode before editing a message."
+        }
+        return null
+    }
+
+    private data class EditTurnResult(
+        val archivedVersionsJson: String?,
+        val replacedAssistant: ChatMessage?,
+    )
+
+    /**
+     * Updates the last user prompt, archives the previous assistant answer, and removes that
+     * answer from the transcript so streaming can replace it. Returns null on validation failure.
+     * [EditTurnResult.archivedVersionsJson] may be null when there was no assistant yet.
+     */
+    private suspend fun commitEditTurn(
+        userMessageId: String,
+        newContent: String,
+        attachmentUri: String?,
+        attachmentMime: String?,
+        attachmentName: String?,
+    ): EditTurnResult? {
+        val chatId = _currentChatThreadId.value ?: return null
+        val messages = chatRepository.history(chatId)
+        val lastUser = messages.lastOrNull { it.role == "user" } ?: return null
+        if (lastUser.id != userMessageId) return null
+
+        val userIndex = messages.indexOfFirst { it.id == userMessageId }
+        val assistant = messages.getOrNull(userIndex + 1)?.takeIf { it.role == "assistant" }
+
+        var archivedJson = assistant?.replyVersionsJson
+        if (assistant != null) {
+            archivedJson = ReplyVersions.archiveCurrent(assistant)
+            _replyVersionPick.value = _replyVersionPick.value - assistant.id
+        }
+
+        chatRepository.replaceUserTurn(
+            updatedUser = lastUser.withEditedPrompt(
+                content = newContent,
+                attachmentUri = attachmentUri,
+                attachmentMimeType = attachmentMime,
+                attachmentName = attachmentName,
+            ),
+            oldAssistantId = assistant?.id,
+        )
+        return EditTurnResult(
+            archivedVersionsJson = archivedJson,
+            replacedAssistant = assistant,
+        )
+    }
+
     private suspend fun persistAssistantMessage(
         chatId: String,
         segments: List<StreamSegment>,
         interrupted: String?,
         stopped: Boolean = false,
+        replyVersionsJson: String? = null,
     ) {
         val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
         messageDao.insertMessage(
@@ -1747,6 +1944,7 @@ class ChatViewModel(
                 toolEventsJson = ToolEventJson.toolEventsToJson(draft.toolEvents),
                 citationsJson = ToolEventJson.citationsToJson(draft.citations),
                 segmentsJson = ToolEventJson.segmentsToJson(draft.segments),
+                replyVersionsJson = replyVersionsJson,
             )
         )
         chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = System.currentTimeMillis())) }

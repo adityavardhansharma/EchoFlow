@@ -50,8 +50,31 @@ data class ChatMessage(
     val localAttachmentName: String? = null,
     val toolEventsJson: String? = null, // JSON List<ToolEvent>: web searches the model ran for this answer
     val citationsJson: String? = null, // JSON List<Citation>: deduped sources backing this answer
-    val segmentsJson: String? = null // JSON List<PersistedSegment>: ordered reply timeline (reasoning/search/text interleaved)
-)
+    val segmentsJson: String? = null, // JSON List<PersistedSegment>: ordered reply timeline (reasoning/search/text interleaved)
+    /**
+     * Prior assistant answers for this turn, oldest first. Filled when the user edits their
+     * last prompt and regenerates — the row itself always holds the latest reply; this column
+     * keeps the history so the 1/2 pager can switch between them.
+     */
+    val replyVersionsJson: String? = null,
+) {
+    /**
+     * Rewrites a user prompt without moving its turn in the transcript. [createdAt] is the
+     * stable ordering key: keeping it means a failed regeneration can restore the original
+     * assistant row verbatim and it will still sort after the prompt it answers.
+     */
+    fun withEditedPrompt(
+        content: String,
+        attachmentUri: String?,
+        attachmentMimeType: String?,
+        attachmentName: String?,
+    ): ChatMessage = copy(
+        content = content,
+        localAttachmentUri = attachmentUri,
+        localAttachmentMimeType = attachmentMimeType,
+        localAttachmentName = attachmentName,
+    )
+}
 
 @Entity(tableName = "custom_models")
 data class CustomModel(

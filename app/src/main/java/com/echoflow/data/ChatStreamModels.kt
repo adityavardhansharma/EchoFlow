@@ -247,6 +247,15 @@ data class PersistedSegment(
     val video: VideoRef? = null // present when type == "video"
 )
 
+/** One archived assistant answer kept when a prompt is edited and the reply is regenerated. */
+data class ReplyVersion(
+    val content: String,
+    val reasoning: String? = null,
+    val toolEventsJson: String? = null,
+    val citationsJson: String? = null,
+    val segmentsJson: String? = null,
+)
+
 /** Shared Moshi adapters for the ChatMessage.toolEventsJson / citationsJson columns. */
 object ToolEventJson {
     private val moshi: Moshi = Moshi.Builder()
@@ -263,6 +272,10 @@ object ToolEventJson {
 
     private val segmentsAdapter: JsonAdapter<List<PersistedSegment>> = moshi.adapter(
         Types.newParameterizedType(List::class.java, PersistedSegment::class.java)
+    )
+
+    private val replyVersionsAdapter: JsonAdapter<List<ReplyVersion>> = moshi.adapter(
+        Types.newParameterizedType(List::class.java, ReplyVersion::class.java)
     )
 
     fun toolEventsToJson(events: List<ToolEvent>): String? =
@@ -282,4 +295,67 @@ object ToolEventJson {
 
     fun segmentsFromJson(json: String?): List<PersistedSegment> =
         json?.let { runCatching { segmentsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+
+    fun replyVersionsToJson(versions: List<ReplyVersion>): String? =
+        if (versions.isEmpty()) null else replyVersionsAdapter.toJson(versions)
+
+    fun replyVersionsFromJson(json: String?): List<ReplyVersion> =
+        json?.let { runCatching { replyVersionsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+}
+
+/**
+ * Browse archived + current assistant answers on a [ChatMessage].
+ * Index 0 is the oldest archived reply; the last index is the live row (latest).
+ */
+object ReplyVersions {
+    fun archived(message: ChatMessage): List<ReplyVersion> =
+        ToolEventJson.replyVersionsFromJson(message.replyVersionsJson)
+
+    fun count(message: ChatMessage): Int = archived(message).size + 1
+
+    fun display(message: ChatMessage, index: Int): ChatMessage {
+        val prior = archived(message)
+        val latest = prior.size
+        val i = index.coerceIn(0, latest)
+        if (i >= latest) return message
+        val snap = prior[i]
+        return message.copy(
+            content = snap.content,
+            reasoning = snap.reasoning,
+            toolEventsJson = snap.toolEventsJson,
+            citationsJson = snap.citationsJson,
+            segmentsJson = snap.segmentsJson,
+        )
+    }
+
+    fun copyText(message: ChatMessage, index: Int): String {
+        val shown = display(message, index)
+        val fromSegments = textFromSegments(shown.segmentsJson)
+        return fromSegments.ifBlank { shown.content }
+    }
+
+    fun textFromSegments(segmentsJson: String?): String {
+        val segments = ToolEventJson.segmentsFromJson(segmentsJson)
+        if (segments.isEmpty()) return ""
+        return segments.mapNotNull { segment ->
+            when (segment.type) {
+                "text", "report", "data" -> segment.text
+                "reasoning" -> segment.text?.let { "Reasoning:\n$it" }
+                else -> null
+            }
+        }.filter { !it.isNullOrBlank() }.joinToString("\n\n")
+    }
+
+    /** Snapshot the live assistant row into a [ReplyVersion] (for archiving on edit). */
+    fun snapshot(message: ChatMessage): ReplyVersion = ReplyVersion(
+        content = message.content,
+        reasoning = message.reasoning,
+        toolEventsJson = message.toolEventsJson,
+        citationsJson = message.citationsJson,
+        segmentsJson = message.segmentsJson,
+    )
+
+    /** Append the current answer to its existing history before replacing the row. */
+    fun archiveCurrent(message: ChatMessage): String? =
+        ToolEventJson.replyVersionsToJson(archived(message) + snapshot(message))
 }

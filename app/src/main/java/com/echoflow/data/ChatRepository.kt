@@ -63,6 +63,8 @@ class ChatRepository(
     }
 
     suspend fun insertMessage(message: ChatMessage) = messageDao.insertMessage(message)
+    suspend fun replaceUserTurn(updatedUser: ChatMessage, oldAssistantId: String?) =
+        messageDao.replaceUserTurn(updatedUser, oldAssistantId)
     suspend fun history(chatId: String): List<ChatMessage> = messageDao.getMessagesForChatSync(chatId)
     suspend fun thread(chatId: String): ChatThread? = chatDao.getThreadById(chatId)
 }

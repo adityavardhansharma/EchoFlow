@@ -21,7 +21,7 @@ internal object AssistantMessagePersistence {
                 (it is StreamSegment.Image && it.filePath != null) ||
                 it is StreamSegment.Video
         }
-        if (content.isEmpty() && !hasDurableCard && !stopped) return null
+        if (content.isEmpty() && !hasDurableCard && !stopped && interrupted.isNullOrBlank()) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
             .joinToString("\n\n") { it.text }.trim().ifBlank { null }
         val events = normalized.mapIndexedNotNull { index, segment ->
