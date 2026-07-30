@@ -57,7 +57,24 @@ data class ChatMessage(
      * keeps the history so the 1/2 pager can switch between them.
      */
     val replyVersionsJson: String? = null,
-)
+) {
+    /**
+     * Rewrites a user prompt without moving its turn in the transcript. [createdAt] is the
+     * stable ordering key: keeping it means a failed regeneration can restore the original
+     * assistant row verbatim and it will still sort after the prompt it answers.
+     */
+    fun withEditedPrompt(
+        content: String,
+        attachmentUri: String?,
+        attachmentMimeType: String?,
+        attachmentName: String?,
+    ): ChatMessage = copy(
+        content = content,
+        localAttachmentUri = attachmentUri,
+        localAttachmentMimeType = attachmentMimeType,
+        localAttachmentName = attachmentName,
+    )
+}
 
 @Entity(tableName = "custom_models")
 data class CustomModel(

@@ -1911,12 +1911,11 @@ class ChatViewModel(
         }
 
         chatRepository.replaceUserTurn(
-            updatedUser = lastUser.copy(
+            updatedUser = lastUser.withEditedPrompt(
                 content = newContent,
-                createdAt = System.currentTimeMillis(),
-                localAttachmentUri = attachmentUri,
-                localAttachmentMimeType = attachmentMime,
-                localAttachmentName = attachmentName,
+                attachmentUri = attachmentUri,
+                attachmentMimeType = attachmentMime,
+                attachmentName = attachmentName,
             ),
             oldAssistantId = assistant?.id,
         )
