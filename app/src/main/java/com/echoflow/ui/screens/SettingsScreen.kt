@@ -166,6 +166,23 @@ internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal val CustomProviderSectionGap = 28.dp
 
+/** Parent page when backing out of [page]; null on the settings hub. */
+internal fun settingsParentPage(page: String): String? = when (page) {
+    PageHome -> null
+    PageAppearance, PageCloudModels, PageWebSearch, PageLocalModels,
+    PageDeepResearch, PageImagine, PageEchoLabs,
+    -> PageHome
+    PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
+    PageEchoAgent, PageCustomProvider,
+    -> PageEchoLabs
+    PageCustomProviderCloud -> PageCustomProvider
+    PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
+    PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
+    PageCustomProviderCerebras, PageCustomProviderXAi,
+    -> PageCustomProviderCloud
+    else -> PageHome
+}
+
 /** Theme-driven Expressive motion for revealing/hiding blocks inside a page. */
 @Composable
 internal fun sectionEnter(): EnterTransition = expandVertically(
@@ -191,7 +208,10 @@ fun SettingsScreen(
     onBackClicked: () -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(PageHome) }
-    BackHandler(enabled = page != PageHome) { page = PageHome }
+    val navigateBack: () -> Unit = {
+        settingsParentPage(page)?.let { page = it }
+    }
+    BackHandler(enabled = settingsParentPage(page) != null, onBack = navigateBack)
 
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -210,27 +230,27 @@ fun SettingsScreen(
         label = "settingsPages",
     ) { current ->
         when (current) {
-            PageAppearance -> AppearancePage(viewModel, onBack = { page = PageHome })
-            PageCloudModels -> CloudModelsPage(viewModel, onBack = { page = PageHome })
-            PageWebSearch -> WebSearchPage(viewModel, onBack = { page = PageHome })
-            PageLocalModels -> LocalModelsPage(viewModel, onBack = { page = PageHome })
-            PageDeepResearch -> DeepResearchPage(viewModel, onBack = { page = PageHome })
-            PageImagine -> ImaginePage(viewModel, onBack = { page = PageHome })
-            PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = { page = PageHome })
-            PageDataAgent -> DataAgentPage(viewModel, onBack = { page = PageEchoLabs })
-            PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = { page = PageEchoLabs })
-            PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = { page = PageEchoLabs })
-            PageEchoFusion -> EchoFusionPage(viewModel, onBack = { page = PageEchoLabs })
-            PageEchoAgent -> EchoAgentPage(viewModel, onBack = { page = PageEchoLabs })
-            PageCustomProvider -> CustomApiEndpointPage(viewModel, onOpen = { page = it }, onBack = { page = PageEchoLabs })
-            PageCustomProviderCloud -> DirectCloudApisPage(viewModel, onOpen = { page = it }, onBack = { page = PageCustomProvider })
-            PageCustomProviderOpenAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.OpenAi, onBack = { page = PageCustomProviderCloud })
-            PageCustomProviderClaude -> DirectCloudBrandPage(viewModel, CustomModelProvider.Claude, onBack = { page = PageCustomProviderCloud })
-            PageCustomProviderGemini -> DirectCloudBrandPage(viewModel, CustomModelProvider.Gemini, onBack = { page = PageCustomProviderCloud })
-            PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = { page = PageCustomProviderCloud })
-            PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = { page = PageCustomProviderCloud })
-            PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = { page = PageCustomProvider })
-            PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = { page = PageCustomProvider })
+            PageAppearance -> AppearancePage(viewModel, onBack = navigateBack)
+            PageCloudModels -> CloudModelsPage(viewModel, onBack = navigateBack)
+            PageWebSearch -> WebSearchPage(viewModel, onBack = navigateBack)
+            PageLocalModels -> LocalModelsPage(viewModel, onBack = navigateBack)
+            PageDeepResearch -> DeepResearchPage(viewModel, onBack = navigateBack)
+            PageImagine -> ImaginePage(viewModel, onBack = navigateBack)
+            PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
+            PageDataAgent -> DataAgentPage(viewModel, onBack = navigateBack)
+            PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = navigateBack)
+            PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = navigateBack)
+            PageEchoFusion -> EchoFusionPage(viewModel, onBack = navigateBack)
+            PageEchoAgent -> EchoAgentPage(viewModel, onBack = navigateBack)
+            PageCustomProvider -> CustomApiEndpointPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
+            PageCustomProviderCloud -> DirectCloudApisPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
+            PageCustomProviderOpenAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.OpenAi, onBack = navigateBack)
+            PageCustomProviderClaude -> DirectCloudBrandPage(viewModel, CustomModelProvider.Claude, onBack = navigateBack)
+            PageCustomProviderGemini -> DirectCloudBrandPage(viewModel, CustomModelProvider.Gemini, onBack = navigateBack)
+            PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = navigateBack)
+            PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
+            PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
+            PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
