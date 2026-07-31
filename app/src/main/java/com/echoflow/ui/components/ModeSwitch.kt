@@ -71,17 +71,9 @@ private const val PulseCycleMs = 3000
 /**
  * The app's top-level surface switch: Chat or Imagine.
  *
- * Built as a **floating tray with a raised thumb** rather than a flat connected pair, so it
- * wears the same material recipe as the composer at the other edge of the screen —
- * `surfaceContainerHigh`, 3dp tonal, 8dp shadow. The two pills bookend the content between
- * them, and the screen reads as one composition instead of chrome plus a control.
- *
- * That construction is also where the recessed look comes from: the tray casts a soft shadow
- * *down* onto scrolling content while the thumb casts a tight one *into* the tray, so the
- * unselected side reads as carved out. Deliberately no true inner shadow — those need custom
- * drawing, they vanish in dark themes where shadows barely register, and they are foreign to
- * Material's lighting model. Here the tonal contrast carries the depth on its own when
- * shadows cannot.
+ * Built as a tonal segmented tray rather than a pair of independent buttons. Tonal contrast
+ * carries the hierarchy; avoiding nested cast shadows keeps the control crisp in both themes
+ * and prevents a dark halo where the selected thumb meets the tray.
  *
  * [renderingModes] marks a surface that still has a clip rendering, so switching away from a
  * long job never hides it.
@@ -117,7 +109,6 @@ fun ModeSwitch(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
         modifier = modifier.height(TrayHeight),
     ) {
         BoxWithConstraints(Modifier.padding(TrayPadding)) {
@@ -131,7 +122,6 @@ fun ModeSwitch(
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary,
-                shadowElevation = if (anyPressed) 0.dp else 2.dp,
                 modifier = Modifier
                     .width(segmentWidth)
                     .fillMaxHeight()

@@ -467,14 +467,18 @@ internal fun MessageBubble(
             Spacer(Modifier.height(Spacing.s))
 
             AnimatedAnswerVersion(versionIndex = replyVersionIndex) { versionIndex ->
-                AssistantAnswerBody(
-                    message = ReplyVersions.display(message, versionIndex),
-                    messageKey = "${message.id}-$versionIndex",
-                    streaming = streaming,
-                    onArtifactOpen = onArtifactOpen,
-                    observeVideo = observeVideo,
-                    onCopy = onCopy,
-                )
+                // AnimatedContent overlays multiple root children. Give every answer version one
+                // root layout so its timeline is measured vertically and reports its true height.
+                Column(Modifier.fillMaxWidth()) {
+                    AssistantAnswerBody(
+                        message = ReplyVersions.display(message, versionIndex),
+                        messageKey = "${message.id}-$versionIndex",
+                        streaming = streaming,
+                        onArtifactOpen = onArtifactOpen,
+                        observeVideo = observeVideo,
+                        onCopy = onCopy,
+                    )
+                }
             }
 
             if (!streaming) {
