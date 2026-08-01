@@ -1,7 +1,10 @@
 package com.echoflow.ui.components
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -10,7 +13,6 @@ import androidx.compose.ui.test.longClick
 import com.echoflow.data.ChatThread
 import com.echoflow.ui.theme.EchoFlowTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,7 +52,7 @@ class DrawerThreadListTest {
         composeRule.onNodeWithText("Pin").assertIsDisplayed()
         composeRule.onNodeWithText("Rename").assertIsDisplayed()
         composeRule.onNodeWithText("Delete").assertIsDisplayed()
-        composeRule.onNodeWithText("Unpin").assertDoesNotExist()
+        composeRule.onAllNodesWithText("Unpin").assertCountEquals(0)
     }
 
     @Test
@@ -73,7 +75,7 @@ class DrawerThreadListTest {
 
         composeRule.onNodeWithText("Beta chat").performTouchInput { longClick() }
         composeRule.onNodeWithText("Unpin").assertIsDisplayed()
-        composeRule.onNodeWithText("Pin").assertDoesNotExist()
+        composeRule.onAllNodesWithText("Pin").assertCountEquals(0)
     }
 
     @Test
@@ -141,7 +143,7 @@ class DrawerThreadListTest {
         }
 
         // Inline rename/delete icon buttons were removed; actions live in the long-press menu.
-        composeRule.onNodeWithContentDescription("Rename").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Delete").assertDoesNotExist()
+        composeRule.onAllNodesWithContentDescription("Rename").assertCountEquals(0)
+        composeRule.onAllNodesWithContentDescription("Delete").assertCountEquals(0)
     }
 }

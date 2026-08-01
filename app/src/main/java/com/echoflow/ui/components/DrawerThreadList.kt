@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +39,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -125,6 +128,7 @@ private fun ThreadPill(
         if (rendering) append(", video rendering")
     }
     Box {
+        val interactionSource = remember { MutableInteractionSource() }
         Surface(
             shape = PillShape,
             color = if (selected) MaterialTheme.colorScheme.secondaryContainer
@@ -132,12 +136,26 @@ private fun ThreadPill(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
+                    interactionSource = interactionSource,
+                    indication = ripple(bounded = true),
                     onClick = onClick,
                     onLongClick = { menuOpen = true },
                 )
-                .semantics { contentDescription = description },
+                .semantics {
+                    contentDescription = description
+                    customActions = buildList {
+                        add(
+                            CustomAccessibilityAction(
+                                if (thread.isPinned) "Unpin" else "Pin",
+                            ) {
+                                if (thread.isPinned) onUnpin() else onPin()
+                                true
+                            },
+                        )
+                        add(CustomAccessibilityAction("Rename") { onRename(); true })
+                        add(CustomAccessibilityAction("Delete") { onDelete(); true })
+                    }
+                },
         ) {
             Row(
                 Modifier.padding(start = Spacing.base, end = Spacing.base).heightIn(min = 52.dp),
