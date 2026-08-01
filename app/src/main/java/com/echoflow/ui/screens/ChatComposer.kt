@@ -9,10 +9,18 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandVertically
@@ -52,14 +60,25 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -103,6 +122,7 @@ import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberMorph
 import com.echoflow.ui.theme.rememberMorphProgress
+import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.launch
 
 
@@ -420,100 +440,228 @@ internal fun PlusMenu(
     onToggleBrowserFlow: () -> Unit,
     onToggleArtifact: () -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        // Attachments first, and labelled: they add context to this message, while everything
-        // below changes how the model works. Mixing the two in one flat list was the menu's
-        // real problem, not its length.
-        if (showImage || showFiles) {
-            MenuSectionLabel("Attach")
-            // Image is offered for cloud models and vision-capable on-device bundles.
-            if (showImage) {
-                DropdownMenuItem(
-                    text = { Text("Image") },
-                    leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
-                    onClick = onImage,
-                )
-            }
-            if (showFiles) {
-                DropdownMenuItem(
-                    text = { Text("Files") },
-                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
-                    onClick = onFiles,
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
-        }
+    // A bespoke popup rather than the stock DropdownMenu: it opens *upward* from the "+", growing
+    // from that bottom-left corner with a slight overshoot, staggers its rows in, and collapses
+    // faster than it opened. Same interaction as before (tap the "+", tap a row, it applies and
+    // closes) — just built, not boxed.
+    val visible = remember { MutableTransitionState(false) }
+    visible.targetState = expanded
+    val reducedMotion = rememberReducedMotion()
+    val flippedDown = remember { mutableStateOf(false) }
+    val positionProvider = remember { PlusMenuPositionProvider(gapPx = 8, onFlipDown = { flippedDown.value = it }) }
+    // Keep it composed through its exit animation, then drop it.
+    if (visible.currentState || visible.targetState || !visible.isIdle) {
+        Popup(
+            popupPositionProvider = positionProvider,
+            onDismissRequest = onDismiss,
+            properties = PopupProperties(focusable = true),
+        ) {
+            val transition = updateTransition(visible, label = "plus-menu")
+            val scaleRaw by transition.animateFloat(
+                transitionSpec = {
+                    if (false isTransitioningTo true) spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
+                    else tween(120, easing = FastOutLinearInEasing)
+                },
+                label = "scale",
+            ) { if (it) 1f else 0.82f }
+            val scale = if (reducedMotion) 1f else scaleRaw
+            val alpha by transition.animateFloat(
+                transitionSpec = {
+                    if (false isTransitioningTo true) tween(130) else tween(100, easing = FastOutLinearInEasing)
+                },
+                label = "alpha",
+            ) { if (it) 1f else 0f }
 
-        MenuSectionLabel("Capabilities")
-        DropdownMenuItem(
-            text = { Text("Web search") },
-            leadingIcon = { Icon(Icons.Default.TravelExplore, null) },
-            trailingIcon = { if (webSearchOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleWebSearch,
-        )
-        DropdownMenuItem(
-            text = { Text("Deep Research") },
-            leadingIcon = { Icon(Icons.Default.Science, null) },
-            trailingIcon = { if (deepResearchOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleDeepResearch,
-        )
-        // Artifacts — build a rendered web page, document or report (model picks the type).
-        DropdownMenuItem(
-            text = { Text("Artifact") },
-            leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
-            trailingIcon = { if (artifactOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-            onClick = onToggleArtifact,
-        )
-        // Data Agent only appears once it's enabled in Settings and a Firecrawl key exists.
-        if (dataAgentAvailable) {
-            DropdownMenuItem(
-                text = { Text("Data Agent") },
-                leadingIcon = { Icon(Icons.Default.Dataset, null) },
-                trailingIcon = { if (dataAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-                onClick = onToggleDataAgent,
-            )
-        }
-        // Browser Flow — a live, stateful browser controlled through chat (needs a Firecrawl key).
-        if (browserFlowAvailable) {
-            DropdownMenuItem(
-                text = { Text("Browser Flow") },
-                leadingIcon = { Icon(Icons.Default.Language, null) },
-                trailingIcon = { if (browserFlowOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-                onClick = onToggleBrowserFlow,
-            )
-        }
-        // Echo Labs modes — only shown when enabled in Settings → Echo Labs. If the key or a
-        // profile/panel is missing, sending surfaces a "set it up" message.
-        if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
-            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
-            MenuSectionLabel("Echo Labs")
-        }
-        if (echoAdviserAvailable) {
-            DropdownMenuItem(
-                text = { Text("Echo Adviser") },
-                leadingIcon = { Icon(Icons.Default.Psychology, null) },
-                trailingIcon = { if (echoAdviserOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-                onClick = onToggleEchoAdviser,
-            )
-        }
-        if (echoFusionAvailable) {
-            DropdownMenuItem(
-                text = { Text("Echo Fusion") },
-                leadingIcon = { Icon(Icons.Default.AccountTree, null) },
-                trailingIcon = { if (echoFusionOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-                onClick = onToggleEchoFusion,
-            )
-        }
-        if (echoAgentAvailable) {
-            DropdownMenuItem(
-                text = { Text("Echo Agents") },
-                leadingIcon = { Icon(Icons.Default.Hub, null) },
-                trailingIcon = { if (echoAgentOn) Icon(Icons.Default.Check, "On", tint = MaterialTheme.colorScheme.primary) },
-                onClick = onToggleEchoAgent,
-            )
+            // Never taller than the window (compact/landscape/split-screen): cap the height and let
+            // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
+            val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
+            val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 3.dp,
+                shadowElevation = 10.dp,
+                // widthIn (not a fixed width) so the popup shrinks to fit narrow windows rather
+                // than overflowing off-screen.
+                modifier = Modifier
+                    .widthIn(max = 260.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                        // Grow from the corner nearest the "+": the anchor's leading side (right in
+                        // RTL), and bottom when above the button (the usual case), top if flipped.
+                        transformOrigin = TransformOrigin(if (isRtl) 1f else 0f, if (flippedDown.value) 0f else 1f)
+                    },
+            ) {
+                Column(
+                    Modifier
+                        .heightIn(max = maxMenuHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(6.dp),
+                ) {
+                    var i = 0
+                    if (showImage || showFiles) {
+                        MenuSectionLabel("Attach")
+                        if (showImage) {
+                            PlusMenuRow(transition, i++, reducedMotion, Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
+                        }
+                        if (showFiles) {
+                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
+                        }
+                        PlusMenuDivider()
+                    }
+                    MenuSectionLabel("Capabilities")
+                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
+                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
+                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
+                    if (dataAgentAvailable) {
+                        PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
+                    }
+                    if (browserFlowAvailable) {
+                        PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
+                    }
+                    if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
+                        PlusMenuDivider()
+                        MenuSectionLabel("Echo Labs")
+                        if (echoAdviserAvailable) {
+                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
+                        }
+                        if (echoFusionAvailable) {
+                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
+                        }
+                        if (echoAgentAvailable) {
+                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+/**
+ * One row of the "+" popup. [on] = null marks a one-shot action (Attach); a non-null value marks a
+ * capability toggle, whose leading chip lifts to the accent and gains a trailing check when active.
+ * Rows stagger in top-to-bottom on open; under reduced motion only a plain fade remains.
+ */
+@Composable
+private fun PlusMenuRow(
+    transition: Transition<Boolean>,
+    index: Int,
+    reducedMotion: Boolean,
+    icon: ImageVector,
+    label: String,
+    on: Boolean?,
+    onClick: () -> Unit,
+) {
+    val active = on == true
+    val stagger = if (reducedMotion) 0 else 30 + index * 34
+    val rowAlpha by transition.animateFloat(
+        transitionSpec = {
+            if (false isTransitioningTo true) tween(210, delayMillis = stagger, easing = LinearOutSlowInEasing)
+            else tween(90, easing = FastOutLinearInEasing)
+        },
+        label = "row-alpha",
+    ) { if (it) 1f else 0f }
+    val shiftRaw by transition.animateFloat(
+        transitionSpec = {
+            if (false isTransitioningTo true) tween(250, delayMillis = stagger, easing = EaseOutBack) else tween(90)
+        },
+        label = "row-shift",
+    ) { if (it) 0f else -8f }
+    val shift = if (reducedMotion) 0f else shiftRaw
+
+    // Attach chips are a neutral tonal; an active capability lifts to the accent container.
+    val chipColor = when {
+        active -> MaterialTheme.colorScheme.primaryContainer
+        on == null -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+    val chipContent = when {
+        active -> MaterialTheme.colorScheme.onPrimaryContainer
+        on == null -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = rowAlpha; translationX = shift }
+            .clip(RoundedCornerShape(13.dp))
+            .clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
+            .heightIn(min = 46.dp)
+            .padding(horizontal = Spacing.s, vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 8.dp, bottomStart = 8.dp, bottomEnd = 12.dp))
+                .background(chipColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, Modifier.size(17.dp), tint = chipContent)
+        }
+        Spacer(Modifier.width(Spacing.m))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (active) {
+            Icon(Icons.Default.Check, "On", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/** Hairline divider between "+" popup sections. */
+@Composable
+private fun PlusMenuDivider() {
+    HorizontalDivider(
+        Modifier.padding(horizontal = Spacing.s, vertical = Spacing.xs),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
+/**
+ * Positions the "+" popup just above the anchor (the "+" button), left edges aligned, and flips it
+ * below only if there isn't room above — which at the foot of the screen there almost always is.
+ */
+private class PlusMenuPositionProvider(
+    private val gapPx: Int,
+    private val onFlipDown: (Boolean) -> Unit,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        // Align the popup's leading edge to the anchor: left edge in LTR, right edge in RTL (where
+        // the "+" sits on the right), then clamp on-screen.
+        val maxX = (windowSize.width - popupContentSize.width - gapPx).coerceAtLeast(gapPx)
+        val x = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left.coerceIn(gapPx, maxX)
+        } else {
+            (anchorBounds.right - popupContentSize.width).coerceIn(gapPx, maxX)
+        }
+        val above = anchorBounds.top - popupContentSize.height - gapPx
+        val flipDown = above < gapPx
+        onFlipDown(flipDown)
+        val y = if (flipDown) {
+            (anchorBounds.bottom + gapPx)
+                .coerceIn(gapPx, (windowSize.height - popupContentSize.height - gapPx).coerceAtLeast(gapPx))
+        } else {
+            above
+        }
+        return IntOffset(x, y)
+    }
+}
+
 
 @Composable
 internal fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onStop: () -> Unit = {}, onClick: () -> Unit) {
