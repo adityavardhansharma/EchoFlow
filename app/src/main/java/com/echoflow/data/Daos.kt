@@ -35,6 +35,15 @@ interface ChatDao {
     @Update
     suspend fun updateThread(thread: ChatThread)
 
+    @Query("UPDATE chat_threads SET updatedAt = :updatedAt WHERE id = :id")
+    suspend fun touchUpdatedAt(id: String, updatedAt: Long)
+
+    @Query("UPDATE chat_threads SET title = :title WHERE id = :id")
+    suspend fun setTitle(id: String, title: String)
+
+    @Query("UPDATE chat_threads SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setTitleAndUpdatedAt(id: String, title: String, updatedAt: Long)
+
     @Query("UPDATE chat_threads SET pinnedAt = :pinnedAt WHERE id = :id")
     suspend fun setPinnedAt(id: String, pinnedAt: Long?)
 

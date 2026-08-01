@@ -516,7 +516,7 @@ class BrowserAgentManager(
     }
 
     private suspend fun touchThread(chatId: String) {
-        chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = System.currentTimeMillis())) }
+        chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
     }
 
     companion object {

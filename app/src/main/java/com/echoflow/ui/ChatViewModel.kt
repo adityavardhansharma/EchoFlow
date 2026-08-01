@@ -813,7 +813,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val cleanTitle = newTitle.trim()
             if (cleanTitle.isNotEmpty()) {
-                chatDao.updateThread(thread.copy(title = cleanTitle, updatedAt = System.currentTimeMillis()))
+                chatDao.setTitleAndUpdatedAt(thread.id, cleanTitle, System.currentTimeMillis())
             }
         }
     }
@@ -1801,7 +1801,7 @@ class ChatViewModel(
                 if (thread.title == "New Conversation") {
                     val words = prompt.split("\\s+".toRegex())
                     val title = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
-                    chatDao.updateThread(thread.copy(title = title.ifBlank { "Browser session" }))
+                    chatDao.setTitle(thread.id, title.ifBlank { "Browser session" })
                 }
             }
             setMode(ChatMode.Normal) // igniter consumed
@@ -1835,7 +1835,7 @@ class ChatViewModel(
                 openThread(chatId)
                 val words = topic.split("\\s+".toRegex())
                 val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
-                chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = fallbackTitle)) }
+                chatDao.setTitle(chatId, fallbackTitle)
             }
             messageDao.insertMessage(
                 ChatMessage(
@@ -1846,7 +1846,7 @@ class ChatViewModel(
                     createdAt = now,
                 )
             )
-            chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
+            chatDao.touchUpdatedAt(chatId, now)
 
             val runId = UUID.randomUUID().toString()
             researchRunDao.upsert(
@@ -1959,7 +1959,7 @@ class ChatViewModel(
                 replyVersionsJson = replyVersionsJson,
             )
         )
-        chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = System.currentTimeMillis())) }
+        chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
     }
     // -------------------------------------------------------------------------------
     // Local model + client search: prompt-based tool protocol
