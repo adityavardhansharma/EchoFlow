@@ -35,6 +35,9 @@ interface ChatDao {
     @Update
     suspend fun updateThread(thread: ChatThread)
 
+    @Query("UPDATE chat_threads SET pinnedAt = :pinnedAt WHERE id = :id")
+    suspend fun setPinnedAt(id: String, pinnedAt: Long?)
+
     @Delete
     suspend fun deleteThread(thread: ChatThread)
 

@@ -820,17 +820,13 @@ class ChatViewModel(
 
     fun pinThread(thread: ChatThread) {
         viewModelScope.launch {
-            if (!thread.isPinned) {
-                chatDao.updateThread(thread.copy(pinnedAt = System.currentTimeMillis()))
-            }
+            chatDao.setPinnedAt(thread.id, System.currentTimeMillis())
         }
     }
 
     fun unpinThread(thread: ChatThread) {
         viewModelScope.launch {
-            if (thread.isPinned) {
-                chatDao.updateThread(thread.copy(pinnedAt = null))
-            }
+            chatDao.setPinnedAt(thread.id, null)
         }
     }
 
