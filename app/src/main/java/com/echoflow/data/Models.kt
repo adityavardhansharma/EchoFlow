@@ -22,8 +22,11 @@ data class ChatThread(
      * three images was a conversation, and reclassifying it would feel like losing it.
      */
     @ColumnInfo(defaultValue = "'chat'") val kind: String = AppMode.Chat.storageKey,
+    /** When set, the conversation stays at the top of the drawer until unpinned. */
+    val pinnedAt: Long? = null,
 ) {
     val mode: AppMode get() = AppMode.fromStorage(kind)
+    val isPinned: Boolean get() = pinnedAt != null
 }
 
 @Entity(

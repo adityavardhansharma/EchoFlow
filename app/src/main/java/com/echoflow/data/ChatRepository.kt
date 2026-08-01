@@ -55,11 +55,11 @@ class ChatRepository(
     }
 
     suspend fun touchThread(chatId: String, now: Long = System.currentTimeMillis()) {
-        chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(updatedAt = now)) }
+        chatDao.touchUpdatedAt(chatId, now)
     }
 
     suspend fun renameThread(chatId: String, title: String) {
-        chatDao.getThreadById(chatId)?.let { chatDao.updateThread(it.copy(title = title)) }
+        chatDao.setTitle(chatId, title)
     }
 
     suspend fun insertMessage(message: ChatMessage) = messageDao.insertMessage(message)

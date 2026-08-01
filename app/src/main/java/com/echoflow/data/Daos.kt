@@ -5,11 +5,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chat_threads ORDER BY updatedAt DESC")
+    @Query(
+        "SELECT * FROM chat_threads ORDER BY " +
+            "CASE WHEN pinnedAt IS NULL THEN 1 ELSE 0 END, pinnedAt DESC, updatedAt DESC"
+    )
     fun getAllThreads(): Flow<List<ChatThread>>
 
-    /** The drawer's list: one mode's conversations, newest first. */
-    @Query("SELECT * FROM chat_threads WHERE kind = :kind ORDER BY updatedAt DESC")
+    /** The drawer's list: pinned conversations first, then newest activity. */
+    @Query(
+        "SELECT * FROM chat_threads WHERE kind = :kind ORDER BY " +
+            "CASE WHEN pinnedAt IS NULL THEN 1 ELSE 0 END, pinnedAt DESC, updatedAt DESC"
+    )
     fun getThreadsByKind(kind: String): Flow<List<ChatThread>>
 
     /**
@@ -28,6 +34,18 @@ interface ChatDao {
 
     @Update
     suspend fun updateThread(thread: ChatThread)
+
+    @Query("UPDATE chat_threads SET updatedAt = :updatedAt WHERE id = :id")
+    suspend fun touchUpdatedAt(id: String, updatedAt: Long)
+
+    @Query("UPDATE chat_threads SET title = :title WHERE id = :id")
+    suspend fun setTitle(id: String, title: String)
+
+    @Query("UPDATE chat_threads SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setTitleAndUpdatedAt(id: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE chat_threads SET pinnedAt = :pinnedAt WHERE id = :id")
+    suspend fun setPinnedAt(id: String, pinnedAt: Long?)
 
     @Delete
     suspend fun deleteThread(thread: ChatThread)

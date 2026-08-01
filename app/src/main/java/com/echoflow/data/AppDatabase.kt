@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class
     ],
-    version = 19, // v19: assistant reply version history for prompt edits
+    version = 20, // v20: pin conversations in the drawer
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -359,6 +359,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN pinnedAt INTEGER")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -385,6 +391,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_16_17,
                     MIGRATION_17_18,
                     MIGRATION_18_19,
+                    MIGRATION_19_20,
                 )
                 .build()
                 INSTANCE = instance

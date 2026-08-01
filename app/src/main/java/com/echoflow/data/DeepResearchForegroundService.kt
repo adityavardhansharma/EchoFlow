@@ -224,9 +224,7 @@ class DeepResearchForegroundService : Service() {
                 segmentsJson = ToolEventJson.segmentsToJson(segments),
             )
         )
-        db.chatDao().getThreadById(run.chatId)?.let {
-            db.chatDao().updateThread(it.copy(updatedAt = now()))
-        }
+        db.chatDao().touchUpdatedAt(run.chatId, now())
         persist(
             run.copy(
                 status = ResearchRun.STATUS_COMPLETED,
@@ -254,7 +252,7 @@ class DeepResearchForegroundService : Service() {
                 segmentsJson = ToolEventJson.segmentsToJson(segments),
             )
         )
-        db.chatDao().getThreadById(run.chatId)?.let { db.chatDao().updateThread(it.copy(updatedAt = now())) }
+        db.chatDao().touchUpdatedAt(run.chatId, now())
         persist(
             run.copy(
                 status = ResearchRun.STATUS_COMPLETED,
@@ -297,7 +295,7 @@ class DeepResearchForegroundService : Service() {
                 createdAt = now(),
             )
         )
-        db.chatDao().getThreadById(chatId)?.let { db.chatDao().updateThread(it.copy(updatedAt = now())) }
+        db.chatDao().touchUpdatedAt(chatId, now())
     }
 
     private suspend fun persist(run: ResearchRun) {
