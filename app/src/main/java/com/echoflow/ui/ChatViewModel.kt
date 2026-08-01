@@ -818,6 +818,22 @@ class ChatViewModel(
         }
     }
 
+    fun pinThread(thread: ChatThread) {
+        viewModelScope.launch {
+            if (!thread.isPinned) {
+                chatDao.updateThread(thread.copy(pinnedAt = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun unpinThread(thread: ChatThread) {
+        viewModelScope.launch {
+            if (thread.isPinned) {
+                chatDao.updateThread(thread.copy(pinnedAt = null))
+            }
+        }
+    }
+
     fun stopStreaming() {
         _currentChatThreadId.value?.let { chatId ->
             streamJobs[chatId]?.cancel()

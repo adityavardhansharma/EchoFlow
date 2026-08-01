@@ -5,11 +5,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chat_threads ORDER BY updatedAt DESC")
+    @Query(
+        "SELECT * FROM chat_threads ORDER BY " +
+            "CASE WHEN pinnedAt IS NULL THEN 1 ELSE 0 END, pinnedAt DESC, updatedAt DESC"
+    )
     fun getAllThreads(): Flow<List<ChatThread>>
 
-    /** The drawer's list: one mode's conversations, newest first. */
-    @Query("SELECT * FROM chat_threads WHERE kind = :kind ORDER BY updatedAt DESC")
+    /** The drawer's list: pinned conversations first, then newest activity. */
+    @Query(
+        "SELECT * FROM chat_threads WHERE kind = :kind ORDER BY " +
+            "CASE WHEN pinnedAt IS NULL THEN 1 ELSE 0 END, pinnedAt DESC, updatedAt DESC"
+    )
     fun getThreadsByKind(kind: String): Flow<List<ChatThread>>
 
     /**
