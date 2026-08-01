@@ -140,6 +140,10 @@ class ChatViewModel(
      */
     private fun restorePosition(mode: AppMode) {
         modeRestoreJob?.cancel()
+        // A mode switch is already a conversation transition, even if its suspended lookup is
+        // later superseded. Clear conversation-scoped composer state synchronously so a stale
+        // restore cannot leave the previous thread's edit attachment armed for the next send.
+        clearConversationComposerState()
         modeRestoreJob = viewModelScope.launch {
             val token = navigation.begin()
             val restored = restoredThreadId(mode)
@@ -162,6 +166,10 @@ class ChatViewModel(
         _currentChatThreadId.value = chatId
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
+        clearConversationComposerState()
+    }
+
+    private fun clearConversationComposerState() {
         _editingUserMessageId.value = null
         clearPendingAttachment()
     }
@@ -197,8 +205,7 @@ class ChatViewModel(
     }
 
     fun cancelEditMessage() {
-        _editingUserMessageId.value = null
-        clearPendingAttachment()
+        clearConversationComposerState()
     }
 
     fun selectReplyVersion(messageId: String, index: Int) {
