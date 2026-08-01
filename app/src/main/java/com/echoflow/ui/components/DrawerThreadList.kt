@@ -15,6 +15,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -144,7 +145,7 @@ fun DrawerThreadList(
     }
 }
 
-/** Quiet, uppercase group header. "Pinned" gets a small accent bloom so the eye finds it first. */
+/** Quiet group header. "Pinned" gets a small accent bloom so the eye finds it first. */
 @Composable
 private fun DrawerSectionHeader(label: String, pinned: Boolean) {
     Row(
@@ -185,15 +186,15 @@ private fun ThreadRow(
     val pressed by interactionSource.collectIsPressedAsState()
 
     // The active pill fills and fades in with a soft spring; content colour crossfades so a title
-    // never "flickers" between roles as the selection lands.
+    // never "flickers" between roles as the selection lands. Under reduced motion the colours snap.
     val container by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "row-container",
     )
     val contentColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        animationSpec = tween(durationMillis = 240),
+        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 240),
         label = "row-content",
     )
     val mutedColor = if (selected) {
@@ -201,9 +202,9 @@ private fun ThreadRow(
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    // Press gives: the whole row dips and springs back under the finger.
+    // Press gives: the whole row dips and springs back under the finger — unless motion is reduced.
     val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.975f else 1f,
+        targetValue = if (pressed && !reducedMotion) 0.975f else 1f,
         animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium),
         label = "row-press",
     )
@@ -248,10 +249,14 @@ private fun ThreadRow(
             // reward for being "here", not a stamp on every line.
             AnimatedVisibility(
                 visible = selected,
-                enter = expandHorizontally(
-                    animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
-                ) + fadeIn(tween(220)),
-                exit = shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
+                enter = if (reducedMotion) {
+                    fadeIn(snap())
+                } else {
+                    expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
+                    ) + fadeIn(tween(220))
+                },
+                exit = if (reducedMotion) fadeOut(snap()) else shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ActiveBloom(reducedMotion)
@@ -289,6 +294,7 @@ private fun ThreadRow(
             ThreadActionMenu(
                 title = thread.title,
                 isPinned = thread.isPinned,
+                reducedMotion = reducedMotion,
                 onDismiss = { menuOpen = false },
                 onPin = onPin,
                 onUnpin = onUnpin,
@@ -333,6 +339,7 @@ private fun ActiveBloom(reducedMotion: Boolean) {
 private fun ThreadActionMenu(
     title: String,
     isPinned: Boolean,
+    reducedMotion: Boolean,
     onDismiss: () -> Unit,
     onPin: () -> Unit,
     onUnpin: () -> Unit,
@@ -342,9 +349,17 @@ private fun ThreadActionMenu(
     // Driven separately from menuOpen so the exit animation can play before we unmount: enter once
     // on first composition, and only tear down after the collapse has fully settled.
     val visible = remember { MutableTransitionState(false) }
+    // Rename/Delete each raise a dialog, so the chosen action is deferred until the popup has
+    // fully collapsed and unmounted — otherwise a focusable dialog would land on top of a still
+    // focusable, still-animating popup and the two would fight for input.
+    val pendingAction = remember { mutableStateOf<(() -> Unit)?>(null) }
     LaunchedEffect(Unit) { visible.targetState = true }
     LaunchedEffect(visible.isIdle, visible.currentState) {
-        if (visible.isIdle && !visible.currentState) onDismiss()
+        if (visible.isIdle && !visible.currentState) {
+            val action = pendingAction.value
+            onDismiss()
+            action?.invoke()
+        }
     }
     val flippedUp = remember { mutableStateOf(false) }
     val positionProvider = remember { ThreadMenuPositionProvider(gapPx = 8, onFlip = { flippedUp.value = it }) }
@@ -355,7 +370,8 @@ private fun ThreadActionMenu(
         properties = PopupProperties(focusable = true),
     ) {
         val transition = updateTransition(visible, label = "menu")
-        val scale by transition.animateFloat(
+        // A fade is retained under reduced motion; the grow/overshoot is not.
+        val scaleRaw by transition.animateFloat(
             transitionSpec = {
                 if (false isTransitioningTo true) {
                     spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
@@ -365,6 +381,7 @@ private fun ThreadActionMenu(
             },
             label = "menu-scale",
         ) { if (it) 1f else 0.8f }
+        val scale = if (reducedMotion) 1f else scaleRaw
         val alpha by transition.animateFloat(
             transitionSpec = {
                 if (false isTransitioningTo true) tween(130) else tween(100, easing = FastOutLinearInEasing)
@@ -395,37 +412,44 @@ private fun ThreadActionMenu(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-                fun act(action: () -> Unit) {
-                    action()
+                // Start collapsing the popup. Pin/Unpin change data with no follow-up surface, so
+                // they fire right away; Rename and Delete each raise a dialog, so those are deferred
+                // until the popup has fully unmounted (see [pendingAction]) to avoid two focusable
+                // surfaces overlapping.
+                fun act(deferred: Boolean, action: () -> Unit) {
+                    if (deferred) pendingAction.value = action else action()
                     visible.targetState = false
                 }
                 MenuItem(
                     transition = transition,
                     index = 0,
+                    reducedMotion = reducedMotion,
                     icon = if (isPinned) Icons.Outlined.PushPin else Icons.Filled.PushPin,
                     label = if (isPinned) "Unpin" else "Pin",
                     chipColor = MaterialTheme.colorScheme.secondaryContainer,
                     chipContent = MaterialTheme.colorScheme.onSecondaryContainer,
-                    onClick = { act { if (isPinned) onUnpin() else onPin() } },
+                    onClick = { act(deferred = false) { if (isPinned) onUnpin() else onPin() } },
                 )
                 MenuItem(
                     transition = transition,
                     index = 1,
+                    reducedMotion = reducedMotion,
                     icon = Icons.Filled.Edit,
                     label = "Rename",
                     chipColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     chipContent = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = { act { onRename() } },
+                    onClick = { act(deferred = true) { onRename() } },
                 )
                 MenuItem(
                     transition = transition,
                     index = 2,
+                    reducedMotion = reducedMotion,
                     icon = Icons.Filled.DeleteOutline,
                     label = "Delete",
                     chipColor = MaterialTheme.colorScheme.errorContainer,
                     chipContent = MaterialTheme.colorScheme.onErrorContainer,
                     labelColor = MaterialTheme.colorScheme.error,
-                    onClick = { act { onDelete() } },
+                    onClick = { act(deferred = true) { onDelete() } },
                 )
             }
         }
@@ -436,6 +460,7 @@ private fun ThreadActionMenu(
 private fun MenuItem(
     transition: androidx.compose.animation.core.Transition<Boolean>,
     index: Int,
+    reducedMotion: Boolean,
     icon: ImageVector,
     label: String,
     chipColor: Color,
@@ -443,21 +468,24 @@ private fun MenuItem(
     onClick: () -> Unit,
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    // Each item slides+fades in on its own beat so the menu assembles top-to-bottom.
+    // Each item slides+fades in on its own beat so the menu assembles top-to-bottom. Under reduced
+    // motion the per-item delay and the horizontal travel are dropped — only a plain fade remains.
+    val stagger = if (reducedMotion) 0 else 30 + index * 38
     val itemAlpha by transition.animateFloat(
         transitionSpec = {
-            if (false isTransitioningTo true) tween(220, delayMillis = 30 + index * 38, easing = LinearOutSlowInEasing)
+            if (false isTransitioningTo true) tween(220, delayMillis = stagger, easing = LinearOutSlowInEasing)
             else tween(90, easing = FastOutLinearInEasing)
         },
         label = "item-alpha",
     ) { if (it) 1f else 0f }
-    val itemShift by transition.animateFloat(
+    val itemShiftRaw by transition.animateFloat(
         transitionSpec = {
-            if (false isTransitioningTo true) tween(260, delayMillis = 30 + index * 38, easing = EaseOutBack)
+            if (false isTransitioningTo true) tween(260, delayMillis = stagger, easing = EaseOutBack)
             else tween(90)
         },
         label = "item-shift",
     ) { if (it) 0f else -8f }
+    val itemShift = if (reducedMotion) 0f else itemShiftRaw
 
     val itemInteraction = remember { MutableInteractionSource() }
     Row(
