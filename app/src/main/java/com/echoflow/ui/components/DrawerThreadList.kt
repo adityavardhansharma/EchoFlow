@@ -2,18 +2,41 @@
 
 package com.echoflow.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,25 +48,26 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
@@ -51,25 +75,30 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.echoflow.data.ChatThread
+import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
-import kotlinx.coroutines.launch
 import java.util.Calendar
 
 private const val PINNED_SECTION = "Pinned"
-
-// Rows within a section share a slab: large radius on the section's outer corners, tight radius
-// where rows meet. This is the same grouped-list vocabulary the Settings screens use, so the
-// drawer stops looking like a stack of detached buttons and starts looking looked-after.
-private val RowGap = GroupedItemGap
+private val RowShape = RoundedCornerShape(16.dp)
+private val RowHeight = 50.dp
 
 /**
  * One mode's conversations, grouped by when they were last touched.
  *
- * The grouping costs nothing and is the difference between a list and something that looks
- * looked-after — a flat run of thirty titles gives the eye nowhere to land.
+ * The list is deliberately airy: rows are transparent and sit straight on the drawer surface, so
+ * the eye reads titles first and colour only ever means "this is the conversation you're in". The
+ * grouping gives the run of titles somewhere to breathe.
  */
 @Composable
 fun DrawerThreadList(
@@ -85,11 +114,6 @@ fun DrawerThreadList(
     modifier: Modifier = Modifier,
 ) {
     val reducedMotion = rememberReducedMotion()
-    // A single action sheet for the whole list, driven by whichever row was long-pressed. One
-    // lifted sheet beats a DropdownMenu per row: less state, and it's the modern mobile pattern
-    // for long-press actions.
-    var actionTarget by remember { mutableStateOf<ChatThread?>(null) }
-
     val sections = remember(threads, grouped) {
         val pinned = threads.filter { it.isPinned }
         val unpinned = threads.filter { !it.isPinned }
@@ -97,24 +121,20 @@ fun DrawerThreadList(
         if (pinned.isEmpty()) unpinnedSections
         else listOf(PINNED_SECTION to pinned) + unpinnedSections
     }
-    LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RowGap)) {
+    LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         sections.forEach { (label, sectionThreads) ->
             if (label != null) {
                 item(key = "section-$label") {
-                    // Extra top space above the header separates one slab from the next; the
-                    // rows inside a slab stay tight at RowGap.
-                    Box(Modifier.padding(top = Spacing.m, bottom = Spacing.xs)) { SectionLabel(label) }
+                    DrawerSectionHeader(label, pinned = label == PINNED_SECTION)
                 }
             }
-            itemsIndexed(sectionThreads, key = { _, t -> t.id }) { index, thread ->
+            itemsIndexed(sectionThreads, key = { _, t -> t.id }) { _, thread ->
                 ThreadRow(
                     thread = thread,
                     selected = thread.id == currentThreadId,
                     rendering = thread.id in renderingChatIds,
                     reducedMotion = reducedMotion,
-                    shape = groupedItemShape(index, sectionThreads.size),
                     onClick = { onThreadSelected(thread) },
-                    onLongPress = { actionTarget = thread },
                     onPin = { onPin(thread) },
                     onUnpin = { onUnpin(thread) },
                     onRename = { onRename(thread) },
@@ -123,15 +143,28 @@ fun DrawerThreadList(
             }
         }
     }
+}
 
-    actionTarget?.let { thread ->
-        ThreadActionSheet(
-            thread = thread,
-            onDismiss = { actionTarget = null },
-            onPin = { onPin(thread) },
-            onUnpin = { onUnpin(thread) },
-            onRename = { onRename(thread) },
-            onDelete = { onDelete(thread) },
+/** Quiet group header. "Pinned" gets a small accent bloom so the eye finds it first. */
+@Composable
+private fun DrawerSectionHeader(label: String, pinned: Boolean) {
+    Row(
+        Modifier.padding(start = Spacing.m, end = Spacing.m, top = Spacing.base, bottom = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (pinned) {
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(RoundedPolygonShape(MaterialShapes.Sunny))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Spacer(Modifier.width(Spacing.s))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -142,70 +175,98 @@ private fun ThreadRow(
     selected: Boolean,
     rendering: Boolean,
     reducedMotion: Boolean,
-    shape: androidx.compose.ui.graphics.Shape,
     onClick: () -> Unit,
-    onLongPress: () -> Unit,
     onPin: () -> Unit,
     onUnpin: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-    else MaterialTheme.colorScheme.onSurface
-    val mutedColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-    else MaterialTheme.colorScheme.onSurfaceVariant
+    var menuOpen by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+
+    // The active pill fills and fades in with a soft spring; content colour crossfades so a title
+    // never "flickers" between roles as the selection lands. Under reduced motion the colours snap.
+    val container by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        label = "row-container",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 240),
+        label = "row-content",
+    )
+    val mutedColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    // Press gives: the whole row dips and springs back under the finger — unless motion is reduced.
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed && !reducedMotion) 0.975f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium),
+        label = "row-press",
+    )
+
     val description = buildString {
         append(thread.title)
         if (thread.isPinned) append(", pinned")
         if (rendering) append(", video rendering")
     }
-    val interactionSource = remember { MutableInteractionSource() }
-    Surface(
-        shape = shape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
-        else MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = ripple(bounded = true),
-                onClick = onClick,
-                onLongClick = onLongPress,
-            )
-            .semantics {
-                contentDescription = description
-                customActions = buildList {
-                    add(
-                        CustomAccessibilityAction(
-                            if (thread.isPinned) "Unpin" else "Pin",
-                        ) {
-                            if (thread.isPinned) onUnpin() else onPin()
-                            true
-                        },
-                    )
-                    add(CustomAccessibilityAction("Rename") { onRename(); true })
-                    add(CustomAccessibilityAction("Delete") { onDelete(); true })
-                }
-            },
-    ) {
+
+    Box {
         Row(
-            Modifier.padding(horizontal = Spacing.base).heightIn(min = 54.dp),
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+                .clip(RowShape)
+                .background(container)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    onClick = onClick,
+                    onLongClick = { menuOpen = true },
+                )
+                .heightIn(min = RowHeight)
+                .padding(horizontal = Spacing.m)
+                .semantics {
+                    contentDescription = description
+                    customActions = buildList {
+                        add(
+                            CustomAccessibilityAction(if (thread.isPinned) "Unpin" else "Pin") {
+                                if (thread.isPinned) onUnpin() else onPin(); true
+                            },
+                        )
+                        add(CustomAccessibilityAction("Rename") { onRename(); true })
+                        add(CustomAccessibilityAction("Delete") { onDelete(); true })
+                    }
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // On the selected row a slim accent bar marks the active conversation — quieter and
-            // more modern than stamping the same chat icon on every single row.
-            if (selected) {
-                Box(
-                    Modifier
-                        .size(width = 3.dp, height = 20.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-                Spacer(Modifier.width(Spacing.m))
+            // The signature: a brand bloom that springs in only on the active row and gently
+            // breathes. Reserving no space keeps every other row clean text — the medallion is a
+            // reward for being "here", not a stamp on every line.
+            AnimatedVisibility(
+                visible = selected,
+                enter = if (reducedMotion) {
+                    fadeIn(snap())
+                } else {
+                    expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
+                    ) + fadeIn(tween(220))
+                },
+                exit = if (reducedMotion) fadeOut(snap()) else shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActiveBloom(reducedMotion)
+                    Spacer(Modifier.width(Spacing.m))
+                }
             }
             Text(
                 thread.title,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                 color = contentColor,
@@ -216,114 +277,179 @@ private fun ThreadRow(
                 Icon(
                     Icons.Filled.PushPin,
                     contentDescription = "Pinned",
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(15.dp),
                     tint = mutedColor,
                 )
             }
-            // Same 6dp breathing dot as the mode switch: one vocabulary for "still working",
-            // so a single glance always means the same thing wherever it appears.
             if (rendering) {
                 Spacer(Modifier.width(Spacing.s))
-                RenderingPulse(color = MaterialTheme.colorScheme.primary, reducedMotion = reducedMotion)
+                RenderingPulse(
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
+                    reducedMotion = reducedMotion,
+                )
             }
+        }
+
+        if (menuOpen) {
+            ThreadActionMenu(
+                title = thread.title,
+                isPinned = thread.isPinned,
+                reducedMotion = reducedMotion,
+                onDismiss = { menuOpen = false },
+                onPin = onPin,
+                onUnpin = onUnpin,
+                onRename = onRename,
+                onDelete = onDelete,
+            )
         }
     }
 }
 
+/** The breathing brand bloom on the active row — a filled Sunny polygon in the accent colour. */
+@Composable
+private fun ActiveBloom(reducedMotion: Boolean) {
+    val scale = if (reducedMotion) {
+        1f
+    } else {
+        val t = rememberInfiniteTransition(label = "bloom")
+        t.animateFloat(
+            initialValue = 0.9f,
+            targetValue = 1.09f,
+            animationSpec = infiniteRepeatable(tween(2600), RepeatMode.Reverse),
+            label = "bloom-scale",
+        ).value
+    }
+    Box(
+        Modifier
+            .size(20.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedPolygonShape(MaterialShapes.Sunny))
+            .background(MaterialTheme.colorScheme.primary),
+    )
+}
+
 /**
- * Long-press actions for a conversation, as an expressive bottom sheet.
+ * The long-press menu — a custom, precisely-tuned dropdown (not the stock one).
  *
- * A sheet reads as a first-class surface — a titled header naming the conversation, plus big
- * touch-friendly action rows — where the old anchored dropdown read as a leftover from stock
- * Android. Tapping a row slides the sheet out and only then runs the action, so a Rename/Delete
- * dialog never lands on top of a still-animating sheet.
+ * It unfolds from the corner nearest the row's trailing edge, overshooting a touch on the way in
+ * and collapsing faster on the way out — the way a real object would. Items stagger in so the menu
+ * assembles rather than snaps, and the whole thing lives on until its exit animation finishes.
  */
 @Composable
-private fun ThreadActionSheet(
-    thread: ChatThread,
+private fun ThreadActionMenu(
+    title: String,
+    isPinned: Boolean,
+    reducedMotion: Boolean,
     onDismiss: () -> Unit,
     onPin: () -> Unit,
     onUnpin: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    // Slide the sheet out first, then dismiss and run the action. Rename and Delete each raise a
-    // dialog, so firing the action up front would stack that dialog over a still-animating sheet
-    // (double scrim, plus a sheet-exit flash when the dialog later closes). Waiting for the hide
-    // animation keeps it to one modal on screen at a time.
-    fun act(action: () -> Unit) {
-        scope.launch { sheetState.hide() }.invokeOnCompletion {
-            if (!sheetState.isVisible) {
-                onDismiss()
-                action()
-            }
+    // Driven separately from menuOpen so the exit animation can play before we unmount: enter once
+    // on first composition, and only tear down after the collapse has fully settled.
+    val visible = remember { MutableTransitionState(false) }
+    // Rename/Delete each raise a dialog, so the chosen action is deferred until the popup has
+    // fully collapsed and unmounted — otherwise a focusable dialog would land on top of a still
+    // focusable, still-animating popup and the two would fight for input.
+    val pendingAction = remember { mutableStateOf<(() -> Unit)?>(null) }
+    LaunchedEffect(Unit) { visible.targetState = true }
+    LaunchedEffect(visible.isIdle, visible.currentState) {
+        if (visible.isIdle && !visible.currentState) {
+            val action = pendingAction.value
+            onDismiss()
+            action?.invoke()
         }
     }
+    val flippedUp = remember { mutableStateOf(false) }
+    val positionProvider = remember { ThreadMenuPositionProvider(gapPx = 8, onFlip = { flippedUp.value = it }) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = { visible.targetState = false },
+        properties = PopupProperties(focusable = true),
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.base)
-                .padding(bottom = Spacing.xl),
-        ) {
-            Text(
-                thread.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = Spacing.xs),
-            )
-            Text(
-                if (thread.isPinned) "Pinned conversation" else "Conversation",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xs),
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Column(verticalArrangement = Arrangement.spacedBy(RowGap)) {
-                if (thread.isPinned) {
-                    ActionSheetRow(
-                        icon = Icons.Outlined.PushPin,
-                        label = "Unpin",
-                        shape = groupedItemShape(0, 3),
-                        chipColor = MaterialTheme.colorScheme.secondaryContainer,
-                        chipContent = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onClick = { act(onUnpin) },
-                    )
+        val transition = updateTransition(visible, label = "menu")
+        // A fade is retained under reduced motion; the grow/overshoot is not.
+        val scaleRaw by transition.animateFloat(
+            transitionSpec = {
+                if (false isTransitioningTo true) {
+                    spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
                 } else {
-                    ActionSheetRow(
-                        icon = Icons.Filled.PushPin,
-                        label = "Pin",
-                        shape = groupedItemShape(0, 3),
-                        chipColor = MaterialTheme.colorScheme.secondaryContainer,
-                        chipContent = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onClick = { act(onPin) },
-                    )
+                    tween(120, easing = FastOutLinearInEasing)
                 }
-                ActionSheetRow(
+            },
+            label = "menu-scale",
+        ) { if (it) 1f else 0.8f }
+        val scale = if (reducedMotion) 1f else scaleRaw
+        val alpha by transition.animateFloat(
+            transitionSpec = {
+                if (false isTransitioningTo true) tween(130) else tween(100, easing = FastOutLinearInEasing)
+            },
+            label = "menu-alpha",
+        ) { if (it) 1f else 0f }
+
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 3.dp,
+            shadowElevation = 10.dp,
+            modifier = Modifier
+                .width(216.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                    transformOrigin = TransformOrigin(1f, if (flippedUp.value) 1f else 0f)
+                },
+        ) {
+            Column(Modifier.padding(6.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+                // Start collapsing the popup. Pin/Unpin change data with no follow-up surface, so
+                // they fire right away; Rename and Delete each raise a dialog, so those are deferred
+                // until the popup has fully unmounted (see [pendingAction]) to avoid two focusable
+                // surfaces overlapping.
+                fun act(deferred: Boolean, action: () -> Unit) {
+                    if (deferred) pendingAction.value = action else action()
+                    visible.targetState = false
+                }
+                MenuItem(
+                    transition = transition,
+                    index = 0,
+                    reducedMotion = reducedMotion,
+                    icon = if (isPinned) Icons.Outlined.PushPin else Icons.Filled.PushPin,
+                    label = if (isPinned) "Unpin" else "Pin",
+                    chipColor = MaterialTheme.colorScheme.secondaryContainer,
+                    chipContent = MaterialTheme.colorScheme.onSecondaryContainer,
+                    onClick = { act(deferred = false) { if (isPinned) onUnpin() else onPin() } },
+                )
+                MenuItem(
+                    transition = transition,
+                    index = 1,
+                    reducedMotion = reducedMotion,
                     icon = Icons.Filled.Edit,
                     label = "Rename",
-                    shape = groupedItemShape(1, 3),
                     chipColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     chipContent = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = { act(onRename) },
+                    onClick = { act(deferred = true) { onRename() } },
                 )
-                ActionSheetRow(
+                MenuItem(
+                    transition = transition,
+                    index = 2,
+                    reducedMotion = reducedMotion,
                     icon = Icons.Filled.DeleteOutline,
                     label = "Delete",
-                    shape = groupedItemShape(2, 3),
                     chipColor = MaterialTheme.colorScheme.errorContainer,
                     chipContent = MaterialTheme.colorScheme.onErrorContainer,
                     labelColor = MaterialTheme.colorScheme.error,
-                    onClick = { act(onDelete) },
+                    onClick = { act(deferred = true) { onDelete() } },
                 )
             }
         }
@@ -331,41 +457,90 @@ private fun ThreadActionSheet(
 }
 
 @Composable
-private fun ActionSheetRow(
+private fun MenuItem(
+    transition: androidx.compose.animation.core.Transition<Boolean>,
+    index: Int,
+    reducedMotion: Boolean,
     icon: ImageVector,
     label: String,
-    shape: androidx.compose.ui.graphics.Shape,
     chipColor: Color,
     chipContent: Color,
     onClick: () -> Unit,
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.padding(horizontal = Spacing.m, vertical = Spacing.s).heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(chipColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, Modifier.size(20.dp), tint = chipContent)
-            }
-            Spacer(Modifier.width(Spacing.base))
-            Text(
-                label,
-                style = MaterialTheme.typography.titleSmall,
-                color = labelColor,
+    // Each item slides+fades in on its own beat so the menu assembles top-to-bottom. Under reduced
+    // motion the per-item delay and the horizontal travel are dropped — only a plain fade remains.
+    val stagger = if (reducedMotion) 0 else 30 + index * 38
+    val itemAlpha by transition.animateFloat(
+        transitionSpec = {
+            if (false isTransitioningTo true) tween(220, delayMillis = stagger, easing = LinearOutSlowInEasing)
+            else tween(90, easing = FastOutLinearInEasing)
+        },
+        label = "item-alpha",
+    ) { if (it) 1f else 0f }
+    val itemShiftRaw by transition.animateFloat(
+        transitionSpec = {
+            if (false isTransitioningTo true) tween(260, delayMillis = stagger, easing = EaseOutBack)
+            else tween(90)
+        },
+        label = "item-shift",
+    ) { if (it) 0f else -8f }
+    val itemShift = if (reducedMotion) 0f else itemShiftRaw
+
+    val itemInteraction = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = itemAlpha; translationX = itemShift }
+            .clip(RoundedCornerShape(13.dp))
+            .clickable(
+                interactionSource = itemInteraction,
+                indication = ripple(),
+                onClick = onClick,
             )
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(31.dp)
+                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 8.dp, bottomStart = 8.dp, bottomEnd = 12.dp))
+                .background(chipColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, Modifier.size(17.dp), tint = chipContent)
         }
+        Spacer(Modifier.width(13.dp))
+        Text(label, style = MaterialTheme.typography.titleSmall, color = labelColor)
+    }
+}
+
+/**
+ * Anchors the menu just below the row, right edges aligned, and flips it above when there isn't
+ * room underneath. Reports the flip so the content can pivot its grow-from origin accordingly.
+ */
+private class ThreadMenuPositionProvider(
+    private val gapPx: Int,
+    private val onFlip: (Boolean) -> Unit,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = (anchorBounds.right - popupContentSize.width)
+            .coerceIn(gapPx, (windowSize.width - popupContentSize.width - gapPx).coerceAtLeast(gapPx))
+        val below = anchorBounds.bottom + gapPx
+        val flip = below + popupContentSize.height > windowSize.height - gapPx
+        onFlip(flip)
+        val y = if (flip) {
+            (anchorBounds.top - popupContentSize.height - gapPx)
+                .coerceIn(gapPx, (windowSize.height - popupContentSize.height - gapPx).coerceAtLeast(gapPx))
+        } else {
+            below
+        }
+        return IntOffset(x, y)
     }
 }
 
