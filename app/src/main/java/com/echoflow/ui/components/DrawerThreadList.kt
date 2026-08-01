@@ -235,7 +235,8 @@ private fun ThreadRow(
  *
  * A sheet reads as a first-class surface — a titled header naming the conversation, plus big
  * touch-friendly action rows — where the old anchored dropdown read as a leftover from stock
- * Android. Each action fires immediately on tap, then the sheet animates itself away.
+ * Android. Tapping a row slides the sheet out and only then runs the action, so a Rename/Delete
+ * dialog never lands on top of a still-animating sheet.
  */
 @Composable
 private fun ThreadActionSheet(
@@ -248,11 +249,17 @@ private fun ThreadActionSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    // Run the action now (so it's never dropped), then let the sheet slide out before it leaves
-    // the composition.
+    // Slide the sheet out first, then dismiss and run the action. Rename and Delete each raise a
+    // dialog, so firing the action up front would stack that dialog over a still-animating sheet
+    // (double scrim, plus a sheet-exit flash when the dialog later closes). Waiting for the hide
+    // animation keeps it to one modal on screen at a time.
     fun act(action: () -> Unit) {
-        action()
-        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) {
+                onDismiss()
+                action()
+            }
+        }
     }
 
     ModalBottomSheet(
