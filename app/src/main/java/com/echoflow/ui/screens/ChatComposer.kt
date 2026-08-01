@@ -76,7 +76,9 @@ import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -470,23 +472,34 @@ internal fun PlusMenu(
                 label = "alpha",
             ) { if (it) 1f else 0f }
 
+            // Never taller than the window (compact/landscape/split-screen): cap the height and let
+            // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
+            val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
+            val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 3.dp,
                 shadowElevation = 10.dp,
+                // widthIn (not a fixed width) so the popup shrinks to fit narrow windows rather
+                // than overflowing off-screen.
                 modifier = Modifier
-                    .width(260.dp)
+                    .widthIn(max = 260.dp)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         this.alpha = alpha
-                        // Grow from the corner nearest the "+": bottom-start when above it (the
-                        // usual case at the foot of the screen), top-start if it had to flip down.
-                        transformOrigin = TransformOrigin(0f, if (flippedDown.value) 0f else 1f)
+                        // Grow from the corner nearest the "+": the anchor's leading side (right in
+                        // RTL), and bottom when above the button (the usual case), top if flipped.
+                        transformOrigin = TransformOrigin(if (isRtl) 1f else 0f, if (flippedDown.value) 0f else 1f)
                     },
             ) {
-                Column(Modifier.padding(6.dp)) {
+                Column(
+                    Modifier
+                        .heightIn(max = maxMenuHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(6.dp),
+                ) {
                     var i = 0
                     if (showImage || showFiles) {
                         MenuSectionLabel("Attach")
@@ -628,8 +641,14 @@ private class PlusMenuPositionProvider(
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
     ): IntOffset {
-        val x = anchorBounds.left
-            .coerceIn(gapPx, (windowSize.width - popupContentSize.width - gapPx).coerceAtLeast(gapPx))
+        // Align the popup's leading edge to the anchor: left edge in LTR, right edge in RTL (where
+        // the "+" sits on the right), then clamp on-screen.
+        val maxX = (windowSize.width - popupContentSize.width - gapPx).coerceAtLeast(gapPx)
+        val x = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left.coerceIn(gapPx, maxX)
+        } else {
+            (anchorBounds.right - popupContentSize.width).coerceIn(gapPx, maxX)
+        }
         val above = anchorBounds.top - popupContentSize.height - gapPx
         val flipDown = above < gapPx
         onFlipDown(flipDown)
