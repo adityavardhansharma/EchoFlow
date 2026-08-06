@@ -71,30 +71,13 @@ class WebSearchService {
     }
 
     private fun searchParallel(apiKey: String, query: String, maxResults: Int): List<SearchSource> {
-        val body = mapOf(
-            "objective" to query,
-            "search_queries" to listOf(query),
-            "mode" to "basic",
-            "advanced_settings" to mapOf("max_results" to maxResults),
-        )
         val json = executePost(
-            url = "https://api.parallel.ai/v1/search",
+            url = ParallelSearchV1.ENDPOINT,
             headers = mapOf("x-api-key" to apiKey),
-            body = body,
+            body = ParallelSearchV1.requestBody(query, maxResults),
             providerLabel = "Parallel"
         )
-        val results = json["results"] as? List<*> ?: return emptyList()
-        return results.mapNotNull { raw ->
-            val r = raw as? Map<*, *> ?: return@mapNotNull null
-            val url = r["url"] as? String ?: return@mapNotNull null
-            val excerpts = (r["excerpts"] as? List<*>)?.filterIsInstance<String>()
-            SearchSource(
-                title = (r["title"] as? String).orEmpty().ifBlank { url },
-                url = url,
-                snippet = excerpts?.joinToString("\n")?.take(3000),
-                publishedDate = r["publish_date"] as? String
-            )
-        }
+        return ParallelSearchV1.parseResults(json)
     }
 
     private fun searchFirecrawl(apiKey: String, query: String, maxResults: Int): List<SearchSource> {
