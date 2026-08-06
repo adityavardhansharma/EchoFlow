@@ -73,10 +73,12 @@ class WebSearchService {
     private fun searchParallel(apiKey: String, query: String, maxResults: Int): List<SearchSource> {
         val body = mapOf(
             "objective" to query,
-            "max_results" to maxResults
+            "search_queries" to listOf(query),
+            "mode" to "basic",
+            "advanced_settings" to mapOf("max_results" to maxResults),
         )
         val json = executePost(
-            url = "https://api.parallel.ai/v1beta/search",
+            url = "https://api.parallel.ai/v1/search",
             headers = mapOf("x-api-key" to apiKey),
             body = body,
             providerLabel = "Parallel"
