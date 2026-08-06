@@ -32,7 +32,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
+import com.echoflow.ui.theme.JetBrainsMono
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
@@ -91,7 +91,7 @@ fun CodeBlockItem(code: String, language: String?) {
                 Text(
                     text = (language ?: "code").uppercase(),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = JetBrainsMono,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
@@ -123,7 +123,7 @@ fun CodeBlockItem(code: String, language: String?) {
                         text = highlighted,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = JetBrainsMono,
                             fontSize = 13.sp,
                             lineHeight = 18.sp
                         )

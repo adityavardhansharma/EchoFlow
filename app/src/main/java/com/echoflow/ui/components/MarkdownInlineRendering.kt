@@ -32,7 +32,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
+import com.echoflow.ui.theme.JetBrainsMono
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
@@ -163,7 +163,7 @@ internal fun AnnotatedString.Builder.appendNodes(
             }
             is InlineNode.Code -> withStyle(
                 SpanStyle(
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = JetBrainsMono,
                     background = Color.Gray.copy(alpha = 0.18f),
                     fontWeight = FontWeight.Medium
                 )
@@ -263,7 +263,7 @@ internal fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color
                 if (close != -1) {
                     withStyle(
                         SpanStyle(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = JetBrainsMono,
                             background = Color.Gray.copy(alpha = 0.18f),
                             fontWeight = FontWeight.Medium
                         )
