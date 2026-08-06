@@ -546,18 +546,47 @@ object SystemPrompts {
     /** Prompt to actually send a message the user already reviewed and confirmed. */
     fun browserSendConfirmedPrompt(draft: String): String = BrowserSystemPrompts.sendConfirmed(draft)
 
-    private fun formatting(isLocalModel: Boolean): String = buildString {
-        append(
-            "## Style\n" +
-                "Use markdown when it helps. Match the user's language and tone. Be direct — lead with the answer, " +
-                "then add detail. When writing math, use LaTeX: `${'$'}...${'$'}` for short inline expressions and " +
-                "`${'$'}${'$'}...${'$'}${'$'}` for important equations or multi-step derivations. Do not leave unmatched `${'$'}` delimiters."
-        )
+    /**
+     * The single formatting contract shared by every conversational prompt ([build],
+     * [buildCustomProvider], [buildEchoAdviser], [buildEchoFusion], [buildEchoAgent]) so answers
+     * look identical no matter which mode produced them. Rules are written to the app's Markdown
+     * renderer's actual type scale: `#`→24sp, `##`→22sp, `###`→16sp, `####`→body-sized, tables get
+     * an emphasized header row, fenced blocks are syntax-highlighted by language. Steer the model to
+     * `##`/`###` (the two heading sizes that read as headings) and away from `#` and deeper nesting.
+     * On-device models get a compact variant to spare their small context window; it must stay
+     * consistent with the full one.
+     */
+    private fun formatting(isLocalModel: Boolean): String =
         if (isLocalModel) {
-            append(" Do not prefix replies with \"User:\" or \"Assistant:\".")
+            """
+            ## Formatting
+            Answer in GitHub-flavored markdown, kept consistent every time:
+            - Headings: start sections at `##` and sub-sections at `###`. Never open with `#`, don't nest deeper than `###`, and skip headings entirely for a short answer.
+            - Text: lead with the answer, then detail; short paragraphs. `**bold**` for key terms only.
+            - Lists: `-` for points, `1.` for steps; short, parallel items.
+            - Tables: for comparisons only — always include the header row and its `---` separator; keep cells to a few words (they wrap).
+            - Code: inline `` `code` `` for names/commands/values; fenced ```language blocks for multi-line code, always tagging the language.
+            - Quotes: `>` for a caveat or quoted source.
+            - Math: LaTeX `${'$'}...${'$'}` inline and `${'$'}${'$'}...${'$'}${'$'}` for equations; never leave an unmatched `${'$'}`.
+
+            Match the user's language and tone. Do not prefix replies with "User:" or "Assistant:".
+            """.trimIndent()
+        } else {
+            """
+            ## Formatting
+            Write in GitHub-flavored markdown, which the app renders with a styled type scale. Use the same conventions every time so answers stay visually consistent:
+
+            - **Headings** — never open with `#` (reserve it for a titled document). Start sections at `##` and use `###` for sub-sections; don't skip levels or nest deeper than `###`. Omit headings entirely for a short answer of a few paragraphs.
+            - **Paragraphs** — lead with the direct answer, then the detail. Keep paragraphs to 2–4 sentences.
+            - **Emphasis** — `**bold**` for key terms, labels, and verdicts; `*italic*` sparingly for nuance. Never bold a whole sentence.
+            - **Lists** — `-` for unordered points, `1.` for steps or ranked items. Keep items short and parallel; indent to nest. Don't wrap a single idea in a list.
+            - **Tables** — use one for any comparison or set of items sharing attributes. Always include the header row and its `---` separator (the header row renders emphasized automatically). Keep every cell to a few words — cells wrap, so never put a paragraph inside one.
+            - **Code** — inline `` `code` `` for identifiers, filenames, commands, flags, and values; fenced ```language blocks for anything multi-line, always tagging the language so it is syntax-highlighted. Never wrap a whole prose answer in a code block.
+            - **Quotes** — `>` blockquotes for a caveat, warning, or quoted source — not for ordinary text.
+            - **Math** — LaTeX only: `${'$'}...${'$'}` for short inline expressions, `${'$'}${'$'}...${'$'}${'$'}` for important or multi-step equations. Never leave an unmatched `${'$'}`.
+            - **Links** — inline `[text](url)`; place a citation right after the sentence it supports.
+
+            Match the user's language and tone, and use structure only when it earns its place — don't over-format a simple reply.
+            """.trimIndent()
         }
-        if (!isLocalModel) {
-            append(" For complex questions, structure the response so it is easy to scan.")
-        }
-    }
 }
