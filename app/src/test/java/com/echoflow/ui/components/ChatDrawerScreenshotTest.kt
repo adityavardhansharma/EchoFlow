@@ -1,7 +1,10 @@
 package com.echoflow.ui.components
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.Density
 import com.echoflow.data.AppMode
 import com.echoflow.data.ChatThread
 import com.echoflow.ui.theme.EchoFlowTheme
@@ -79,6 +82,36 @@ class ChatDrawerScreenshotTest {
 
         composeRule.onRoot().captureRoboImage(
             filePath = "src/test/screenshots/drawer_footer_imagine.png",
+        )
+    }
+
+    @Test
+    fun drawer_footer_large_font_scale() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 2f, fontScale = 2f)) {
+                EchoFlowTheme {
+                    ChatDrawerContent(
+                        mode = AppMode.Chat,
+                        allThreads = threads,
+                        currentThreadId = "today",
+                        renderingChatIds = emptySet(),
+                        otherModeMatchCount = 0,
+                        onThreadSelected = {},
+                        onNewChatClicked = {},
+                        onDeleteThread = {},
+                        onRenameThread = { _, _ -> },
+                        onPinThread = {},
+                        onUnpinThread = {},
+                        onSettingsClicked = {},
+                        searchQuery = "",
+                        onSearchQueryChange = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onRoot().captureRoboImage(
+            filePath = "src/test/screenshots/drawer_footer_large_font.png",
         )
     }
 }
