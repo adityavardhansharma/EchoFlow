@@ -215,7 +215,7 @@ private fun DrawerFooterRow(
 ) {
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val newChatInteraction = remember { MutableInteractionSource() }
@@ -234,9 +234,8 @@ private fun DrawerFooterRow(
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
             contentPadding = PaddingValues(horizontal = Spacing.m, vertical = Spacing.s),
             modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minWidth = 1.dp)
                 .heightIn(min = 48.dp)
+                .widthIn(max = 200.dp)
                 .graphicsLayer { scaleX = newChatScale; scaleY = newChatScale }
                 .testTag("drawer_new_chat_button"),
         ) {
@@ -258,7 +257,6 @@ private fun DrawerFooterRow(
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
             )
         }
 
