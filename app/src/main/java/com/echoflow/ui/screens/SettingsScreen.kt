@@ -152,6 +152,7 @@ internal const val PageImagine = "imagine"
 internal const val PageDataAgent = "data_agent"
 internal const val PageBrowserFlow = "browser_flow"
 internal const val PageEchoLabs = "echo_labs"
+internal const val PagePrivacy = "privacy"
 internal const val PageEchoAdviser = "echo_adviser"
 internal const val PageEchoFusion = "echo_fusion"
 internal const val PageEchoAgent = "echo_agent"
@@ -173,7 +174,7 @@ internal fun settingsParentPage(page: String): String? = when (page) {
     PageDeepResearch, PageImagine, PageEchoLabs,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
-    PageEchoAgent, PageCustomProvider,
+    PageEchoAgent, PageCustomProvider, PagePrivacy,
     -> PageEchoLabs
     PageCustomProviderCloud -> PageCustomProvider
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
@@ -237,6 +238,7 @@ fun SettingsScreen(
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = navigateBack)
             PageImagine -> ImaginePage(viewModel, onBack = navigateBack)
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
+            PagePrivacy -> PrivacyPage(viewModel, onBack = navigateBack)
             PageDataAgent -> DataAgentPage(viewModel, onBack = navigateBack)
             PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = navigateBack)
             PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = navigateBack)
