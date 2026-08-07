@@ -13,10 +13,10 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -128,56 +128,7 @@ fun ChatDrawerContent(
             Text("EchoFlow", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         }
 
-        // Primary action — filled pill. A springy press-scale gives immediate tactile
-        // feedback on touch-down, since the drawer closes on release and would otherwise
-        // cut the ripple short before the user sees it.
-        // Primary action — a clean extended-FAB. On click the "+" spins + pops, and only THEN do
-        // we run the action and close the drawer, so the animation is actually seen (the drawer
-        // used to slide away instantly and cut it off).
         val scope = rememberCoroutineScope()
-        val newChatInteraction = remember { MutableInteractionSource() }
-        val newChatScale by pressScale(newChatInteraction)
-        val plusAnim = remember { Animatable(0f) }
-        Button(
-            onClick = {
-                scope.launch {
-                    plusAnim.snapTo(0f)
-                    plusAnim.animateTo(1f, animationSpec = tween(durationMillis = 320))
-                    onNewChatClicked()
-                    onCloseDrawer?.invoke()
-                }
-            },
-            shapes = ButtonShapes(shape = ButtonRestShape, pressedShape = ButtonPressedShape),
-            interactionSource = newChatInteraction,
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
-            contentPadding = PaddingValues(horizontal = Spacing.l, vertical = Spacing.base),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .graphicsLayer { scaleX = newChatScale; scaleY = newChatScale }
-                .testTag("drawer_new_chat_button"),
-        ) {
-            // Fun: a medallion that morphs Sunny → Cookie on click. The pencil swells with the
-            // morph but never spins — the "+" could rotate because it looks the same at every
-            // angle, and a tumbling pencil just reads as a glitch.
-            val p = plusAnim.value
-            val plusMorph = rememberMorph(MaterialShapes.Sunny, MaterialShapes.Cookie7Sided)
-            Box(
-                Modifier.size(32.dp).clip(MorphPolygonShape(plusMorph, p)).background(MaterialTheme.colorScheme.onPrimary),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Create, null,
-                    Modifier.size(18.dp).scale(1f + 0.3f * (1f - abs(p - 0.5f) * 2f)),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(Modifier.width(Spacing.m))
-            Text(
-                if (imagine) "New creation" else "New conversation",
-                style = MaterialTheme.typography.titleSmall,
-            )
-        }
 
         // Search across every conversation — titles and message text.
         if (onSearchQueryChange != null) {
@@ -236,35 +187,97 @@ fun ChatDrawerContent(
 
         HorizontalDivider(Modifier.padding(vertical = Spacing.s), color = MaterialTheme.colorScheme.outlineVariant)
 
-        // Settings — an expressive tile: a colored secondary container lifts it off the dark
-        // drawer surface, with a tertiary cookie-shaped gear chip that spins on press, plus a
-        // springy press-scale and trailing chevron.
+        DrawerFooterRow(
+            newChatLabel = if (imagine) "New Canvas" else "New Chat",
+            onNewChatClicked = {
+                onNewChatClicked()
+                onCloseDrawer?.invoke()
+            },
+            onSettingsClicked = {
+                onSettingsClicked()
+                onCloseDrawer?.invoke()
+            },
+            scope = scope,
+        )
+        Spacer(Modifier.height(Spacing.s))
+    }
+}
+
+/**
+ * Footer row: compact "New Chat" / "New Canvas" on the left, circular ghost settings on the right.
+ */
+@Composable
+private fun DrawerFooterRow(
+    newChatLabel: String,
+    onNewChatClicked: () -> Unit,
+    onSettingsClicked: () -> Unit,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val newChatInteraction = remember { MutableInteractionSource() }
+        val newChatScale by pressScale(newChatInteraction)
+        val plusAnim = remember { Animatable(0f) }
+        Button(
+            onClick = {
+                scope.launch {
+                    plusAnim.snapTo(0f)
+                    plusAnim.animateTo(1f, animationSpec = tween(durationMillis = 320))
+                    onNewChatClicked()
+                }
+            },
+            shapes = ButtonShapes(shape = ButtonRestShape, pressedShape = ButtonPressedShape),
+            interactionSource = newChatInteraction,
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
+            contentPadding = PaddingValues(horizontal = Spacing.m, vertical = Spacing.s),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .graphicsLayer { scaleX = newChatScale; scaleY = newChatScale }
+                .testTag("drawer_new_chat_button"),
+        ) {
+            val p = plusAnim.value
+            val plusMorph = rememberMorph(MaterialShapes.Sunny, MaterialShapes.Cookie7Sided)
+            Box(
+                Modifier.size(28.dp).clip(MorphPolygonShape(plusMorph, p)).background(MaterialTheme.colorScheme.onPrimary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Create, null,
+                    Modifier.size(16.dp).scale(1f + 0.3f * (1f - abs(p - 0.5f) * 2f)),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Text(newChatLabel, style = MaterialTheme.typography.labelLarge)
+        }
+
+        Spacer(Modifier.weight(1f))
+
         val settingsInteraction = remember { MutableInteractionSource() }
         val settingsScale by pressScale(settingsInteraction)
         val gearAnim = remember { Animatable(0f) }
-        Button(
+        IconButton(
             onClick = {
                 scope.launch {
                     gearAnim.snapTo(0f)
                     gearAnim.animateTo(1f, animationSpec = tween(durationMillis = 320))
                     onSettingsClicked()
-                    onCloseDrawer?.invoke()
                 }
             },
-            shapes = ButtonShapes(shape = ButtonRestShape, pressedShape = ButtonPressedShape),
-            colors = ButtonDefaults.buttonColors(
+            interactionSource = settingsInteraction,
+            modifier = Modifier
+                .size(48.dp)
+                .graphicsLayer { scaleX = settingsScale; scaleY = settingsScale }
+                .testTag("drawer_settings_button"),
+            colors = IconButtonDefaults.iconButtonColors(
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
             ),
-            elevation = null,
-            interactionSource = settingsInteraction,
-            contentPadding = PaddingValues(horizontal = Spacing.base, vertical = Spacing.base),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .graphicsLayer { scaleX = settingsScale; scaleY = settingsScale },
+            shape = CircleShape,
         ) {
-            // Fun: a Ghost-ish medallion that morphs to a cookie while the gear spins, on click.
             val g = gearAnim.value
             val gearMorph = rememberMorph(MaterialShapes.Ghostish, MaterialShapes.Cookie7Sided)
             Box(
@@ -272,20 +285,12 @@ fun ChatDrawerContent(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.Settings, null,
+                    Icons.Default.Settings, "Settings",
                     Modifier.size(18.dp).rotate(g * 300f),
                     tint = MaterialTheme.colorScheme.tertiaryContainer,
                 )
             }
-            Spacer(Modifier.width(Spacing.m))
-            Text("Settings", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
-            )
         }
-        Spacer(Modifier.height(Spacing.s))
     }
 }
 
