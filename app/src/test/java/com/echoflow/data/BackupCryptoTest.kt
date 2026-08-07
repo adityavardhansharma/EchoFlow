@@ -1,6 +1,7 @@
 package com.echoflow.data
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -43,8 +44,32 @@ class BackupCryptoTest {
         val a = BackupCrypto.encrypt(payload, "key")
         val b = BackupCrypto.encrypt(payload, "key")
         // Same plaintext + passkey must not produce identical ciphertext.
-        assert(a.salt != b.salt)
-        assert(a.iv != b.iv)
-        assert(a.ct != b.ct)
+        assertNotEquals(a.salt, b.salt)
+        assertNotEquals(a.iv, b.iv)
+        assertNotEquals(a.ct, b.ct)
+    }
+
+    @Test
+    fun rejects_unbounded_iteration_count_before_kdf() {
+        val env = BackupCrypto.encrypt(payload, "key")
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupCrypto.decrypt(env.copy(iter = Int.MAX_VALUE), "key")
+        }
+    }
+
+    @Test
+    fun rejects_too_few_iterations() {
+        val env = BackupCrypto.encrypt(payload, "key")
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupCrypto.decrypt(env.copy(iter = 1), "key")
+        }
+    }
+
+    @Test
+    fun rejects_unsupported_crypto_version() {
+        val env = BackupCrypto.encrypt(payload, "key")
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupCrypto.decrypt(env.copy(v = 99), "key")
+        }
     }
 }

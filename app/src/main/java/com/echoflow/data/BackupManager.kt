@@ -10,7 +10,10 @@ import androidx.room.withTransaction
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
@@ -24,6 +27,9 @@ import java.io.File
  *
  * Scope is text data only (chats, keys/settings, profiles, model directory rows); large,
  * re-creatable files (downloaded models, generated media) are not backed up.
+ *
+ * Export, delete, and restore are serialized with a [Mutex] so lifecycle refreshes cannot race
+ * a user-requested disable and recreate the file after deletion.
  */
 class BackupManager(
     private val appContext: Context,
@@ -34,6 +40,9 @@ class BackupManager(
     private val bundleAdapter = moshi.adapter(BackupBundle::class.java)
     private val envelopeAdapter = moshi.adapter(BackupEnvelope::class.java)
 
+    /** Serializes export / delete / restore so they cannot interleave on the same file. */
+    private val ioMutex = Mutex()
+
     // ── Public API ─────────────────────────────────────────────────────────────────────
 
     /** Re-write the backup only when the feature is on and a passkey exists. Best-effort. */
@@ -43,31 +52,51 @@ class BackupManager(
         }
     }
 
-    /** Build, encrypt, and write the backup file using the stored passkey. */
+    /**
+     * Build, encrypt, and write the backup file using the stored passkey.
+     * Re-checks that backup is still enabled immediately before writing so a concurrent
+     * [deleteBackupFile] (after the user turns the feature off) wins.
+     */
     suspend fun export(): Boolean = withContext(Dispatchers.IO) {
-        val passkey = settings.getBackupPasskeyDirect()
-        if (passkey.isBlank()) return@withContext false
-        val bytes = encodeToBytes(buildBundle(), passkey)
-        writeBackupFile(bytes)
+        ioMutex.withLock {
+            if (!settings.getBackupEnabledDirect()) return@withLock false
+            val passkey = settings.getBackupPasskeyDirect()
+            if (passkey.isBlank()) return@withLock false
+            val bytes = encodeToBytes(buildBundle(), passkey)
+            // User may have disabled while we were building/encrypting — honour that.
+            if (!settings.getBackupEnabledDirect()) return@withLock false
+            writeBackupFile(bytes)
+        }
     }
 
     /** Read [uri], decrypt with [passkey], and restore its contents. */
     suspend fun restore(uri: Uri, passkey: String): BackupResult = withContext(Dispatchers.IO) {
-        val fileBytes = runCatching {
-            appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return@withContext BackupResult.Error("Couldn't read that file.")
+        ioMutex.withLock {
+            when (val read = readBackupBytesBounded(uri)) {
+                is BoundedRead.TooLarge -> BackupResult.Error(
+                    "File too large (max ${MAX_BACKUP_BYTES / (1024 * 1024)} MB).",
+                )
+                is BoundedRead.Failed -> BackupResult.Error("Couldn't read that file.")
+                is BoundedRead.Ok -> decryptAndApply(read.bytes, passkey)
+            }
+        }
+    }
 
+    private suspend fun decryptAndApply(fileBytes: ByteArray, passkey: String): BackupResult {
         val bundle = try {
             decodeFromBytes(fileBytes, passkey)
         } catch (e: javax.crypto.AEADBadTagException) {
-            return@withContext BackupResult.WrongKey
+            return BackupResult.WrongKey
+        } catch (e: IllegalArgumentException) {
+            // Unsupported version, out-of-range KDF params, bad salt/IV sizes, etc.
+            return BackupResult.Error("That doesn't look like an EchoFlow backup.")
         } catch (e: Exception) {
             // A bad-tag can also surface wrapped; treat auth failures as a wrong key.
-            if (e.isAuthFailure()) return@withContext BackupResult.WrongKey
-            return@withContext BackupResult.Error("That doesn't look like an EchoFlow backup.")
-        } ?: return@withContext BackupResult.Error("That doesn't look like an EchoFlow backup.")
+            if (e.isAuthFailure()) return BackupResult.WrongKey
+            return BackupResult.Error("That doesn't look like an EchoFlow backup.")
+        } ?: return BackupResult.Error("That doesn't look like an EchoFlow backup.")
 
-        runCatching { applyBundle(bundle) }
+        return runCatching { applyBundle(bundle) }
             .fold(
                 onSuccess = { BackupResult.Success },
                 onFailure = { BackupResult.Error("Restore failed: ${it.message ?: "unknown error"}") },
@@ -76,14 +105,16 @@ class BackupManager(
 
     /** Remove the backup file (called when the feature is turned off). Best-effort. */
     suspend fun deleteBackupFile() = withContext(Dispatchers.IO) {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                findBackupUri()?.let { appContext.contentResolver.delete(it, null, null) }
-            } else {
-                legacyBackupFile().takeIf { it.exists() }?.delete()
+        ioMutex.withLock {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    findBackupUri()?.let { appContext.contentResolver.delete(it, null, null) }
+                } else {
+                    legacyBackupFile().takeIf { it.exists() }?.delete()
+                }
             }
+            Unit
         }
-        Unit
     }
 
     // ── Codec (pure; unit-testable without Android IO) ───────────────────────────────────
@@ -105,27 +136,43 @@ class BackupManager(
 
     // ── Gather / apply ───────────────────────────────────────────────────────────────────
 
-    suspend fun buildBundle(): BackupBundle = BackupBundle(
-        schemaVersion = BackupBundle.SCHEMA_VERSION,
-        appVersionName = runCatching {
-            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-        }.getOrNull().orEmpty(),
-        createdAt = System.currentTimeMillis(),
-        settings = settings.exportSettings(),
-        threads = db.chatDao().getAllThreadsSync(),
-        messages = db.messageDao().getAllMessagesSync(),
-        advisorProfiles = db.advisorProfileDao().getAllSync(),
-        fusionPanels = db.fusionPanelDao().getAllSync(),
-        agentProfiles = db.agentProfileDao().getAllSync(),
-        customModels = db.customModelDao().getAllCustomModelsSync(),
-        deepResearchModels = db.deepResearchModelDao().getAllSync(),
-        imageModels = db.imageModelDao().getAllSync(),
-        videoModels = db.videoModelDao().getAllSync(),
-    )
+    /**
+     * Snapshot all backed-up tables inside a single Room transaction so a chat+message pair
+     * created mid-export cannot produce a bundle with orphan messages (which would later fail
+     * foreign-key checks on restore).
+     */
+    suspend fun buildBundle(): BackupBundle = db.withTransaction {
+        BackupBundle(
+            schemaVersion = BackupBundle.SCHEMA_VERSION,
+            appVersionName = runCatching {
+                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+            }.getOrNull().orEmpty(),
+            createdAt = System.currentTimeMillis(),
+            settings = settings.exportSettings(),
+            threads = db.chatDao().getAllThreadsSync(),
+            messages = db.messageDao().getAllMessagesSync(),
+            advisorProfiles = db.advisorProfileDao().getAllSync(),
+            fusionPanels = db.fusionPanelDao().getAllSync(),
+            agentProfiles = db.agentProfileDao().getAllSync(),
+            customModels = db.customModelDao().getAllCustomModelsSync(),
+            deepResearchModels = db.deepResearchModelDao().getAllSync(),
+            imageModels = db.imageModelDao().getAllSync(),
+            videoModels = db.videoModelDao().getAllSync(),
+        )
+    }
 
+    /**
+     * Apply a decrypted bundle. Room rows are written first inside a transaction; settings are
+     * imported only after that succeeds so a FK/constraint failure never leaves prefs half-restored.
+     *
+     * DAO inserts use REPLACE on conflict, so rows with the same primary key as the backup are
+     * overwritten with the backup version (matching recovery UI copy).
+     */
     suspend fun applyBundle(bundle: BackupBundle) {
-        // Keys/settings first, then DB rows. Threads before messages for the FK.
-        settings.importSettings(bundle.settings)
+        require(bundle.schemaVersion in 1..BackupBundle.SCHEMA_VERSION) {
+            "Unsupported backup schema version: ${bundle.schemaVersion}"
+        }
+        // DB first (transactional), then settings — never leave prefs mutated if Room fails.
         db.withTransaction {
             bundle.threads.forEach { db.chatDao().insertThread(it) }
             bundle.messages.forEach { db.messageDao().insertMessage(it) }
@@ -137,6 +184,7 @@ class BackupManager(
             bundle.imageModels.forEach { db.imageModelDao().insert(it) }
             bundle.videoModels.forEach { db.videoModelDao().insert(it) }
         }
+        settings.importSettings(bundle.settings)
     }
 
     // ── File location (survives uninstall) ───────────────────────────────────────────────
@@ -161,6 +209,41 @@ class BackupManager(
             true
         }
     }.getOrDefault(false)
+
+    /**
+     * Read the selected backup with a hard size cap to avoid OOM on a huge/crafted document.
+     */
+    private fun readBackupBytesBounded(uri: Uri): BoundedRead {
+        // Prefer a declared size when the provider exposes it.
+        runCatching {
+            appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                val length = afd.length
+                if (length > MAX_BACKUP_BYTES) return BoundedRead.TooLarge
+            }
+        }
+
+        return runCatching {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                val out = ByteArrayOutputStream()
+                var total = 0
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > MAX_BACKUP_BYTES) return@runCatching BoundedRead.TooLarge
+                    out.write(buffer, 0, n)
+                }
+                BoundedRead.Ok(out.toByteArray())
+            } ?: BoundedRead.Failed
+        }.getOrElse { BoundedRead.Failed }
+    }
+
+    private sealed interface BoundedRead {
+        data class Ok(val bytes: ByteArray) : BoundedRead
+        data object TooLarge : BoundedRead
+        data object Failed : BoundedRead
+    }
 
     /** The existing backup's MediaStore Uri, if one is already in Downloads/EchoFlow (Q+). */
     private fun findBackupUri(): Uri? {
@@ -189,5 +272,7 @@ class BackupManager(
     companion object {
         const val SUBDIR = "EchoFlow"
         const val FILE_NAME = "echoflow-backup.efbak"
+        /** Soft cap for a text-only encrypted backup; well above realistic chat+settings size. */
+        const val MAX_BACKUP_BYTES = 50L * 1024 * 1024
     }
 }

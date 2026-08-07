@@ -263,8 +263,10 @@ private fun InfoCard(text: String) {
 private fun SetPasskeyDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var passkey by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
-    val longEnough = passkey.length >= 6
-    val matches = passkey.isNotBlank() && passkey == confirm
+    // Validate the trimmed value so a spaces-only string cannot enable a non-functional backup.
+    val normalized = passkey.trim()
+    val longEnough = normalized.length >= SettingsViewModel.MIN_BACKUP_PASSKEY_LENGTH
+    val matches = normalized.isNotEmpty() && passkey == confirm
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.Lock, null) },
@@ -303,7 +305,7 @@ private fun SetPasskeyDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
                 if (passkey.isNotEmpty() && !longEnough) {
                     Spacer(Modifier.height(Spacing.xs))
                     Text(
-                        "Use at least 6 characters.",
+                        "Use at least ${SettingsViewModel.MIN_BACKUP_PASSKEY_LENGTH} characters (not just spaces).",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -311,7 +313,7 @@ private fun SetPasskeyDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(passkey) }, enabled = longEnough && matches) {
+            TextButton(onClick = { onConfirm(normalized) }, enabled = longEnough && matches) {
                 Text("Turn on")
             }
         },
@@ -335,8 +337,9 @@ private fun RestorePasskeyDialog(
         text = {
             Column {
                 Text(
-                    "Unlock and restore the backup you picked. This adds its chats and keys to this " +
-                        "install, then restarts EchoFlow.",
+                    "Unlock and restore the backup you picked. Matching chats, profiles, and " +
+                        "settings already on this install are replaced with the backup versions; " +
+                        "anything new is added. EchoFlow then restarts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -367,7 +370,10 @@ private fun RestorePasskeyDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(passkey) }, enabled = passkey.isNotBlank() && !working) {
+            TextButton(
+                onClick = { onConfirm(passkey.trim()) },
+                enabled = passkey.trim().isNotEmpty() && !working,
+            ) {
                 Text("Recover")
             }
         },

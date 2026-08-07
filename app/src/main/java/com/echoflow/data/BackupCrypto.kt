@@ -30,14 +30,22 @@ data class BackupEnvelope(
  * means a wrong passkey (or any tampering) fails loudly with [javax.crypto.AEADBadTagException]
  * rather than returning garbage — which is exactly how the UI tells "wrong recovery key" apart
  * from "corrupt file".
+ *
+ * Iteration count and sizes from the on-disk envelope are treated as untrusted input and bounded
+ * before PBKDF2 runs, so a crafted file cannot force unbounded CPU work during recovery.
  */
 object BackupCrypto {
     const val MAGIC = "ECHOFLOW-BACKUP"
     const val VERSION = 1
-    private const val ITERATIONS = 210_000
+    /** PBKDF2 iterations used when writing new backups (OWASP 2023 guidance). */
+    const val ITERATIONS = 210_000
+    /** Hard ceiling on envelope-supplied iterations so recovery cannot be DoS'd. */
+    const val MAX_ITERATIONS = 1_000_000
+    /** Floor: reject envelopes that advertise too-weak derivation. */
+    const val MIN_ITERATIONS = 100_000
     private const val KEY_BITS = 256
-    private const val SALT_BYTES = 16
-    private const val IV_BYTES = 12
+    const val SALT_BYTES = 16
+    const val IV_BYTES = 12
     private const val GCM_TAG_BITS = 128
 
     fun encrypt(plaintext: ByteArray, passkey: String): BackupEnvelope {
@@ -58,12 +66,23 @@ object BackupCrypto {
         )
     }
 
-    /** @throws javax.crypto.AEADBadTagException when the passkey is wrong or the data was tampered. */
+    /**
+     * @throws IllegalArgumentException when the envelope is unsupported or malformed
+     * @throws javax.crypto.AEADBadTagException when the passkey is wrong or the data was tampered
+     */
     fun decrypt(env: BackupEnvelope, passkey: String): ByteArray {
+        require(env.v == VERSION) { "Unsupported backup crypto version: ${env.v}" }
+        require(env.iter in MIN_ITERATIONS..MAX_ITERATIONS) {
+            "PBKDF2 iteration count out of range: ${env.iter}"
+        }
         val salt = unb64(env.salt)
         val iv = unb64(env.iv)
         val ct = unb64(env.ct)
-        val key = deriveKey(passkey, salt, env.iter.takeIf { it > 0 } ?: ITERATIONS)
+        require(salt.size == SALT_BYTES) { "Invalid salt length: ${salt.size}" }
+        require(iv.size == IV_BYTES) { "Invalid IV length: ${iv.size}" }
+        require(ct.isNotEmpty()) { "Empty ciphertext" }
+
+        val key = deriveKey(passkey, salt, env.iter)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
         return cipher.doFinal(ct)

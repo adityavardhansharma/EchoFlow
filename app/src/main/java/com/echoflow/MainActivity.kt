@@ -36,7 +36,6 @@ import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.ChatScreen
 import com.echoflow.ui.screens.SettingsScreen
 import com.echoflow.ui.theme.EchoFlowTheme
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -62,8 +61,10 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
+        // lifecycleScope is cancelled with the Activity, so rapid stop/start does not pile up
+        // unscoped export jobs. BackupManager also serializes export/delete with a mutex.
         appGraph?.backupManager?.let { manager ->
-            CoroutineScope(Dispatchers.IO).launch { manager.exportIfEnabled() }
+            lifecycleScope.launch(Dispatchers.IO) { manager.exportIfEnabled() }
         }
     }
 
