@@ -97,6 +97,7 @@ fun ChatScreen(
                 onSelectMode = chatViewModel::switchMode,
                 renderingModes = renderingModes,
                 onMenu = onMenuClicked,
+                onNewChat = { chatViewModel.startNewChat() },
             )
 
             // Errors belong to the app, not to a surface: a failure raised in one mode should
