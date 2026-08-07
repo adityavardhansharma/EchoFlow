@@ -375,12 +375,14 @@ internal fun ChatTopBar(
     CenterAlignedTopAppBar(
         modifier = modifier,
         navigationIcon = {
-            // Fun shaped icon button (morphs on press), vividly themed.
-            ShapedIconButton(
-                onClick = onMenu, enabled = true, size = 44.dp,
-                restShape = MaterialShapes.Cookie4Sided, pressedShape = MaterialShapes.Cookie7Sided,
-                container = MaterialTheme.colorScheme.primaryContainer,
-            ) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+            // Nudge inward from the screen edge — flush against the bezel reads cramped.
+            Box(Modifier.padding(start = Spacing.s)) {
+                ShapedIconButton(
+                    onClick = onMenu, enabled = true, size = 44.dp,
+                    restShape = MaterialShapes.Cookie4Sided, pressedShape = MaterialShapes.Cookie7Sided,
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                ) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+            }
         },
         title = {
             ModeSwitch(
