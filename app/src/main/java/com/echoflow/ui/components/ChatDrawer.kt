@@ -215,7 +215,7 @@ private fun DrawerFooterRow(
 ) {
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val newChatInteraction = remember { MutableInteractionSource() }
