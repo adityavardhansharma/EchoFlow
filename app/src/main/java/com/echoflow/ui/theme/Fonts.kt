@@ -8,29 +8,32 @@ import com.echoflow.R
 /**
  * Bundled type families for EchoFlow.
  *
- * We deliberately move off the platform Roboto: its flat, mechanical letterforms fight the app's
- * rounded, expressive M3 surfaces. The pairing here is chosen so the type agrees with that geometry
- * and reads premium.
+ * The goal here is a look that is unmistakably EchoFlow while staying calm over long, streamed
+ * answers. Identity comes from the display voice and small consistent details — never from bending
+ * the reading font into something quirky, which is what made the previous pairing feel soft and
+ * generic on-device.
  *
- * - [Figtree]: reading / UI voice for body, labels and titles. Rounded terminals and a tall
- *   x-height echo the rounded corners across the app and stay calm over long model answers.
- * - [Bricolage]: expressive display voice for headlines and the punchy chrome — real character where
- *   Roboto Black only offered weight.
+ * - [HankenGrotesk]: reading / UI voice for body, labels and titles. A crisp neutral grotesque with
+ *   subtly warm, designed letterforms — tighter and sharper than the old rounded default so long
+ *   answers read premium instead of juvenile, without shouting.
+ * - [SpaceGrotesk]: expressive display voice for headlines and the punchy chrome. Its signature
+ *   geometric cuts give the biggest moments a recognizable EchoFlow character.
  * - [JetBrainsMono]: code voice, warmer and more legible than the default device monospace.
  */
-val Figtree = FontFamily(
-    Font(R.font.figtree_regular, FontWeight.Normal),
-    Font(R.font.figtree_medium, FontWeight.Medium),
-    Font(R.font.figtree_semibold, FontWeight.SemiBold),
-    Font(R.font.figtree_bold, FontWeight.Bold),
+val HankenGrotesk = FontFamily(
+    Font(R.font.hankengrotesk_regular, FontWeight.Normal),
+    Font(R.font.hankengrotesk_medium, FontWeight.Medium),
+    Font(R.font.hankengrotesk_semibold, FontWeight.SemiBold),
+    Font(R.font.hankengrotesk_bold, FontWeight.Bold),
 )
 
-val Bricolage = FontFamily(
-    Font(R.font.bricolage_semibold, FontWeight.SemiBold),
-    Font(R.font.bricolage_bold, FontWeight.Bold),
-    // Bricolage tops out at ExtraBold (800); map heavier requests (ExtraBold/Black) here.
-    Font(R.font.bricolage_extrabold, FontWeight.ExtraBold),
-    Font(R.font.bricolage_extrabold, FontWeight.Black),
+val SpaceGrotesk = FontFamily(
+    Font(R.font.spacegrotesk_medium, FontWeight.Medium),
+    Font(R.font.spacegrotesk_semibold, FontWeight.SemiBold),
+    Font(R.font.spacegrotesk_bold, FontWeight.Bold),
+    // Space Grotesk tops out at Bold (700); map heavier requests (ExtraBold/Black) here.
+    Font(R.font.spacegrotesk_bold, FontWeight.ExtraBold),
+    Font(R.font.spacegrotesk_bold, FontWeight.Black),
 )
 
 val JetBrainsMono = FontFamily(

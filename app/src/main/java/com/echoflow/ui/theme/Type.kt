@@ -10,13 +10,14 @@ import androidx.compose.ui.unit.sp
  *
  * Material 3 Expressive uses bolder, larger display/headline styles with tightened tracking to
  * create stronger visual rhythm and let users locate key elements faster. We split two bundled
- * families along that rhythm: [Bricolage] carries the expressive display/headline voice (the punchy
- * chrome and the largest answer headers), while [Figtree] carries every reading surface — titles,
- * body and labels, including the model's streamed answers. Both are rounded-geometric so the type
- * agrees with the app's rounded M3 surfaces instead of fighting them like the old Roboto default.
+ * families along that rhythm: [SpaceGrotesk] carries the expressive display/headline voice (the
+ * punchy chrome and the largest answer headers) and gives EchoFlow its signature, while
+ * [HankenGrotesk] carries every reading surface — titles, body and labels, including the model's
+ * streamed answers. Reading tracking is pulled close to zero: the previous scale ran loose, which
+ * made long answers feel soft and juvenile on-device rather than crisp and premium.
  */
-private val Display = Bricolage
-private val Text = Figtree
+private val Display = SpaceGrotesk
+private val Text = HankenGrotesk
 
 val Typography = Typography(
     displayLarge = TextStyle(
@@ -57,15 +58,15 @@ val Typography = Typography(
     ),
     bodyLarge = TextStyle(
         fontFamily = Text, fontWeight = FontWeight.Normal,
-        fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.15.sp,
+        fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = Text, fontWeight = FontWeight.Normal,
-        fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.2.sp,
+        fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = Text, fontWeight = FontWeight.Normal,
-        fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.3.sp,
+        fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.1.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = Text, fontWeight = FontWeight.Bold,
