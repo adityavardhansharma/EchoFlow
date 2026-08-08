@@ -96,7 +96,8 @@ class DrawerThreadListTest {
             }
         }
 
-        composeRule.onNodeWithText("Pinned").assertIsDisplayed()
+        // Section headers render uppercase as quiet chrome.
+        composeRule.onNodeWithText("PINNED").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Pinned").assertIsDisplayed()
     }
 

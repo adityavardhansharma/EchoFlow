@@ -874,10 +874,8 @@ class OpenRouterService(private val context: Context) {
             // Clean simple quote wraps
             rawTitle.removeSurrounding("\"").removeSurrounding("'").trim()
         } catch (e: Exception) {
-            // Fallback: Use first few words of the user's message
-            val words = firstUserMessage.split("\\s+".toRegex())
-            val fallback = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
-            fallback
+            // Fallback: derive a title from the user's message (row clips overflow itself).
+            fallbackThreadTitle(firstUserMessage)
         }
     }
 }
