@@ -757,11 +757,17 @@ internal fun ReasoningSection(reasoning: String, active: Boolean) {
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
     val expanded = userToggled ?: active
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "reasoning-chevron")
+    val toggleInteraction = remember { MutableInteractionSource() }
     Surface(
-        onClick = { userToggled = !expanded },
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = toggleInteraction,
+                indication = null,
+                onClick = { userToggled = !expanded },
+            ),
     ) {
         Column(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
