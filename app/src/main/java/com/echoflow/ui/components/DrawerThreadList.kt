@@ -80,26 +80,22 @@ import com.echoflow.data.ChatThread
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 private const val PINNED_SECTION = "Pinned"
-private val RowShape = RoundedCornerShape(18.dp)
-private val RowHeight = 60.dp
-private val AccentBarWidth = 3.dp
-private val AccentBarHeight = 26.dp
+private val RowShape = RoundedCornerShape(14.dp)
+private val RowHeight = 48.dp
 
 /**
  * One mode's conversations, grouped by when they were last touched.
  *
- * Each row carries two lines — the title and a quiet relative time — so the run of conversations
- * reads as navigable history rather than a stack of bare strings, and every row earns its height.
- * Colour only ever means "this is the conversation you're in": the active row fills with a soft
- * container and grows a left accent bar, and crucially the title's left edge never moves between
- * selected and not, so the column of titles stays a straight rail. Soft top and bottom fades let
- * the list dissolve into the drawer instead of hard-cutting at the edges.
+ * The list is a dense, quiet run of single-line titles — no metadata, no chrome per row; the
+ * grouping headers already say "when" so the rows don't have to. Selection is deliberately calm:
+ * the active row lifts on a neutral pill (elevation, not paint), its title firms up half a weight,
+ * and a small brand dot sits at the trailing edge. Nothing is inserted before the text, so the
+ * column of titles holds one straight rail whether a row is selected or not. Soft top and bottom
+ * fades let the list dissolve into the drawer instead of hard-cutting at the edges.
  */
 @Composable
 fun DrawerThreadList(
@@ -207,30 +203,20 @@ private fun ThreadRow(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
 
-    // The active pill fills in with a soft spring; content colour crossfades so a title never
-    // "flickers" between roles as the selection lands. The container is the quieter secondary role,
-    // not the loud primary slab, so an airy list keeps its calm. Under reduced motion colours snap.
+    // Selection is elevation, not paint: the active row lifts on a neutral container pill and its
+    // title firms to Medium. Colour stays out of the row except one small trailing brand dot —
+    // enough to say "you are here" without shouting over the run of titles. Nothing is ever
+    // inserted before the text, so every title hangs off the same left rail. Under reduced motion
+    // the colours snap.
     val container by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        targetValue = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
         animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "row-container",
     )
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 240),
-        label = "row-content",
-    )
-    val mutedColor = if (selected) {
-        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    // The active accent bar grows in — vertical scale + fade, so it feels planted, not stamped. It
-    // lives in an overlay so it never reflows the title: the text rail stays dead straight.
-    val accent by animateFloatAsState(
+    val dot by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow),
-        label = "row-accent",
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
+        label = "row-dot",
     )
     // Press gives: the whole row dips and springs back under the finger — unless motion is reduced.
     val pressScale by animateFloatAsState(
@@ -239,7 +225,6 @@ private fun ThreadRow(
         label = "row-press",
     )
 
-    val timeLabel = remember(thread.updatedAt) { ThreadRecency.relativeLabel(thread.updatedAt) }
     val description = buildString {
         append(thread.title)
         if (thread.isPinned) append(", pinned")
@@ -247,7 +232,7 @@ private fun ThreadRow(
     }
 
     Box {
-        Box(
+        Row(
             Modifier
                 .fillMaxWidth()
                 .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
@@ -260,6 +245,7 @@ private fun ThreadRow(
                     onLongClick = { menuOpen = true },
                 )
                 .heightIn(min = RowHeight)
+                .padding(horizontal = Spacing.m)
                 .semantics {
                     contentDescription = description
                     customActions = buildList {
@@ -272,60 +258,42 @@ private fun ThreadRow(
                         add(CustomAccessibilityAction("Delete") { onDelete(); true })
                     }
                 },
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Overlay accent bar — drawn on top of the row, outside the content flow, so the title
-            // never shifts. Invisible (scaled/faded to zero) on unselected rows.
-            Box(
-                Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = Spacing.xs + 1.dp)
-                    .width(AccentBarWidth)
-                    .height(AccentBarHeight)
-                    .graphicsLayer { scaleY = accent; alpha = accent }
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.primary),
+            Text(
+                thread.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
             )
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = RowHeight)
-                    .padding(horizontal = Spacing.m, vertical = Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        thread.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                        color = contentColor,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        timeLabel,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = mutedColor,
-                    )
-                }
-                if (thread.isPinned) {
-                    Spacer(Modifier.width(Spacing.s))
-                    Icon(
-                        Icons.Filled.PushPin,
-                        contentDescription = "Pinned",
-                        modifier = Modifier.size(15.dp),
-                        tint = mutedColor,
-                    )
-                }
-                if (rendering) {
-                    Spacer(Modifier.width(Spacing.s))
-                    RenderingPulse(
-                        color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary,
-                        reducedMotion = reducedMotion,
-                    )
-                }
+            if (thread.isPinned) {
+                Spacer(Modifier.width(Spacing.s))
+                Icon(
+                    Icons.Filled.PushPin,
+                    contentDescription = "Pinned",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (rendering) {
+                Spacer(Modifier.width(Spacing.s))
+                RenderingPulse(
+                    color = MaterialTheme.colorScheme.primary,
+                    reducedMotion = reducedMotion,
+                )
+            }
+            if (dot > 0f) {
+                Spacer(Modifier.width(Spacing.s))
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .graphicsLayer { scaleX = dot; scaleY = dot; alpha = dot }
+                        .clip(RoundedPolygonShape(MaterialShapes.Sunny))
+                        .background(MaterialTheme.colorScheme.primary),
+                )
             }
         }
 
@@ -590,34 +558,6 @@ internal object ThreadRecency {
             else -> EARLIER
         }
     }
-
-    /**
-     * A short, glanceable "when" for a row's second line: "Just now", "12m", "5h", "Yesterday",
-     * a weekday within the last week, then a calendar date (with the year only once it differs).
-     * Calendar-based like [bucketOf], so day boundaries fall on midnight rather than 24h spans.
-     */
-    fun relativeLabel(timestamp: Long, now: Long = System.currentTimeMillis()): String {
-        val diff = now - timestamp
-        if (diff < 0) return "Just now"
-        val dayGap = ((startOfDay(now) - startOfDay(timestamp)) / DAY_MS).toInt()
-        val minutes = diff / 60_000L
-        val hours = diff / 3_600_000L
-        return when {
-            minutes < 1 -> "Just now"
-            dayGap == 0 && minutes < 60 -> "${minutes}m"
-            dayGap == 0 -> "${hours}h"
-            dayGap == 1 -> "Yesterday"
-            dayGap in 2..6 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(timestamp))
-            else -> {
-                val sameYear = yearOf(timestamp) == yearOf(now)
-                val pattern = if (sameYear) "d MMM" else "d MMM yyyy"
-                SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
-            }
-        }
-    }
-
-    private fun yearOf(ts: Long): Int =
-        Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.YEAR)
 
     private fun startOfDay(now: Long): Long = Calendar.getInstance().apply {
         timeInMillis = now

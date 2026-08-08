@@ -118,12 +118,12 @@ fun ChatDrawerContent(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = Spacing.m),
     ) {
-        // Brand header — same mark as the rest of the app for cohesion.
+        // Brand header — a compact lockup; the drawer's job is the list, not the logo.
         Row(
-            Modifier.fillMaxWidth().padding(start = Spacing.s, top = Spacing.base, bottom = Spacing.l),
+            Modifier.fillMaxWidth().padding(start = Spacing.xs, top = Spacing.m, bottom = Spacing.base),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BrandMark(size = 40.dp)
+            BrandMark(size = 34.dp)
             Spacer(Modifier.width(Spacing.m))
             Text("EchoFlow", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         }
@@ -132,7 +132,6 @@ fun ChatDrawerContent(
 
         // Search across every conversation — titles and message text.
         if (onSearchQueryChange != null) {
-            Spacer(Modifier.height(Spacing.m))
             DrawerSearchField(
                 query = searchQuery,
                 onQueryChange = onSearchQueryChange,
@@ -140,7 +139,7 @@ fun ChatDrawerContent(
             )
         }
 
-        Spacer(Modifier.height(Spacing.l))
+        Spacer(Modifier.height(Spacing.s))
         if (searchQuery.isNotBlank()) SectionLabel("Results")
 
         when {
@@ -318,11 +317,11 @@ private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit, pl
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.base),
+            Modifier.heightIn(min = 44.dp).padding(horizontal = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Default.Search, null, Modifier.size(20.dp),
+                Icons.Default.Search, null, Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(Spacing.m))
@@ -331,14 +330,14 @@ private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit, pl
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
                                     placeholder,
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -363,7 +362,7 @@ private fun DrawerSearchField(query: String, onQueryChange: (String) -> Unit, pl
             } else {
                 Text(
                     query.ifEmpty { placeholder },
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
