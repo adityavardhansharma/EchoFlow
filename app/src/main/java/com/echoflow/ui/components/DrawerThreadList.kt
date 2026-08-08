@@ -2,38 +2,30 @@
 
 package com.echoflow.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -65,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -72,6 +65,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,17 +82,21 @@ import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
 import java.util.Calendar
+import java.util.Locale
 
 private const val PINNED_SECTION = "Pinned"
-private val RowShape = RoundedCornerShape(16.dp)
-private val RowHeight = 50.dp
+private val RowShape = RoundedCornerShape(14.dp)
+private val RowHeight = 48.dp
 
 /**
  * One mode's conversations, grouped by when they were last touched.
  *
- * The list is deliberately airy: rows are transparent and sit straight on the drawer surface, so
- * the eye reads titles first and colour only ever means "this is the conversation you're in". The
- * grouping gives the run of titles somewhere to breathe.
+ * The list is a dense, quiet run of single-line titles — no metadata, no chrome per row; the
+ * grouping headers already say "when" so the rows don't have to. Selection is deliberately calm:
+ * the active row lifts on a neutral pill (elevation, not paint), its title firms up half a weight,
+ * and a small brand dot sits at the trailing edge. Nothing is inserted before the text, so the
+ * column of titles holds one straight rail whether a row is selected or not. Soft top and bottom
+ * fades let the list dissolve into the drawer instead of hard-cutting at the edges.
  */
 @Composable
 fun DrawerThreadList(
@@ -121,49 +119,70 @@ fun DrawerThreadList(
         if (pinned.isEmpty()) unpinnedSections
         else listOf(PINNED_SECTION to pinned) + unpinnedSections
     }
-    LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        sections.forEach { (label, sectionThreads) ->
-            if (label != null) {
-                item(key = "section-$label") {
-                    DrawerSectionHeader(label, pinned = label == PINNED_SECTION)
+    val surface = MaterialTheme.colorScheme.surfaceContainerLow
+    Box(modifier.fillMaxWidth()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = Spacing.xs),
+        ) {
+            sections.forEach { (label, sectionThreads) ->
+                if (label != null) {
+                    item(key = "section-$label") {
+                        DrawerSectionHeader(label, pinned = label == PINNED_SECTION)
+                    }
+                }
+                itemsIndexed(sectionThreads, key = { _, t -> t.id }) { _, thread ->
+                    ThreadRow(
+                        thread = thread,
+                        isRowSelected = thread.id == currentThreadId,
+                        rendering = thread.id in renderingChatIds,
+                        reducedMotion = reducedMotion,
+                        onClick = { onThreadSelected(thread) },
+                        onPin = { onPin(thread) },
+                        onUnpin = { onUnpin(thread) },
+                        onRename = { onRename(thread) },
+                        onDelete = { onDelete(thread) },
+                    )
                 }
             }
-            itemsIndexed(sectionThreads, key = { _, t -> t.id }) { _, thread ->
-                ThreadRow(
-                    thread = thread,
-                    selected = thread.id == currentThreadId,
-                    rendering = thread.id in renderingChatIds,
-                    reducedMotion = reducedMotion,
-                    onClick = { onThreadSelected(thread) },
-                    onPin = { onPin(thread) },
-                    onUnpin = { onUnpin(thread) },
-                    onRename = { onRename(thread) },
-                    onDelete = { onDelete(thread) },
-                )
-            }
         }
+        // Fade the run of titles into the drawer surface at both ends rather than clipping hard.
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(Spacing.base)
+                .background(Brush.verticalGradient(listOf(surface, Color.Transparent))),
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(Spacing.l)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, surface))),
+        )
     }
 }
 
-/** Quiet group header. "Pinned" gets a small accent bloom so the eye finds it first. */
+/** Quiet uppercase group header — chrome, not content. "Pinned" gets a small accent bloom. */
 @Composable
 private fun DrawerSectionHeader(label: String, pinned: Boolean) {
     Row(
-        Modifier.padding(start = Spacing.m, end = Spacing.m, top = Spacing.base, bottom = Spacing.xs),
+        Modifier.padding(start = Spacing.m, end = Spacing.m, top = Spacing.m, bottom = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (pinned) {
             Box(
                 Modifier
-                    .size(6.dp)
+                    .size(7.dp)
                     .clip(RoundedPolygonShape(MaterialShapes.Sunny))
                     .background(MaterialTheme.colorScheme.primary),
             )
             Spacer(Modifier.width(Spacing.s))
         }
         Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
+            label.uppercase(Locale.ROOT),
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -172,7 +191,7 @@ private fun DrawerSectionHeader(label: String, pinned: Boolean) {
 @Composable
 private fun ThreadRow(
     thread: ChatThread,
-    selected: Boolean,
+    isRowSelected: Boolean,
     rendering: Boolean,
     reducedMotion: Boolean,
     onClick: () -> Unit,
@@ -185,23 +204,21 @@ private fun ThreadRow(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
 
-    // The active pill fills and fades in with a soft spring; content colour crossfades so a title
-    // never "flickers" between roles as the selection lands. Under reduced motion the colours snap.
+    // Selection is elevation, not paint: the active row lifts on a neutral container pill and its
+    // title firms to Medium. Colour stays out of the row except one small trailing brand dot —
+    // enough to say "you are here" without shouting over the run of titles. Nothing is ever
+    // inserted before the text, so every title hangs off the same left rail. Under reduced motion
+    // the colours snap.
     val container by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        targetValue = if (isRowSelected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
         animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "row-container",
     )
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        animationSpec = if (reducedMotion) snap() else tween(durationMillis = 240),
-        label = "row-content",
+    val dot by animateFloatAsState(
+        targetValue = if (isRowSelected) 1f else 0f,
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
+        label = "row-dot",
     )
-    val mutedColor = if (selected) {
-        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
     // Press gives: the whole row dips and springs back under the finger — unless motion is reduced.
     val pressScale by animateFloatAsState(
         targetValue = if (pressed && !reducedMotion) 0.975f else 1f,
@@ -231,6 +248,7 @@ private fun ThreadRow(
                 .heightIn(min = RowHeight)
                 .padding(horizontal = Spacing.m)
                 .semantics {
+                    selected = isRowSelected
                     contentDescription = description
                     customActions = buildList {
                         add(
@@ -244,32 +262,13 @@ private fun ThreadRow(
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // The signature: a brand bloom that springs in only on the active row and gently
-            // breathes. Reserving no space keeps every other row clean text — the medallion is a
-            // reward for being "here", not a stamp on every line.
-            AnimatedVisibility(
-                visible = selected,
-                enter = if (reducedMotion) {
-                    fadeIn(snap())
-                } else {
-                    expandHorizontally(
-                        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
-                    ) + fadeIn(tween(220))
-                },
-                exit = if (reducedMotion) fadeOut(snap()) else shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ActiveBloom(reducedMotion)
-                    Spacer(Modifier.width(Spacing.m))
-                }
-            }
             Text(
                 thread.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                color = contentColor,
+                fontWeight = if (isRowSelected) FontWeight.Medium else FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             if (thread.isPinned) {
@@ -277,15 +276,25 @@ private fun ThreadRow(
                 Icon(
                     Icons.Filled.PushPin,
                     contentDescription = "Pinned",
-                    modifier = Modifier.size(15.dp),
-                    tint = mutedColor,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (rendering) {
                 Spacer(Modifier.width(Spacing.s))
                 RenderingPulse(
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.primary,
                     reducedMotion = reducedMotion,
+                )
+            }
+            if (dot > 0f) {
+                Spacer(Modifier.width(Spacing.s))
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .graphicsLayer { scaleX = dot; scaleY = dot; alpha = dot }
+                        .clip(RoundedPolygonShape(MaterialShapes.Sunny))
+                        .background(MaterialTheme.colorScheme.primary),
                 )
             }
         }
@@ -303,29 +312,6 @@ private fun ThreadRow(
             )
         }
     }
-}
-
-/** The breathing brand bloom on the active row — a filled Sunny polygon in the accent colour. */
-@Composable
-private fun ActiveBloom(reducedMotion: Boolean) {
-    val scale = if (reducedMotion) {
-        1f
-    } else {
-        val t = rememberInfiniteTransition(label = "bloom")
-        t.animateFloat(
-            initialValue = 0.9f,
-            targetValue = 1.09f,
-            animationSpec = infiniteRepeatable(tween(2600), RepeatMode.Reverse),
-            label = "bloom-scale",
-        ).value
-    }
-    Box(
-        Modifier
-            .size(20.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedPolygonShape(MaterialShapes.Sunny))
-            .background(MaterialTheme.colorScheme.primary),
-    )
 }
 
 /**

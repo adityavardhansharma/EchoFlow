@@ -2,6 +2,8 @@ package com.echoflow.ui.components
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -96,7 +98,8 @@ class DrawerThreadListTest {
             }
         }
 
-        composeRule.onNodeWithText("Pinned").assertIsDisplayed()
+        // Section headers render uppercase as quiet chrome.
+        composeRule.onNodeWithText("PINNED").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Pinned").assertIsDisplayed()
     }
 
@@ -122,6 +125,28 @@ class DrawerThreadListTest {
         composeRule.onNodeWithText("Alpha chat").performTouchInput { longClick() }
         composeRule.onNodeWithText("Pin").performClick()
         assertEquals("a", pinnedId)
+    }
+
+    @Test
+    fun selectedRowReportsSelectedSemantics() {
+        composeRule.setContent {
+            EchoFlowTheme {
+                DrawerThreadList(
+                    threads = threads,
+                    currentThreadId = "a",
+                    renderingChatIds = emptySet(),
+                    onThreadSelected = {},
+                    onPin = {},
+                    onUnpin = {},
+                    onRename = {},
+                    onDelete = {},
+                    grouped = false,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Alpha chat").assertIsSelected()
+        composeRule.onNodeWithContentDescription("Beta chat, pinned").assertIsNotSelected()
     }
 
     @Test

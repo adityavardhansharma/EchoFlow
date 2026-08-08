@@ -1195,13 +1195,27 @@ class ChatViewModel(
                 // Trigger background Title generation. Local chats use the word fallback:
                 // no API key may exist, and the on-device engine is single-flight.
                 if (isFirstMsgInChat) {
+                    val defaultTitle = when (appMode.value) {
+                        AppMode.Chat -> "New Conversation"
+                        AppMode.Imagine -> "New Creation"
+                    }
+                    val titleSource = prompt.takeIf { it.isNotBlank() }
+                        ?: attachmentName?.takeIf { it.isNotBlank() }
+                        ?: ""
                     if (isLocal || customProviderActive) {
-                        val words = prompt.split("\\s+".toRegex())
-                        val fallbackTitle = words.take(4).joinToString(" ") + if (words.size > 4) "..." else ""
+                        val fallbackTitle = resolveFallbackThreadTitle(
+                            prompt = prompt,
+                            attachmentName = attachmentName,
+                            defaultTitle = defaultTitle,
+                        )
                         chatRepository.renameThread(chatId, fallbackTitle)
                     } else {
                         launch {
-                            val generatedTitle = openRouterService.generateTitle(apiKey, selectedModel, prompt)
+                            val generatedTitle = openRouterService.generateTitle(
+                                apiKey,
+                                selectedModel,
+                                titleSource,
+                            )
                             chatRepository.renameThread(chatId!!, generatedTitle)
                         }
                     }
@@ -1724,8 +1738,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = chatRepository.createThread(now = now).id
                 openThread(chatId)
-                val words = topic.split("\\s+".toRegex())
-                val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                val fallbackTitle = fallbackThreadTitle(topic)
                 chatRepository.renameThread(chatId, fallbackTitle)
             }
 
@@ -1806,8 +1819,7 @@ class ChatViewModel(
             // Title a fresh thread from the instruction (manager writes the message rows).
             chatDao.getThreadById(chatId)?.let { thread ->
                 if (thread.title == "New Conversation") {
-                    val words = prompt.split("\\s+".toRegex())
-                    val title = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                    val title = fallbackThreadTitle(prompt)
                     chatDao.setTitle(thread.id, title.ifBlank { "Browser session" })
                 }
             }
@@ -1840,8 +1852,7 @@ class ChatViewModel(
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
                 openThread(chatId)
-                val words = topic.split("\\s+".toRegex())
-                val fallbackTitle = words.take(5).joinToString(" ") + if (words.size > 5) "…" else ""
+                val fallbackTitle = fallbackThreadTitle(topic)
                 chatDao.setTitle(chatId, fallbackTitle)
             }
             messageDao.insertMessage(
