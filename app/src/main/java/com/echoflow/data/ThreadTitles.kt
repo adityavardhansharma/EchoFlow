@@ -15,3 +15,22 @@ fun fallbackThreadTitle(source: String, maxWords: Int = 10, maxChars: Int = 60):
     val byWords = collapsed.split(" ").take(maxWords).joinToString(" ")
     return if (byWords.length > maxChars) byWords.take(maxChars).trimEnd() else byWords
 }
+
+/**
+ * Non-empty fallback for persisted thread titles: prompt text, then attachment name, then a stable
+ * default. Attachment-only first messages can leave [prompt] blank while a file name still names
+ * the conversation.
+ */
+fun resolveFallbackThreadTitle(
+    prompt: String,
+    attachmentName: String? = null,
+    defaultTitle: String = "New Conversation",
+): String {
+    val fromPrompt = fallbackThreadTitle(prompt)
+    if (fromPrompt.isNotEmpty()) return fromPrompt
+    attachmentName?.let { name ->
+        val fromAttachment = fallbackThreadTitle(name)
+        if (fromAttachment.isNotEmpty()) return fromAttachment
+    }
+    return defaultTitle
+}

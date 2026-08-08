@@ -871,11 +871,11 @@ class OpenRouterService(private val context: Context) {
                 )
             )
             val rawTitle = sendChatMessage(apiKey, model, promptHistory).trim()
-            // Clean simple quote wraps
-            rawTitle.removeSurrounding("\"").removeSurrounding("'").trim()
+            val cleaned = rawTitle.removeSurrounding("\"").removeSurrounding("'").trim()
+            if (cleaned.isNotEmpty()) cleaned else fallbackThreadTitle(firstUserMessage).ifBlank { "New Conversation" }
         } catch (e: Exception) {
             // Fallback: derive a title from the user's message (row clips overflow itself).
-            fallbackThreadTitle(firstUserMessage)
+            fallbackThreadTitle(firstUserMessage).ifBlank { "New Conversation" }
         }
     }
 }

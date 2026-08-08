@@ -1195,12 +1195,27 @@ class ChatViewModel(
                 // Trigger background Title generation. Local chats use the word fallback:
                 // no API key may exist, and the on-device engine is single-flight.
                 if (isFirstMsgInChat) {
+                    val defaultTitle = when (appMode.value) {
+                        AppMode.Chat -> "New Conversation"
+                        AppMode.Imagine -> "New Creation"
+                    }
+                    val titleSource = prompt.takeIf { it.isNotBlank() }
+                        ?: attachmentName?.takeIf { it.isNotBlank() }
+                        ?: ""
                     if (isLocal || customProviderActive) {
-                        val fallbackTitle = fallbackThreadTitle(prompt)
+                        val fallbackTitle = resolveFallbackThreadTitle(
+                            prompt = prompt,
+                            attachmentName = attachmentName,
+                            defaultTitle = defaultTitle,
+                        )
                         chatRepository.renameThread(chatId, fallbackTitle)
                     } else {
                         launch {
-                            val generatedTitle = openRouterService.generateTitle(apiKey, selectedModel, prompt)
+                            val generatedTitle = openRouterService.generateTitle(
+                                apiKey,
+                                selectedModel,
+                                titleSource,
+                            )
                             chatRepository.renameThread(chatId!!, generatedTitle)
                         }
                     }

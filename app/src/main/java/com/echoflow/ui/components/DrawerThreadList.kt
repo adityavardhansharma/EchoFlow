@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,7 +134,7 @@ fun DrawerThreadList(
                 itemsIndexed(sectionThreads, key = { _, t -> t.id }) { _, thread ->
                     ThreadRow(
                         thread = thread,
-                        selected = thread.id == currentThreadId,
+                        isRowSelected = thread.id == currentThreadId,
                         rendering = thread.id in renderingChatIds,
                         reducedMotion = reducedMotion,
                         onClick = { onThreadSelected(thread) },
@@ -180,7 +181,7 @@ private fun DrawerSectionHeader(label: String, pinned: Boolean) {
             Spacer(Modifier.width(Spacing.s))
         }
         Text(
-            label.uppercase(Locale.getDefault()),
+            label.uppercase(Locale.ROOT),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -190,7 +191,7 @@ private fun DrawerSectionHeader(label: String, pinned: Boolean) {
 @Composable
 private fun ThreadRow(
     thread: ChatThread,
-    selected: Boolean,
+    isRowSelected: Boolean,
     rendering: Boolean,
     reducedMotion: Boolean,
     onClick: () -> Unit,
@@ -209,12 +210,12 @@ private fun ThreadRow(
     // inserted before the text, so every title hangs off the same left rail. Under reduced motion
     // the colours snap.
     val container by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+        targetValue = if (isRowSelected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
         animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "row-container",
     )
     val dot by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
+        targetValue = if (isRowSelected) 1f else 0f,
         animationSpec = if (reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow),
         label = "row-dot",
     )
@@ -247,6 +248,7 @@ private fun ThreadRow(
                 .heightIn(min = RowHeight)
                 .padding(horizontal = Spacing.m)
                 .semantics {
+                    selected = isRowSelected
                     contentDescription = description
                     customActions = buildList {
                         add(
@@ -265,7 +267,7 @@ private fun ThreadRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                fontWeight = if (isRowSelected) FontWeight.Medium else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
