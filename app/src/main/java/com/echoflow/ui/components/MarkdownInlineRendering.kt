@@ -243,7 +243,9 @@ internal fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color
             "bold" -> {
                 val close = text.indexOf("**", nextIdx + 2)
                 if (close != -1) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                    // SemiBold, not Bold: full-weight inline emphasis reads as a heavy blob in the
+                    // reading font and stops guiding the eye. SemiBold keeps emphasis legible.
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
                         appendInline(text.substring(nextIdx + 2, close), linkColor)
                     }
                     cursor = close + 2
