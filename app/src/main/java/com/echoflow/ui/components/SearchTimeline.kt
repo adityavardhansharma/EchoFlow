@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -63,12 +65,20 @@ fun SearchActivityCard(
     var expanded by remember { mutableStateOf(false) }
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "search-chevron")
     val context = LocalContext.current
+    val toggleInteraction = remember { MutableInteractionSource() }
+    val canToggle = !active && sources.isNotEmpty()
 
     Surface(
-        onClick = { if (!active && sources.isNotEmpty()) expanded = !expanded },
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = toggleInteraction,
+                indication = null,
+                enabled = canToggle,
+                onClick = { expanded = !expanded },
+            ),
     ) {
         Column(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
