@@ -1,0 +1,86 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Sidebar from "../components/Sidebar.astro";
+import TopBar from "../components/TopBar.astro";
+import ChatMessage from "../components/ChatMessage.astro";
+import Composer from "../components/Composer.astro";
+import { conversations, defaultConversationId } from "../data/mock";
+
+const conversation = conversations[defaultConversationId];
+---
+
+<Layout title="EchoFlow — Chat">
+  <div class="app-shell">
+    <div id="sidebar-scrim" class="sidebar-scrim" />
+    <Sidebar activeId={defaultConversationId} />
+
+    <main class="chat-main">
+      <TopBar />
+
+      <div class="messages-scroll">
+        <div class="messages-inner">
+          {
+            conversation?.messages.map((msg) => (
+              <ChatMessage message={msg} />
+            ))
+          }
+        </div>
+      </div>
+
+      <Composer />
+    </main>
+  </div>
+</Layout>
+
+<style>
+  .app-shell {
+    display: flex;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    position: relative;
+  }
+
+  .messages-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding-top: calc(var(--topbar-height) + var(--space-base));
+    padding-bottom: var(--space-base);
+  }
+
+  .messages-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 var(--space-base);
+  }
+
+  .sidebar-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 90;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sidebar-scrim.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (max-width: 768px) {
+    .sidebar-scrim {
+      display: block;
+    }
+  }
+</style>

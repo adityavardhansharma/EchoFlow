@@ -1,0 +1,83 @@
+/**
+ * Echo Signal — EchoFlow brand theme (light + dark only).
+ * Mirrors Material 3 Expressive surface ladder from the Android app.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --primary: #0a7c6e;
+  --on-primary: #ffffff;
+  --primary-container: #b8ede4;
+  --on-primary-container: #002e27;
+
+  --secondary: #5c6268;
+  --on-secondary: #ffffff;
+  --secondary-container: #e6e8ea;
+  --on-secondary-container: #1a1d20;
+
+  --tertiary: #6d5e9a;
+  --on-tertiary: #ffffff;
+  --tertiary-container: #ede8f4;
+  --on-tertiary-container: #271e42;
+
+  --surface: #faf9f6;
+  --on-surface: #1c1917;
+  --on-surface-variant: #5c5650;
+
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f5f4f1;
+  --surface-container: #efeeea;
+  --surface-container-high: #e8e6e1;
+  --surface-container-highest: #e0ddd7;
+
+  --outline: #8a8480;
+  --outline-variant: #d4d0ca;
+
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --on-error-container: #410002;
+
+  --shadow: rgba(28, 25, 23, 0.08);
+  --scrim: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #56d4c5;
+  --on-primary: #003d35;
+  --primary-container: #005a4f;
+  --on-primary-container: #b8ede4;
+
+  --secondary: #a8adb4;
+  --on-secondary: #1a1d20;
+  --secondary-container: #3a3f45;
+  --on-secondary-container: #dde1e6;
+
+  --tertiary: #c8b8e8;
+  --on-tertiary: #2a2040;
+  --tertiary-container: #4a4068;
+  --on-tertiary-container: #ede8f4;
+
+  --surface: #121110;
+  --on-surface: #e8e5df;
+  --on-surface-variant: #a8a29c;
+
+  --surface-container-lowest: #0a0908;
+  --surface-container-low: #1a1816;
+  --surface-container: #211f1c;
+  --surface-container-high: #2a2724;
+  --surface-container-highest: #34312c;
+
+  --outline: #8a8480;
+  --outline-variant: #4a4640;
+
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --on-error-container: #ffdad6;
+
+  --shadow: rgba(0, 0, 0, 0.35);
+  --scrim: rgba(0, 0, 0, 0.6);
+}

@@ -1,0 +1,56 @@
+---
+import "../styles/global.css";
+import ThemeToggle from "../components/ThemeToggle.astro";
+
+interface Props {
+  title?: string;
+  showThemeToggle?: boolean;
+}
+const { title = "EchoFlow Theme Showcase", showThemeToggle = true } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="EchoFlow UI theme showcase — Echo Signal light & dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+    <script is:inline>
+      (function () {
+        var k = "echoflow-theme";
+        var t = localStorage.getItem(k);
+        if (t === "light" || t === "dark") {
+          document.documentElement.setAttribute("data-theme", t);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    {showThemeToggle && (
+      <div class="floating-theme-toggle">
+        <ThemeToggle />
+      </div>
+    )}
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  .floating-theme-toggle {
+    position: fixed;
+    top: var(--space-base);
+    right: var(--space-base);
+    z-index: 200;
+  }
+
+  @media (max-width: 768px) {
+    .floating-theme-toggle {
+      top: var(--space-s);
+      right: var(--space-s);
+    }
+  }
+</style>

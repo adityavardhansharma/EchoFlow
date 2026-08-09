@@ -1,0 +1,149 @@
+---
+import BrandMark from "./BrandMark.astro";
+import type { Message } from "../data/mock";
+
+interface Props {
+  message: Message;
+}
+
+const { message } = Astro.props;
+
+function formatAssistant(text: string) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br />");
+}
+---
+
+{
+  message.role === "user" ? (
+    <div class="message user">
+      <div class="user-bubble text-body-lg">{message.content}</div>
+    </div>
+  ) : (
+    <article class="message assistant">
+      <header class="assistant-header">
+        <BrandMark size={26} />
+        <span class="text-label-lg" style="color: var(--primary)">EchoFlow</span>
+      </header>
+
+      {message.reasoning && (
+        <details class="reasoning-card">
+          <summary class="text-label-lg">Reasoning</summary>
+          <p class="text-body-sm">{message.reasoning}</p>
+        </details>
+      )}
+
+      <div class="assistant-body text-body-lg">
+        <p set:html={formatAssistant(message.content)} />
+      </div>
+
+      {message.citations && message.citations.length > 0 && (
+        <div class="citations">
+          {message.citations.map((c) => (
+            <a href={c.url} class="citation-chip text-body-sm">{c.label}</a>
+          ))}
+        </div>
+      )}
+
+      <div class="action-bar">
+        <button type="button" class="action-chip text-body-sm">Copy</button>
+        <button type="button" class="action-chip text-body-sm">Regenerate</button>
+      </div>
+    </article>
+  )
+}
+
+<style>
+  .message {
+    margin-bottom: var(--space-l);
+  }
+
+  .user {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .user-bubble {
+    max-width: 320px;
+    padding: var(--space-m) var(--space-base);
+    background: var(--primary);
+    color: var(--on-primary);
+    border-radius: 26px 26px 8px 26px;
+  }
+
+  .assistant-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    margin-bottom: var(--space-s);
+  }
+
+  .reasoning-card {
+    margin-bottom: var(--space-m);
+    padding: var(--space-m) var(--space-base);
+    background: var(--tertiary-container);
+    color: var(--on-tertiary-container);
+    border-radius: var(--radius-lg);
+    border: none;
+  }
+
+  .reasoning-card summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: var(--space-s);
+  }
+
+  .reasoning-card p {
+    margin: 0;
+    opacity: 0.9;
+  }
+
+  .assistant-body p {
+    margin: 0 0 var(--space-m);
+  }
+
+  .assistant-body p:last-child {
+    margin-bottom: 0;
+  }
+
+  .citations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+    margin-top: var(--space-m);
+  }
+
+  .citation-chip {
+    padding: var(--space-xs) var(--space-m);
+    background: var(--secondary-container);
+    color: var(--on-secondary-container);
+    border-radius: var(--radius-pill);
+    text-decoration: none;
+  }
+
+  .citation-chip:hover {
+    filter: brightness(1.05);
+    text-decoration: none;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: var(--space-s);
+    margin-top: var(--space-m);
+  }
+
+  .action-chip {
+    padding: var(--space-xs) var(--space-m);
+    background: var(--surface-container-high);
+    color: var(--on-surface-variant);
+    border-radius: var(--radius-pill);
+    transition: background 0.15s ease;
+  }
+
+  .action-chip:hover {
+    background: var(--surface-container-highest);
+  }
+</style>

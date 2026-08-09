@@ -1,0 +1,120 @@
+@import "./theme.css";
+
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Grotesk:wght@500;600;700;800&display=swap");
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--on-surface);
+}
+
+.display {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Spacing scale (4px grid) */
+:root {
+  --space-xs: 4px;
+  --space-s: 8px;
+  --space-m: 12px;
+  --space-base: 16px;
+  --space-l: 20px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-huge: 48px;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  --sidebar-width: 320px;
+  --topbar-height: 64px;
+}
+
+/* Typography utilities */
+.text-display-sm {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 36px;
+  letter-spacing: -0.25px;
+}
+
+.text-title-lg {
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 28px;
+}
+
+.text-title-md {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.text-body-lg {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.text-body-md {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.text-body-sm {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.text-label-lg {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.text-label-sm {
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}

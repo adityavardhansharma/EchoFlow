@@ -1,0 +1,130 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { settingsNav } from "../../data/mock";
+
+const icons: Record<string, string> = {
+  palette: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z",
+  cloud: "M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z",
+  search: "M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C8.01 14 6 11.99 6 9.5S8.01 5 10.5 5 15 7.01 15 9.5 12.99 14 10.5 14z",
+  device: "M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z",
+  labs: "M19.8 18.4L14 10.67V6.5l1.35-1.35c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0L12.65 6.5H11.3L9.65 4.85c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71L10.3 6.5v4.17L4.5 18.4c-.31.31-.09.85.35.85h14.7c.44 0 .66-.54.35-.85z",
+  data: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z",
+};
+---
+
+<Layout title="Settings — EchoFlow">
+  <div class="settings-page">
+    <header class="settings-header">
+      <a href="/" class="back-link text-body-md">← Back to chat</a>
+      <h1 class="text-display-sm display">Settings</h1>
+      <p class="text-body-md subtitle">Make EchoFlow yours</p>
+    </header>
+
+    <nav class="settings-nav" aria-label="Settings">
+      {
+        settingsNav.map((item, i) => (
+          <a href={item.href} class="nav-row">
+            <span class="nav-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d={icons[item.icon] ?? icons.palette} />
+              </svg>
+            </span>
+            <span class="nav-text">
+              <span class="text-title-md">{item.title}</span>
+              <span class="text-body-sm nav-sub">{item.subtitle}</span>
+            </span>
+            <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</Layout>
+
+<style>
+  .settings-page {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--space-xl) var(--space-base) var(--space-xxl);
+  }
+
+  .settings-header {
+    margin-bottom: var(--space-xl);
+  }
+
+  .back-link {
+    display: inline-block;
+    margin-bottom: var(--space-m);
+    color: var(--primary);
+  }
+
+  .subtitle {
+    color: var(--on-surface-variant);
+    margin: var(--space-xs) 0 0;
+  }
+
+  .settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-base);
+    padding: var(--space-m) var(--space-base);
+    background: var(--surface-container);
+    color: var(--on-surface);
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+
+  .nav-row:first-child {
+    border-radius: 22px 22px 3px 3px;
+  }
+
+  .nav-row:last-child {
+    border-radius: 3px 3px 22px 22px;
+  }
+
+  .nav-row:only-child {
+    border-radius: 22px;
+  }
+
+  .nav-row:hover {
+    background: var(--surface-container-high);
+    text-decoration: none;
+  }
+
+  .nav-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+    flex-shrink: 0;
+  }
+
+  .nav-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .nav-sub {
+    color: var(--on-surface-variant);
+  }
+
+  .chevron {
+    color: var(--on-surface-variant);
+    flex-shrink: 0;
+  }
+</style>

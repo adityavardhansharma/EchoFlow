@@ -1,0 +1,109 @@
+---
+import BrandMark from "./BrandMark.astro";
+---
+
+<header class="topbar">
+  <button type="button" class="icon-btn menu-btn" id="menu-toggle" aria-label="Open menu">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  </button>
+
+  <div class="mode-switch">
+    <button type="button" class="mode active">Chat</button>
+    <button type="button" class="mode">Imagine</button>
+  </div>
+
+  <button type="button" class="icon-btn" aria-label="New chat">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  </button>
+</header>
+
+<style>
+  .topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--topbar-height);
+    padding: var(--space-s) var(--space-base);
+    pointer-events: none;
+  }
+
+  .topbar > * {
+    pointer-events: auto;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    color: var(--on-surface);
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+    transition: filter 0.15s ease;
+  }
+
+  .icon-btn:hover {
+    filter: brightness(1.05);
+  }
+
+  .menu-btn {
+    display: none;
+  }
+
+  .mode-switch {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+    background: var(--surface-container-high);
+    border-radius: var(--radius-pill);
+    backdrop-filter: blur(12px);
+  }
+
+  .mode {
+    padding: var(--space-s) var(--space-base);
+    border-radius: var(--radius-pill);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--on-surface-variant);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .mode.active {
+    background: var(--surface);
+    color: var(--on-surface);
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+
+  @media (max-width: 768px) {
+    .menu-btn {
+      display: flex;
+    }
+  }
+</style>
+
+<script>
+  const toggle = document.getElementById("menu-toggle");
+  const sidebar = document.querySelector(".sidebar");
+  const scrim = document.getElementById("sidebar-scrim");
+
+  toggle?.addEventListener("click", () => {
+    sidebar?.classList.toggle("open");
+    scrim?.classList.toggle("visible");
+  });
+
+  scrim?.addEventListener("click", () => {
+    sidebar?.classList.remove("open");
+    scrim?.classList.remove("visible");
+  });
+</script>

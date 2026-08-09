@@ -1,0 +1,26 @@
+---
+interface Props {
+  size?: number;
+  className?: string;
+}
+const { size = 34, className = "" } = Astro.props;
+---
+<svg
+  class:list={["brand-mark", className]}
+  width={size}
+  height={size}
+  viewBox="0 0 34 34"
+  fill="none"
+  aria-hidden="true"
+>
+  <circle cx="17" cy="17" r="14" stroke="currentColor" stroke-width="2" opacity="0.25" />
+  <circle cx="17" cy="17" r="9" stroke="currentColor" stroke-width="2" opacity="0.5" />
+  <circle cx="17" cy="17" r="4" fill="currentColor" />
+</svg>
+
+<style>
+  .brand-mark {
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+</style>

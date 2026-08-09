@@ -1,0 +1,148 @@
+---
+import { models, activeModelId } from "../data/mock";
+
+const activeModel = models.find((m) => m.id === activeModelId) ?? models[0];
+---
+
+<div class="composer-wrap">
+  <div class="chip-row">
+    <button type="button" class="model-pill text-body-sm">
+      <span class="provider-dot" />
+      {activeModel.label}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </button>
+    <button type="button" class="cap-chip text-body-sm">
+      <span class="cap-icon">🔍</span> Web search
+    </button>
+    <button type="button" class="cap-chip active text-body-sm">
+      <span class="cap-icon">✦</span> Echo Adviser
+    </button>
+  </div>
+
+  <div class="composer-pill">
+    <button type="button" class="plus-btn" aria-label="Add">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
+    <input
+      type="text"
+      class="composer-input text-body-lg"
+      placeholder="Message EchoFlow…"
+      aria-label="Message"
+    />
+    <button type="button" class="send-btn" aria-label="Send">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+      </svg>
+    </button>
+  </div>
+</div>
+
+<style>
+  .composer-wrap {
+    padding: var(--space-m) var(--space-base);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+  }
+
+  .model-pill {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    padding: var(--space-xs) var(--space-m);
+    min-height: 32px;
+    background: var(--surface-container-highest);
+    color: var(--on-surface);
+    border-radius: var(--radius-pill);
+    font-weight: 500;
+  }
+
+  .provider-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tertiary);
+  }
+
+  .cap-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-m);
+    min-height: 32px;
+    background: var(--secondary-container);
+    color: var(--on-secondary-container);
+    border-radius: var(--radius-pill);
+  }
+
+  .cap-chip.active {
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+  }
+
+  .cap-icon {
+    font-size: 12px;
+  }
+
+  .composer-pill {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    padding: var(--space-s) var(--space-s) var(--space-s) var(--space-m);
+    background: var(--surface-container-high);
+    border-radius: var(--radius-pill);
+    min-height: 52px;
+  }
+
+  .plus-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+    flex-shrink: 0;
+  }
+
+  .composer-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--on-surface);
+    outline: none;
+    min-width: 0;
+  }
+
+  .composer-input::placeholder {
+    color: var(--on-surface-variant);
+  }
+
+  .send-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--on-primary);
+    flex-shrink: 0;
+    transition: filter 0.15s ease;
+  }
+
+  .send-btn:hover {
+    filter: brightness(1.08);
+  }
+</style>

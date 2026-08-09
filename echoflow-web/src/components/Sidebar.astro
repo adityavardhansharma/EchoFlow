@@ -1,0 +1,236 @@
+---
+import BrandMark from "./BrandMark.astro";
+import { threads } from "../data/mock";
+
+const groups = [
+  { key: "pinned", label: "Pinned" },
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "week", label: "Previous 7 days" },
+  { key: "older", label: "Older" },
+] as const;
+
+interface Props {
+  activeId?: string;
+}
+const { activeId = "t3" } = Astro.props;
+---
+
+<aside class="sidebar">
+  <header class="sidebar-header">
+    <BrandMark size={34} />
+    <span class="text-title-lg display">EchoFlow</span>
+  </header>
+
+  <div class="search-pill">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="7" /><path d="M20 20l-3-3" />
+    </svg>
+    <input type="search" placeholder="Search conversations" aria-label="Search conversations" />
+  </div>
+
+  <nav class="thread-list" aria-label="Conversations">
+    {
+      groups.map((group) => {
+        const items = threads.filter((t) => t.group === group.key);
+        if (items.length === 0) return null;
+        return (
+          <div class="thread-group">
+            <div class="text-label-sm group-label">{group.label}</div>
+            {items.map((thread) => (
+              <a
+                href="/"
+                class:list={["thread-row", { selected: thread.id === activeId }]}
+                data-thread={thread.id}
+              >
+                <span class="thread-title text-body-lg">{thread.title}</span>
+                {thread.id === activeId && <span class="selected-dot" aria-hidden="true" />}
+              </a>
+            ))}
+          </div>
+        );
+      })
+    }
+  </nav>
+
+  <footer class="sidebar-footer">
+    <button type="button" class="new-chat-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      New chat
+    </button>
+    <a href="/settings" class="settings-btn" aria-label="Settings">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      </svg>
+    </a>
+  </footer>
+</aside>
+
+<style>
+  .sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-container-low);
+    border-right: 1px solid var(--outline-variant);
+    padding: var(--space-base);
+    gap: var(--space-m);
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    padding: var(--space-s) 0;
+  }
+
+  .search-pill {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    min-height: 44px;
+    padding: 0 var(--space-base);
+    background: var(--surface-container-high);
+    border-radius: var(--radius-xl);
+    color: var(--on-surface-variant);
+  }
+
+  .search-pill input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--on-surface);
+    outline: none;
+  }
+
+  .search-pill input::placeholder {
+    color: var(--on-surface-variant);
+  }
+
+  .thread-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-m);
+    margin: 0 calc(-1 * var(--space-xs));
+    padding: 0 var(--space-xs);
+  }
+
+  .thread-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .group-label {
+    color: var(--on-surface-variant);
+    padding: var(--space-xs) var(--space-s);
+  }
+
+  .group-label:first-child {
+    color: var(--primary);
+  }
+
+  .thread-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: var(--space-s) var(--space-m);
+    border-radius: var(--radius-md);
+    color: var(--on-surface);
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+
+  .thread-row:hover {
+    background: var(--surface-container);
+    text-decoration: none;
+  }
+
+  .thread-row.selected {
+    background: var(--surface-container-high);
+  }
+
+  .thread-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .selected-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--primary);
+    flex-shrink: 0;
+    margin-left: var(--space-s);
+  }
+
+  .sidebar-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    padding-top: var(--space-m);
+    border-top: 1px solid var(--outline-variant);
+  }
+
+  .new-chat-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-s);
+    min-height: 44px;
+    padding: 0 var(--space-base);
+    background: var(--tertiary-container);
+    color: var(--on-tertiary-container);
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+    font-size: 14px;
+    transition: filter 0.15s ease;
+  }
+
+  .new-chat-btn:hover {
+    filter: brightness(1.05);
+  }
+
+  .settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    color: var(--on-surface-variant);
+    transition: background 0.15s ease;
+  }
+
+  .settings-btn:hover {
+    background: var(--surface-container-high);
+    text-decoration: none;
+  }
+
+  @media (max-width: 768px) {
+    .sidebar {
+      position: fixed;
+      z-index: 100;
+      left: 0;
+      top: 0;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      max-width: 340px;
+      box-shadow: 4px 0 24px var(--shadow);
+    }
+
+    .sidebar.open {
+      transform: translateX(0);
+    }
+  }
+</style>
