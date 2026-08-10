@@ -156,14 +156,21 @@ private class VibrationHaptics(context: Context) {
     }
 
     private fun plainWaveform(action: Action): VibrationEffect = when (action) {
-        Action.SEND -> VibrationEffect.createWaveform(longArrayOf(0, 12, 34, 24), NO_REPEAT)
-        Action.STOP -> VibrationEffect.createWaveform(longArrayOf(0, 24, 44, 16), NO_REPEAT)
+        // Longer pulses than the shaped tier on purpose. A device with no amplitude control is
+        // almost always a rotating-mass motor, which needs tens of milliseconds just to spin up
+        // — feed it the crisp 12ms pulse that suits an LRA and it barely moves at all.
+        Action.SEND -> VibrationEffect.createWaveform(longArrayOf(0, 25, 35, 45), NO_REPEAT)
+        Action.STOP -> VibrationEffect.createWaveform(longArrayOf(0, 45, 35, 25), NO_REPEAT)
     }
 
     private companion object {
         const val NO_REPEAT = -1
-        const val SEND_GAP_MS = 35
-        const val STOP_GAP_MS = 45
+
+        // Wide enough that the two beats stay legible as two. Closer together and a slower
+        // motor smears them into one long event, which reads as a mushy buzz rather than as
+        // a firmer tap — "weak" and "blurred" feel like the same thing under a fingertip.
+        const val SEND_GAP_MS = 50
+        const val STOP_GAP_MS = 55
 
         val TOUCH_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
