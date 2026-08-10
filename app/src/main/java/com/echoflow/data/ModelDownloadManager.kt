@@ -128,6 +128,13 @@ class ModelDownloadManager(
                     )
                     setState(entry.id, DownloadState.Done)
                     activeDownloads.remove(entry.id)
+                    // The longest-running thing in the app, and until now the only one that
+                    // finished in complete silence.
+                    ReplyNotifications.notifyDownloadReady(
+                        context, entry.id,
+                        title = "${entry.name} is ready",
+                        text = "The model finished downloading and can be used offline.",
+                    )
                 }
             } catch (e: Exception) {
                 partFile.delete()
@@ -251,6 +258,11 @@ class ModelDownloadManager(
             )
             localModelDao.insertLocalModel(model)
             setState(id, DownloadState.Done)
+            ReplyNotifications.notifyDownloadReady(
+                context, id,
+                title = "${model.name} is ready",
+                text = "The model finished importing and can be used offline.",
+            )
             model
         } catch (e: Exception) {
             partFile.delete()
