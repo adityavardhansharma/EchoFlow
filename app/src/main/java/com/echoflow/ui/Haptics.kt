@@ -23,8 +23,12 @@ import androidx.compose.ui.platform.LocalView
  * thin (it reads as a keypress, not as "the message left") and a buzz is too long (it reads as an
  * error). Both cues are two beats inside ~80 ms, and they're deliberate mirrors of each other:
  *
- * - **Send** — rising envelope: a light tick of anticipation, then the firm click of release.
- * - **Stop** — falling envelope: the firm hit lands first, then damps out. Halted, not launched.
+ * - **Send** — rising envelope: a softer click of anticipation, then a full-scale one on release.
+ * - **Stop** — falling envelope: the full-scale hit lands first, then damps out. Halted, not launched.
+ *
+ * Both accent beats run at scale 1.0. The envelope comes from the *quieter* beat being quieter,
+ * never from holding the whole cue back — the system already scales us down by the user's touch
+ * feedback intensity, so anything less than full scale here arrives thin.
  *
  * Vibration hardware varies enormously, so we take the best thing the device actually reports and
  * degrade in tiers, keeping the two-beat shape for as long as the hardware allows:
@@ -51,7 +55,7 @@ internal class ActionHaptics(context: Context, private val view: View) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) VibrationHaptics(context) else null
 
     /** The user committed a message — fire as the reply starts streaming. */
-    fun send() = play(VibrationHaptics.Action.SEND, HapticFeedbackConstants.VIRTUAL_KEY)
+    fun send() = play(VibrationHaptics.Action.SEND, HapticFeedbackConstants.LONG_PRESS)
 
     /** The user cancelled an in-flight reply. */
     fun stop() = play(VibrationHaptics.Action.STOP, HapticFeedbackConstants.LONG_PRESS)
@@ -82,11 +86,11 @@ private class VibrationHaptics(context: Context) {
         service?.takeIf { it.hasVibrator() }
     }
 
+    // Only CLICK is required: it is both the most widely supported primitive and the only one
+    // with real punch. TICK is deliberately unused — it is the weakest thing the motor can do,
+    // and using it for the lead beat is what made the first cut of this feel thin.
     private val supportsPrimitives = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-        vibrator?.areAllPrimitivesSupported(
-            VibrationEffect.Composition.PRIMITIVE_CLICK,
-            VibrationEffect.Composition.PRIMITIVE_TICK,
-        ) == true
+        vibrator?.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_CLICK) == true
 
     /** A low, weighty landing — the nicest possible "stop", where the motor can render it. */
     private val supportsThud = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -115,36 +119,40 @@ private class VibrationHaptics(context: Context) {
     private fun composed(action: Action): VibrationEffect {
         val composition = VibrationEffect.startComposition()
         return when (action) {
+            // The accent beat of each cue runs at full scale; the envelope comes from the *other*
+            // beat being softer, not from holding the whole cue back.
             Action.SEND -> composition
-                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.5f)
-                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.9f, SEND_GAP_MS)
+                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.65f)
+                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f, SEND_GAP_MS)
             Action.STOP ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && supportsThud) {
                     composition
-                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.8f)
-                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_THUD, 0.75f, STOP_GAP_MS)
+                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f)
+                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_THUD, 1f, STOP_GAP_MS)
                 } else {
                     // Without a thud, a decaying second click still gives the falling envelope.
                     composition
-                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.9f)
-                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.55f, STOP_GAP_MS)
+                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f)
+                        .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.6f, STOP_GAP_MS)
                 }
         }.compose()
     }
 
     private fun shapedWaveform(action: Action): VibrationEffect = when (action) {
         Action.SEND -> VibrationEffect.createWaveform(
-            longArrayOf(0, 12, 34, 24), intArrayOf(0, 100, 0, 215), NO_REPEAT,
+            longArrayOf(0, 12, 34, 24), intArrayOf(0, 165, 0, 255), NO_REPEAT,
         )
         Action.STOP -> VibrationEffect.createWaveform(
-            longArrayOf(0, 24, 44, 16), intArrayOf(0, 225, 0, 120), NO_REPEAT,
+            longArrayOf(0, 24, 44, 16), intArrayOf(0, 255, 0, 160), NO_REPEAT,
         )
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun predefined(action: Action): VibrationEffect = when (action) {
-        Action.SEND -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
-        Action.STOP -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+        // Heavy on both: a plain EFFECT_CLICK is the same blip this tier's devices already use
+        // for a keypress, which is exactly the "was that anything?" feel we're avoiding.
+        Action.SEND -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+        Action.STOP -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)
     }
 
     private fun plainWaveform(action: Action): VibrationEffect = when (action) {
