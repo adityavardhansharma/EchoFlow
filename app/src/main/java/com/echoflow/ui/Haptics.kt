@@ -35,8 +35,13 @@ import androidx.compose.ui.platform.LocalView
  *
  * 1. **Composition primitives** (API 30+, when the motor supports them) — the real thing.
  * 2. **Shaped waveform** (API 26+ with amplitude control) — same envelope, hand-rolled.
- * 3. **Predefined effects** (API 29+) — one OEM-tuned blip, click vs. heavy click.
- * 4. **Unshaped waveform / view constants** — two beats at whatever amplitude the motor has.
+ * 3. **Predefined effects** (API 29+) — one OEM-tuned blip, heavy click vs. double click.
+ * 4. **Unshaped waveform** (API 26+) — the envelope carried by durations alone.
+ * 5. **Legacy pattern** (API 24–25) — the same durations through the pre-[VibrationEffect] API.
+ * 6. **View constants** — only when there is no vibrator at all, so nothing will be felt anyway.
+ *
+ * Send and stop stay distinguishable at *every* tier, including the last two. A fallback that
+ * plays one cue for both actions is worse than no fallback: it actively teaches the wrong thing.
  *
  * No vibrator, or system touch feedback switched off, means we stay silent.
  */
@@ -47,6 +52,9 @@ internal fun rememberActionHaptics(): ActionHaptics {
     return remember(view) { ActionHaptics(context.applicationContext, view) }
 }
 
+/** Which of the two cues to play. Both tiers render it; only the fidelity differs. */
+internal enum class HapticAction { SEND, STOP }
+
 internal class ActionHaptics(context: Context, private val view: View) {
 
     private val resolver = context.contentResolver
@@ -54,27 +62,57 @@ internal class ActionHaptics(context: Context, private val view: View) {
     private val vibration: VibrationHaptics? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) VibrationHaptics(context) else null
 
+    private val legacy: LegacyVibration? =
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) LegacyVibration(context) else null
+
     /** The user committed a message — fire as the reply starts streaming. */
-    fun send() = play(VibrationHaptics.Action.SEND, HapticFeedbackConstants.LONG_PRESS)
+    fun send() = play(HapticAction.SEND, HapticFeedbackConstants.VIRTUAL_KEY)
 
     /** The user cancelled an in-flight reply. */
-    fun stop() = play(VibrationHaptics.Action.STOP, HapticFeedbackConstants.LONG_PRESS)
+    fun stop() = play(HapticAction.STOP, HapticFeedbackConstants.LONG_PRESS)
 
-    private fun play(action: VibrationHaptics.Action, fallback: Int) {
+    private fun play(action: HapticAction, fallback: Int) {
         // Read every time: the user can flip touch feedback off in Settings while we're alive.
+        // The setting is deprecated but still the one the platform honours, and USAGE_TOUCH
+        // already respects it — this is belt and braces for the view-constant path.
+        @Suppress("DEPRECATION")
         val allowed = Settings.System.getInt(resolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0
         if (!allowed) return
-        if (vibration?.play(action) == true) return
-        // Pre-O, or a device with no vibrator: the platform constants are all we have.
+        // The version check is redundant with `vibration` being non-null only on O+, but lint
+        // cannot see that through the field, and it is the check that keeps the build honest.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vibration?.play(action) == true) return
+        if (legacy?.play(action) == true) return
+        // Genuinely nothing left: no vibrator at all. The constants differ per action anyway —
+        // send and stop must never become the same cue, whichever tier ends up rendering them.
         view.performHapticFeedback(fallback)
+    }
+}
+
+/**
+ * Pre-O devices have a [Vibrator] but no [VibrationEffect], so every tier above is out of reach.
+ * The two-beat envelope is not: with no amplitude control the shape lives entirely in the
+ * durations, which is exactly what the unshaped waveform encodes. So API 24–25 still gets a real
+ * send-versus-stop pair rather than collapsing both onto one platform constant.
+ */
+private class LegacyVibration(context: Context) {
+
+    private val vibrator: Vibrator? = run {
+        @Suppress("DEPRECATION")
+        val service = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        service?.takeIf { it.hasVibrator() }
+    }
+
+    fun play(action: HapticAction): Boolean {
+        val vibrator = vibrator ?: return false
+        @Suppress("DEPRECATION")
+        vibrator.vibrate(unshapedPattern(action), NO_REPEAT, TOUCH_ATTRIBUTES)
+        return true
     }
 }
 
 /** The [Vibrator]-backed tiers. Split out so the API 26+ surface stays behind one version check. */
 @RequiresApi(Build.VERSION_CODES.O)
 private class VibrationHaptics(context: Context) {
-
-    enum class Action { SEND, STOP }
 
     private val vibrator: Vibrator? = run {
         val service = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -97,7 +135,7 @@ private class VibrationHaptics(context: Context) {
         vibrator?.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_THUD) == true
 
     /** @return true if the device actually played something. */
-    fun play(action: Action): Boolean {
+    fun play(action: HapticAction): Boolean {
         val vibrator = vibrator ?: return false
         val effect = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && supportsPrimitives -> composed(action)
@@ -116,15 +154,15 @@ private class VibrationHaptics(context: Context) {
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
-    private fun composed(action: Action): VibrationEffect {
+    private fun composed(action: HapticAction): VibrationEffect {
         val composition = VibrationEffect.startComposition()
         return when (action) {
             // The accent beat of each cue runs at full scale; the envelope comes from the *other*
             // beat being softer, not from holding the whole cue back.
-            Action.SEND -> composition
+            HapticAction.SEND -> composition
                 .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.65f)
                 .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f, SEND_GAP_MS)
-            Action.STOP ->
+            HapticAction.STOP ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && supportsThud) {
                     composition
                         .addPrimitive(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f)
@@ -138,43 +176,51 @@ private class VibrationHaptics(context: Context) {
         }.compose()
     }
 
-    private fun shapedWaveform(action: Action): VibrationEffect = when (action) {
-        Action.SEND -> VibrationEffect.createWaveform(
+    private fun shapedWaveform(action: HapticAction): VibrationEffect = when (action) {
+        HapticAction.SEND -> VibrationEffect.createWaveform(
             longArrayOf(0, 12, 34, 24), intArrayOf(0, 165, 0, 255), NO_REPEAT,
         )
-        Action.STOP -> VibrationEffect.createWaveform(
+        HapticAction.STOP -> VibrationEffect.createWaveform(
             longArrayOf(0, 24, 44, 16), intArrayOf(0, 255, 0, 160), NO_REPEAT,
         )
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun predefined(action: Action): VibrationEffect = when (action) {
+    private fun predefined(action: HapticAction): VibrationEffect = when (action) {
         // Heavy on both: a plain EFFECT_CLICK is the same blip this tier's devices already use
         // for a keypress, which is exactly the "was that anything?" feel we're avoiding.
-        Action.SEND -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
-        Action.STOP -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)
+        HapticAction.SEND -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+        HapticAction.STOP -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)
     }
 
-    private fun plainWaveform(action: Action): VibrationEffect = when (action) {
-        // Longer pulses than the shaped tier on purpose. A device with no amplitude control is
-        // almost always a rotating-mass motor, which needs tens of milliseconds just to spin up
-        // — feed it the crisp 12ms pulse that suits an LRA and it barely moves at all.
-        Action.SEND -> VibrationEffect.createWaveform(longArrayOf(0, 25, 35, 45), NO_REPEAT)
-        Action.STOP -> VibrationEffect.createWaveform(longArrayOf(0, 45, 35, 25), NO_REPEAT)
-    }
+    private fun plainWaveform(action: HapticAction): VibrationEffect =
+        VibrationEffect.createWaveform(unshapedPattern(action), NO_REPEAT)
 
-    private companion object {
-        const val NO_REPEAT = -1
-
-        // Wide enough that the two beats stay legible as two. Closer together and a slower
-        // motor smears them into one long event, which reads as a mushy buzz rather than as
-        // a firmer tap — "weak" and "blurred" feel like the same thing under a fingertip.
-        const val SEND_GAP_MS = 50
-        const val STOP_GAP_MS = 55
-
-        val TOUCH_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-    }
 }
+
+private const val NO_REPEAT = -1
+
+// Wide enough that the two beats stay legible as two. Closer together and a slower motor smears
+// them into one long event, which reads as a mushy buzz rather than as a firmer tap — "weak" and
+// "blurred" feel like the same thing under a fingertip.
+private const val SEND_GAP_MS = 50
+private const val STOP_GAP_MS = 55
+
+/**
+ * The envelope expressed purely in durations, for the two tiers with no amplitude control: a
+ * short beat then a long one for send, the reverse for stop.
+ *
+ * Longer pulses than the shaped tier on purpose. A device without amplitude control is almost
+ * always a rotating-mass motor, which needs tens of milliseconds just to spin up — feed it the
+ * crisp 12ms pulse that suits an LRA and it barely moves at all.
+ */
+private fun unshapedPattern(action: HapticAction): LongArray = when (action) {
+    HapticAction.SEND -> longArrayOf(0, 25, 35, 45)
+    HapticAction.STOP -> longArrayOf(0, 45, 35, 25)
+}
+
+/** Tagged as touch feedback so the system scales and routes it like any other UI haptic. */
+private val TOUCH_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+    .build()
