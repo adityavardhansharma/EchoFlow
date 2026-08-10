@@ -453,6 +453,11 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
+        // Completion pings suppress per-conversation rather than per-app, so they need to know
+        // which one is actually on screen. Reading chat A is no reason to swallow chat B.
+        viewModelScope.launch {
+            _currentChatThreadId.collect { ReplyNotifications.visibleChatId = it }
+        }
         // Reopen exactly where the user left off — including on a blank composer. Through the
         // same guarded path as a mode switch, because a cold database makes this the slowest
         // this lookup ever is, and the drawer is reachable throughout.
@@ -1483,6 +1488,8 @@ class ChatViewModel(
                 // A clip renders for minutes, almost always with the app in the background —
                 // the ping is what tells the user it landed.
                 videoGenMode -> "Video"
+                // An image is quicker than a clip but still long enough to switch away from.
+                imageGenMode -> "Image"
                 else -> null
             }
             val keepAliveText = when {
@@ -1588,6 +1595,19 @@ class ChatViewModel(
                                     text = "Tap to watch it in EchoFlow.",
                                 )
                             }
+                        }
+                } else if (imageGenMode) {
+                    // Same "did anything actually land?" test as video, and it runs after the
+                    // reveal delay above — being buzzed while watching the animation that is
+                    // already telling you the image arrived is just noise.
+                    segments.filterIsInstance<StreamSegment.Image>()
+                        .lastOrNull { it.filePath != null && !it.generating }
+                        ?.let {
+                            ReplyNotifications.notifyReplyReady(
+                                getApplication(), chatId,
+                                title = "Your image is ready",
+                                text = "Tap to see it in EchoFlow.",
+                            )
                         }
                 } else if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(

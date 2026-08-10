@@ -50,7 +50,12 @@ class KeepAliveService : Service() {
             .setContentText(text)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            // No FOREGROUND_SERVICE_IMMEDIATE, deliberately: Android 12+ holds an FGS
+            // notification back for 10s, and drops it entirely if the service stops first.
+            // That is exactly the behaviour we want — a two-second reply shows nothing at
+            // all, while a video render or a download surfaces once it is worth mentioning.
+            // Duration is the honest signal for "the user has probably left"; which feature
+            // started the work never was. (Pre-31 there is no deferral and it shows at once.)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
