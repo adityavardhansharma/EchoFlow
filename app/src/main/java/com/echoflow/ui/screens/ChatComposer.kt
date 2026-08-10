@@ -98,6 +98,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.rememberActionHaptics
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
@@ -665,6 +666,9 @@ private class PlusMenuPositionProvider(
 
 @Composable
 internal fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onStop: () -> Unit = {}, onClick: () -> Unit) {
+    // Send and stop are the only two actions that change what the app is *doing*, so they're the
+    // two that earn a real haptic — a mirrored rising/falling pair, see [rememberActionHaptics].
+    val haptics = rememberActionHaptics()
     if (isStreaming) {
         // Tappable Stop that stays in visual sync with the "Thinking…" row: the same expressive
         // LoadingIndicator keeps spinning so the reply still feels live, with a Stop glyph centered
@@ -675,7 +679,10 @@ internal fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolea
                 .size(48.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .clickable(onClick = onStop),
+                .clickable {
+                    haptics.stop()
+                    onStop()
+                },
             contentAlignment = Alignment.Center,
         ) {
             LoadingIndicator(
@@ -693,7 +700,10 @@ internal fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolea
         // The hero action gets the boldest shape — a "Sunny" that morphs to a rounder cookie on
         // press with an expressive (bouncy) spring. In research mode it starts the investigation.
         ShapedIconButton(
-            onClick = onClick,
+            onClick = {
+                haptics.send()
+                onClick()
+            },
             enabled = enabled,
             size = 48.dp,
             restShape = MaterialShapes.Sunny,
