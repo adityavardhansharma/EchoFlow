@@ -86,12 +86,9 @@ import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
-import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
 import com.echoflow.ui.components.MarkdownText
-import com.echoflow.ui.components.ReportCard
-import com.echoflow.ui.components.ResearchProgressCard
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
@@ -352,6 +349,9 @@ internal fun ChatSurface(
                     bottomInset = messageBottomInset,
                     onCopy = { clipboard.setText(AnnotatedString(it)) },
                     onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
+                    onResearchOpen = chatViewModel::openResearchWorkspace,
+                    onResearchRetry = chatViewModel::retryResearch,
+                    observeResearchRun = chatViewModel::observeResearchRun,
                     observeVideo = chatViewModel::observeVideo,
                     lastUserMessageId = lastUserMessageId,
                     onEditUserMessage = { id ->

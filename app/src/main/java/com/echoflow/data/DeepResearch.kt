@@ -156,6 +156,43 @@ data class DeepResearchConfig(
 )
 
 /** Moshi helpers for the JSON columns on [ResearchRun]. */
+/**
+ * One stage of a research run, as rendered by the live timeline.
+ *
+ * Steps are upserted by [id]: an engine announces a step as [STATE_ACTIVE], then re-emits the
+ * same id with [STATE_DONE] and a filled-in [detail] once it finishes, so the row mutates in
+ * place instead of the timeline growing a duplicate. The whole list is mirrored into
+ * `research_runs.stepsJson` after every event, which is what lets a backgrounded run replay its
+ * full history rather than just its current phase.
+ */
+data class ResearchStep(
+    val id: String,
+    val kind: String = KIND_SEARCH,
+    val label: String,
+    val state: String = STATE_ACTIVE,
+    /** Short right-aligned meta, e.g. "12 sources" or "68%". */
+    val detail: String? = null,
+    /** URLs this step contributed, resolved against the run's accumulated sources for display. */
+    val sourceUrls: List<String> = emptyList(),
+    val startedAt: Long = 0L,
+    val endedAt: Long? = null,
+) {
+    val isTerminal: Boolean get() = state == STATE_DONE || state == STATE_FAILED
+
+    companion object {
+        const val KIND_PLAN = "plan"
+        const val KIND_SEARCH = "search"
+        const val KIND_READ = "read"
+        const val KIND_ANALYZE = "analyze"
+        const val KIND_SYNTHESIZE = "synthesize"
+
+        const val STATE_PENDING = "pending"
+        const val STATE_ACTIVE = "active"
+        const val STATE_DONE = "done"
+        const val STATE_FAILED = "failed"
+    }
+}
+
 object ResearchJson {
     private val moshi: Moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
@@ -166,6 +203,9 @@ object ResearchJson {
     )
     private val sourcesAdapter: JsonAdapter<List<SearchSource>> = moshi.adapter(
         Types.newParameterizedType(List::class.java, SearchSource::class.java)
+    )
+    private val timelineAdapter: JsonAdapter<List<ResearchStep>> = moshi.adapter(
+        Types.newParameterizedType(List::class.java, ResearchStep::class.java)
     )
 
     fun stepsToJson(steps: List<String>): String? =
@@ -179,4 +219,10 @@ object ResearchJson {
 
     fun sourcesFromJson(json: String?): List<SearchSource> =
         json?.let { runCatching { sourcesAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+
+    fun timelineToJson(steps: List<ResearchStep>): String? =
+        if (steps.isEmpty()) null else timelineAdapter.toJson(steps)
+
+    fun timelineFromJson(json: String?): List<ResearchStep> =
+        json?.let { runCatching { timelineAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
 }

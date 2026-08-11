@@ -14,6 +14,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -510,6 +511,88 @@ class ChatViewModel(
         }
     }
     fun closeArtifactWorkspace() { _artifactWorkspaceOpen.value = false }
+
+    /**
+     * The Deep Research report currently open fullscreen, or null.
+     *
+     * Snapshotted rather than observed: a finished run never changes again, and the segment
+     * already carries the report text, so the workspace works even if the `research_runs` row is
+     * missing — the row only enriches it with the step timeline and full source records.
+     */
+    private val _researchWorkspace = MutableStateFlow<ResearchWorkspaceState?>(null)
+    val researchWorkspace: StateFlow<ResearchWorkspaceState?> = _researchWorkspace.asStateFlow()
+
+    /**
+     * Only the newest open request may publish. Two cards tapped in quick succession each suspend
+     * on the DAO, and without this the first query to return last would win and the workspace
+     * would show the wrong report.
+     */
+    private var researchWorkspaceJob: Job? = null
+
+    fun openResearchWorkspace(research: ResearchRef) {
+        researchWorkspaceJob?.cancel()
+        researchWorkspaceJob = viewModelScope.launch {
+            val run = researchRunDao.getById(research.runId)
+            ensureActive()
+            _researchWorkspace.value = ResearchWorkspaceState(
+                research = research,
+                steps = ResearchJson.timelineFromJson(run?.stepsJson),
+                sources = ResearchJson.sourcesFromJson(run?.sourcesJson),
+            )
+        }
+    }
+
+    fun closeResearchWorkspace() {
+        researchWorkspaceJob?.cancel()
+        _researchWorkspace.value = null
+    }
+
+    /** The run behind a persisted research segment, for the card's step list and favicon stack. */
+    fun observeResearchRun(runId: String): Flow<ResearchRun?> = researchRunDao.observeById(runId)
+
+    /**
+     * Re-run a research request that failed, reusing the original engine and limits. A fresh row
+     * is inserted rather than the old one revived, so the failed attempt stays in the transcript
+     * instead of silently rewriting itself.
+     */
+    fun retryResearch(research: ResearchRef) {
+        viewModelScope.launch {
+            clearError()
+            val previous = researchRunDao.getById(research.runId) ?: run {
+                _errorMessage.value = "That research run is no longer available to retry."
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            val runId = UUID.randomUUID().toString()
+            // The idle check and the insert share a transaction: two taps could otherwise both
+            // pass a pre-check and start two foreground services for one conversation.
+            val started = researchRunDao.insertIfChatIdle(
+                previous.copy(
+                    id = runId,
+                    status = ResearchRun.STATUS_QUEUED,
+                    uiVersion = ResearchRun.UI_VERSION_CURRENT,
+                    phase = null,
+                    progressDone = 0,
+                    progressTotal = 0,
+                    planJson = null,
+                    stepsJson = null,
+                    sourcesJson = null,
+                    report = null,
+                    error = null,
+                    costInfo = null,
+                    providerJobId = null,
+                    assistantMessageId = null,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+            if (!started) {
+                _errorMessage.value = "A run is already in progress in this chat."
+                return@launch
+            }
+            DeepResearchForegroundService.start(getApplication(), runId)
+        }
+    }
 
     // Browser Flow igniter chip. Unlike Echo modes it is NOT sticky: it only *starts* a session;
     // once a session exists, the session row (not this flag) captures the owning chat's routing.

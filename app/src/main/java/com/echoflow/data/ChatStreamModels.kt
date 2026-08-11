@@ -230,12 +230,36 @@ data class VideoRef(
 )
 
 /**
+ * A finished Deep Research run, embedded in a reply's timeline.
+ *
+ * This carries the report text itself rather than only [runId] so the card and workspace still
+ * work if the `research_runs` row is ever pruned — the run row is consulted only for the richer
+ * extras (step timeline, full source records). Existing pre-redesign reports were persisted as a
+ * plain `"report"` segment and are deliberately left in that shape; the segment type is what
+ * routes a message to the legacy renderer, so old chats can never be mistaken for new ones.
+ */
+data class ResearchRef(
+    val runId: String,
+    val topic: String,
+    val report: String,
+    val engineLabel: String,
+    /** True when the payload is Data Agent JSON rather than report markdown. */
+    val structured: Boolean = false,
+    val sourceCount: Int = 0,
+    val stepCount: Int = 0,
+    val durationMs: Long = 0L,
+    val costInfo: String? = null,
+    /** Set when the run ended badly — the card renders its error variant and offers a retry. */
+    val error: String? = null,
+)
+
+/**
  * One block of a finished reply, persisted in arrival order so the rendered timeline
  * (reason → search → reason → search → answer) survives exactly as it streamed instead
  * of being merged into "all reasoning, then all searches, then text".
  */
 data class PersistedSegment(
-    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "image" | "video" | "stopped"
+    val type: String, // "text" | "reasoning" | "search" | "advisor" | "fusion" | "subagent" | "artifact" | "image" | "video" | "research" | "stopped"
     val text: String? = null,
     val query: String? = null,
     val sources: List<SearchSource>? = null,
@@ -244,7 +268,8 @@ data class PersistedSegment(
     val subagent: SubagentResult? = null, // present when type == "subagent"
     val artifact: ArtifactRef? = null, // present when type == "artifact"
     val image: ImageRef? = null, // present when type == "image"
-    val video: VideoRef? = null // present when type == "video"
+    val video: VideoRef? = null, // present when type == "video"
+    val research: ResearchRef? = null // present when type == "research"
 )
 
 /** One archived assistant answer kept when a prompt is edited and the reply is regenerated. */

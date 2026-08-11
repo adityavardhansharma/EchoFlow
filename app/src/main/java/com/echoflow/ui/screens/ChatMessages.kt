@@ -76,7 +76,10 @@ import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
 import com.echoflow.data.FusionPanel
+import com.echoflow.data.ResearchJson
+import com.echoflow.data.ResearchRef
 import com.echoflow.data.ResearchRun
+import com.echoflow.data.SearchSource
 import com.echoflow.data.AppMode
 import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.ReplyVersions
@@ -90,13 +93,15 @@ import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.ModeSwitch
-import com.echoflow.ui.components.DataResultCard
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
 import com.echoflow.ui.components.MarkdownText
-import com.echoflow.ui.components.ReportCard
-import com.echoflow.ui.components.ResearchProgressCard
+import com.echoflow.ui.components.ResearchResultCard
+import com.echoflow.ui.components.ResearchTimeline
 import com.echoflow.ui.components.RichMarkdown
+import com.echoflow.ui.legacy.LegacyDataResultCard
+import com.echoflow.ui.legacy.LegacyReportCard
+import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SectionLabel
 import com.echoflow.ui.components.SubagentCard
@@ -130,6 +135,9 @@ internal fun MessagesPane(
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
     onArtifactOpen: () -> Unit = {},
+    onResearchOpen: (ResearchRef) -> Unit = {},
+    onResearchRetry: (ResearchRef) -> Unit = {},
+    observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
     lastUserMessageId: String? = null,
     onEditUserMessage: (String) -> Unit = {},
@@ -178,6 +186,9 @@ internal fun MessagesPane(
                 msg,
                 onCopy = { text -> onCopy(text) },
                 onArtifactOpen = onArtifactOpen,
+                onResearchOpen = onResearchOpen,
+                onResearchRetry = onResearchRetry,
+                observeResearchRun = observeResearchRun,
                 observeVideo = observeVideo,
                 canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
                 onEditUserMessage = onEditUserMessage,
@@ -190,7 +201,22 @@ internal fun MessagesPane(
             )
         }
         researchRun?.let { run ->
-            item(key = "research") { ResearchProgressCard(run = run, onCancel = onCancelResearch) }
+            item(key = "research") {
+                // A run that was already in flight when the app updated is stamped legacy and
+                // finishes in the card it started in; everything new gets the step timeline.
+                if (run.usesLegacyUi) {
+                    LegacyResearchProgressCard(run = run, onCancel = onCancelResearch)
+                } else {
+                    val steps = remember(run.stepsJson) { ResearchJson.timelineFromJson(run.stepsJson) }
+                    val runSources = remember(run.sourcesJson) { ResearchJson.sourcesFromJson(run.sourcesJson) }
+                    ResearchTimeline(
+                        run = run,
+                        steps = steps,
+                        sources = runSources,
+                        onCancel = onCancelResearch,
+                    )
+                }
+            }
         }
         if (modelLoading && segments.isEmpty()) {
             item { ModelLoadingRow() }
@@ -426,6 +452,9 @@ internal fun MessageBubble(
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
     onArtifactOpen: () -> Unit = {},
+    onResearchOpen: (ResearchRef) -> Unit = {},
+    onResearchRetry: (ResearchRef) -> Unit = {},
+    observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
     onCopy: (String) -> Unit,
     canEditUserMessage: Boolean = false,
@@ -473,6 +502,9 @@ internal fun MessageBubble(
                         messageKey = "${message.id}-$versionIndex",
                         streaming = streaming,
                         onArtifactOpen = onArtifactOpen,
+                        onResearchOpen = onResearchOpen,
+                        onResearchRetry = onResearchRetry,
+                        observeResearchRun = observeResearchRun,
                         observeVideo = observeVideo,
                         onCopy = onCopy,
                     )
@@ -511,6 +543,9 @@ private fun AssistantAnswerBody(
     messageKey: String,
     streaming: Boolean,
     onArtifactOpen: () -> Unit,
+    onResearchOpen: (ResearchRef) -> Unit = {},
+    onResearchRetry: (ResearchRef) -> Unit = {},
+    observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
     onCopy: (String) -> Unit,
 ) {
@@ -658,10 +693,17 @@ private fun AssistantAnswerBody(
                         StoppedNotice()
                         if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                     }
-                    // The plan is rendered as a disclosure inside the report card.
+                    // ── Research ────────────────────────────────────────────────────
+                    // Old and new research are told apart here, and only here. "plan", "report"
+                    // and "data" segments were written before the timeline redesign, so they draw
+                    // through the frozen ui/legacy components and look exactly as they always
+                    // have. Research produced by the current app writes a single "research"
+                    // segment instead. Because the split is on a type string that old rows simply
+                    // do not contain, no existing conversation can ever be reclassified.
+                    // The plan is rendered as a disclosure inside the legacy report card.
                     "plan" -> Unit
                     "report" -> {
-                        ReportCard(
+                        LegacyReportCard(
                             report = segment.text.orEmpty(),
                             citations = reportCitations,
                             planSteps = planSteps,
@@ -670,12 +712,36 @@ private fun AssistantAnswerBody(
                         if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                     }
                     "data" -> {
-                        DataResultCard(
+                        LegacyDataResultCard(
                             json = segment.text.orEmpty(),
                             citations = reportCitations,
                             onCopy = copyAction,
                         )
                         if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                    }
+                    "research" -> {
+                        segment.research?.let { ref ->
+                            // The steps and sources come from the run row when it is still
+                            // around; the card degrades to its header alone when it is not.
+                            val liveRun by remember(ref.runId) { observeResearchRun(ref.runId) }
+                                .collectAsState(initial = null)
+                            val steps = remember(liveRun?.stepsJson) {
+                                ResearchJson.timelineFromJson(liveRun?.stepsJson)
+                            }
+                            val runSources = remember(liveRun?.sourcesJson, reportCitations) {
+                                ResearchJson.sourcesFromJson(liveRun?.sourcesJson).ifEmpty {
+                                    reportCitations.map { SearchSource(title = it.title, url = it.url) }
+                                }
+                            }
+                            ResearchResultCard(
+                                research = ref,
+                                steps = steps,
+                                sources = runSources,
+                                onOpen = { onResearchOpen(ref) },
+                                onRetry = { onResearchRetry(ref) },
+                            )
+                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        }
                     }
                     else -> {
                         RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())

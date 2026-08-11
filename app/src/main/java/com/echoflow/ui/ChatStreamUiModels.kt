@@ -2,6 +2,8 @@ package com.echoflow.ui
 
 import com.echoflow.data.FusionAnalysis
 import com.echoflow.data.BrowserSession
+import com.echoflow.data.ResearchRef
+import com.echoflow.data.ResearchStep
 import com.echoflow.data.SearchSource
 
 internal data class ActiveStreamState(
@@ -9,6 +11,17 @@ internal data class ActiveStreamState(
     val statusNote: String? = null,
     val progressLoading: Boolean = false,
     val isLocal: Boolean = false,
+)
+
+/**
+ * A finished research report opened fullscreen. [research] comes from the persisted message
+ * segment and is self-sufficient; [steps] and [sources] are enrichment read from the
+ * `research_runs` row, and are simply empty when that row is gone.
+ */
+data class ResearchWorkspaceState(
+    val research: ResearchRef,
+    val steps: List<ResearchStep> = emptyList(),
+    val sources: List<SearchSource> = emptyList(),
 )
 
 data class BrowserStartConflict(

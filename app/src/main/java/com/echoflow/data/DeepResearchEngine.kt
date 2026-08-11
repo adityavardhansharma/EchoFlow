@@ -34,8 +34,54 @@ class DeepResearchEngine(
         .writeTimeout(45, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Separate client for server-sent event feeds. A research stream is idle between events for
+     * minutes at a time, so the shared client's 120s read timeout would tear it down mid-run; the
+     * bound that matters here is the whole-call one.
+     */
+    private val streamClient = OkHttpClient.Builder()
+        .connectTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.MINUTES)
+        .build()
+
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val anyAdapter = moshi.adapter(Any::class.java)
+
+    // ── Timeline narration ───────────────────────────────────────────────────────────
+    // Every engine describes itself as upserted ResearchSteps, which the service mirrors into
+    // research_runs.stepsJson. How much detail each one can honestly give varies a lot: the
+    // agentic path owns its loop and narrates every sub-question, Firecrawl exposes an activity
+    // feed, and the rest can only say "still working" — those get a single step rather than
+    // invented stages.
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.step(
+        id: String,
+        label: String,
+        state: String,
+        kind: String = ResearchStep.KIND_SEARCH,
+        detail: String? = null,
+        sourceUrls: List<String> = emptyList(),
+    ) {
+        val now = System.currentTimeMillis()
+        emit(
+            ResearchEvent.Steps(
+                listOf(
+                    ResearchStep(
+                        id = id,
+                        kind = kind,
+                        label = label,
+                        state = state,
+                        detail = detail,
+                        sourceUrls = sourceUrls,
+                        startedAt = now,
+                        endedAt = if (state == ResearchStep.STATE_DONE || state == ResearchStep.STATE_FAILED) now else null,
+                    )
+                )
+            )
+        )
+    }
 
     fun run(
         config: DeepResearchConfig,
@@ -58,6 +104,64 @@ class DeepResearchEngine(
         }
     }.flowOn(Dispatchers.IO)
 
+    // ── Server-sent events ───────────────────────────────────────────────────────────
+
+    /**
+     * Read an SSE response frame by frame, invoking [onEvent] per complete frame. Returning false
+     * from [onEvent] closes the stream early.
+     *
+     * Named-event streams are the reason this exists rather than reusing the chat transport's
+     * `data:`-only loop: Parallel and Exa both put the meaning in the `event:` line.
+     */
+    private suspend fun streamSse(
+        request: Request,
+        label: String,
+        onEvent: suspend (SseEvent) -> Boolean,
+    ) {
+        streamClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("$label event stream failed (HTTP ${response.code}).")
+            }
+            val reader = (response.body ?: throw Exception("$label returned an empty event stream."))
+                .charStream().buffered()
+            val decoder = SseDecoder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                val frame = decoder.accept(line!!) ?: continue
+                if (!onEvent(frame)) return
+            }
+            decoder.flush()?.let { onEvent(it) }
+        }
+    }
+
+    private fun parseFrame(data: String): Map<*, *>? =
+        runCatching { anyAdapter.fromJson(data) as? Map<*, *> }.getOrNull()
+
+    /**
+     * Pull a human-readable line out of an event payload. Both providers nest their message under
+     * different keys depending on the event subtype, and neither shape is contractually stable, so
+     * this reads the plausible ones and gives up quietly rather than guessing wrong loudly.
+     */
+    private fun messageOf(node: Any?): String? {
+        when (node) {
+            is String -> return node.takeIf { it.isNotBlank() }
+            is Map<*, *> -> {
+                MESSAGE_KEYS.forEach { key ->
+                    (node[key] as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                // One level down: {"progress_msg": {"message": "..."}} and friends.
+                NESTED_KEYS.forEach { key ->
+                    (node[key] as? Map<*, *>)?.let { nested ->
+                        MESSAGE_KEYS.forEach { inner ->
+                            (nested[inner] as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     // ── Provider-native ──────────────────────────────────────────────────────────────
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.runProvider(
@@ -78,9 +182,16 @@ class DeepResearchEngine(
                 runExaAgent(apiKey, config, topic, existing)
             } else {
                 // Exa Deep Reasoning: a single synchronous /search call (no job, no polling).
+                // There is genuinely nothing to narrate in between, so it stays one step.
                 emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching with Exa…"))
+                step(STEP_PROVIDER, "Researching with Exa", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
                 val done = exaDeepSearch(apiKey, config.providerModel, topic, config.maxSources)
                 if (done.sources.isNotEmpty()) emit(ResearchEvent.Sources(done.sources))
+                step(
+                    STEP_PROVIDER, "Researched with Exa", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                    detail = "${done.sources.size} sources",
+                    sourceUrls = done.sources.map { it.url },
+                )
                 emit(ResearchEvent.Report(done.report))
             }
             return
@@ -94,6 +205,26 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching the web…"))
+        val runningLabel = "Researching with ${config.engineLabel}"
+        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
+
+        // Parallel narrates itself over SSE. Consume that first for the timeline, then fall
+        // through to polling for the terminal state and result. Strictly an enhancement: any
+        // failure here leaves the run exactly as it behaves without it.
+        // True once a real per-step feed has taken over, so the generic placeholder row stops
+        // being refreshed as active underneath the steps that replaced it.
+        var feedTookOver = false
+        if (config.provider == "parallel") {
+            try {
+                streamParallelEvents(apiKey, jobId)
+                feedTookOver = true
+                step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Stream unavailable — the poll loop below still finishes the run.
+            }
+        }
 
         // Poll until the provider finishes. Capped so a stuck job can't poll forever.
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
@@ -106,23 +237,45 @@ class DeepResearchEngine(
             when (result) {
                 is PollResult.Pending -> {
                     result.label?.let { emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, it)) }
+                    // Firecrawl reports an activity feed; everything else can only refresh the
+                    // one running step's detail line.
+                    if (result.steps.isNotEmpty()) {
+                        // The feed supersedes the placeholder, which would otherwise sit spinning
+                        // beside the very rows meant to replace it for the rest of the run.
+                        if (!feedTookOver) {
+                            feedTookOver = true
+                            step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+                        }
+                        emit(ResearchEvent.Steps(result.steps))
+                    } else if (!feedTookOver) {
+                        result.label?.let {
+                            step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = it)
+                        }
+                    }
                 }
                 is PollResult.Done -> {
                     if (result.sources.isNotEmpty()) emit(ResearchEvent.Sources(result.sources))
+                    step(
+                        STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                        detail = "${result.sources.size} sources",
+                        sourceUrls = result.sources.map { it.url },
+                    )
                     emit(ResearchEvent.Report(result.report))
                     return
                 }
                 is PollResult.Error -> {
+                    step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
                     emit(ResearchEvent.Failed(result.message))
                     return
                 }
             }
         }
+        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "timed out")
         emit(ResearchEvent.Failed("Research timed out. Try a narrower question or a faster engine."))
     }
 
     private sealed class PollResult {
-        data class Pending(val label: String?) : PollResult()
+        data class Pending(val label: String?, val steps: List<ResearchStep> = emptyList()) : PollResult()
         data class Done(val report: String, val sources: List<SearchSource>) : PollResult()
         data class Error(val message: String) : PollResult()
     }
@@ -178,12 +331,105 @@ class DeepResearchEngine(
             body = mapOf(
                 "input" to topic,
                 "processor" to processor,
+                // Auto-enabled for pro and above (which is every processor we ship), but sent
+                // explicitly so the feed doesn't depend on that default holding.
+                "enable_events" to true,
                 "task_spec" to mapOf("output_schema" to mapOf("type" to "text")),
             ),
             label = "Parallel",
         )
         return (json["run_id"] as? String) ?: (json["id"] as? String)
             ?: throw Exception("Parallel did not return a run id.")
+    }
+
+    /**
+     * Parallel's progress feed: `GET /v1/tasks/runs/{id}/events`.
+     *
+     * This is the richest timeline any provider gives us — planning, search objectives, tool use
+     * and intermediate findings, plus running counts of sources considered and read. It also
+     * replays the complete sequence from the start of execution, which is what makes it safe to
+     * (re)attach after the app was killed: a resumed run rebuilds its whole timeline instead of
+     * joining mid-stream. Steps are keyed by position, so a replay overwrites rather than doubles.
+     *
+     * Progress only. The run's terminal state and result still come from the poll path, so if the
+     * stream 404s, drops, or carries a shape we don't recognise, the run is unaffected — it just
+     * shows the single "Researching with Parallel" row it showed before.
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.streamParallelEvents(
+        apiKey: String,
+        jobId: String,
+    ) {
+        val request = Request.Builder()
+            .url("https://api.parallel.ai/v1/tasks/runs/$jobId/events")
+            .addHeader("x-api-key", apiKey)
+            .addHeader("Accept", "text/event-stream")
+            .get()
+            .build()
+
+        var index = 0
+        var lastId: String? = null
+        var lastLabel: String? = null
+        var stats: String? = null
+
+        streamSse(request, "Parallel") { frame ->
+            val json = parseFrame(frame.data)
+            val type = frame.name ?: (json?.get("type") as? String).orEmpty()
+            when {
+                type.startsWith("task_run.progress_msg") -> {
+                    val message = messageOf(json) ?: return@streamSse true
+                    val kind = when (type.substringAfterLast('.')) {
+                        "plan" -> ResearchStep.KIND_PLAN
+                        "search" -> ResearchStep.KIND_SEARCH
+                        "tool" -> ResearchStep.KIND_READ
+                        else -> ResearchStep.KIND_ANALYZE
+                    }
+                    // exec_status refines the step already running rather than adding a row.
+                    if (type.endsWith(".exec_status")) {
+                        lastId?.let { id ->
+                            step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
+                        }
+                        return@streamSse true
+                    }
+                    // Close the previous row before opening the next: the feed is append-only, so
+                    // anything behind the newest entry is finished by definition.
+                    lastId?.let { id -> step(id, lastLabel ?: message, ResearchStep.STATE_DONE, kind) }
+                    val id = feedStepId(index++)
+                    lastId = id
+                    lastLabel = message
+                    step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
+                }
+                type == "task_run.progress_stats" -> {
+                    val read = (json?.get("num_sources_read") as? Double)?.toInt()
+                    val considered = (json?.get("num_sources_considered") as? Double)?.toInt()
+                    stats = when {
+                        read != null && considered != null -> "$read of $considered read"
+                        read != null -> "$read read"
+                        considered != null -> "$considered found"
+                        else -> stats
+                    }
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = stats)
+                    }
+                }
+                type == "task_run.state" -> {
+                    val status = ((json?.get("run") as? Map<*, *>)?.get("status") as? String)
+                        ?: (json?.get("status") as? String).orEmpty()
+                    if (status in PARALLEL_TERMINAL) {
+                        lastId?.let { id ->
+                            step(id, lastLabel ?: "Researching", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE, detail = stats)
+                        }
+                        return@streamSse false
+                    }
+                }
+                type == "error" -> {
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
+                    }
+                    return@streamSse false
+                }
+            }
+            true
+        }
     }
 
     private fun pollParallel(apiKey: String, id: String): PollResult {
@@ -257,8 +503,56 @@ class DeepResearchEngine(
             "failed", "cancelled", "error" -> PollResult.Error("Firecrawl research failed.")
             else -> {
                 val depth = (data?.get("currentDepth") as? Double)?.toInt()
-                PollResult.Pending(depth?.let { "Crawling the web (depth $it)…" })
+                PollResult.Pending(
+                    label = depth?.let { "Crawling the web (depth $it)…" },
+                    steps = firecrawlActivitySteps(data),
+                )
             }
+        }
+    }
+
+    /**
+     * Firecrawl's poll response carries a cumulative `activities[]` feed (search / scrape /
+     * analyse entries with human messages) that we previously discarded in favour of the crawl
+     * depth alone. Parsed defensively: anything we can't read degrades to no steps at all, which
+     * leaves the single "Researching with Firecrawl" row in place rather than breaking the run.
+     *
+     * Unverified against a live key — the shape below is what the documented response carries.
+     */
+    private fun firecrawlActivitySteps(data: Map<*, *>?): List<ResearchStep> {
+        val activities = (data?.get("activities") as? List<*>) ?: return emptyList()
+        val entries = activities.filterIsInstance<Map<*, *>>()
+        if (entries.isEmpty()) return emptyList()
+        // These bypass step(), so they have to stamp their own times — the service only ever
+        // preserves an existing non-zero startedAt, so a zero here would never be repaired and the
+        // workspace could not show a duration for any Firecrawl step.
+        val now = System.currentTimeMillis()
+        return entries.mapIndexedNotNull { index, entry ->
+            val label = (entry["message"] as? String)?.takeIf { it.isNotBlank() }
+                ?: (entry["type"] as? String)?.takeIf { it.isNotBlank() }
+                ?: return@mapIndexedNotNull null
+            val last = index == entries.lastIndex
+            val status = (entry["status"] as? String).orEmpty()
+            val state = when {
+                status.equals("error", true) || status.equals("failed", true) -> ResearchStep.STATE_FAILED
+                status.equals("complete", true) || status.equals("completed", true) -> ResearchStep.STATE_DONE
+                last -> ResearchStep.STATE_ACTIVE
+                // The feed is append-only, so anything behind the newest entry is finished.
+                else -> ResearchStep.STATE_DONE
+            }
+            ResearchStep(
+                id = activityStepId(index),
+                kind = when (entry["type"] as? String) {
+                    "search" -> ResearchStep.KIND_SEARCH
+                    "scrape", "extract" -> ResearchStep.KIND_READ
+                    else -> ResearchStep.KIND_ANALYZE
+                },
+                label = label,
+                state = state,
+                detail = (entry["depth"] as? Double)?.toInt()?.let { "depth $it" },
+                startedAt = now,
+                endedAt = if (state == ResearchStep.STATE_ACTIVE) null else now,
+            )
         }
     }
 
@@ -270,26 +564,51 @@ class DeepResearchEngine(
         existing: ResearchRun?,
     ) {
         val headers = mapOf("x-api-key" to apiKey, "Exa-Beta" to EXA_AGENT_BETA)
+        val agentLabel = "Exa agent is researching"
+
+        // Exa streams by holding the *create* request open, so — unlike Parallel's separate
+        // events endpoint — the feed cannot be re-attached to a run that already exists. A fresh
+        // run streams its search trace; a run resumed after the app was killed can only poll, and
+        // the steps it emitted before the kill are gone. That asymmetry is the API's, not ours.
         val jobId = existing?.providerJobId ?: run {
-            val created = post(
-                url = "https://api.exa.ai/agent/runs",
-                headers = headers,
-                body = mapOf(
-                    "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
-                    "effort" to (config.level ?: "auto"),
-                ),
-                label = "Exa",
-            )
-            (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
+            val streamed = try {
+                streamExaAgentRun(headers, config, topic)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            streamed ?: run {
+                val created = post(
+                    url = "https://api.exa.ai/agent/runs",
+                    headers = headers,
+                    body = mapOf(
+                        "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
+                        "effort" to (config.level ?: "auto"),
+                    ),
+                    label = "Exa",
+                )
+                (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
+            }
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Exa agent is researching…"))
+        if (existing?.providerJobId != null) {
+            // Resumed: no stream available, so this is the honest single row.
+            step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
+        }
 
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
         while (System.currentTimeMillis() < deadline) {
             delay(POLL_INTERVAL_MS)
             val json = get("https://api.exa.ai/agent/runs/$jobId", headers, "Exa")
-            (json["costDollars"] as? Double)?.let { emit(ResearchEvent.Cost("$" + "%.2f".format(it))) }
+            (json["costDollars"] as? Double)?.let {
+                // Locale.US to match the hardcoded "$": on a comma-decimal locale the default
+                // would render "$0,12".
+                val cost = "$" + "%.2f".format(java.util.Locale.US, it)
+                emit(ResearchEvent.Cost(cost))
+                step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = cost)
+            }
             when ((json["status"] as? String).orEmpty()) {
                 "completed" -> {
                     val output = json["output"] as? Map<*, *>
@@ -302,18 +621,122 @@ class DeepResearchEngine(
                     }
                     val sources = collectSources(output?.get("grounding"))
                     if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
-                    if (report.isBlank()) emit(ResearchEvent.Failed("Exa Agent returned an empty result."))
-                    else emit(ResearchEvent.Report(report))
+                    if (report.isBlank()) {
+                        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "empty result")
+                        emit(ResearchEvent.Failed("Exa Agent returned an empty result."))
+                    } else {
+                        step(
+                            STEP_PROVIDER, "Exa agent researched", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                            detail = "${sources.size} sources",
+                            sourceUrls = sources.map { it.url },
+                        )
+                        emit(ResearchEvent.Report(report))
+                    }
                     return
                 }
                 "failed", "cancelled", "canceled", "error" -> {
+                    step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
                     emit(ResearchEvent.Failed("Exa Agent run failed."))
                     return
                 }
                 else -> Unit
             }
         }
+        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "timed out")
         emit(ResearchEvent.Failed("Exa Agent timed out. Try a lower effort or a narrower question."))
+    }
+
+    /**
+     * Create an Exa Agent run with `Accept: text/event-stream` and narrate its search trace.
+     *
+     * Returns the run id (captured from `agent_run.created`, and emitted as a [ResearchEvent
+     * .ProviderJob] the moment it arrives so a kill mid-stream can still resume by polling), or
+     * null if the stream never identified a run — in which case the caller creates one normally.
+     *
+     * Sources announced by `agent_run.source.added` are merged live, so the favicon stack fills in
+     * while the agent works instead of appearing all at once at the end.
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.streamExaAgentRun(
+        headers: Map<String, String>,
+        config: DeepResearchConfig,
+        topic: String,
+    ): String? {
+        val body = anyAdapter.toJson(
+            mapOf(
+                "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
+                "effort" to (config.level ?: "auto"),
+                "stream" to true,
+            )
+        ).toRequestBody("application/json".toMediaType())
+
+        val builder = Request.Builder()
+            .url("https://api.exa.ai/agent/runs")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(body)
+        headers.forEach { (k, v) -> builder.addHeader(k, v) }
+
+        var runId: String? = null
+        var index = 0
+        var lastId: String? = null
+        var lastLabel: String? = null
+
+        streamSse(builder.build(), "Exa") { frame ->
+            val json = parseFrame(frame.data)
+            val type = frame.name ?: (json?.get("type") as? String).orEmpty()
+            when {
+                type == "agent_run.created" || type == "agent_run.started" -> {
+                    val id = (json?.get("id") as? String)
+                        ?: ((json?.get("run") as? Map<*, *>)?.get("id") as? String)
+                    if (id != null && runId == null) {
+                        runId = id
+                        emit(ResearchEvent.ProviderJob(id))
+                    }
+                }
+                type == "agent_run.source.added" -> {
+                    val sources = collectSources(json)
+                    if (sources.isNotEmpty()) {
+                        emit(ResearchEvent.Sources(sources))
+                        lastId?.let { id ->
+                            step(
+                                id, lastLabel ?: "Reading sources", ResearchStep.STATE_ACTIVE,
+                                ResearchStep.KIND_READ,
+                                detail = "${sources.size} found",
+                                sourceUrls = sources.map { it.url },
+                            )
+                        }
+                    }
+                }
+                type.startsWith("agent_run.completed") ||
+                    type.startsWith("agent_run.failed") ||
+                    type.startsWith("agent_run.cancelled") -> {
+                    lastId?.let { id ->
+                        val ok = type.startsWith("agent_run.completed")
+                        step(
+                            id, lastLabel ?: "Researching",
+                            if (ok) ResearchStep.STATE_DONE else ResearchStep.STATE_FAILED,
+                            ResearchStep.KIND_ANALYZE,
+                        )
+                    }
+                    return@streamSse false
+                }
+                else -> {
+                    // Tool progress and search-trace events. Exa notes these can arrive out of
+                    // order relative to the source events they describe, so they are appended in
+                    // arrival order and never used to reorder anything.
+                    val message = messageOf(json) ?: return@streamSse true
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: message, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+                    }
+                    val id = feedStepId(index++)
+                    lastId = id
+                    lastLabel = message
+                    step(id, message, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SEARCH)
+                }
+            }
+            true
+        }
+        return runId
     }
 
     // ── Data Agent (Firecrawl /v2/agent — structured extraction) ─────────────────────
@@ -346,17 +769,32 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Collecting data…"))
+        val collectLabel = "Collecting data"
+        step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_READ)
 
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
         while (System.currentTimeMillis() < deadline) {
             delay(POLL_INTERVAL_MS)
             val json = get("https://api.firecrawl.dev/v2/agent/$jobId", headers, "Firecrawl")
-            (json["creditsUsed"] as? Double)?.let { emit(ResearchEvent.Cost("${it.toInt()} credits")) }
+            (json["creditsUsed"] as? Double)?.let {
+                val credits = "${it.toInt()} credits"
+                emit(ResearchEvent.Cost(credits))
+                step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_READ, detail = credits)
+            }
             when ((json["status"] as? String).orEmpty()) {
                 "completed" -> {
                     val data = json["data"]
                     val sources = (collectSources(data) + collectSources(json["sources"])).distinctBy { it.url }
                     if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
+                    val empty = data == null || (data is String && data.isBlank())
+                    step(
+                        STEP_PROVIDER,
+                        if (empty) collectLabel else "Collected data",
+                        if (empty) ResearchStep.STATE_FAILED else ResearchStep.STATE_DONE,
+                        ResearchStep.KIND_READ,
+                        detail = if (empty) "no data" else "${sources.size} sources",
+                        sourceUrls = sources.map { it.url },
+                    )
                     when (data) {
                         is String -> if (data.isBlank()) emit(ResearchEvent.Failed("The data agent returned no data.")) else emit(ResearchEvent.Report(data))
                         null -> emit(ResearchEvent.Failed("The data agent returned no data."))
@@ -365,12 +803,14 @@ class DeepResearchEngine(
                     return
                 }
                 "failed", "cancelled", "error" -> {
+                    step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_READ)
                     emit(ResearchEvent.Failed("The data agent failed."))
                     return
                 }
                 else -> Unit
             }
         }
+        step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_READ, detail = "timed out")
         emit(ResearchEvent.Failed("The data agent timed out."))
     }
 
@@ -423,11 +863,16 @@ class DeepResearchEngine(
         val resumedSources = ResearchJson.sourcesFromJson(existing?.sourcesJson)
         if (existing != null && resumedSources.isNotEmpty() && existing.report.isNullOrBlank()) {
             emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
+            step(
+                STEP_SYNTHESIZE, "Writing the report", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SYNTHESIZE,
+                detail = "${resumedSources.size} sources",
+            )
             emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, resumedSources, attachment)))
             return
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_PLANNING, "Planning the research…"))
+        step(STEP_PLAN, "Planning the research", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_PLAN)
         val planningPrompt = if (attachment != null) {
             "User research request: $topic\n\nUse the attached PDF as primary context while planning the research."
         } else topic
@@ -440,19 +885,54 @@ class DeepResearchEngine(
         )
         val steps = parsePlan(planRaw, config.maxSearches)
         if (steps.isEmpty()) {
+            step(STEP_PLAN, "Planning the research", ResearchStep.STATE_FAILED, ResearchStep.KIND_PLAN, detail = "no plan")
             emit(ResearchEvent.Failed("The model did not produce a research plan. Try rephrasing your question."))
             return
         }
         emit(ResearchEvent.Plan(steps))
+        step(
+            STEP_PLAN, "Planned the research", ResearchStep.STATE_DONE, ResearchStep.KIND_PLAN,
+            detail = "${steps.size} question${if (steps.size == 1) "" else "s"}",
+        )
+
+        // Seed the whole plan as pending rows in one write, so the timeline shows where the run
+        // is going rather than growing a line at a time.
+        //
+        // replaceKinds drops any search rows from a previous attempt first. A run interrupted
+        // during planning re-plans on resume, and step ids are keyed by position, so without the
+        // reset a shorter new plan would leave orphaned pending rows behind and a reworded one
+        // would silently relabel rows that belonged to different questions.
+        emit(
+            ResearchEvent.Steps(
+                steps = steps.mapIndexed { i, question ->
+                    ResearchStep(
+                        id = searchStepId(i),
+                        kind = ResearchStep.KIND_SEARCH,
+                        label = question,
+                        state = ResearchStep.STATE_PENDING,
+                    )
+                },
+                replaceKinds = setOf(ResearchStep.KIND_SEARCH),
+            )
+        )
 
         val perSearch = (config.maxSources / steps.size).coerceIn(3, 10)
         val gathered = LinkedHashMap<String, SearchSource>()
-        steps.forEachIndexed { i, step ->
+        steps.forEachIndexed { i, question ->
             emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Searching ${i + 1} of ${steps.size}", i, steps.size))
+            step(searchStepId(i), question, ResearchStep.STATE_ACTIVE)
             val found = try {
-                webSearchService.search(searchProvider, searchKey, step, perSearch)
+                webSearchService.search(searchProvider, searchKey, question, perSearch)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                emptyList()
+                // A dead provider key used to vanish into an empty result set and read as a
+                // question that simply found nothing. Say what actually happened.
+                step(
+                    searchStepId(i), question, ResearchStep.STATE_FAILED,
+                    detail = e.message?.take(60) ?: "search failed",
+                )
+                return@forEachIndexed
             }
             val added = mutableListOf<SearchSource>()
             found.forEach { source ->
@@ -462,6 +942,11 @@ class DeepResearchEngine(
                 }
             }
             if (added.isNotEmpty()) emit(ResearchEvent.Sources(added))
+            step(
+                searchStepId(i), question, ResearchStep.STATE_DONE,
+                detail = "${added.size} source${if (added.size == 1) "" else "s"}",
+                sourceUrls = added.map { it.url },
+            )
         }
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Reviewed ${gathered.size} sources", steps.size, steps.size))
 
@@ -471,6 +956,10 @@ class DeepResearchEngine(
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
+        step(
+            STEP_SYNTHESIZE, "Writing the report", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SYNTHESIZE,
+            detail = "${gathered.size} sources",
+        )
         emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, gathered.values.toList(), attachment)))
     }
 
@@ -546,5 +1035,21 @@ class DeepResearchEngine(
     companion object {
         private const val POLL_INTERVAL_MS = 5000L
         private const val EXA_AGENT_BETA = "agent-2026-05-07"
+
+        // Stable timeline step ids. They must not change between an interrupted run and its
+        // resume, or the same stage would appear twice in the persisted timeline.
+        internal const val STEP_PLAN = "plan"
+        internal const val STEP_SYNTHESIZE = "synthesize"
+        internal const val STEP_PROVIDER = "provider"
+
+        internal fun searchStepId(index: Int): String = "search-$index"
+        internal fun activityStepId(index: Int): String = "activity-$index"
+        internal fun feedStepId(index: Int): String = "feed-$index"
+
+        /** Keys either provider might carry its human-readable progress line under. */
+        private val MESSAGE_KEYS = listOf("message", "msg", "text", "content", "description", "summary", "objective", "query")
+        private val NESTED_KEYS = listOf("data", "progress_msg", "payload", "detail", "body")
+
+        private val PARALLEL_TERMINAL = setOf("completed", "failed", "cancelled", "cancelling")
     }
 }

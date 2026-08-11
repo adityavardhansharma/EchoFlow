@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class
     ],
-    version = 20, // v20: pin conversations in the drawer
+    version = 21, // v21: Deep Research step timeline (research_runs.stepsJson/uiVersion)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -365,6 +365,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * The Deep Research step timeline. Both columns are purely additive — no table rebuild,
+         * no data movement — so every existing run and every finished report stored on
+         * `chat_messages.segmentsJson` is left exactly as it was.
+         *
+         * `uiVersion` defaults to 1, which is what quarantines the old data: existing rows are
+         * stamped legacy for free and keep rendering through `ui/legacy`, while new runs are
+         * inserted at 2 and get the timeline. Finished reports are dispatched separately, on the
+         * persisted segment type ("report"/"data" = legacy, "research" = new), so old chats can
+         * never be reclassified by a default.
+         */
+        internal val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE research_runs ADD COLUMN stepsJson TEXT")
+                db.execSQL("ALTER TABLE research_runs ADD COLUMN uiVersion INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -392,6 +410,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_17_18,
                     MIGRATION_18_19,
                     MIGRATION_19_20,
+                    MIGRATION_20_21,
                 )
                 .build()
                 INSTANCE = instance
