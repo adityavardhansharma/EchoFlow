@@ -20,6 +20,7 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
+    val researchWorkspace by chatViewModel.researchWorkspace.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
@@ -47,6 +48,13 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
             com.echoflow.ui.screens.ArtifactWorkspaceScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeArtifactWorkspace() },
+            )
+        }
+        if (researchWorkspace != null) {
+            BackHandler { chatViewModel.closeResearchWorkspace() }
+            com.echoflow.ui.screens.ResearchWorkspaceScreen(
+                chatViewModel = chatViewModel,
+                onClose = { chatViewModel.closeResearchWorkspace() },
             )
         }
     }
