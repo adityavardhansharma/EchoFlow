@@ -263,6 +263,10 @@ interface ResearchRunDao {
     @Query("SELECT * FROM research_runs WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): ResearchRun?
 
+    /** Backs the result card, which reads a finished run's step timeline and full source records. */
+    @Query("SELECT * FROM research_runs WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<ResearchRun?>
+
     @Query("SELECT * FROM research_runs WHERE status NOT IN ('completed','failed','cancelled')")
     suspend fun getInterrupted(): List<ResearchRun>
 

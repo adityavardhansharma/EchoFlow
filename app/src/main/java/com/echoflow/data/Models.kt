@@ -300,6 +300,7 @@ data class ResearchRun(
     val progressDone: Int = 0,
     val progressTotal: Int = 0,
     val planJson: String? = null, // JSON List<String>: planned sub-questions
+    val stepsJson: String? = null, // JSON List<ResearchStep>: the live timeline (uiVersion 2+)
     val sourcesJson: String? = null, // JSON List<SearchSource>: accumulated sources
     val report: String? = null, // final report markdown (or partial on cancel)
     val error: String? = null,
@@ -307,10 +308,20 @@ data class ResearchRun(
     val localAttachmentUri: String? = null,
     val localAttachmentMimeType: String? = null,
     val localAttachmentName: String? = null,
+    /**
+     * Which research UI drew this run. Rows that predate the timeline redesign default to
+     * [UI_VERSION_LEGACY] via the column default, so a run still in flight across an app update
+     * resumes under the card it started in rather than switching skins mid-run. New runs are
+     * constructed at [UI_VERSION_CURRENT].
+     */
+    @ColumnInfo(defaultValue = "1")
+    val uiVersion: Int = UI_VERSION_CURRENT,
     val createdAt: Long,
     val updatedAt: Long
 ) {
     val isTerminal: Boolean get() = status in TERMINAL_STATUSES
+
+    val usesLegacyUi: Boolean get() = uiVersion < UI_VERSION_CURRENT
 
     companion object {
         const val STATUS_QUEUED = "queued"
@@ -322,5 +333,11 @@ data class ResearchRun(
         const val STATUS_CANCELLED = "cancelled"
 
         val TERMINAL_STATUSES = setOf(STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED)
+
+        /** Pre-timeline runs: progress card + inline ReportCard, drawn by ui/legacy. */
+        const val UI_VERSION_LEGACY = 1
+
+        /** Step timeline + result card + research workspace. */
+        const val UI_VERSION_CURRENT = 2
     }
 }
