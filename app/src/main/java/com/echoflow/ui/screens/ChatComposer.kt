@@ -396,10 +396,13 @@ internal fun InputToolbar(
                 )
 
                 val researchMode = deepResearchActive || dataAgentActive
+                // A live research run owns the same Stop control as a streaming reply — not a
+                // separate Cancel chip on the timeline card.
+                val showStop = isStreaming || researchInProgress
                 val hasText = text.trim().isNotEmpty()
                 val hasContent = hasText || (pendingUri != null && !researchMode)
-                val canSend = hasContent && !isStreaming && !researchInProgress && blockedReason == null
-                SendButton(enabled = canSend, isStreaming = isStreaming, research = researchMode, onStop = onStop) {
+                val canSend = hasContent && !showStop && blockedReason == null
+                SendButton(enabled = canSend, isStreaming = showStop, research = researchMode, onStop = onStop) {
                     if (canSend) onSend()
                 }
             }

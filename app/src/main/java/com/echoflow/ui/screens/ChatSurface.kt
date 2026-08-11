@@ -475,12 +475,15 @@ internal fun ChatSurface(
             onSelectEffort = { settingsViewModel.saveDeepResearchExaEffort(it) },
             blockedReason = when {
                 browserBusy -> "Browser is working — please wait…"
-                researchRun != null -> "A run is in progress — see the card above"
                 localSendBlocked -> "On-device model is busy in another chat"
                 else -> null
             },
             onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
-            onStop = { chatViewModel.stopStreaming() },
+            onStop = {
+                // One Stop for both chat streams and Deep Research / Data Agent runs.
+                chatViewModel.stopStreaming()
+                if (researchRun != null) chatViewModel.cancelResearch()
+            },
         )
         }
 

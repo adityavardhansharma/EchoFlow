@@ -49,26 +49,24 @@ import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.delay
 
 /**
- * The Deep Research surface: a stack of capsule step rows while the run is live, resolving into
- * a single result card when it finishes.
+ * The Deep Research surface: live work as expandable **batch capsules** (≤5 engine steps each),
+ * resolving into a single result card when the run finishes.
  *
- * Both halves deliberately share one row anatomy — a 24dp state slot, a label, a right-aligned
- * mono meta column, a chevron — so the finished card reads as the last capsule of the run rather
- * than a different component that happens to appear underneath. Emphasis is carried by fill
- * (steps sit on a translucent container, the result card at full `primaryContainer`), never by
- * introducing a new shape.
+ * Engines can emit dozens of steps. Rendering one pill per step floods a phone; instead steps
+ * fill a capsule as they arrive — 1…5 in batch 1, 6 starts batch 2 — so 73 steps become 15
+ * capsules. Each capsule expands like the Task Rows / Thinking references: a header with a mark
+ * and a short thinking line, nested detail rows on open.
  *
  * Everything renders from the persisted [ResearchRun] / [ResearchRef], so a backgrounded run
- * replays its whole history on reopen instead of resuming at "currently working".
- *
- * Pre-redesign research is not drawn here at all — see `ui/legacy/LegacyResearchComponents.kt`.
+ * replays its whole history on reopen. Pre-redesign research is drawn by
+ * `ui/legacy/LegacyResearchComponents.kt`.
  */
 
 private const val ROW_HEIGHT_DP = 48
 private const val MARK_SIZE_DP = 24
 
-/** Completed steps kept visible above the active one before the rest fold into a summary row. */
-private const val DONE_TAIL = 2
+/** How many engine steps share one capsule before a new one opens. */
+internal const val RESEARCH_BATCH_SIZE = 5
 
 private fun hostOfUrl(url: String): String =
     runCatching { android.net.Uri.parse(url).host?.removePrefix("www.") }.getOrNull() ?: url
@@ -80,12 +78,9 @@ private fun openInBrowser(context: android.content.Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
 }
 
-/** A step paired with its position in the full run, so folding a prefix doesn't renumber rows. */
-private data class NumberedStep(val step: ResearchStep, val ordinal: Int)
-
-// Every disclosure in this feature — step capsules, the result card's provenance, the workspace
-// slide-up — reveals through the same pair, collapsing to an instant cut under reduced motion so
-// the whole surface degrades to stillness rather than only its entry animation doing so.
+// Every disclosure in this feature — batch capsules, the workspace slide-up — reveals through
+// the same pair, collapsing to an instant cut under reduced motion so the whole surface degrades
+// to stillness rather than only its entry animation doing so.
 private fun researchRevealEnter(reducedMotion: Boolean): EnterTransition =
     if (reducedMotion) fadeIn(tween(0)) else expandVertically(tween(300)) + fadeIn(tween(200))
 
@@ -99,39 +94,130 @@ internal fun formatResearchDuration(millis: Long): String {
     return if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
 }
 
+/**
+ * One on-screen capsule: up to [RESEARCH_BATCH_SIZE] engine steps, filled progressively as the
+ * run grows (never re-chunked after the fact).
+ *
+ * [contentKey] identifies *which* steps sit in this capsule (ids + labels). Expand/collapse is
+ * keyed by that, not by [index]: a replan that reuses position-based step ids with new questions
+ * must not inherit the previous occupant’s open state. Appending steps to a batch keeps a
+ * prefix-compatible key so a manual toggle survives growth (see [resolveBatchOpen]).
+ */
+internal data class ResearchBatch(
+    val index: Int,
+    val steps: List<ResearchStep>,
+) {
+    val hasActive: Boolean get() = steps.any { it.state == ResearchStep.STATE_ACTIVE }
+    val hasFailed: Boolean get() = steps.any { it.state == ResearchStep.STATE_FAILED }
+    val allTerminal: Boolean get() = steps.isNotEmpty() && steps.all { it.isTerminal }
+    val allPending: Boolean get() = steps.isNotEmpty() && steps.all { it.state == ResearchStep.STATE_PENDING }
+
+    /**
+     * Stable for pure state transitions (active → done) on the same steps; changes when a step
+     * is replaced, relabelled, or the batch membership changes.
+     */
+    val contentKey: String
+        get() = steps.joinToString("\u001f") { "${it.id}\u001e${it.label}" }
+
+    val state: String
+        get() = when {
+            hasFailed && steps.none { it.state == ResearchStep.STATE_ACTIVE } -> ResearchStep.STATE_FAILED
+            hasActive -> ResearchStep.STATE_ACTIVE
+            allTerminal -> ResearchStep.STATE_DONE
+            allPending -> ResearchStep.STATE_PENDING
+            else -> ResearchStep.STATE_ACTIVE
+        }
+
+    /** Header line: what the agent is doing now, or a settled "Thought for …" once the batch ends. */
+    fun headerText(phaseFallback: String?): String {
+        steps.firstOrNull { it.state == ResearchStep.STATE_ACTIVE }?.label?.let { return it }
+        if (allTerminal) {
+            val start = steps.mapNotNull { it.startedAt.takeIf { t -> t > 0L } }.minOrNull()
+            val end = steps.mapNotNull { it.endedAt }.maxOrNull()
+            if (start != null && end != null && end >= start) {
+                return "Thought for ${formatResearchDuration(end - start)}"
+            }
+            return if (hasFailed) "Couldn't finish" else "Thought through ${steps.size} step${if (steps.size == 1) "" else "s"}"
+        }
+        steps.lastOrNull { it.state != ResearchStep.STATE_PENDING }?.label?.let { return it }
+        return phaseFallback?.takeIf { it.isNotBlank() } ?: "Thinking"
+    }
+}
+
+/** Progressive groups of [RESEARCH_BATCH_SIZE] — last group may be shorter. */
+internal fun chunkResearchSteps(steps: List<ResearchStep>): List<ResearchBatch> =
+    steps.chunked(RESEARCH_BATCH_SIZE).mapIndexed { index, group ->
+        ResearchBatch(index = index + 1, steps = group)
+    }
+
+/**
+ * Resolve whether [batch] is expanded under [manualOpen].
+ *
+ * Exact [ResearchBatch.contentKey] wins. If the batch only grew (new steps appended), a stored
+ * key that is a strict content prefix still applies so the user's toggle is not wiped every
+ * time a fifth step lands. A replan that swaps labels or membership has no matching key and
+ * falls through to [defaultOpen].
+ */
+internal fun resolveBatchOpen(
+    batch: ResearchBatch,
+    manualOpen: Map<String, Boolean>,
+    defaultOpen: Boolean,
+): Boolean {
+    val key = batch.contentKey
+    manualOpen[key]?.let { return it }
+    // Longest prefix key: the batch grew after the user toggled.
+    val prefixMatch = manualOpen.entries
+        .filter { (stored, _) -> key.startsWith(stored + "\u001f") }
+        .maxByOrNull { it.key.length }
+        ?.value
+    return prefixMatch ?: defaultOpen
+}
+
+/**
+ * Record a toggle for [batch], dropping any obsolete prefix/sibling keys for the same lineage
+ * so a later replan cannot resurrect a stale override under an old key.
+ */
+internal fun manualOpenAfterToggle(
+    batch: ResearchBatch,
+    manualOpen: Map<String, Boolean>,
+    expanded: Boolean,
+): Map<String, Boolean> {
+    val key = batch.contentKey
+    return manualOpen
+        .filterKeys { stored ->
+            stored != key &&
+                !key.startsWith(stored + "\u001f") &&
+                !stored.startsWith(key + "\u001f")
+        } + (key to expanded)
+}
+
 // ── Live timeline ────────────────────────────────────────────────────────────────────
 
 /**
- * The live run: a label line naming the engine, then one capsule per step.
+ * The live run: one expandable capsule per batch of up to five steps.
  *
- * Steps arrive from the engine and are only as granular as the engine can honestly report — the
- * agentic path narrates every sub-question, Firecrawl replays its activity feed, and the
- * single-shot providers show one row rather than invented stages.
+ * Stop lives on the composer (send → stop), not as a Cancel chip on this card — same grammar as
+ * a streaming chat reply.
  */
 @Composable
 fun ResearchTimeline(
     run: ResearchRun,
     steps: List<ResearchStep>,
     sources: List<SearchSource>,
-    onCancel: () -> Unit,
+    onCancel: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val reducedMotion = rememberReducedMotion()
     val sourceByUrl = remember(sources) { sources.associateBy { it.url } }
+    val batches = remember(steps) { chunkResearchSteps(steps) }
+    // Only the batch currently working starts open; earlier ones stay collapsed until the user
+    // reopens them. Manual toggles win over the auto-open default — keyed by content, not index,
+    // so a replan cannot move an expanded flag onto replacement questions.
+    val activeBatchIndex = batches.indexOfFirst { it.hasActive }.let { if (it < 0) batches.lastIndex else it }
+    var manualOpen by remember(run.id) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 
-    // Everything finished more than DONE_TAIL rows back folds away, so a long plan can't push
-    // the composer off a phone screen. Failures never fold — they are the reason to look.
-    val activeIndex = steps.indexOfFirst { !it.isTerminal }.let { if (it < 0) steps.size else it }
-    val foldEnd = (activeIndex - DONE_TAIL).coerceAtLeast(0)
-    val folded = steps.take(foldEnd).filter { it.state != ResearchStep.STATE_FAILED }
-    val foldedIds = remember(folded) { folded.map { it.id }.toSet() }
-    // Keep each step's position in the full run so a folded prefix doesn't renumber the rows.
-    val visibleSteps = steps
-        .mapIndexed { index, step -> NumberedStep(step, index + 1) }
-        .filter { it.step.id !in foldedIds }
-    var showFolded by remember { mutableStateOf(false) }
-
-    Column(modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        // Quiet engine line only — no Cancel. The composer Stop cancels the run.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (run.engineKind == "data-agent") "Data Agent" else "Deep Research",
@@ -152,75 +238,53 @@ fun ResearchTimeline(
                     style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.width(Spacing.s))
-            }
-            TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = Spacing.s)) {
-                Text("Cancel", style = MaterialTheme.typography.labelMedium)
             }
         }
 
-        Spacer(Modifier.height(Spacing.s))
+        Spacer(Modifier.height(Spacing.xs))
 
-        // No steps yet (a run that just started, or an engine that failed before narrating
-        // anything) still needs to look alive.
-        if (steps.isEmpty()) {
+        // No steps yet — still look alive (queued / first network hop).
+        if (batches.isEmpty()) {
             ResearchCapsule(
                 mark = { StepMark(ResearchStep.STATE_ACTIVE, 0) },
-                label = run.phase ?: "Starting…",
+                label = run.phase?.takeIf { it.isNotBlank() } ?: "Thinking",
                 meta = null,
                 expandable = false,
             )
         }
 
-        if (folded.isNotEmpty()) {
-            ResearchCapsule(
-                mark = { StepMark(ResearchStep.STATE_DONE, 0) },
-                label = "${folded.size} earlier step${if (folded.size == 1) "" else "s"}",
-                meta = null,
-                expanded = showFolded,
-                onToggle = { showFolded = !showFolded },
-                expandable = true,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    folded.forEach { step ->
-                        DetailRow(step.label, step.detail)
-                    }
-                }
-            }
-            Spacer(Modifier.height(Spacing.xs))
-        }
-
-        visibleSteps.forEachIndexed { index, entry ->
-            StepCapsule(
-                step = entry.step,
-                ordinal = entry.ordinal,
+        batches.forEachIndexed { index, batch ->
+            val defaultOpen = index == activeBatchIndex && !batch.allTerminal
+            val open = resolveBatchOpen(batch, manualOpen, defaultOpen)
+            BatchCapsule(
+                batch = batch,
+                phaseFallback = run.phase,
                 sourceByUrl = sourceByUrl,
+                expanded = open,
+                onToggle = {
+                    manualOpen = manualOpenAfterToggle(batch, manualOpen, expanded = !open)
+                },
                 staggerIndex = index,
                 reducedMotion = reducedMotion,
             )
-            if (index != visibleSteps.lastIndex) Spacer(Modifier.height(Spacing.xs))
         }
     }
 }
 
 @Composable
-private fun StepCapsule(
-    step: ResearchStep,
-    ordinal: Int,
+private fun BatchCapsule(
+    batch: ResearchBatch,
+    phaseFallback: String?,
     sourceByUrl: Map<String, SearchSource>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     staggerIndex: Int,
     reducedMotion: Boolean,
 ) {
-    var expanded by remember(step.id) { mutableStateOf(false) }
-    val stepSources = remember(step.sourceUrls, sourceByUrl) {
-        step.sourceUrls.mapNotNull { sourceByUrl[it] }
-    }
-    val expandable = stepSources.isNotEmpty()
-
-    // Rows fade up as they arrive, 60ms apart, so a seeded plan lands as a sequence rather than
-    // a block. Reduced motion skips straight to the resting frame.
-    var shown by remember(step.id) { mutableStateOf(reducedMotion) }
-    LaunchedEffect(step.id) {
+    // contentKey — not index — so a replan that reuses batch slot 2 still plays enter for the
+    // new questions rather than treating them as the same row that was already on screen.
+    var shown by remember(batch.contentKey) { mutableStateOf(reducedMotion) }
+    LaunchedEffect(batch.contentKey) {
         if (!shown) {
             delay(staggerIndex * 60L)
             shown = true
@@ -229,24 +293,101 @@ private fun StepCapsule(
     val enter by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
         animationSpec = if (reducedMotion) tween(0) else spring(stiffness = 380f, dampingRatio = 0.85f),
-        label = "step-enter",
+        label = "batch-enter",
     )
 
     ResearchCapsule(
-        mark = { StepMark(step.state, ordinal) },
-        label = step.label,
-        meta = step.detail,
+        mark = { StepMark(batch.state, batch.index) },
+        label = batch.headerText(phaseFallback),
+        meta = null,
         expanded = expanded,
-        onToggle = if (expandable) ({ expanded = !expanded }) else null,
-        expandable = expandable,
-        dimmed = step.state == ResearchStep.STATE_PENDING,
+        onToggle = onToggle,
+        expandable = true,
+        dimmed = batch.allPending,
         modifier = Modifier.graphicsLayer {
             alpha = enter
             translationY = (1f - enter) * 12.dp.toPx()
         },
     ) {
+        // Nested detail — same rail + row grammar as the Thinking "Steps" reference.
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            stepSources.forEach { source -> SourceDetailRow(source) }
+            batch.steps.forEach { step ->
+                StepDetailRow(step = step, sourceByUrl = sourceByUrl)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepDetailRow(
+    step: ResearchStep,
+    sourceByUrl: Map<String, SearchSource>,
+) {
+    val stepSources = remember(step.sourceUrls, sourceByUrl) {
+        step.sourceUrls.mapNotNull { sourceByUrl[it] }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            DetailMark(step.state)
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                step.label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = if (step.state == ResearchStep.STATE_PENDING) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            step.detail?.let { meta ->
+                Spacer(Modifier.width(Spacing.s))
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        stepSources.forEach { source ->
+            SourceDetailRow(source, indent = true)
+        }
+    }
+}
+
+/** Compact check / spinner / digit for rows nested inside a batch. */
+@Composable
+private fun DetailMark(state: String) {
+    Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+        when (state) {
+            ResearchStep.STATE_ACTIVE -> LoadingIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+            ResearchStep.STATE_DONE -> Icon(
+                Icons.Default.Check,
+                null,
+                Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ResearchStep.STATE_FAILED -> Icon(
+                Icons.Default.Close,
+                null,
+                Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            else -> Box(
+                Modifier
+                    .size(10.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+            )
         }
     }
 }
@@ -290,7 +431,7 @@ private fun ResearchCapsule(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .then(if (onToggle != null) Modifier.clickable(onClick =onToggle) else Modifier)
+                    .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
                     .heightIn(min = ROW_HEIGHT_DP.dp)
                     .padding(horizontal = Spacing.m, vertical = Spacing.s),
                 verticalAlignment = Alignment.CenterVertically,
@@ -411,34 +552,13 @@ private fun FilledMark(
 }
 
 @Composable
-private fun DetailRow(label: String, meta: String?) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (meta != null) {
-            Spacer(Modifier.width(Spacing.s))
-            Text(
-                meta,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SourceDetailRow(source: SearchSource) {
+private fun SourceDetailRow(source: SearchSource, indent: Boolean = false) {
     val context = LocalContext.current
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable {openInBrowser(context, source.url) }
+            .then(if (indent) Modifier.padding(start = 14.dp + Spacing.s) else Modifier)
+            .clickable { openInBrowser(context, source.url) }
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -466,15 +586,11 @@ private fun SourceDetailRow(source: SearchSource) {
 // ── Result card ──────────────────────────────────────────────────────────────────────
 
 /**
- * The finished run — the last capsule, grown up.
+ * The finished run — one tappable card: open the report (or retry on failure).
  *
- * Same anatomy as a step row (mark, title, mono meta) so it rhymes with the timeline it replaced,
- * but filled at full `primaryContainer`: it is the only element in the stack carrying that
- * weight, which is how it reads as the payoff without needing a new shape or a bigger icon. The
- * chevron folds the run's own provenance back open inside it; the report itself lives one tap
- * away in the workspace, because a deep research answer is far too long to sit in a bubble.
- *
- * A failed run uses the same geometry against `errorContainer` and swaps Open for Retry.
+ * Steps already lived in the live batch timeline (and in the workspace Steps tab), so this card
+ * does not re-expand them. The whole surface is the action — same visual weight as before, but
+ * no chevron / provenance disclosure competing with Open report.
  */
 @Composable
 fun ResearchResultCard(
@@ -485,8 +601,6 @@ fun ResearchResultCard(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val reducedMotion = rememberReducedMotion()
-    var showSteps by remember(research.runId) { mutableStateOf(false) }
     val failed = research.error != null
     val container = if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
     val onContainer = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
@@ -500,22 +614,23 @@ fun ResearchResultCard(
             research.costInfo?.takeIf { it.isNotBlank() }?.let { add(it) }
         }.joinToString(" · ")
     }
-    val chevron by animateFloatAsState(
-        targetValue = if (showSteps) 180f else 0f,
-        animationSpec = tween(if (reducedMotion) 0 else 300),
-        label = "result-chevron",
-    )
+    val actionLabel = when {
+        failed -> "Try again"
+        research.structured -> "Open data"
+        else -> "Open report"
+    }
 
     Surface(
         shape = RoundedCornerShape(22.dp),
         color = container,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = if (failed) onRetry else onOpen),
     ) {
         Column {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .then(if (steps.isNotEmpty()) Modifier.clickable {showSteps = !showSteps } else Modifier)
                     .heightIn(min = ROW_HEIGHT_DP.dp)
                     .padding(horizontal = Spacing.m, vertical = Spacing.m),
                 verticalAlignment = Alignment.CenterVertically,
@@ -547,21 +662,21 @@ fun ResearchResultCard(
                         )
                     }
                 }
-                if (steps.isNotEmpty()) {
+                if (failed) {
+                    Icon(Icons.Default.Refresh, actionLabel, Modifier.size(18.dp), tint = onContainer)
+                } else {
                     Icon(
                         Icons.Default.KeyboardArrowDown,
-                        if (showSteps) "Hide steps" else "Show steps",
-                        Modifier.padding(start = Spacing.xs).size(18.dp).rotate(chevron),
+                        actionLabel,
+                        Modifier.size(18.dp).rotate(-90f),
                         tint = onContainer,
                     )
                 }
             }
 
-            // The proof of work: only research has this, and it is what makes a long wait feel
-            // like it bought something.
             if (sources.isNotEmpty()) {
                 Row(
-                    Modifier.padding(start = Spacing.m + MARK_SIZE_DP.dp + Spacing.m, end = Spacing.m, bottom = Spacing.m),
+                    Modifier.padding(start = Spacing.m + MARK_SIZE_DP.dp + Spacing.m, end = Spacing.m, bottom = Spacing.s),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
@@ -582,59 +697,12 @@ fun ResearchResultCard(
                 }
             }
 
-            AnimatedVisibility(
-                visible = showSteps,
-                enter = researchRevealEnter(reducedMotion),
-                exit = researchRevealExit(reducedMotion),
-            ) {
-                Column(
-                    Modifier.padding(start = Spacing.m, end = Spacing.m, bottom = Spacing.m),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    steps.forEach { step ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    if (step.state == ResearchStep.STATE_FAILED) Icons.Default.Close else Icons.Default.Check,
-                                    null,
-                                    Modifier.size(13.dp),
-                                    tint = if (step.state == ResearchStep.STATE_FAILED) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        onContainer.copy(alpha = 0.72f)
-                                    },
-                                )
-                            }
-                            Spacer(Modifier.width(Spacing.s))
-                            Text(
-                                step.label,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = onContainer.copy(alpha = 0.86f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            step.detail?.let {
-                                Spacer(Modifier.width(Spacing.s))
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
-                                    color = onContainer.copy(alpha = 0.72f),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // One action, full width — the grouped-list idiom the capsules above speak, not a
-            // tonal button floating in the corner.
+            // Full-card affordance: the action label is part of the same tappable surface.
             HorizontalDivider(color = onContainer.copy(alpha = 0.16f))
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable(onClick =if (failed) onRetry else onOpen)
-                    .heightIn(min = ROW_HEIGHT_DP.dp)
+                    .heightIn(min = 40.dp)
                     .padding(horizontal = Spacing.base),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -643,11 +711,7 @@ fun ResearchResultCard(
                     Spacer(Modifier.width(Spacing.s))
                 }
                 Text(
-                    when {
-                        failed -> "Try again"
-                        research.structured -> "Open data"
-                        else -> "Open report"
-                    },
+                    actionLabel,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = onContainer,
