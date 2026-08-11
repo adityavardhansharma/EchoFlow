@@ -495,6 +495,14 @@ class ChatViewModel(
         .flatMapLatest { a -> if (a == null) flowOf(emptyList()) else artifactManager.observeVersions(a.id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Versions of a specific artifact lineage, so an in-chat card can compute its own version-diff
+     * chips and (for HTML) a preview from its content. Keyed by id — not the chat's "current"
+     * lineage — so a scrolled-back card reads the same lineage it was written from.
+     */
+    fun observeArtifactVersions(artifactId: String): Flow<List<ArtifactVersion>> =
+        artifactManager.observeVersions(artifactId)
+
     /** True while the fullscreen Artifact Workspace overlay is open. */
     private val _artifactWorkspaceOpen = MutableStateFlow(false)
     val artifactWorkspaceOpen: StateFlow<Boolean> = _artifactWorkspaceOpen.asStateFlow()

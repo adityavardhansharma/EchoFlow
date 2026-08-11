@@ -353,6 +353,7 @@ internal fun ChatSurface(
                     onResearchRetry = chatViewModel::retryResearch,
                     observeResearchRun = chatViewModel::observeResearchRun,
                     observeVideo = chatViewModel::observeVideo,
+                    observeArtifactVersions = chatViewModel::observeArtifactVersions,
                     lastUserMessageId = lastUserMessageId,
                     onEditUserMessage = { id ->
                         chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
