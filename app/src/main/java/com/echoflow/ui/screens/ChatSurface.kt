@@ -348,7 +348,7 @@ internal fun ChatSurface(
                     topInset = topBarInset,
                     bottomInset = messageBottomInset,
                     onCopy = { clipboard.setText(AnnotatedString(it)) },
-                    onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
+                    onArtifactOpen = { version -> chatViewModel.openArtifactWorkspace(version) },
                     onResearchOpen = chatViewModel::openResearchWorkspace,
                     onResearchRetry = chatViewModel::retryResearch,
                     observeResearchRun = chatViewModel::observeResearchRun,

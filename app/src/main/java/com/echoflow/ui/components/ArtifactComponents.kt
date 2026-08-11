@@ -4,6 +4,8 @@ package com.echoflow.ui.components
 
 import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.core.animateFloatAsState
@@ -97,7 +99,7 @@ fun ArtifactCard(
     building: Boolean,
     charCount: Int,
     truncated: Boolean,
-    onOpen: () -> Unit,
+    onOpen: (version: Int) -> Unit,
     modifier: Modifier = Modifier,
     observeVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
@@ -137,7 +139,7 @@ fun ArtifactCard(
         truncated = truncated,
         deltas = deltas,
         previewHtml = previewHtml,
-        onOpen = onOpen,
+        onOpen = { onOpen(version) },
         modifier = modifier,
     )
 }
@@ -350,11 +352,34 @@ private fun ArtifactPreviewThumbnail(html: String, onOpen: () -> Unit, modifier:
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
                     @Suppress("DEPRECATION") settings.setSupportZoom(false)
+                    // This preview auto-renders — the user never chose to open it — so untrusted
+                    // model HTML must not phone home. Block every network load (remote <script>,
+                    // <img>, fetch/XHR, beacons) and refuse navigations; only the inline document
+                    // paints, in an opaque origin with no way out. The full workspace (which the
+                    // user explicitly opens) keeps normal loading.
+                    settings.blockNetworkLoads = true
+                    settings.blockNetworkImage = true
                     // Swallow touches so scrolling/taps belong to the card, not the page.
                     setOnTouchListener { _, _ -> true }
                     setBackgroundColor(android.graphics.Color.WHITE)
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) { loaded = true }
+
+                        // No navigation out of the inline document, ever.
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+
+                        @Deprecated("Pre-24 navigation guard")
+                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean = true
+
+                        // Belt-and-suspenders over blockNetworkLoads: drop any remote subresource.
+                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                            val scheme = request?.url?.scheme?.lowercase()
+                            return if (scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss") {
+                                WebResourceResponse("text/plain", "utf-8", null)
+                            } else {
+                                null
+                            }
+                        }
                     }
                     loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                     lastHtml = html

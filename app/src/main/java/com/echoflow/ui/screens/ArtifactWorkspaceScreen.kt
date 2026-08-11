@@ -100,12 +100,21 @@ fun ArtifactWorkspaceScreen(
     val a = artifact ?: return
 
     var mode by remember { mutableStateOf(ArtifactViewMode.PREVIEW) }
-    var selectedVersion by remember(a.id) { mutableIntStateOf(a.currentVersion) }
-    // Follow the latest version as new ones stream in, unless the user pinned an older one.
+    // Open at the version of the card that was tapped (a scrolled-back card represents an older
+    // version), falling back to the latest for the global/composer entry point.
+    val requestedVersion by chatViewModel.artifactInitialVersion.collectAsState()
+    var selectedVersion by remember(a.id) {
+        mutableIntStateOf((requestedVersion ?: a.currentVersion).coerceIn(1, a.currentVersion))
+    }
+    // Follow a genuinely newer version as it streams in — but only if the user was viewing the
+    // previously-latest. Tracking the last-seen version (rather than testing currentVersion - 1)
+    // keeps a deliberately-opened older version pinned instead of snapping it to the newest.
+    var lastKnownVersion by remember(a.id) { mutableIntStateOf(a.currentVersion) }
     LaunchedEffect(a.currentVersion) {
-        if (selectedVersion < a.currentVersion && selectedVersion == a.currentVersion - 1) {
+        if (a.currentVersion > lastKnownVersion && selectedVersion == lastKnownVersion) {
             selectedVersion = a.currentVersion
         }
+        lastKnownVersion = a.currentVersion
     }
     val content = remember(versions, selectedVersion) {
         (versions.firstOrNull { it.versionNumber == selectedVersion } ?: versions.lastOrNull())?.content.orEmpty()

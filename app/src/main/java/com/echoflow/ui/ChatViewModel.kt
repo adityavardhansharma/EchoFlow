@@ -507,13 +507,23 @@ class ChatViewModel(
     private val _artifactWorkspaceOpen = MutableStateFlow(false)
     val artifactWorkspaceOpen: StateFlow<Boolean> = _artifactWorkspaceOpen.asStateFlow()
 
-    fun openArtifactWorkspace() {
+    /**
+     * The version the workspace should open at, set by whichever card was tapped. A card in
+     * scrolled-back history represents an earlier version than the lineage's latest, so tapping it
+     * must open *that* version — not silently jump to the newest. Null means "open the latest"
+     * (the global pill / composer entry point).
+     */
+    private val _artifactInitialVersion = MutableStateFlow<Int?>(null)
+    val artifactInitialVersion: StateFlow<Int?> = _artifactInitialVersion.asStateFlow()
+
+    fun openArtifactWorkspace(targetVersion: Int? = null) {
         // currentArtifact is a WhileSubscribed flow whose only collector is the workspace screen
         // itself, so outside it the cached .value is a stale null. Resolve existence straight from
         // the store instead, otherwise the guard is always false and "Open" silently does nothing.
         viewModelScope.launch {
             val chatId = _currentChatThreadId.value ?: return@launch
             if (artifactManager.getLatestForChat(chatId) != null) {
+                _artifactInitialVersion.value = targetVersion
                 _artifactWorkspaceOpen.value = true
             }
         }
