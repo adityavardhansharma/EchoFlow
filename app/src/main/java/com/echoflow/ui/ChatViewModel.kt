@@ -1862,7 +1862,9 @@ class ChatViewModel(
             )
             DeepResearchForegroundService.start(getApplication(), runId)
             clearPendingAttachment()
-            setMode(ChatMode.Normal) // deliberate, per-question opt-in
+            // Stay in Deep Research mode so the model pill keeps the research engine list until
+            // the user toggles the capability off. Exiting to Normal on send made the composer
+            // jump back to chat models mid-run, which reads as the wrong selector.
         }
     }
 
@@ -1965,7 +1967,8 @@ class ChatViewModel(
                 )
             )
             DeepResearchForegroundService.start(getApplication(), runId)
-            setMode(ChatMode.Normal)
+            // Stay in Data Agent mode for the same reason as Deep Research: the engine pill must
+            // keep its agent list until the user turns the capability off.
         }
     }
 

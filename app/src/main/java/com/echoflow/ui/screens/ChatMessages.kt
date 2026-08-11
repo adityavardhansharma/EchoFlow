@@ -218,10 +218,14 @@ internal fun MessagesPane(
                 }
             }
         }
-        if (modelLoading && segments.isEmpty()) {
-            item { ModelLoadingRow() }
-        } else if (progressLoading && segments.isEmpty()) {
-            item { ThinkingRow() }
+        // While research owns the timeline, don't also draw a chat Thinking / model-loading row —
+        // that reads as a second reply starting under the research work.
+        if (researchRun == null) {
+            if (modelLoading && segments.isEmpty()) {
+                item { ModelLoadingRow() }
+            } else if (progressLoading && segments.isEmpty()) {
+                item { ThinkingRow() }
+            }
         }
         if (segments.isNotEmpty()) item(key = "streaming") {
             StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen)
