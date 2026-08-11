@@ -97,6 +97,11 @@ internal fun formatResearchDuration(millis: Long): String {
 /**
  * One on-screen capsule: up to [RESEARCH_BATCH_SIZE] engine steps, filled progressively as the
  * run grows (never re-chunked after the fact).
+ *
+ * [contentKey] identifies *which* steps sit in this capsule (ids + labels). Expand/collapse is
+ * keyed by that, not by [index]: a replan that reuses position-based step ids with new questions
+ * must not inherit the previous occupant’s open state. Appending steps to a batch keeps a
+ * prefix-compatible key so a manual toggle survives growth (see [resolveBatchOpen]).
  */
 internal data class ResearchBatch(
     val index: Int,
@@ -106,6 +111,13 @@ internal data class ResearchBatch(
     val hasFailed: Boolean get() = steps.any { it.state == ResearchStep.STATE_FAILED }
     val allTerminal: Boolean get() = steps.isNotEmpty() && steps.all { it.isTerminal }
     val allPending: Boolean get() = steps.isNotEmpty() && steps.all { it.state == ResearchStep.STATE_PENDING }
+
+    /**
+     * Stable for pure state transitions (active → done) on the same steps; changes when a step
+     * is replaced, relabelled, or the batch membership changes.
+     */
+    val contentKey: String
+        get() = steps.joinToString("\u001f") { "${it.id}\u001e${it.label}" }
 
     val state: String
         get() = when {
@@ -138,6 +150,47 @@ internal fun chunkResearchSteps(steps: List<ResearchStep>): List<ResearchBatch> 
         ResearchBatch(index = index + 1, steps = group)
     }
 
+/**
+ * Resolve whether [batch] is expanded under [manualOpen].
+ *
+ * Exact [ResearchBatch.contentKey] wins. If the batch only grew (new steps appended), a stored
+ * key that is a strict content prefix still applies so the user's toggle is not wiped every
+ * time a fifth step lands. A replan that swaps labels or membership has no matching key and
+ * falls through to [defaultOpen].
+ */
+internal fun resolveBatchOpen(
+    batch: ResearchBatch,
+    manualOpen: Map<String, Boolean>,
+    defaultOpen: Boolean,
+): Boolean {
+    val key = batch.contentKey
+    manualOpen[key]?.let { return it }
+    // Longest prefix key: the batch grew after the user toggled.
+    val prefixMatch = manualOpen.entries
+        .filter { (stored, _) -> key.startsWith(stored + "\u001f") }
+        .maxByOrNull { it.key.length }
+        ?.value
+    return prefixMatch ?: defaultOpen
+}
+
+/**
+ * Record a toggle for [batch], dropping any obsolete prefix/sibling keys for the same lineage
+ * so a later replan cannot resurrect a stale override under an old key.
+ */
+internal fun manualOpenAfterToggle(
+    batch: ResearchBatch,
+    manualOpen: Map<String, Boolean>,
+    expanded: Boolean,
+): Map<String, Boolean> {
+    val key = batch.contentKey
+    return manualOpen
+        .filterKeys { stored ->
+            stored != key &&
+                !key.startsWith(stored + "\u001f") &&
+                !stored.startsWith(key + "\u001f")
+        } + (key to expanded)
+}
+
 // ── Live timeline ────────────────────────────────────────────────────────────────────
 
 /**
@@ -158,9 +211,10 @@ fun ResearchTimeline(
     val sourceByUrl = remember(sources) { sources.associateBy { it.url } }
     val batches = remember(steps) { chunkResearchSteps(steps) }
     // Only the batch currently working starts open; earlier ones stay collapsed until the user
-    // reopens them. Manual toggles win over the auto-open default.
+    // reopens them. Manual toggles win over the auto-open default — keyed by content, not index,
+    // so a replan cannot move an expanded flag onto replacement questions.
     val activeBatchIndex = batches.indexOfFirst { it.hasActive }.let { if (it < 0) batches.lastIndex else it }
-    var manualOpen by remember(run.id) { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+    var manualOpen by remember(run.id) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         // Quiet engine line only — no Cancel. The composer Stop cancels the run.
@@ -201,14 +255,14 @@ fun ResearchTimeline(
 
         batches.forEachIndexed { index, batch ->
             val defaultOpen = index == activeBatchIndex && !batch.allTerminal
-            val open = manualOpen[batch.index] ?: defaultOpen
+            val open = resolveBatchOpen(batch, manualOpen, defaultOpen)
             BatchCapsule(
                 batch = batch,
                 phaseFallback = run.phase,
                 sourceByUrl = sourceByUrl,
                 expanded = open,
                 onToggle = {
-                    manualOpen = manualOpen + (batch.index to !open)
+                    manualOpen = manualOpenAfterToggle(batch, manualOpen, expanded = !open)
                 },
                 staggerIndex = index,
                 reducedMotion = reducedMotion,
@@ -227,8 +281,10 @@ private fun BatchCapsule(
     staggerIndex: Int,
     reducedMotion: Boolean,
 ) {
-    var shown by remember(batch.index) { mutableStateOf(reducedMotion) }
-    LaunchedEffect(batch.index) {
+    // contentKey — not index — so a replan that reuses batch slot 2 still plays enter for the
+    // new questions rather than treating them as the same row that was already on screen.
+    var shown by remember(batch.contentKey) { mutableStateOf(reducedMotion) }
+    LaunchedEffect(batch.contentKey) {
         if (!shown) {
             delay(staggerIndex * 60L)
             shown = true
