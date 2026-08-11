@@ -345,15 +345,14 @@ class DeepResearchEngine(
     /**
      * Parallel's progress feed: `GET /v1/tasks/runs/{id}/events`.
      *
-     * This is the richest timeline any provider gives us — planning, search objectives, tool use
-     * and intermediate findings, plus running counts of sources considered and read. It also
-     * replays the complete sequence from the start of execution, which is what makes it safe to
-     * (re)attach after the app was killed: a resumed run rebuilds its whole timeline instead of
-     * joining mid-stream. Steps are keyed by position, so a replay overwrites rather than doubles.
+     * The raw feed is a full execution log (plan lines, every Objective/Query, tools, intermediate
+     * findings). [ParallelProgressCollapser] compresses that into a few chapters before we emit
+     * steps — same ballpark as Firecrawl's activity list and the agentic plan — so the timeline
+     * stays scannable. The stream still replays from the start on reattach; collapsed ids are
+     * stable, so a resume upserts rather than doubles.
      *
-     * Progress only. The run's terminal state and result still come from the poll path, so if the
-     * stream 404s, drops, or carries a shape we don't recognise, the run is unaffected — it just
-     * shows the single "Researching with Parallel" row it showed before.
+     * Progress only. Terminal state and result still come from the poll path; if the stream
+     * fails, the run falls back to the single "Researching with Parallel" row.
      */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.streamParallelEvents(
         apiKey: String,
@@ -366,10 +365,7 @@ class DeepResearchEngine(
             .get()
             .build()
 
-        var index = 0
-        var lastId: String? = null
-        var lastLabel: String? = null
-        var stats: String? = null
+        val collapser = ParallelProgressCollapser()
 
         streamSse(request, "Parallel") { frame ->
             val json = parseFrame(frame.data)
@@ -377,59 +373,38 @@ class DeepResearchEngine(
             when {
                 type.startsWith("task_run.progress_msg") -> {
                     val message = messageOf(json) ?: return@streamSse true
-                    val kind = when (type.substringAfterLast('.')) {
-                        "plan" -> ResearchStep.KIND_PLAN
-                        "search" -> ResearchStep.KIND_SEARCH
-                        "tool" -> ResearchStep.KIND_READ
-                        else -> ResearchStep.KIND_ANALYZE
-                    }
-                    // exec_status refines the step already running rather than adding a row.
-                    if (type.endsWith(".exec_status")) {
-                        lastId?.let { id ->
-                            step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
-                        }
-                        return@streamSse true
-                    }
-                    // Close the previous row before opening the next: the feed is append-only, so
-                    // anything behind the newest entry is finished by definition.
-                    lastId?.let { id -> step(id, lastLabel ?: message, ResearchStep.STATE_DONE, kind) }
-                    val id = feedStepId(index++)
-                    lastId = id
-                    lastLabel = message
-                    step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
+                    val subtype = type.substringAfterLast('.')
+                    emitParallelSteps(collapser.onProgressMessage(subtype, message))
                 }
                 type == "task_run.progress_stats" -> {
                     val read = (json?.get("num_sources_read") as? Double)?.toInt()
+                        ?: (json?.get("num_sources_read") as? Number)?.toInt()
                     val considered = (json?.get("num_sources_considered") as? Double)?.toInt()
-                    stats = when {
-                        read != null && considered != null -> "$read of $considered read"
-                        read != null -> "$read read"
-                        considered != null -> "$considered found"
-                        else -> stats
-                    }
-                    lastId?.let { id ->
-                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = stats)
-                    }
+                        ?: (json?.get("num_sources_considered") as? Number)?.toInt()
+                    emitParallelSteps(collapser.onStats(read, considered))
                 }
                 type == "task_run.state" -> {
                     val status = ((json?.get("run") as? Map<*, *>)?.get("status") as? String)
                         ?: (json?.get("status") as? String).orEmpty()
                     if (status in PARALLEL_TERMINAL) {
-                        lastId?.let { id ->
-                            step(id, lastLabel ?: "Researching", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE, detail = stats)
-                        }
+                        emitParallelSteps(collapser.onTerminal(failed = status != "completed"))
                         return@streamSse false
                     }
                 }
                 type == "error" -> {
-                    lastId?.let { id ->
-                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
-                    }
+                    emitParallelSteps(collapser.onTerminal(failed = true))
                     return@streamSse false
                 }
             }
             true
         }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.emitParallelSteps(
+        steps: List<ResearchStep>,
+    ) {
+        if (steps.isEmpty()) return
+        emit(ResearchEvent.Steps(steps))
     }
 
     private fun pollParallel(apiKey: String, id: String): PollResult {
