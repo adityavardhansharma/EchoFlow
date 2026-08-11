@@ -204,13 +204,33 @@ data class Citation(
     val url: String
 )
 
-/** A reference to a persisted [com.echoflow.data.Artifact] version, embedded in a reply's timeline. */
+/**
+ * A reference to a persisted [com.echoflow.data.Artifact] version, embedded in a reply's timeline.
+ *
+ * [uiVersion] quarantines card chrome the same way [ResearchRun.uiVersion] does for research:
+ * every row written before the card redesign omits the field and deserializes to
+ * [UI_VERSION_LEGACY], so [usesLegacyUi] is true and ChatMessages draws the frozen
+ * `ui/legacy/LegacyArtifactCard`. New rows write [UI_VERSION_CURRENT] and get the redesigned
+ * `ArtifactCard`. Because the default is the legacy value, no existing conversation can ever be
+ * reclassified as current.
+ */
 data class ArtifactRef(
     val artifactId: String,
     val title: String,
     val type: String, // Artifact.TYPE_* — selects the render view
     val version: Int,
-)
+    val uiVersion: Int = UI_VERSION_LEGACY,
+) {
+    val usesLegacyUi: Boolean get() = uiVersion < UI_VERSION_CURRENT
+
+    companion object {
+        /** Pre-redesign card: tertiary surface + Open button, drawn by ui/legacy. */
+        const val UI_VERSION_LEGACY = 1
+
+        /** Version-diff chips + optional HTML preview, drawn by ui/components.ArtifactCard. */
+        const val UI_VERSION_CURRENT = 2
+    }
+}
 
 /** A reference to a persisted [com.echoflow.data.GeneratedImage], embedded in a reply's timeline. */
 data class ImageRef(

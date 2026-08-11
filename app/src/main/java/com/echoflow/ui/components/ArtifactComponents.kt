@@ -78,7 +78,7 @@ private const val CARD_RADIUS_DP = 22
 private const val PREVIEW_HEIGHT_DP = 150
 
 /**
- * The in-chat artifact card.
+ * The in-chat artifact card for **current** artifacts ([ArtifactRef.UI_VERSION_CURRENT]).
  *
  * While [building] it is a live trace — a spinner, what's being written, and a running size — with
  * no code ever leaking into the bubble. Once finished it settles into a result object: a type
@@ -89,6 +89,8 @@ private const val PREVIEW_HEIGHT_DP = 150
  * It owns no artifact content itself: given the lineage's [artifactId] it observes [observeVersions]
  * and derives the chips (and, for HTML, a preview) from the persisted rows — so a backgrounded or
  * scrolled-back card always reflects the real store.
+ *
+ * Pre-redesign messages are not drawn here at all — see `ui/legacy/LegacyArtifactComponents.kt`.
  */
 @Composable
 fun ArtifactCard(

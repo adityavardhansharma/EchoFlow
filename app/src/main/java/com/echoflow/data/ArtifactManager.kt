@@ -69,7 +69,13 @@ class ArtifactManager(
                 createdAt = now,
             )
         )
-        return ArtifactRef(artifactId = artifactId, title = resolvedTitle, type = normalizedType, version = nextVersion)
+        return ArtifactRef(
+            artifactId = artifactId,
+            title = resolvedTitle,
+            type = normalizedType,
+            version = nextVersion,
+            uiVersion = ArtifactRef.UI_VERSION_CURRENT,
+        )
     }
 
     private fun defaultTitle(type: String): String = when (type) {

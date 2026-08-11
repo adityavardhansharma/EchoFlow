@@ -100,6 +100,7 @@ import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.ResearchResultCard
 import com.echoflow.ui.components.ResearchTimeline
 import com.echoflow.ui.components.RichMarkdown
+import com.echoflow.ui.legacy.LegacyArtifactCard
 import com.echoflow.ui.legacy.LegacyDataResultCard
 import com.echoflow.ui.legacy.LegacyReportCard
 import com.echoflow.ui.legacy.LegacyResearchProgressCard
@@ -649,19 +650,39 @@ private fun AssistantAnswerBody(
                             Spacer(Modifier.height(Spacing.s))
                         }
                     }
+                    // ── Artifacts ───────────────────────────────────────────────────
+                    // Old and new artifact cards are told apart here, and only here.
+                    // Pre-redesign rows omit ArtifactRef.uiVersion and deserialize to
+                    // UI_VERSION_LEGACY, so they draw through the frozen ui/legacy card and
+                    // look exactly as they always have. Artifacts produced by the current app
+                    // stamp UI_VERSION_CURRENT and get the redesigned chips + preview card.
+                    // Because the default is the legacy value, no existing conversation can
+                    // ever be reclassified.
                     "artifact" -> {
                         segment.artifact?.let { a ->
-                            ArtifactCard(
-                                artifactId = a.artifactId,
-                                title = a.title,
-                                artifactType = a.type,
-                                version = a.version,
-                                building = false,
-                                charCount = 0,
-                                truncated = false,
-                                observeVersions = observeArtifactVersions,
-                                onOpen = onArtifactOpen,
-                            )
+                            if (a.usesLegacyUi) {
+                                LegacyArtifactCard(
+                                    title = a.title,
+                                    artifactType = a.type,
+                                    version = a.version,
+                                    building = false,
+                                    charCount = 0,
+                                    truncated = false,
+                                    onOpen = { onArtifactOpen(a.version) },
+                                )
+                            } else {
+                                ArtifactCard(
+                                    artifactId = a.artifactId,
+                                    title = a.title,
+                                    artifactType = a.type,
+                                    version = a.version,
+                                    building = false,
+                                    charCount = 0,
+                                    truncated = false,
+                                    observeVersions = observeArtifactVersions,
+                                    onOpen = onArtifactOpen,
+                                )
+                            }
                             if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                         }
                     }
