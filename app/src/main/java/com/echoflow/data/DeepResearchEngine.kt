@@ -34,6 +34,18 @@ class DeepResearchEngine(
         .writeTimeout(45, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Separate client for server-sent event feeds. A research stream is idle between events for
+     * minutes at a time, so the shared client's 120s read timeout would tear it down mid-run; the
+     * bound that matters here is the whole-call one.
+     */
+    private val streamClient = OkHttpClient.Builder()
+        .connectTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.MINUTES)
+        .build()
+
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val anyAdapter = moshi.adapter(Any::class.java)
 
@@ -92,6 +104,64 @@ class DeepResearchEngine(
         }
     }.flowOn(Dispatchers.IO)
 
+    // ── Server-sent events ───────────────────────────────────────────────────────────
+
+    /**
+     * Read an SSE response frame by frame, invoking [onEvent] per complete frame. Returning false
+     * from [onEvent] closes the stream early.
+     *
+     * Named-event streams are the reason this exists rather than reusing the chat transport's
+     * `data:`-only loop: Parallel and Exa both put the meaning in the `event:` line.
+     */
+    private suspend fun streamSse(
+        request: Request,
+        label: String,
+        onEvent: suspend (SseEvent) -> Boolean,
+    ) {
+        streamClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("$label event stream failed (HTTP ${response.code}).")
+            }
+            val reader = (response.body ?: throw Exception("$label returned an empty event stream."))
+                .charStream().buffered()
+            val decoder = SseDecoder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                val frame = decoder.accept(line!!) ?: continue
+                if (!onEvent(frame)) return
+            }
+            decoder.flush()?.let { onEvent(it) }
+        }
+    }
+
+    private fun parseFrame(data: String): Map<*, *>? =
+        runCatching { anyAdapter.fromJson(data) as? Map<*, *> }.getOrNull()
+
+    /**
+     * Pull a human-readable line out of an event payload. Both providers nest their message under
+     * different keys depending on the event subtype, and neither shape is contractually stable, so
+     * this reads the plausible ones and gives up quietly rather than guessing wrong loudly.
+     */
+    private fun messageOf(node: Any?): String? {
+        when (node) {
+            is String -> return node.takeIf { it.isNotBlank() }
+            is Map<*, *> -> {
+                MESSAGE_KEYS.forEach { key ->
+                    (node[key] as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                // One level down: {"progress_msg": {"message": "..."}} and friends.
+                NESTED_KEYS.forEach { key ->
+                    (node[key] as? Map<*, *>)?.let { nested ->
+                        MESSAGE_KEYS.forEach { inner ->
+                            (nested[inner] as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     // ── Provider-native ──────────────────────────────────────────────────────────────
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.runProvider(
@@ -137,6 +207,22 @@ class DeepResearchEngine(
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching the web…"))
         val runningLabel = "Researching with ${config.engineLabel}"
         step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
+
+        // Parallel narrates itself over SSE. Consume that first for the timeline, then fall
+        // through to polling for the terminal state and result. Strictly an enhancement: any
+        // failure here leaves the run exactly as it behaves without it.
+        if (config.provider == "parallel") {
+            try {
+                streamParallelEvents(apiKey, jobId)
+                // The feed carried the run; the placeholder row would otherwise sit spinning
+                // underneath the real steps forever.
+                step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Stream unavailable — the poll loop below still finishes the run.
+            }
+        }
 
         // Poll until the provider finishes. Capped so a stuck job can't poll forever.
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
@@ -234,12 +320,105 @@ class DeepResearchEngine(
             body = mapOf(
                 "input" to topic,
                 "processor" to processor,
+                // Auto-enabled for pro and above (which is every processor we ship), but sent
+                // explicitly so the feed doesn't depend on that default holding.
+                "enable_events" to true,
                 "task_spec" to mapOf("output_schema" to mapOf("type" to "text")),
             ),
             label = "Parallel",
         )
         return (json["run_id"] as? String) ?: (json["id"] as? String)
             ?: throw Exception("Parallel did not return a run id.")
+    }
+
+    /**
+     * Parallel's progress feed: `GET /v1/tasks/runs/{id}/events`.
+     *
+     * This is the richest timeline any provider gives us — planning, search objectives, tool use
+     * and intermediate findings, plus running counts of sources considered and read. It also
+     * replays the complete sequence from the start of execution, which is what makes it safe to
+     * (re)attach after the app was killed: a resumed run rebuilds its whole timeline instead of
+     * joining mid-stream. Steps are keyed by position, so a replay overwrites rather than doubles.
+     *
+     * Progress only. The run's terminal state and result still come from the poll path, so if the
+     * stream 404s, drops, or carries a shape we don't recognise, the run is unaffected — it just
+     * shows the single "Researching with Parallel" row it showed before.
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.streamParallelEvents(
+        apiKey: String,
+        jobId: String,
+    ) {
+        val request = Request.Builder()
+            .url("https://api.parallel.ai/v1/tasks/runs/$jobId/events")
+            .addHeader("x-api-key", apiKey)
+            .addHeader("Accept", "text/event-stream")
+            .get()
+            .build()
+
+        var index = 0
+        var lastId: String? = null
+        var lastLabel: String? = null
+        var stats: String? = null
+
+        streamSse(request, "Parallel") { frame ->
+            val json = parseFrame(frame.data)
+            val type = frame.name ?: (json?.get("type") as? String).orEmpty()
+            when {
+                type.startsWith("task_run.progress_msg") -> {
+                    val message = messageOf(json) ?: return@streamSse true
+                    val kind = when (type.substringAfterLast('.')) {
+                        "plan" -> ResearchStep.KIND_PLAN
+                        "search" -> ResearchStep.KIND_SEARCH
+                        "tool" -> ResearchStep.KIND_READ
+                        else -> ResearchStep.KIND_ANALYZE
+                    }
+                    // exec_status refines the step already running rather than adding a row.
+                    if (type.endsWith(".exec_status")) {
+                        lastId?.let { id ->
+                            step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
+                        }
+                        return@streamSse true
+                    }
+                    // Close the previous row before opening the next: the feed is append-only, so
+                    // anything behind the newest entry is finished by definition.
+                    lastId?.let { id -> step(id, lastLabel ?: message, ResearchStep.STATE_DONE, kind) }
+                    val id = feedStepId(index++)
+                    lastId = id
+                    lastLabel = message
+                    step(id, message, ResearchStep.STATE_ACTIVE, kind, detail = stats)
+                }
+                type == "task_run.progress_stats" -> {
+                    val read = (json?.get("num_sources_read") as? Double)?.toInt()
+                    val considered = (json?.get("num_sources_considered") as? Double)?.toInt()
+                    stats = when {
+                        read != null && considered != null -> "$read of $considered read"
+                        read != null -> "$read read"
+                        considered != null -> "$considered found"
+                        else -> stats
+                    }
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = stats)
+                    }
+                }
+                type == "task_run.state" -> {
+                    val status = ((json?.get("run") as? Map<*, *>)?.get("status") as? String)
+                        ?: (json?.get("status") as? String).orEmpty()
+                    if (status in PARALLEL_TERMINAL) {
+                        lastId?.let { id ->
+                            step(id, lastLabel ?: "Researching", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE, detail = stats)
+                        }
+                        return@streamSse false
+                    }
+                }
+                type == "error" -> {
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: "Researching", ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
+                    }
+                    return@streamSse false
+                }
+            }
+            true
+        }
     }
 
     private fun pollParallel(apiKey: String, id: String): PollResult {
@@ -367,23 +546,39 @@ class DeepResearchEngine(
         existing: ResearchRun?,
     ) {
         val headers = mapOf("x-api-key" to apiKey, "Exa-Beta" to EXA_AGENT_BETA)
+        val agentLabel = "Exa agent is researching"
+
+        // Exa streams by holding the *create* request open, so — unlike Parallel's separate
+        // events endpoint — the feed cannot be re-attached to a run that already exists. A fresh
+        // run streams its search trace; a run resumed after the app was killed can only poll, and
+        // the steps it emitted before the kill are gone. That asymmetry is the API's, not ours.
         val jobId = existing?.providerJobId ?: run {
-            val created = post(
-                url = "https://api.exa.ai/agent/runs",
-                headers = headers,
-                body = mapOf(
-                    "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
-                    "effort" to (config.level ?: "auto"),
-                ),
-                label = "Exa",
-            )
-            (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
+            val streamed = try {
+                streamExaAgentRun(headers, config, topic)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            streamed ?: run {
+                val created = post(
+                    url = "https://api.exa.ai/agent/runs",
+                    headers = headers,
+                    body = mapOf(
+                        "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
+                        "effort" to (config.level ?: "auto"),
+                    ),
+                    label = "Exa",
+                )
+                (created["id"] as? String) ?: throw Exception("Exa Agent did not return a run id.")
+            }
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Exa agent is researching…"))
-        // The run exposes no intermediate stages, only a live cost — one step, honest detail.
-        val agentLabel = "Exa agent is researching"
-        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
+        if (existing?.providerJobId != null) {
+            // Resumed: no stream available, so this is the honest single row.
+            step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
+        }
 
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
         while (System.currentTimeMillis() < deadline) {
@@ -429,6 +624,99 @@ class DeepResearchEngine(
         }
         step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "timed out")
         emit(ResearchEvent.Failed("Exa Agent timed out. Try a lower effort or a narrower question."))
+    }
+
+    /**
+     * Create an Exa Agent run with `Accept: text/event-stream` and narrate its search trace.
+     *
+     * Returns the run id (captured from `agent_run.created`, and emitted as a [ResearchEvent
+     * .ProviderJob] the moment it arrives so a kill mid-stream can still resume by polling), or
+     * null if the stream never identified a run — in which case the caller creates one normally.
+     *
+     * Sources announced by `agent_run.source.added` are merged live, so the favicon stack fills in
+     * while the agent works instead of appearing all at once at the end.
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.streamExaAgentRun(
+        headers: Map<String, String>,
+        config: DeepResearchConfig,
+        topic: String,
+    ): String? {
+        val body = anyAdapter.toJson(
+            mapOf(
+                "query" to topic + "\n\n" + SystemPrompts.exaResearchSystemPrompt(),
+                "effort" to (config.level ?: "auto"),
+                "stream" to true,
+            )
+        ).toRequestBody("application/json".toMediaType())
+
+        val builder = Request.Builder()
+            .url("https://api.exa.ai/agent/runs")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(body)
+        headers.forEach { (k, v) -> builder.addHeader(k, v) }
+
+        var runId: String? = null
+        var index = 0
+        var lastId: String? = null
+        var lastLabel: String? = null
+
+        streamSse(builder.build(), "Exa") { frame ->
+            val json = parseFrame(frame.data)
+            val type = frame.name ?: (json?.get("type") as? String).orEmpty()
+            when {
+                type == "agent_run.created" || type == "agent_run.started" -> {
+                    val id = (json?.get("id") as? String)
+                        ?: ((json?.get("run") as? Map<*, *>)?.get("id") as? String)
+                    if (id != null && runId == null) {
+                        runId = id
+                        emit(ResearchEvent.ProviderJob(id))
+                    }
+                }
+                type == "agent_run.source.added" -> {
+                    val sources = collectSources(json)
+                    if (sources.isNotEmpty()) {
+                        emit(ResearchEvent.Sources(sources))
+                        lastId?.let { id ->
+                            step(
+                                id, lastLabel ?: "Reading sources", ResearchStep.STATE_ACTIVE,
+                                ResearchStep.KIND_READ,
+                                detail = "${sources.size} found",
+                                sourceUrls = sources.map { it.url },
+                            )
+                        }
+                    }
+                }
+                type.startsWith("agent_run.completed") ||
+                    type.startsWith("agent_run.failed") ||
+                    type.startsWith("agent_run.cancelled") -> {
+                    lastId?.let { id ->
+                        val ok = type.startsWith("agent_run.completed")
+                        step(
+                            id, lastLabel ?: "Researching",
+                            if (ok) ResearchStep.STATE_DONE else ResearchStep.STATE_FAILED,
+                            ResearchStep.KIND_ANALYZE,
+                        )
+                    }
+                    return@streamSse false
+                }
+                else -> {
+                    // Tool progress and search-trace events. Exa notes these can arrive out of
+                    // order relative to the source events they describe, so they are appended in
+                    // arrival order and never used to reorder anything.
+                    val message = messageOf(json) ?: return@streamSse true
+                    lastId?.let { id ->
+                        step(id, lastLabel ?: message, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+                    }
+                    val id = feedStepId(index++)
+                    lastId = id
+                    lastLabel = message
+                    step(id, message, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SEARCH)
+                }
+            }
+            true
+        }
+        return runId
     }
 
     // ── Data Agent (Firecrawl /v2/agent — structured extraction) ─────────────────────
@@ -730,5 +1018,12 @@ class DeepResearchEngine(
 
         internal fun searchStepId(index: Int): String = "search-$index"
         internal fun activityStepId(index: Int): String = "activity-$index"
+        internal fun feedStepId(index: Int): String = "feed-$index"
+
+        /** Keys either provider might carry its human-readable progress line under. */
+        private val MESSAGE_KEYS = listOf("message", "msg", "text", "content", "description", "summary", "objective", "query")
+        private val NESTED_KEYS = listOf("data", "progress_msg", "payload", "detail", "body")
+
+        private val PARALLEL_TERMINAL = setOf("completed", "failed", "cancelled", "cancelling")
     }
 }
