@@ -2,6 +2,10 @@
 
 package com.echoflow.ui.components
 
+import android.annotation.SuppressLint
+import android.view.ViewGroup
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -42,8 +46,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,6 +73,7 @@ import kotlinx.coroutines.withContext
 // never wraps past a couple of lines on a phone.
 private const val MAX_VERSION_CHIPS = 4
 private const val CARD_RADIUS_DP = 22
+private const val PREVIEW_HEIGHT_DP = 150
 
 /**
  * The in-chat artifact card.
@@ -113,6 +120,15 @@ fun ArtifactCard(
     val deltas by produceState(initialValue = emptyList<VersionDelta>(), lineage) {
         value = withContext(Dispatchers.Default) { versionDeltas(lineage) }
     }
+    // HTML artifacts get a live render preview on the card — the thing markdown/report artifacts
+    // can't offer. Non-HTML stays glyph + chips.
+    val previewHtml = remember(lineage, version, artifactType) {
+        if (artifactType == Artifact.TYPE_HTML) {
+            (lineage.lastOrNull { it.versionNumber == version } ?: lineage.lastOrNull())?.content
+        } else {
+            null
+        }
+    }
 
     SettledArtifactCard(
         title = title,
@@ -120,6 +136,7 @@ fun ArtifactCard(
         version = version,
         truncated = truncated,
         deltas = deltas,
+        previewHtml = previewHtml,
         onOpen = onOpen,
         modifier = modifier,
     )
@@ -132,6 +149,7 @@ private fun SettledArtifactCard(
     version: Int,
     truncated: Boolean,
     deltas: List<VersionDelta>,
+    previewHtml: String?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -176,6 +194,14 @@ private fun SettledArtifactCard(
                     "Open artifact",
                     Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (!previewHtml.isNullOrBlank()) {
+                ArtifactPreviewThumbnail(
+                    html = previewHtml,
+                    onOpen = onOpen,
+                    modifier = Modifier.padding(start = Spacing.base, end = Spacing.base, bottom = Spacing.m),
                 )
             }
 
@@ -277,6 +303,78 @@ private fun MoreChip(text: String) {
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * A live, non-interactive render of an HTML artifact — the card preview markdown/report artifacts
+ * can't give. The page renders in the same sandbox as the workspace (opaque origin, no file/content
+ * access); a transparent tap layer keeps the gesture with the card, and the render fades in once the
+ * page settles so the white band never flashes empty.
+ */
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+@Composable
+private fun ArtifactPreviewThumbnail(html: String, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val reducedMotion = rememberReducedMotion()
+    var loaded by remember(html) { mutableStateOf(false) }
+    val appear by animateFloatAsState(
+        targetValue = if (loaded || reducedMotion) 1f else 0f,
+        animationSpec = tween(if (reducedMotion) 0 else 260),
+        label = "preview-appear",
+    )
+    var lastHtml by remember { mutableStateOf<String?>(null) }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(PREVIEW_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White),
+    ) {
+        AndroidView(
+            modifier = Modifier.matchParentSize().graphicsLayer { alpha = appear },
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                    isVerticalScrollBarEnabled = false
+                    isHorizontalScrollBarEnabled = false
+                    isClickable = false
+                    isLongClickable = false
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    @Suppress("DEPRECATION") settings.allowFileAccessFromFileURLs = false
+                    @Suppress("DEPRECATION") settings.allowUniversalAccessFromFileURLs = false
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    @Suppress("DEPRECATION") settings.setSupportZoom(false)
+                    // Swallow touches so scrolling/taps belong to the card, not the page.
+                    setOnTouchListener { _, _ -> true }
+                    setBackgroundColor(android.graphics.Color.WHITE)
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) { loaded = true }
+                    }
+                    loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                    lastHtml = html
+                }
+            },
+            update = { web ->
+                if (lastHtml != html) {
+                    loaded = false
+                    web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                    lastHtml = html
+                }
+            },
+            onRelease = { web ->
+                web.stopLoading()
+                web.loadUrl("about:blank")
+                web.destroy()
+            },
+        )
+        // Transparent tap layer: tapping the preview opens the workspace like the rest of the card.
+        Box(Modifier.matchParentSize().clickable(onClick = onOpen))
     }
 }
 
