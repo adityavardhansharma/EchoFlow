@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -280,8 +281,11 @@ private fun MoreChip(text: String) {
 }
 
 /**
- * The live "Building…" state: a wavy progress line and a running size, no code in the bubble.
- * (Redesigned into a step trace in a follow-up.)
+ * The live "Building…" state as a trace, in the research-capsule grammar: a spinner where the glyph
+ * tile will settle, the file being written as a mono chip, and a running size — then a wavy line
+ * for liveliness. No code ever leaks into the bubble. When it finishes the spinner gives way to the
+ * settled card's tertiary glyph tile, so building → done reads as one object resolving rather than
+ * a component swap.
  */
 @Composable
 private fun BuildingArtifactCard(
@@ -290,7 +294,7 @@ private fun BuildingArtifactCard(
     charCount: Int,
     modifier: Modifier = Modifier,
 ) {
-    val (icon, typeLabel) = artifactGlyph(artifactType)
+    val (_, typeLabel) = artifactGlyph(artifactType)
     Surface(
         shape = RoundedCornerShape(CARD_RADIUS_DP.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -298,24 +302,37 @@ private fun BuildingArtifactCard(
     ) {
         Column(Modifier.padding(Spacing.base)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.tertiary),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiary) }
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    LoadingIndicator(
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
                 Spacer(Modifier.width(Spacing.m))
-                Column(Modifier.weight(1f)) {
+                Text(
+                    if (charCount > 0) "Writing" else "Starting",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(Spacing.s))
+                // The "file" being written — the reference's mono filename chip.
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Text(
-                        title.ifBlank { "Building $typeLabel" },
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        title.ifBlank { typeLabel },
+                        Modifier.padding(horizontal = Spacing.s, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Spacer(Modifier.weight(1f))
+                if (charCount > 0) {
                     Text(
-                        if (charCount > 0) "Writing… $charCount characters" else "Starting…",
-                        style = MaterialTheme.typography.labelMedium,
+                        "$charCount",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
