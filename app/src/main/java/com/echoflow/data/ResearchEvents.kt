@@ -25,6 +25,16 @@ sealed class ResearchEvent {
         val total: Int = 0,
     ) : ResearchEvent()
 
+    /**
+     * Timeline steps to upsert by [ResearchStep.id] — emit a step as active, re-emit the same id
+     * to resolve it. Carries a list so an engine can seed a whole plan (all rows pending) in one
+     * write instead of one Room round-trip per sub-question.
+     *
+     * [Phase] is still emitted alongside this: the foreground notification needs a single line,
+     * and legacy runs resuming across the update render from `phase` alone.
+     */
+    data class Steps(val steps: List<ResearchStep>) : ResearchEvent()
+
     /** Newly discovered sources to merge into the accumulated set. */
     data class Sources(val sources: List<SearchSource>) : ResearchEvent()
 

@@ -113,6 +113,10 @@ class DeepResearchForegroundService : Service() {
         var current = initial.copy(status = ResearchRun.STATUS_RESEARCHING, updatedAt = now())
         val sources = LinkedHashMap<String, SearchSource>()
         ResearchJson.sourcesFromJson(initial.sourcesJson).forEach { sources[it.url] = it }
+        // Timeline steps, keyed by id and ordered by first appearance — seeded from the row so a
+        // resumed run continues its history instead of starting a second one.
+        val timeline = LinkedHashMap<String, ResearchStep>()
+        ResearchJson.timelineFromJson(initial.stepsJson).forEach { timeline[it.id] = it }
         persist(current)
         updateNotification(current)
 
@@ -132,6 +136,17 @@ class DeepResearchForegroundService : Service() {
                         progressTotal = event.total,
                         updatedAt = now(),
                     )
+                }
+                is ResearchEvent.Steps -> {
+                    event.steps.forEach { incoming ->
+                        val existing = timeline[incoming.id]
+                        timeline[incoming.id] = if (existing == null) incoming else incoming.copy(
+                            // Keep the moment the step first started; the engine re-stamps
+                            // startedAt on every upsert because it has no memory of its own.
+                            startedAt = existing.startedAt.takeIf { it > 0L } ?: incoming.startedAt,
+                        )
+                    }
+                    current = current.copy(stepsJson = ResearchJson.timelineToJson(timeline.values.toList()), updatedAt = now())
                 }
                 is ResearchEvent.Sources -> {
                     event.sources.forEach { if (it.url !in sources) sources[it.url] = it }
@@ -205,12 +220,57 @@ class DeepResearchForegroundService : Service() {
         }
     }
 
-    private suspend fun finishCompleted(run: ResearchRun, report: String, sources: List<SearchSource>) {
+    private suspend fun finishCompleted(run: ResearchRun, report: String, sources: List<SearchSource>) =
+        finishWithResult(run, report, sources, structured = false)
+
+    private suspend fun finishStructured(run: ResearchRun, json: String, sources: List<SearchSource>) =
+        finishWithResult(run, json, sources, structured = true)
+
+    /**
+     * Write the answer into the conversation and close out the run.
+     *
+     * This is the one place the old and new research UIs diverge. A run stamped
+     * [ResearchRun.UI_VERSION_LEGACY] — which is every run that predates the redesign, plus any
+     * that was already in flight when the app updated — keeps writing the original
+     * `"plan"` + `"report"` / `"data"` segments, so it renders through `ui/legacy` exactly as it
+     * always did. New runs write a single `"research"` segment carrying a [ResearchRef], which is
+     * what the result card and workspace read. Dispatch happens on the segment type at render
+     * time, so no existing message can ever be reclassified.
+     */
+    private suspend fun finishWithResult(
+        run: ResearchRun,
+        payload: String,
+        sources: List<SearchSource>,
+        structured: Boolean,
+    ) {
         val citations = sources.distinctBy { it.url }.map { Citation(it.title, it.url) }
-        val steps = ResearchJson.stepsFromJson(run.planJson)
-        val segments = buildList {
-            if (steps.isNotEmpty()) add(PersistedSegment(type = "plan", text = steps.joinToString("\n")))
-            add(PersistedSegment(type = "report", text = report))
+        val timeline = closedTimeline(run)
+        val finishedAt = now()
+        val segments = if (run.usesLegacyUi) {
+            val planSteps = ResearchJson.stepsFromJson(run.planJson)
+            buildList {
+                if (!structured && planSteps.isNotEmpty()) {
+                    add(PersistedSegment(type = "plan", text = planSteps.joinToString("\n")))
+                }
+                add(PersistedSegment(type = if (structured) "data" else "report", text = payload))
+            }
+        } else {
+            listOf(
+                PersistedSegment(
+                    type = "research",
+                    research = ResearchRef(
+                        runId = run.id,
+                        topic = run.topic,
+                        report = payload,
+                        engineLabel = run.engineLabel,
+                        structured = structured,
+                        sourceCount = citations.size,
+                        stepCount = timeline.size,
+                        durationMs = (finishedAt - run.createdAt).coerceAtLeast(0L),
+                        costInfo = run.costInfo,
+                    ),
+                )
+            )
         }
         val messageId = UUID.randomUUID().toString()
         db.messageDao().insertMessage(
@@ -218,49 +278,22 @@ class DeepResearchForegroundService : Service() {
                 id = messageId,
                 chatId = run.chatId,
                 role = "assistant",
-                content = report,
-                createdAt = now(),
+                content = payload,
+                createdAt = finishedAt,
                 citationsJson = ToolEventJson.citationsToJson(citations),
                 segmentsJson = ToolEventJson.segmentsToJson(segments),
             )
         )
-        db.chatDao().touchUpdatedAt(run.chatId, now())
+        db.chatDao().touchUpdatedAt(run.chatId, finishedAt)
         persist(
             run.copy(
                 status = ResearchRun.STATUS_COMPLETED,
                 phase = "Completed",
-                report = report,
+                report = payload,
+                stepsJson = ResearchJson.timelineToJson(timeline),
                 sourcesJson = ResearchJson.sourcesToJson(sources),
                 assistantMessageId = messageId,
-                updatedAt = now(),
-            )
-        )
-    }
-
-    private suspend fun finishStructured(run: ResearchRun, json: String, sources: List<SearchSource>) {
-        val citations = sources.distinctBy { it.url }.map { Citation(it.title, it.url) }
-        val segments = listOf(PersistedSegment(type = "data", text = json))
-        val messageId = UUID.randomUUID().toString()
-        db.messageDao().insertMessage(
-            ChatMessage(
-                id = messageId,
-                chatId = run.chatId,
-                role = "assistant",
-                content = json,
-                createdAt = now(),
-                citationsJson = ToolEventJson.citationsToJson(citations),
-                segmentsJson = ToolEventJson.segmentsToJson(segments),
-            )
-        )
-        db.chatDao().touchUpdatedAt(run.chatId, now())
-        persist(
-            run.copy(
-                status = ResearchRun.STATUS_COMPLETED,
-                phase = "Completed",
-                report = json,
-                sourcesJson = ResearchJson.sourcesToJson(sources),
-                assistantMessageId = messageId,
-                updatedAt = now(),
+                updatedAt = finishedAt,
             )
         )
     }
@@ -268,8 +301,64 @@ class DeepResearchForegroundService : Service() {
     private suspend fun finishFailed(runId: String, message: String) {
         val run = db.researchRunDao().getById(runId) ?: return
         if (run.isTerminal) return
-        writeNote(run.chatId, "⚠️ Deep Research couldn't finish: $message")
-        persist(run.copy(status = ResearchRun.STATUS_FAILED, phase = "Failed", error = message, updatedAt = now()))
+        val failedAt = now()
+        val timeline = ResearchJson.timelineFromJson(run.stepsJson).map {
+            if (it.isTerminal) it else it.copy(state = ResearchStep.STATE_FAILED, endedAt = failedAt)
+        }
+        var messageId: String? = null
+        if (run.usesLegacyUi) {
+            writeNote(run.chatId, "⚠️ Deep Research couldn't finish: $message")
+        } else {
+            // New runs surface the failure as the result card's error variant (with a retry)
+            // rather than a loose warning line in the transcript.
+            messageId = UUID.randomUUID().toString()
+            db.messageDao().insertMessage(
+                ChatMessage(
+                    id = messageId,
+                    chatId = run.chatId,
+                    role = "assistant",
+                    content = "Deep Research couldn't finish: $message",
+                    createdAt = failedAt,
+                    segmentsJson = ToolEventJson.segmentsToJson(
+                        listOf(
+                            PersistedSegment(
+                                type = "research",
+                                research = ResearchRef(
+                                    runId = run.id,
+                                    topic = run.topic,
+                                    report = "",
+                                    engineLabel = run.engineLabel,
+                                    structured = run.engineKind == "data-agent",
+                                    stepCount = timeline.size,
+                                    durationMs = (failedAt - run.createdAt).coerceAtLeast(0L),
+                                    costInfo = run.costInfo,
+                                    error = message,
+                                ),
+                            )
+                        )
+                    ),
+                )
+            )
+            db.chatDao().touchUpdatedAt(run.chatId, failedAt)
+        }
+        persist(
+            run.copy(
+                status = ResearchRun.STATUS_FAILED,
+                phase = "Failed",
+                error = message,
+                stepsJson = ResearchJson.timelineToJson(timeline),
+                assistantMessageId = messageId ?: run.assistantMessageId,
+                updatedAt = failedAt,
+            )
+        )
+    }
+
+    /** Any step still running when the answer lands is finished by definition. */
+    private fun closedTimeline(run: ResearchRun): List<ResearchStep> {
+        val finishedAt = now()
+        return ResearchJson.timelineFromJson(run.stepsJson).map {
+            if (it.isTerminal) it else it.copy(state = ResearchStep.STATE_DONE, endedAt = finishedAt)
+        }
     }
 
     private fun cancelRun(runId: String) {

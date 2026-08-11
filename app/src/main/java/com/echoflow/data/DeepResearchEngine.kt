@@ -37,6 +37,40 @@ class DeepResearchEngine(
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val anyAdapter = moshi.adapter(Any::class.java)
 
+    // ── Timeline narration ───────────────────────────────────────────────────────────
+    // Every engine describes itself as upserted ResearchSteps, which the service mirrors into
+    // research_runs.stepsJson. How much detail each one can honestly give varies a lot: the
+    // agentic path owns its loop and narrates every sub-question, Firecrawl exposes an activity
+    // feed, and the rest can only say "still working" — those get a single step rather than
+    // invented stages.
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ResearchEvent>.step(
+        id: String,
+        label: String,
+        state: String,
+        kind: String = ResearchStep.KIND_SEARCH,
+        detail: String? = null,
+        sourceUrls: List<String> = emptyList(),
+    ) {
+        val now = System.currentTimeMillis()
+        emit(
+            ResearchEvent.Steps(
+                listOf(
+                    ResearchStep(
+                        id = id,
+                        kind = kind,
+                        label = label,
+                        state = state,
+                        detail = detail,
+                        sourceUrls = sourceUrls,
+                        startedAt = now,
+                        endedAt = if (state == ResearchStep.STATE_DONE || state == ResearchStep.STATE_FAILED) now else null,
+                    )
+                )
+            )
+        )
+    }
+
     fun run(
         config: DeepResearchConfig,
         topic: String,
@@ -78,9 +112,16 @@ class DeepResearchEngine(
                 runExaAgent(apiKey, config, topic, existing)
             } else {
                 // Exa Deep Reasoning: a single synchronous /search call (no job, no polling).
+                // There is genuinely nothing to narrate in between, so it stays one step.
                 emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching with Exa…"))
+                step(STEP_PROVIDER, "Researching with Exa", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
                 val done = exaDeepSearch(apiKey, config.providerModel, topic, config.maxSources)
                 if (done.sources.isNotEmpty()) emit(ResearchEvent.Sources(done.sources))
+                step(
+                    STEP_PROVIDER, "Researched with Exa", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                    detail = "${done.sources.size} sources",
+                    sourceUrls = done.sources.map { it.url },
+                )
                 emit(ResearchEvent.Report(done.report))
             }
             return
@@ -94,6 +135,8 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Researching the web…"))
+        val runningLabel = "Researching with ${config.engineLabel}"
+        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
 
         // Poll until the provider finishes. Capped so a stuck job can't poll forever.
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
@@ -106,23 +149,36 @@ class DeepResearchEngine(
             when (result) {
                 is PollResult.Pending -> {
                     result.label?.let { emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, it)) }
+                    // Firecrawl reports an activity feed; everything else can only refresh the
+                    // one running step's detail line.
+                    if (result.steps.isNotEmpty()) emit(ResearchEvent.Steps(result.steps))
+                    else result.label?.let {
+                        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = it)
+                    }
                 }
                 is PollResult.Done -> {
                     if (result.sources.isNotEmpty()) emit(ResearchEvent.Sources(result.sources))
+                    step(
+                        STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                        detail = "${result.sources.size} sources",
+                        sourceUrls = result.sources.map { it.url },
+                    )
                     emit(ResearchEvent.Report(result.report))
                     return
                 }
                 is PollResult.Error -> {
+                    step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
                     emit(ResearchEvent.Failed(result.message))
                     return
                 }
             }
         }
+        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "timed out")
         emit(ResearchEvent.Failed("Research timed out. Try a narrower question or a faster engine."))
     }
 
     private sealed class PollResult {
-        data class Pending(val label: String?) : PollResult()
+        data class Pending(val label: String?, val steps: List<ResearchStep> = emptyList()) : PollResult()
         data class Done(val report: String, val sources: List<SearchSource>) : PollResult()
         data class Error(val message: String) : PollResult()
     }
@@ -257,8 +313,49 @@ class DeepResearchEngine(
             "failed", "cancelled", "error" -> PollResult.Error("Firecrawl research failed.")
             else -> {
                 val depth = (data?.get("currentDepth") as? Double)?.toInt()
-                PollResult.Pending(depth?.let { "Crawling the web (depth $it)…" })
+                PollResult.Pending(
+                    label = depth?.let { "Crawling the web (depth $it)…" },
+                    steps = firecrawlActivitySteps(data),
+                )
             }
+        }
+    }
+
+    /**
+     * Firecrawl's poll response carries a cumulative `activities[]` feed (search / scrape /
+     * analyse entries with human messages) that we previously discarded in favour of the crawl
+     * depth alone. Parsed defensively: anything we can't read degrades to no steps at all, which
+     * leaves the single "Researching with Firecrawl" row in place rather than breaking the run.
+     *
+     * Unverified against a live key — the shape below is what the documented response carries.
+     */
+    private fun firecrawlActivitySteps(data: Map<*, *>?): List<ResearchStep> {
+        val activities = (data?.get("activities") as? List<*>) ?: return emptyList()
+        val entries = activities.filterIsInstance<Map<*, *>>()
+        if (entries.isEmpty()) return emptyList()
+        return entries.mapIndexedNotNull { index, entry ->
+            val label = (entry["message"] as? String)?.takeIf { it.isNotBlank() }
+                ?: (entry["type"] as? String)?.takeIf { it.isNotBlank() }
+                ?: return@mapIndexedNotNull null
+            val last = index == entries.lastIndex
+            val status = (entry["status"] as? String).orEmpty()
+            ResearchStep(
+                id = activityStepId(index),
+                kind = when (entry["type"] as? String) {
+                    "search" -> ResearchStep.KIND_SEARCH
+                    "scrape", "extract" -> ResearchStep.KIND_READ
+                    else -> ResearchStep.KIND_ANALYZE
+                },
+                label = label,
+                state = when {
+                    status.equals("error", true) || status.equals("failed", true) -> ResearchStep.STATE_FAILED
+                    status.equals("complete", true) || status.equals("completed", true) -> ResearchStep.STATE_DONE
+                    last -> ResearchStep.STATE_ACTIVE
+                    // The feed is append-only, so anything behind the newest entry is finished.
+                    else -> ResearchStep.STATE_DONE
+                },
+                detail = (entry["depth"] as? Double)?.toInt()?.let { "depth $it" },
+            )
         }
     }
 
@@ -284,12 +381,19 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Exa agent is researching…"))
+        // The run exposes no intermediate stages, only a live cost — one step, honest detail.
+        val agentLabel = "Exa agent is researching"
+        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE)
 
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
         while (System.currentTimeMillis() < deadline) {
             delay(POLL_INTERVAL_MS)
             val json = get("https://api.exa.ai/agent/runs/$jobId", headers, "Exa")
-            (json["costDollars"] as? Double)?.let { emit(ResearchEvent.Cost("$" + "%.2f".format(it))) }
+            (json["costDollars"] as? Double)?.let {
+                val cost = "$" + "%.2f".format(it)
+                emit(ResearchEvent.Cost(cost))
+                step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = cost)
+            }
             when ((json["status"] as? String).orEmpty()) {
                 "completed" -> {
                     val output = json["output"] as? Map<*, *>
@@ -302,17 +406,28 @@ class DeepResearchEngine(
                     }
                     val sources = collectSources(output?.get("grounding"))
                     if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
-                    if (report.isBlank()) emit(ResearchEvent.Failed("Exa Agent returned an empty result."))
-                    else emit(ResearchEvent.Report(report))
+                    if (report.isBlank()) {
+                        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "empty result")
+                        emit(ResearchEvent.Failed("Exa Agent returned an empty result."))
+                    } else {
+                        step(
+                            STEP_PROVIDER, "Exa agent researched", ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE,
+                            detail = "${sources.size} sources",
+                            sourceUrls = sources.map { it.url },
+                        )
+                        emit(ResearchEvent.Report(report))
+                    }
                     return
                 }
                 "failed", "cancelled", "canceled", "error" -> {
+                    step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE)
                     emit(ResearchEvent.Failed("Exa Agent run failed."))
                     return
                 }
                 else -> Unit
             }
         }
+        step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_ANALYZE, detail = "timed out")
         emit(ResearchEvent.Failed("Exa Agent timed out. Try a lower effort or a narrower question."))
     }
 
@@ -346,17 +461,32 @@ class DeepResearchEngine(
         }
         emit(ResearchEvent.ProviderJob(jobId))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Collecting data…"))
+        val collectLabel = "Collecting data"
+        step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_READ)
 
         val deadline = System.currentTimeMillis() + 40 * 60 * 1000L
         while (System.currentTimeMillis() < deadline) {
             delay(POLL_INTERVAL_MS)
             val json = get("https://api.firecrawl.dev/v2/agent/$jobId", headers, "Firecrawl")
-            (json["creditsUsed"] as? Double)?.let { emit(ResearchEvent.Cost("${it.toInt()} credits")) }
+            (json["creditsUsed"] as? Double)?.let {
+                val credits = "${it.toInt()} credits"
+                emit(ResearchEvent.Cost(credits))
+                step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_READ, detail = credits)
+            }
             when ((json["status"] as? String).orEmpty()) {
                 "completed" -> {
                     val data = json["data"]
                     val sources = (collectSources(data) + collectSources(json["sources"])).distinctBy { it.url }
                     if (sources.isNotEmpty()) emit(ResearchEvent.Sources(sources))
+                    val empty = data == null || (data is String && data.isBlank())
+                    step(
+                        STEP_PROVIDER,
+                        if (empty) collectLabel else "Collected data",
+                        if (empty) ResearchStep.STATE_FAILED else ResearchStep.STATE_DONE,
+                        ResearchStep.KIND_READ,
+                        detail = if (empty) "no data" else "${sources.size} sources",
+                        sourceUrls = sources.map { it.url },
+                    )
                     when (data) {
                         is String -> if (data.isBlank()) emit(ResearchEvent.Failed("The data agent returned no data.")) else emit(ResearchEvent.Report(data))
                         null -> emit(ResearchEvent.Failed("The data agent returned no data."))
@@ -365,12 +495,14 @@ class DeepResearchEngine(
                     return
                 }
                 "failed", "cancelled", "error" -> {
+                    step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_READ)
                     emit(ResearchEvent.Failed("The data agent failed."))
                     return
                 }
                 else -> Unit
             }
         }
+        step(STEP_PROVIDER, collectLabel, ResearchStep.STATE_FAILED, ResearchStep.KIND_READ, detail = "timed out")
         emit(ResearchEvent.Failed("The data agent timed out."))
     }
 
@@ -423,11 +555,16 @@ class DeepResearchEngine(
         val resumedSources = ResearchJson.sourcesFromJson(existing?.sourcesJson)
         if (existing != null && resumedSources.isNotEmpty() && existing.report.isNullOrBlank()) {
             emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
+            step(
+                STEP_SYNTHESIZE, "Writing the report", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SYNTHESIZE,
+                detail = "${resumedSources.size} sources",
+            )
             emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, resumedSources, attachment)))
             return
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_PLANNING, "Planning the research…"))
+        step(STEP_PLAN, "Planning the research", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_PLAN)
         val planningPrompt = if (attachment != null) {
             "User research request: $topic\n\nUse the attached PDF as primary context while planning the research."
         } else topic
@@ -440,19 +577,48 @@ class DeepResearchEngine(
         )
         val steps = parsePlan(planRaw, config.maxSearches)
         if (steps.isEmpty()) {
+            step(STEP_PLAN, "Planning the research", ResearchStep.STATE_FAILED, ResearchStep.KIND_PLAN, detail = "no plan")
             emit(ResearchEvent.Failed("The model did not produce a research plan. Try rephrasing your question."))
             return
         }
         emit(ResearchEvent.Plan(steps))
+        step(
+            STEP_PLAN, "Planned the research", ResearchStep.STATE_DONE, ResearchStep.KIND_PLAN,
+            detail = "${steps.size} question${if (steps.size == 1) "" else "s"}",
+        )
+
+        // Seed the whole plan as pending rows in one write, so the timeline shows where the run
+        // is going rather than growing a line at a time.
+        emit(
+            ResearchEvent.Steps(
+                steps.mapIndexed { i, question ->
+                    ResearchStep(
+                        id = searchStepId(i),
+                        kind = ResearchStep.KIND_SEARCH,
+                        label = question,
+                        state = ResearchStep.STATE_PENDING,
+                    )
+                }
+            )
+        )
 
         val perSearch = (config.maxSources / steps.size).coerceIn(3, 10)
         val gathered = LinkedHashMap<String, SearchSource>()
-        steps.forEachIndexed { i, step ->
+        steps.forEachIndexed { i, question ->
             emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Searching ${i + 1} of ${steps.size}", i, steps.size))
+            step(searchStepId(i), question, ResearchStep.STATE_ACTIVE)
             val found = try {
-                webSearchService.search(searchProvider, searchKey, step, perSearch)
+                webSearchService.search(searchProvider, searchKey, question, perSearch)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                emptyList()
+                // A dead provider key used to vanish into an empty result set and read as a
+                // question that simply found nothing. Say what actually happened.
+                step(
+                    searchStepId(i), question, ResearchStep.STATE_FAILED,
+                    detail = e.message?.take(60) ?: "search failed",
+                )
+                return@forEachIndexed
             }
             val added = mutableListOf<SearchSource>()
             found.forEach { source ->
@@ -462,6 +628,11 @@ class DeepResearchEngine(
                 }
             }
             if (added.isNotEmpty()) emit(ResearchEvent.Sources(added))
+            step(
+                searchStepId(i), question, ResearchStep.STATE_DONE,
+                detail = "${added.size} source${if (added.size == 1) "" else "s"}",
+                sourceUrls = added.map { it.url },
+            )
         }
         emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Reviewed ${gathered.size} sources", steps.size, steps.size))
 
@@ -471,6 +642,10 @@ class DeepResearchEngine(
         }
 
         emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
+        step(
+            STEP_SYNTHESIZE, "Writing the report", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SYNTHESIZE,
+            detail = "${gathered.size} sources",
+        )
         emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, gathered.values.toList(), attachment)))
     }
 
@@ -546,5 +721,14 @@ class DeepResearchEngine(
     companion object {
         private const val POLL_INTERVAL_MS = 5000L
         private const val EXA_AGENT_BETA = "agent-2026-05-07"
+
+        // Stable timeline step ids. They must not change between an interrupted run and its
+        // resume, or the same stage would appear twice in the persisted timeline.
+        internal const val STEP_PLAN = "plan"
+        internal const val STEP_SYNTHESIZE = "synthesize"
+        internal const val STEP_PROVIDER = "provider"
+
+        internal fun searchStepId(index: Int): String = "search-$index"
+        internal fun activityStepId(index: Int): String = "activity-$index"
     }
 }
