@@ -138,6 +138,11 @@ class DeepResearchForegroundService : Service() {
                     )
                 }
                 is ResearchEvent.Steps -> {
+                    // A re-planned run resets the kinds it is about to re-seed, so rows from the
+                    // abandoned plan can't linger as phantom pending steps.
+                    if (event.replaceKinds.isNotEmpty()) {
+                        timeline.entries.removeAll { it.value.kind in event.replaceKinds }
+                    }
                     event.steps.forEach { incoming ->
                         val existing = timeline[incoming.id]
                         timeline[incoming.id] = if (existing == null) incoming else incoming.copy(
@@ -244,8 +249,10 @@ class DeepResearchForegroundService : Service() {
         structured: Boolean,
     ) {
         val citations = sources.distinctBy { it.url }.map { Citation(it.title, it.url) }
-        val timeline = closedTimeline(run)
+        // One timestamp for the closed steps, the message, the chat bump and the run, so the
+        // steps can't end fractionally before the run they belong to.
         val finishedAt = now()
+        val timeline = closedTimeline(run, ResearchStep.STATE_DONE, finishedAt)
         val segments = if (run.usesLegacyUi) {
             val planSteps = ResearchJson.stepsFromJson(run.planJson)
             buildList {
@@ -302,9 +309,7 @@ class DeepResearchForegroundService : Service() {
         val run = db.researchRunDao().getById(runId) ?: return
         if (run.isTerminal) return
         val failedAt = now()
-        val timeline = ResearchJson.timelineFromJson(run.stepsJson).map {
-            if (it.isTerminal) it else it.copy(state = ResearchStep.STATE_FAILED, endedAt = failedAt)
-        }
+        val timeline = closedTimeline(run, ResearchStep.STATE_FAILED, failedAt)
         var messageId: String? = null
         if (run.usesLegacyUi) {
             writeNote(run.chatId, "⚠️ Deep Research couldn't finish: $message")
@@ -353,21 +358,37 @@ class DeepResearchForegroundService : Service() {
         )
     }
 
-    /** Any step still running when the answer lands is finished by definition. */
-    private fun closedTimeline(run: ResearchRun): List<ResearchStep> {
-        val finishedAt = now()
-        return ResearchJson.timelineFromJson(run.stepsJson).map {
-            if (it.isTerminal) it else it.copy(state = ResearchStep.STATE_DONE, endedAt = finishedAt)
-        }
-    }
+    /**
+     * Close out a timeline when the run reaches a terminal status.
+     *
+     * A step that was running is resolved to [state]. A step that was still *pending* never ran at
+     * all, so it is dropped rather than closed — marking an unstarted sub-question "done" would
+     * put work in the workspace's Steps tab that the run never did.
+     */
+    private fun closedTimeline(run: ResearchRun, state: String, closedAt: Long): List<ResearchStep> =
+        ResearchJson.timelineFromJson(run.stepsJson)
+            .filter { it.isTerminal || it.state != ResearchStep.STATE_PENDING }
+            .map { if (it.isTerminal) it else it.copy(state = state, endedAt = closedAt) }
 
     private fun cancelRun(runId: String) {
         jobs.remove(runId)?.cancel()
         scope.launch {
             val run = db.researchRunDao().getById(runId)
             if (run != null && !run.isTerminal) {
+                // Close the timeline too, or the step that was mid-flight keeps its spinner
+                // forever on a run the user already stopped.
+                val cancelledAt = now()
                 writeNote(run.chatId, "🛑 Deep Research was cancelled.")
-                persist(run.copy(status = ResearchRun.STATUS_CANCELLED, phase = "Cancelled", updatedAt = now()))
+                persist(
+                    run.copy(
+                        status = ResearchRun.STATUS_CANCELLED,
+                        phase = "Cancelled",
+                        stepsJson = ResearchJson.timelineToJson(
+                            closedTimeline(run, ResearchStep.STATE_FAILED, cancelledAt)
+                        ),
+                        updatedAt = cancelledAt,
+                    )
+                )
             }
             stopIfIdle()
         }

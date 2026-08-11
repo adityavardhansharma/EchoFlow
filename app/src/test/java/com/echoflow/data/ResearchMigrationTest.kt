@@ -29,7 +29,14 @@ class ResearchMigrationTest {
     private lateinit var helper: SupportSQLiteOpenHelper
     private lateinit var db: SupportSQLiteDatabase
 
-    /** `research_runs` exactly as v20 declared it — the shape a shipped install would hold. */
+    /**
+     * `research_runs` as of v20.
+     *
+     * A **name-equivalent, not byte-equivalent** reconstruction: the shipped table is built by
+     * MIGRATION_4_5 and then extended by MIGRATION_5_6 and MIGRATION_8_9, so the real column order
+     * differs and `maxCredits` carries a DEFAULT 2500. Neither matters for what is under test here
+     * (the assertions select by name), but don't treat this as the authoritative v20 shape.
+     */
     private val createV20 = """
         CREATE TABLE IF NOT EXISTS research_runs (
             id TEXT NOT NULL PRIMARY KEY,

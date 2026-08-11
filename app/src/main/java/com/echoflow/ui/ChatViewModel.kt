@@ -14,6 +14,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -516,9 +517,18 @@ class ChatViewModel(
     private val _researchWorkspace = MutableStateFlow<ResearchWorkspaceState?>(null)
     val researchWorkspace: StateFlow<ResearchWorkspaceState?> = _researchWorkspace.asStateFlow()
 
+    /**
+     * Only the newest open request may publish. Two cards tapped in quick succession each suspend
+     * on the DAO, and without this the first query to return last would win and the workspace
+     * would show the wrong report.
+     */
+    private var researchWorkspaceJob: Job? = null
+
     fun openResearchWorkspace(research: ResearchRef) {
-        viewModelScope.launch {
+        researchWorkspaceJob?.cancel()
+        researchWorkspaceJob = viewModelScope.launch {
             val run = researchRunDao.getById(research.runId)
+            ensureActive()
             _researchWorkspace.value = ResearchWorkspaceState(
                 research = research,
                 steps = ResearchJson.timelineFromJson(run?.stepsJson),
@@ -527,7 +537,10 @@ class ChatViewModel(
         }
     }
 
-    fun closeResearchWorkspace() { _researchWorkspace.value = null }
+    fun closeResearchWorkspace() {
+        researchWorkspaceJob?.cancel()
+        _researchWorkspace.value = null
+    }
 
     /** The run behind a persisted research segment, for the card's step list and favicon stack. */
     fun observeResearchRun(runId: String): Flow<ResearchRun?> = researchRunDao.observeById(runId)
@@ -544,13 +557,11 @@ class ChatViewModel(
                 _errorMessage.value = "That research run is no longer available to retry."
                 return@launch
             }
-            if (currentResearchRun.value != null) {
-                _errorMessage.value = "A run is already in progress in this chat."
-                return@launch
-            }
             val now = System.currentTimeMillis()
             val runId = UUID.randomUUID().toString()
-            researchRunDao.upsert(
+            // The idle check and the insert share a transaction: two taps could otherwise both
+            // pass a pre-check and start two foreground services for one conversation.
+            val started = researchRunDao.insertIfChatIdle(
                 previous.copy(
                     id = runId,
                     status = ResearchRun.STATUS_QUEUED,
@@ -570,6 +581,10 @@ class ChatViewModel(
                     updatedAt = now,
                 )
             )
+            if (!started) {
+                _errorMessage.value = "A run is already in progress in this chat."
+                return@launch
+            }
             DeepResearchForegroundService.start(getApplication(), runId)
         }
     }

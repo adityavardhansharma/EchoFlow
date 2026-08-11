@@ -273,6 +273,23 @@ interface ResearchRunDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(run: ResearchRun)
 
+    @Query("SELECT COUNT(*) FROM research_runs WHERE chatId = :chatId AND status NOT IN ('completed','failed','cancelled')")
+    suspend fun countActiveForChat(chatId: String): Int
+
+    /**
+     * Insert [run] only if its chat has nothing in flight, returning whether it was inserted.
+     *
+     * Checking the observed run flow and then inserting is not enough: two taps can both pass the
+     * check before either write becomes visible, which would start two foreground services for
+     * one conversation. Doing both inside one transaction is what makes the guard hold.
+     */
+    @Transaction
+    suspend fun insertIfChatIdle(run: ResearchRun): Boolean {
+        if (countActiveForChat(run.chatId) > 0) return false
+        upsert(run)
+        return true
+    }
+
     @Query("DELETE FROM research_runs WHERE id = :id")
     suspend fun delete(id: String)
 }

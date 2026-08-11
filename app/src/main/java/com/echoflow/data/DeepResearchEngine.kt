@@ -211,11 +211,13 @@ class DeepResearchEngine(
         // Parallel narrates itself over SSE. Consume that first for the timeline, then fall
         // through to polling for the terminal state and result. Strictly an enhancement: any
         // failure here leaves the run exactly as it behaves without it.
+        // True once a real per-step feed has taken over, so the generic placeholder row stops
+        // being refreshed as active underneath the steps that replaced it.
+        var feedTookOver = false
         if (config.provider == "parallel") {
             try {
                 streamParallelEvents(apiKey, jobId)
-                // The feed carried the run; the placeholder row would otherwise sit spinning
-                // underneath the real steps forever.
+                feedTookOver = true
                 step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -237,9 +239,18 @@ class DeepResearchEngine(
                     result.label?.let { emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, it)) }
                     // Firecrawl reports an activity feed; everything else can only refresh the
                     // one running step's detail line.
-                    if (result.steps.isNotEmpty()) emit(ResearchEvent.Steps(result.steps))
-                    else result.label?.let {
-                        step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = it)
+                    if (result.steps.isNotEmpty()) {
+                        // The feed supersedes the placeholder, which would otherwise sit spinning
+                        // beside the very rows meant to replace it for the rest of the run.
+                        if (!feedTookOver) {
+                            feedTookOver = true
+                            step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_DONE, ResearchStep.KIND_ANALYZE)
+                        }
+                        emit(ResearchEvent.Steps(result.steps))
+                    } else if (!feedTookOver) {
+                        result.label?.let {
+                            step(STEP_PROVIDER, runningLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = it)
+                        }
                     }
                 }
                 is PollResult.Done -> {
@@ -512,12 +523,23 @@ class DeepResearchEngine(
         val activities = (data?.get("activities") as? List<*>) ?: return emptyList()
         val entries = activities.filterIsInstance<Map<*, *>>()
         if (entries.isEmpty()) return emptyList()
+        // These bypass step(), so they have to stamp their own times — the service only ever
+        // preserves an existing non-zero startedAt, so a zero here would never be repaired and the
+        // workspace could not show a duration for any Firecrawl step.
+        val now = System.currentTimeMillis()
         return entries.mapIndexedNotNull { index, entry ->
             val label = (entry["message"] as? String)?.takeIf { it.isNotBlank() }
                 ?: (entry["type"] as? String)?.takeIf { it.isNotBlank() }
                 ?: return@mapIndexedNotNull null
             val last = index == entries.lastIndex
             val status = (entry["status"] as? String).orEmpty()
+            val state = when {
+                status.equals("error", true) || status.equals("failed", true) -> ResearchStep.STATE_FAILED
+                status.equals("complete", true) || status.equals("completed", true) -> ResearchStep.STATE_DONE
+                last -> ResearchStep.STATE_ACTIVE
+                // The feed is append-only, so anything behind the newest entry is finished.
+                else -> ResearchStep.STATE_DONE
+            }
             ResearchStep(
                 id = activityStepId(index),
                 kind = when (entry["type"] as? String) {
@@ -526,14 +548,10 @@ class DeepResearchEngine(
                     else -> ResearchStep.KIND_ANALYZE
                 },
                 label = label,
-                state = when {
-                    status.equals("error", true) || status.equals("failed", true) -> ResearchStep.STATE_FAILED
-                    status.equals("complete", true) || status.equals("completed", true) -> ResearchStep.STATE_DONE
-                    last -> ResearchStep.STATE_ACTIVE
-                    // The feed is append-only, so anything behind the newest entry is finished.
-                    else -> ResearchStep.STATE_DONE
-                },
+                state = state,
                 detail = (entry["depth"] as? Double)?.toInt()?.let { "depth $it" },
+                startedAt = now,
+                endedAt = if (state == ResearchStep.STATE_ACTIVE) null else now,
             )
         }
     }
@@ -585,7 +603,9 @@ class DeepResearchEngine(
             delay(POLL_INTERVAL_MS)
             val json = get("https://api.exa.ai/agent/runs/$jobId", headers, "Exa")
             (json["costDollars"] as? Double)?.let {
-                val cost = "$" + "%.2f".format(it)
+                // Locale.US to match the hardcoded "$": on a comma-decimal locale the default
+                // would render "$0,12".
+                val cost = "$" + "%.2f".format(java.util.Locale.US, it)
                 emit(ResearchEvent.Cost(cost))
                 step(STEP_PROVIDER, agentLabel, ResearchStep.STATE_ACTIVE, ResearchStep.KIND_ANALYZE, detail = cost)
             }
@@ -877,16 +897,22 @@ class DeepResearchEngine(
 
         // Seed the whole plan as pending rows in one write, so the timeline shows where the run
         // is going rather than growing a line at a time.
+        //
+        // replaceKinds drops any search rows from a previous attempt first. A run interrupted
+        // during planning re-plans on resume, and step ids are keyed by position, so without the
+        // reset a shorter new plan would leave orphaned pending rows behind and a reworded one
+        // would silently relabel rows that belonged to different questions.
         emit(
             ResearchEvent.Steps(
-                steps.mapIndexed { i, question ->
+                steps = steps.mapIndexed { i, question ->
                     ResearchStep(
                         id = searchStepId(i),
                         kind = ResearchStep.KIND_SEARCH,
                         label = question,
                         state = ResearchStep.STATE_PENDING,
                     )
-                }
+                },
+                replaceKinds = setOf(ResearchStep.KIND_SEARCH),
             )
         )
 

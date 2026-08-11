@@ -30,10 +30,19 @@ sealed class ResearchEvent {
      * to resolve it. Carries a list so an engine can seed a whole plan (all rows pending) in one
      * write instead of one Room round-trip per sub-question.
      *
+     * [replaceKinds] drops every existing step of those kinds before the upsert. This is what
+     * makes re-planning safe: a run interrupted before any source landed re-plans on resume, and
+     * the new plan can be shorter or worded differently. Without the reset, rows from the old plan
+     * would linger — pending sub-questions that were never searched, later closed out as though
+     * they had been, or existing rows silently relabelled because ids are keyed by position.
+     *
      * [Phase] is still emitted alongside this: the foreground notification needs a single line,
      * and legacy runs resuming across the update render from `phase` alone.
      */
-    data class Steps(val steps: List<ResearchStep>) : ResearchEvent()
+    data class Steps(
+        val steps: List<ResearchStep>,
+        val replaceKinds: Set<String> = emptySet(),
+    ) : ResearchEvent()
 
     /** Newly discovered sources to merge into the accumulated set. */
     data class Sources(val sources: List<SearchSource>) : ResearchEvent()

@@ -4,6 +4,8 @@ package com.echoflow.ui.components
 
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -80,6 +82,15 @@ private fun openInBrowser(context: android.content.Context, url: String) {
 
 /** A step paired with its position in the full run, so folding a prefix doesn't renumber rows. */
 private data class NumberedStep(val step: ResearchStep, val ordinal: Int)
+
+// Every disclosure in this feature — step capsules, the result card's provenance, the workspace
+// slide-up — reveals through the same pair, collapsing to an instant cut under reduced motion so
+// the whole surface degrades to stillness rather than only its entry animation doing so.
+private fun researchRevealEnter(reducedMotion: Boolean): EnterTransition =
+    if (reducedMotion) fadeIn(tween(0)) else expandVertically(tween(300)) + fadeIn(tween(200))
+
+private fun researchRevealExit(reducedMotion: Boolean): ExitTransition =
+    if (reducedMotion) fadeOut(tween(0)) else shrinkVertically(tween(240)) + fadeOut(tween(120))
 
 internal fun formatResearchDuration(millis: Long): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0)
@@ -258,12 +269,17 @@ private fun ResearchCapsule(
     container: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
     content: @Composable () -> Unit = {},
 ) {
+    val reducedMotion = rememberReducedMotion()
     val radius by animateDpAsState(
         targetValue = if (expanded) 14.dp else 22.dp,
-        animationSpec = tween(300),
+        animationSpec = tween(if (reducedMotion) 0 else 300),
         label = "capsule-radius",
     )
-    val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "capsule-chevron")
+    val chevron by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(if (reducedMotion) 0 else 300),
+        label = "capsule-chevron",
+    )
 
     Surface(
         shape = RoundedCornerShape(radius),
@@ -310,8 +326,8 @@ private fun ResearchCapsule(
             }
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(tween(300)) + fadeIn(tween(200)),
-                exit = shrinkVertically(tween(240)) + fadeOut(tween(120)),
+                enter = researchRevealEnter(reducedMotion),
+                exit = researchRevealExit(reducedMotion),
             ) {
                 Row(
                     Modifier
@@ -469,6 +485,7 @@ fun ResearchResultCard(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val reducedMotion = rememberReducedMotion()
     var showSteps by remember(research.runId) { mutableStateOf(false) }
     val failed = research.error != null
     val container = if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
@@ -483,7 +500,11 @@ fun ResearchResultCard(
             research.costInfo?.takeIf { it.isNotBlank() }?.let { add(it) }
         }.joinToString(" · ")
     }
-    val chevron by animateFloatAsState(if (showSteps) 180f else 0f, label = "result-chevron")
+    val chevron by animateFloatAsState(
+        targetValue = if (showSteps) 180f else 0f,
+        animationSpec = tween(if (reducedMotion) 0 else 300),
+        label = "result-chevron",
+    )
 
     Surface(
         shape = RoundedCornerShape(22.dp),
@@ -563,8 +584,8 @@ fun ResearchResultCard(
 
             AnimatedVisibility(
                 visible = showSteps,
-                enter = expandVertically(tween(300)) + fadeIn(tween(200)),
-                exit = shrinkVertically(tween(240)) + fadeOut(tween(120)),
+                enter = researchRevealEnter(reducedMotion),
+                exit = researchRevealExit(reducedMotion),
             ) {
                 Column(
                     Modifier.padding(start = Spacing.m, end = Spacing.m, bottom = Spacing.m),

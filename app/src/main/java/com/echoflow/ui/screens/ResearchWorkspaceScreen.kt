@@ -44,6 +44,7 @@ import com.echoflow.ui.ResearchWorkspaceState
 import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.theme.JetBrainsMono
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberReducedMotion
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -72,11 +73,13 @@ fun ResearchWorkspaceScreen(
 
     var tab by remember(workspace.research.runId) { mutableStateOf(ResearchTab.REPORT) }
 
+    // Slide up on open, but cut straight in when the user has asked for no animations.
+    val reducedMotion = rememberReducedMotion()
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appeared = true }
     val openProgress by animateFloatAsState(
         targetValue = if (appeared) 1f else 0f,
-        animationSpec = tween(durationMillis = 320),
+        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 320),
         label = "research-open",
     )
 
@@ -84,7 +87,7 @@ fun ResearchWorkspaceScreen(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
-                translationY = (1f - openProgress) * size.height
+                translationY = if (reducedMotion) 0f else (1f - openProgress) * size.height
                 alpha = openProgress
             },
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
