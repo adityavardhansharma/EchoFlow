@@ -606,7 +606,13 @@ class OpenRouterService(private val context: Context) {
                 throw Exception(
                     "Echo Fusion did not run your panel. Try again — multi-model deliberation is required in this mode.",
                 )
-            } else if (!analysis.hasUsableDetail) {
+            } else if (analysis.hasUsableDetail || analysis.detailUnparsed) {
+                // Panel ran (or at least was invoked) but neither the tool turn nor the
+                // no-tools synthesis produced a final answer.
+                throw Exception(
+                    "Echo Fusion finished the panel but returned no final answer. Try again.",
+                )
+            } else {
                 throw Exception("No response content received from Echo Fusion.")
             }
             return@flow
@@ -696,19 +702,22 @@ class OpenRouterService(private val context: Context) {
             ),
         )
         val parsed = preferredFusionFrom(response)
-
-        val deliberationSkipped = parsed == null
+        // Distinguish "never called fusion" from "called fusion but we couldn't decode the body".
+        val fusionInvoked = parsed != null ||
+            OpenRouterEchoDecoder.responseMentionsFusionInvocation(response)
+        val deliberationSkipped = !fusionInvoked
         val analysis = (parsed ?: FusionAnalysis(
             panelName = fusion.panelName,
             judgeModel = fusion.judge,
             models = fusion.models,
             toolResultFound = false,
-            deliberationSkipped = true,
+            deliberationSkipped = deliberationSkipped,
         )).copy(
             panelName = fusion.panelName,
             judgeModel = fusion.judge ?: parsed?.judgeModel,
             models = fusion.models.ifEmpty { parsed?.models ?: emptyList() },
             toolResultFound = parsed != null,
+            // Only a true skip when there is no evidence the tool was requested/returned.
             deliberationSkipped = deliberationSkipped,
         )
 
@@ -719,8 +728,9 @@ class OpenRouterService(private val context: Context) {
             ?: (message?.get("reasoning_content") as? String)).orEmpty().trim()
         var annotations = message?.get("annotations") as? List<*>
 
-        // Panel ran but no user-facing answer (common when the model only emitted the tool result).
-        // Synthesize from the panel result with tools disabled so fusion cannot be invoked again.
+        // Panel detail available but no user-facing answer (common when the model only emitted
+        // the tool result, or after a capped second fusion call left content empty).
+        // Synthesize with tools disabled so fusion cannot be invoked again.
         if (answer.isBlank() && analysis.hasUsableDetail) {
             val synth = postForResponse(
                 apiKey,

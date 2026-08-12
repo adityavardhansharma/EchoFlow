@@ -129,6 +129,47 @@ internal object OpenRouterEchoDecoder {
         return results.firstOrNull()
     }
 
+    /**
+     * True when the response tree shows the outer model requested fusion (tool call name /
+     * type contains "fusion"), even if we cannot decode the tool result body. Used to avoid
+     * labeling an unparsed success as "panel did not run".
+     */
+    fun responseMentionsFusionInvocation(node: Any?, depth: Int = 0): Boolean {
+        if (depth > 10) return false
+        when (node) {
+            is Map<*, *> -> {
+                val type = (node["type"] as? String).orEmpty()
+                val name = (node["name"] as? String)
+                    ?: ((node["function"] as? Map<*, *>)?.get("name") as? String).orEmpty()
+                if (type.contains("fusion", ignoreCase = true) || name.contains("fusion", ignoreCase = true)) {
+                    return true
+                }
+                // tool_calls arrays often sit under message
+                (node["tool_calls"] as? List<*>)?.let { list ->
+                    if (list.any { responseMentionsFusionInvocation(it, depth + 1) }) return true
+                }
+                for (v in node.values) {
+                    if (responseMentionsFusionInvocation(v, depth + 1)) return true
+                }
+            }
+            is List<*> -> for (v in node) {
+                if (responseMentionsFusionInvocation(v, depth + 1)) return true
+            }
+            is String -> if (node.contains("fusion", ignoreCase = true) &&
+                (node.contains("openrouter", ignoreCase = true) || node.contains("tool", ignoreCase = true))
+            ) {
+                // Avoid matching random prose; require tool-ish context.
+                if (node.contains("openrouter:fusion") ||
+                    node.contains("openrouter_fusion") ||
+                    node.contains("\"fusion\"")
+                ) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     fun buildFusionAnalysis(result: Map<*, *>): FusionAnalysis {
         val analysis = result["analysis"] as? Map<*, *>
         fun strList(key: String): List<String> =

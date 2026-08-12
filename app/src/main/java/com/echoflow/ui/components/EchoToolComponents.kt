@@ -397,14 +397,17 @@ fun FusionCard(
 ) {
     val reducedMotion = rememberReducedMotion()
     val roster = (analysis?.models?.takeIf { it.isNotEmpty() } ?: models).ifEmpty { models }
-    // Hard fail: tool ran and reported model failures. Skip: user asked for fusion but panel never ran.
+    // Hard fail: tool ran and reported model failures.
+    // Skip: fusion was never invoked. Unparsed: invoked but structured body not decoded.
     val panelFailed = analysis?.isHardFailure == true
     val panelDidNotRun = analysis?.panelDidNotRun == true
+    val detailUnparsed = analysis?.detailUnparsed == true
     val processLive = active || (analysis != null && isStreaming && !answerStarted)
 
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
-    // Stay open when deliberation was skipped so the user sees the disclosure, not a quiet success.
-    val expanded = userToggled ?: (processLive || (panelDidNotRun && !answerStarted))
+    // Stay open when we must disclose skip / unparsed so it is not a quiet "success".
+    val expanded = userToggled
+        ?: (processLive || ((panelDidNotRun || detailUnparsed) && !answerStarted))
     val chevron by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(if (reducedMotion) 0 else 300),
@@ -436,11 +439,13 @@ fun FusionCard(
         panelActive -> FusionStepState.Active
         analysis == null -> FusionStepState.Pending
         panelFailed || panelDidNotRun -> FusionStepState.Failed
+        detailUnparsed -> FusionStepState.Done // ran; detail missing — not a hard fail
         else -> FusionStepState.Done
     }
     val compareState = when {
         analysis == null -> FusionStepState.Pending
         panelFailed || panelDidNotRun -> FusionStepState.Failed
+        detailUnparsed -> FusionStepState.Done
         else -> FusionStepState.Done
     }
     val mergeState = when {
@@ -457,6 +462,9 @@ fun FusionCard(
         }
         panelDidNotRun -> {
             if (panelName.isNotBlank()) "Fusion · $panelName · panel did not run" else "Fusion · panel did not run"
+        }
+        detailUnparsed -> {
+            if (panelName.isNotBlank()) "Fusion · $panelName · detail unavailable" else "Fusion · detail unavailable"
         }
         panelFailed -> {
             if (panelName.isNotBlank()) "Fusion · $panelName" else "Fusion"
@@ -544,6 +552,7 @@ fun FusionCard(
                         meta = when {
                             panelActive -> "${roster.size}"
                             panelDidNotRun -> "not invoked"
+                            detailUnparsed -> "ran · detail missing"
                             panelFailed -> {
                                 val n = analysis?.failedModels?.size ?: roster.size
                                 "$n failed"
@@ -563,6 +572,7 @@ fun FusionCard(
                             models = roster,
                             analysis = analysis,
                             panelActive = panelActive,
+                            // Only mark every model failed on hard fail or true skip — not unparsed.
                             panelFailed = panelFailed || panelDidNotRun,
                             reducedMotion = reducedMotion,
                         )
@@ -573,6 +583,7 @@ fun FusionCard(
                         state = compareState,
                         meta = when {
                             panelDidNotRun || panelFailed -> "skipped"
+                            detailUnparsed -> "unavailable"
                             analysis == null -> null
                             else -> buildString {
                                 val parts = mutableListOf<String>()
@@ -607,6 +618,13 @@ fun FusionCard(
                             "Your panel was not used — the model replied without multi-model deliberation. Try again.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = Spacing.xs),
+                        )
+                    } else if (detailUnparsed && !processLive) {
+                        Text(
+                            "The panel ran, but structured comparison detail could not be read. The answer below may still be a fusion synthesis.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = Spacing.xs),
                         )
                     }

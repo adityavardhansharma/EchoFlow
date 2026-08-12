@@ -196,9 +196,19 @@ data class FusionAnalysis(
     val isHardFailure: Boolean
         get() = toolResultFound && !hasUsableDetail && failedModels.isNotEmpty()
 
-    /** Panel never deliberated (skipped or missing tool payload). */
+    /**
+     * True only when deliberation was never invoked (not merely unparsed).
+     * Unparsed payloads keep [deliberationSkipped] false so the UI does not claim "panel did not run".
+     */
     val panelDidNotRun: Boolean
-        get() = deliberationSkipped || !toolResultFound
+        get() = deliberationSkipped
+
+    /**
+     * Fusion tool was used (or we expect it was) but we could not decode structured panel detail.
+     * Distinct from [panelDidNotRun].
+     */
+    val detailUnparsed: Boolean
+        get() = !toolResultFound && !deliberationSkipped
 }
 
 /**

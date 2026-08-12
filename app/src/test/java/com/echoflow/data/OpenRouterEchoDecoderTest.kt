@@ -80,6 +80,40 @@ class OpenRouterEchoDecoderTest {
         assertEquals(listOf("deepseek/x"), result.failedModels)
     }
 
+    @Test fun `detects fusion tool call even without parseable result body`() {
+        val tree = mapOf(
+            "choices" to listOf(
+                mapOf(
+                    "message" to mapOf(
+                        "tool_calls" to listOf(
+                            mapOf(
+                                "type" to "function",
+                                "function" to mapOf("name" to "openrouter_fusion", "arguments" to "{}"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(true, OpenRouterEchoDecoder.responseMentionsFusionInvocation(tree))
+        assertEquals(false, OpenRouterEchoDecoder.responseMentionsFusionInvocation(mapOf("content" to "hello")))
+    }
+
+    @Test fun `unparsed is not panelDidNotRun`() {
+        val unparsed = FusionAnalysis(
+            panelName = "p",
+            judgeModel = null,
+            models = listOf("a"),
+            toolResultFound = false,
+            deliberationSkipped = false,
+        )
+        assertEquals(false, unparsed.panelDidNotRun)
+        assertEquals(true, unparsed.detailUnparsed)
+        val skipped = unparsed.copy(deliberationSkipped = true)
+        assertEquals(true, skipped.panelDidNotRun)
+        assertEquals(false, skipped.detailUnparsed)
+    }
+
     @Test fun `prefers successful fusion over later capped invocation`() {
         val ok = mapOf(
             "status" to "ok",
