@@ -252,8 +252,20 @@ internal fun InputToolbar(
 
         // What this next message will be sent with: the model first, then whatever
         // capabilities are on. Always visible — the model is never implicit.
+        //
+        // Modes that take over the model pill (Adviser, Fusion, Agent, Deep Research, Data
+        // Agent — see `contextModelLabel` in ChatSurface) deliberately get *no* chip here: the
+        // pill already names them, and a second chip saying the same thing read as a duplicate.
+        // Only capabilities that ride alongside a real model (Web search, Browser Flow, Artifact)
+        // still earn a chip, because the pill keeps showing your actual model and the chip is the
+        // one signal they are on. Turning these off happens back in the "+" menu.
         ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
             ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
+            // Deep Research owns the pill; its only *extra* control is the depth/cost dial, which
+            // is a real setting rather than a redundant label, so it stays — beside the pill.
+            if (deepResearchActive && showEffortPill) {
+                EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+            }
             if (webSearchChipOn) {
                 CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
             }
@@ -262,43 +274,6 @@ internal fun InputToolbar(
             }
             if (artifactActive) {
                 CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
-            }
-            if (echoAdviserActive) {
-                CapabilityChip(
-                    Icons.Default.Psychology,
-                    advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
-                    onRemove = onToggleEchoAdviser,
-                )
-            }
-            if (echoFusionActive) {
-                CapabilityChip(
-                    Icons.Default.AccountTree,
-                    fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
-                    onRemove = onToggleEchoFusion,
-                )
-            }
-            if (echoAgentActive) {
-                CapabilityChip(
-                    Icons.Default.Hub,
-                    agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
-                    onRemove = onToggleEchoAgent,
-                )
-            }
-            if (deepResearchActive) {
-                CapabilityChip(
-                    Icons.Default.Science,
-                    researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
-                    onRemove = onToggleDeepResearch,
-                )
-                // Exa Agent's depth/cost dial lives here, not in the engine list.
-                if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
-            }
-            if (dataAgentActive) {
-                CapabilityChip(
-                    Icons.Default.Science,
-                    dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
-                    onRemove = onToggleDataAgent,
-                )
             }
         }
 
