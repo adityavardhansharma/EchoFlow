@@ -472,7 +472,6 @@ private fun SettledArtifactCard(
     modifier: Modifier = Modifier,
 ) {
     val (_, typeLabel) = artifactGlyph(artifactType)
-    val fileName = artifactFileLabel(title, typeLabel, artifactType)
 
     Surface(
         shape = RoundedCornerShape(CARD_RADIUS_DP.dp),
@@ -542,7 +541,6 @@ private fun SettledArtifactCard(
             if (deltas.isNotEmpty()) {
                 VersionChipRow(
                     deltas = deltas,
-                    fileHint = fileName,
                     modifier = Modifier.padding(start = Spacing.m, end = Spacing.m, bottom = Spacing.m),
                 )
             }
@@ -550,10 +548,13 @@ private fun SettledArtifactCard(
     }
 }
 
+/**
+ * Version history only — no filename chip. The settled header already carries the human title;
+ * repeating it as `Title-slug.html` was a leftover from the multi-file tool-chip reference.
+ */
 @Composable
 private fun VersionChipRow(
     deltas: List<VersionDelta>,
-    fileHint: String,
     modifier: Modifier = Modifier,
 ) {
     val shown = remember(deltas) { deltas.takeLast(MAX_VERSION_CHIPS) }
@@ -572,32 +573,10 @@ private fun VersionChipRow(
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             if (hidden > 0) MoreChip("+$hidden earlier")
-            FileNameChip(fileHint)
             shown.forEachIndexed { index, delta ->
                 VersionChip(delta = delta, staggerIndex = index)
             }
         }
-    }
-}
-
-@Composable
-private fun FileNameChip(name: String) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.widthIn(max = FileChipMaxWidth),
-    ) {
-        Text(
-            name,
-            Modifier
-                .padding(horizontal = Spacing.s, vertical = 5.dp)
-                .fillMaxWidth(),
-            style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
