@@ -3,7 +3,10 @@
 
 package com.echoflow.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +52,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -192,6 +197,24 @@ internal fun ChatSurface(
 
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
+
+    // Speech to text: always OpenRouter with the Cloud-models key, independent of the chat model.
+    // The mic only appears in chat once that key is present.
+    val openRouterKey by settingsViewModel.apiKey.collectAsState()
+    val sttCloudModelId by settingsViewModel.sttCloudModel.collectAsState()
+    val voice = rememberVoiceInputController()
+    val voiceAmplitude by voice.amplitude.collectAsState()
+    val sttAvailable = openRouterKey.isNotBlank()
+    val sttContext = LocalContext.current
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) voice.startRecording() }
+    LaunchedEffect(voice.error) {
+        voice.error?.let {
+            Toast.makeText(sttContext, it, Toast.LENGTH_SHORT).show()
+            voice.clearError()
+        }
+    }
 
     val drEngineLabel = remember(drModelId, drModels) {
         DeepResearchCatalog.providerEngineById(drModelId)?.name
@@ -487,6 +510,27 @@ internal fun ChatSurface(
                 chatViewModel.stopStreaming()
                 if (researchRun != null) chatViewModel.cancelResearch()
             },
+            sttAvailable = sttAvailable,
+            voicePhase = voice.phase,
+            voiceAmplitude = voiceAmplitude,
+            onMicTap = {
+                when (voice.phase) {
+                    VoicePhase.Idle -> {
+                        val granted = ContextCompat.checkSelfPermission(
+                            sttContext, Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) voice.startRecording()
+                        else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                    VoicePhase.Recording -> voice.stopAndTranscribe(openRouterKey, sttCloudModelId) { transcript ->
+                        // Append at the end of whatever is already in the box.
+                        textInput = if (textInput.isBlank()) transcript
+                        else textInput.trimEnd() + " " + transcript
+                    }
+                    VoicePhase.Transcribing -> {}
+                }
+            },
+            onCancelTranscribe = { voice.cancel() },
         )
         }
 
