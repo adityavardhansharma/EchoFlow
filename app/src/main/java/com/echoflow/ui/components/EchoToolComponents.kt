@@ -401,10 +401,13 @@ fun FusionCard(
 ) {
     val reducedMotion = rememberReducedMotion()
     val roster = analysis?.models?.takeIf { it.isNotEmpty() } ?: models
-    // Resolved with nothing usable: every panel model failed or returned empty. Do not claim
-    // "writing final answer" — there is nothing for the judge to synthesize from.
-    val panelFailed = analysis != null && analysis.responses.isEmpty()
-    // Live process: panel waiting, or tool returned useful output and final answer not on screen yet.
+    // Total failure only when there is nothing usable at all: no raw panel answers AND no
+    // structured comparison. OpenRouter can return analysis without a responses[] list — that
+    // is still a successful fusion and must not be painted as "Panel could not respond".
+    val panelFailed = analysis != null &&
+        analysis.responses.isEmpty() &&
+        analysis.isEmpty
+    // Live process: panel waiting, or tool returned and final answer not on screen yet.
     // Total panel failure stays open while the turn is still streaming so the user sees the fail
     // state, but never enters the answer-writing phase.
     val processLive = active || (analysis != null && isStreaming && !answerStarted)
@@ -485,11 +488,16 @@ fun FusionCard(
     val panelMeta = when (panelState) {
         FusionStepState.Active -> "${roster.size} model${if (roster.size == 1) "" else "s"}"
         FusionStepState.Done -> {
-            val returned = analysis?.responses?.size ?: roster.size
+            val returned = analysis?.responses?.size ?: 0
             val failed = analysis?.failedModels?.size ?: 0
-            buildString {
-                append("$returned returned")
-                if (failed > 0) append(" · $failed failed")
+            when {
+                returned > 0 -> buildString {
+                    append("$returned returned")
+                    if (failed > 0) append(" · $failed failed")
+                }
+                // Structured analysis without raw responses — still a successful panel pass.
+                analysis != null && !analysis.isEmpty -> "${roster.size} model${if (roster.size == 1) "" else "s"}"
+                else -> null
             }
         }
         FusionStepState.Failed -> {
@@ -506,7 +514,7 @@ fun FusionCard(
                 val parts = mutableListOf<String>()
                 if (a.consensus.isNotEmpty()) parts += "${a.consensus.size} agreed"
                 if (a.contradictions.isNotEmpty()) parts += "${a.contradictions.size} disagreed"
-                if (parts.isEmpty() && a.responses.isNotEmpty()) parts += "compared"
+                if (parts.isEmpty() && (!a.isEmpty || a.responses.isNotEmpty())) parts += "compared"
                 append(parts.joinToString(" · "))
             }.takeIf { it.isNotBlank() }
         }
@@ -600,7 +608,10 @@ fun FusionCard(
                         FusionModelChips(
                             models = roster,
                             failed = analysis?.failedModels.orEmpty(),
-                            resolved = analysis != null,
+                            // Only mark chips resolved when we have per-model outcomes or a
+                            // confirmed total failure — not when we only have aggregate analysis.
+                            resolved = analysis != null &&
+                                (analysis.responses.isNotEmpty() || analysis.failedModels.isNotEmpty() || panelFailed),
                             allFailed = panelFailed,
                         )
                     }
@@ -610,7 +621,9 @@ fun FusionCard(
                         meta = compareMeta,
                         reducedMotion = reducedMotion,
                     )
-                    if (analysis != null && !analysis.isEmpty && !panelFailed) {
+                    // Count chips whenever structured comparison exists (even if raw responses
+                    // were omitted from the tool payload).
+                    if (analysis != null && !analysis.isEmpty) {
                         FusionCountChips(analysis)
                     }
                     FusionProcessStep(
