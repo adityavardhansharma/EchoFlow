@@ -512,6 +512,14 @@ class ChatViewModel(
     private val _artifactInitialVersion = MutableStateFlow<Int?>(null)
     val artifactInitialVersion: StateFlow<Int?> = _artifactInitialVersion.asStateFlow()
 
+    /**
+     * Bumped on every successful open so the workspace can re-seed its local selection even when
+     * the same lineage id is opened again at a different version. Keying Compose state on artifact
+     * id alone left [selectedVersion] sticky across close → reopen of another card in the lineage.
+     */
+    private val _workspaceOpenSession = MutableStateFlow(0)
+    val workspaceOpenSession: StateFlow<Int> = _workspaceOpenSession.asStateFlow()
+
     /** The open workspace's lineage row (title, type, currentVersion). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val workspaceArtifact: StateFlow<Artifact?> = _workspaceArtifactId
@@ -544,6 +552,7 @@ class ChatViewModel(
             if (artifactManager.getById(artifactId) == null) return@launch
             _workspaceArtifactId.value = artifactId
             _artifactInitialVersion.value = targetVersion
+            _workspaceOpenSession.value = _workspaceOpenSession.value + 1
             _artifactWorkspaceOpen.value = true
         }
     }

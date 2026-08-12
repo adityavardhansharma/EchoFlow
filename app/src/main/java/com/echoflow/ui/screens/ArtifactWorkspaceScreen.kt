@@ -106,15 +106,18 @@ fun ArtifactWorkspaceScreen(
     var mode by remember { mutableStateOf(ArtifactViewMode.PREVIEW) }
     // Open at the version of the card that was tapped (a scrolled-back card represents an older
     // version), falling back to that lineage's latest when the open request omitted a version.
+    // Key selection on the open *session*, not just lineage id: reopening the same artifact from
+    // a different card (v2 → close → v1) must re-seed, and id alone would keep the prior version.
     val requestedVersion by chatViewModel.artifactInitialVersion.collectAsState()
-    var selectedVersion by remember(a.id) {
+    val openSession by chatViewModel.workspaceOpenSession.collectAsState()
+    var selectedVersion by remember(openSession) {
         mutableIntStateOf((requestedVersion ?: a.currentVersion).coerceIn(1, a.currentVersion))
     }
     // Follow a genuinely newer version as it streams in — but only if the user was viewing the
     // previously-latest. Tracking the last-seen version (rather than testing currentVersion - 1)
     // keeps a deliberately-opened older version pinned instead of snapping it to the newest.
-    var lastKnownVersion by remember(a.id) { mutableIntStateOf(a.currentVersion) }
-    LaunchedEffect(a.currentVersion) {
+    var lastKnownVersion by remember(openSession) { mutableIntStateOf(a.currentVersion) }
+    LaunchedEffect(openSession, a.currentVersion) {
         if (a.currentVersion > lastKnownVersion && selectedVersion == lastKnownVersion) {
             selectedVersion = a.currentVersion
         }
