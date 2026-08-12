@@ -313,11 +313,18 @@ internal fun StreamingAssistantBubble(
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Fusion -> {
+                        // Collapse the process shell once final answer text appears after this
+                        // segment — same hierarchy as Reasoning (process yields to the answer).
+                        val answerStarted = segments
+                            .subList(index + 1, segments.size)
+                            .any { it is StreamSegment.Text && it.text.isNotBlank() }
                         FusionCard(
                             panelName = segment.panelName,
                             models = segment.models,
                             analysis = segment.analysis,
                             active = segment.active,
+                            isStreaming = isStreaming,
+                            answerStarted = answerStarted,
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
@@ -628,11 +635,15 @@ private fun AssistantAnswerBody(
                     }
                     "fusion" -> {
                         segment.fusion?.let { f ->
+                            // History: process settled; default collapsed so only the final
+                            // answer body reads as the reply. Expand for steps / panel answers.
                             FusionCard(
                                 panelName = f.panelName,
                                 models = f.models,
                                 analysis = f,
                                 active = false,
+                                isStreaming = false,
+                                answerStarted = true,
                             )
                             Spacer(Modifier.height(Spacing.s))
                         }
