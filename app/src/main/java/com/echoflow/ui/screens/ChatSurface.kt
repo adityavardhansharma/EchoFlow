@@ -4,8 +4,11 @@
 package com.echoflow.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -199,16 +202,40 @@ internal fun ChatSurface(
     var showModelMenu by remember { mutableStateOf(false) }
 
     // Speech to text: always OpenRouter with the Cloud-models key, independent of the chat model.
-    // The mic only appears in chat once that key is present.
+    // Mic only appears when Cloud mode is selected and that key is present (On-device is coming soon).
     val openRouterKey by settingsViewModel.apiKey.collectAsState()
     val sttCloudModelId by settingsViewModel.sttCloudModel.collectAsState()
+    val sttMode by settingsViewModel.sttMode.collectAsState()
     val voice = rememberVoiceInputController()
     val voiceAmplitude by voice.amplitude.collectAsState()
-    val sttAvailable = openRouterKey.isNotBlank()
+    val sttAvailable = openRouterKey.isNotBlank() && sttMode == com.echoflow.data.SttMode.Cloud
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) voice.startRecording() }
+    ) { granted ->
+        if (granted) {
+            voice.startRecording()
+        } else {
+            Toast.makeText(
+                sttContext,
+                "Microphone access is needed for dictation.",
+                Toast.LENGTH_SHORT,
+            ).show()
+            // When the OS will no longer re-prompt, send the user to app settings.
+            val activity = sttContext as? Activity
+            if (activity != null &&
+                !activity.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+            ) {
+                runCatching {
+                    sttContext.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", sttContext.packageName, null)
+                        },
+                    )
+                }
+            }
+        }
+    }
     LaunchedEffect(voice.error) {
         voice.error?.let {
             Toast.makeText(sttContext, it, Toast.LENGTH_SHORT).show()
@@ -464,9 +491,6 @@ internal fun ChatSurface(
             echoAdviserActive = echoAdviserActive,
             echoFusionActive = echoFusionActive,
             echoAgentActive = echoAgentActive,
-            advisorChipLabel = activeAdvisor?.name,
-            fusionChipLabel = activePanel?.name,
-            agentChipLabel = activeAgent?.name,
             onToggleDeepResearch = { chatViewModel.toggleDeepResearch() },
             onToggleWebSearch = { chatViewModel.toggleWebSearchChip() },
             onToggleDataAgent = { chatViewModel.toggleDataAgent() },

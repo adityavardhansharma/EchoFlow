@@ -80,6 +80,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -146,9 +148,6 @@ internal fun InputToolbar(
     echoAdviserActive: Boolean,
     echoFusionActive: Boolean,
     echoAgentActive: Boolean,
-    advisorChipLabel: String?,
-    fusionChipLabel: String?,
-    agentChipLabel: String?,
     onToggleDeepResearch: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
@@ -695,7 +694,8 @@ internal fun SendButton(
                 .size(48.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .clickable { onCancelTranscribe() },
+                .clickable(onClickLabel = "Cancel transcription") { onCancelTranscribe() }
+                .semantics { contentDescription = "Transcribing. Tap to cancel." },
             contentAlignment = Alignment.Center,
         ) {
             LoadingIndicator(
