@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -91,6 +92,10 @@ private const val CARD_RADIUS_DP = 22
 private const val MARK_SIZE_DP = 24
 private const val ROW_MIN_DP = 48
 private const val PREVIEW_HEIGHT_DP = 150
+// Mono filename chips must be width-bounded or long model titles grow the Surface to fit
+// the full string and TextOverflow.Ellipsis never engages.
+private val FileChipMaxWidth = 160.dp
+private val KnownArtifactExtensions = setOf("md", "tex", "html", "htm")
 
 /**
  * In-chat artifact surface for current-app artifacts.
@@ -342,10 +347,18 @@ private fun BuildingArtifactTrace(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(Spacing.s))
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                // widthIn is required: without a max, Surface sizes to the full string and
+                // TextOverflow.Ellipsis never engages. Header label keeps weight(1f) and yields.
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.widthIn(max = FileChipMaxWidth),
+                ) {
                     Text(
                         fileName,
-                        Modifier.padding(horizontal = Spacing.s, vertical = 4.dp),
+                        Modifier
+                            .padding(horizontal = Spacing.s, vertical = 4.dp)
+                            .fillMaxWidth(),
                         style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -569,10 +582,16 @@ private fun VersionChipRow(
 
 @Composable
 private fun FileNameChip(name: String) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.widthIn(max = FileChipMaxWidth),
+    ) {
         Text(
             name,
-            Modifier.padding(horizontal = Spacing.s, vertical = 5.dp),
+            Modifier
+                .padding(horizontal = Spacing.s, vertical = 5.dp)
+                .fillMaxWidth(),
             style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface,
@@ -775,12 +794,20 @@ private fun artifactGlyph(type: String): Pair<ImageVector, String> = when (type)
     else -> Icons.Default.Code to "Web page"
 }
 
-private fun artifactFileLabel(title: String, typeLabel: String, artifactType: String): String {
+/**
+ * Mono chip label for the artifact. Always ends with the type suffix unless the title already
+ * ends in a known artifact extension (`.md` / `.tex` / `.html`). A mid-title period must not
+ * suppress the suffix — "Dr. Smith report" → `Dr.-Smith-report.html`, not bare `Dr.-Smith-report`.
+ */
+internal fun artifactFileLabel(title: String, typeLabel: String, artifactType: String): String {
     val base = title.trim().ifBlank { typeLabel }.replace(Regex("\\s+"), "-")
     val ext = when (artifactType) {
         Artifact.TYPE_MARKDOWN -> "md"
         Artifact.TYPE_LATEX -> "tex"
         else -> "html"
     }
-    return if (base.contains('.')) base else "$base.$ext"
+    val lastDot = base.lastIndexOf('.')
+    val hasKnownExt = lastDot in 1 until base.lastIndex &&
+        base.substring(lastDot + 1).lowercase() in KnownArtifactExtensions
+    return if (hasKnownExt) base else "$base.$ext"
 }
