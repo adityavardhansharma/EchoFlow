@@ -168,11 +168,29 @@ data class FusionAnalysis(
     val blindSpots: List<String> = emptyList(),
     val responses: List<FusionResponse> = emptyList(),
     val failedModels: List<String> = emptyList(),
+    /**
+     * False when the HTTP response finished but we never located a fusion tool payload.
+     * That is **not** a panel failure — the outer model may still stream a full answer.
+     * Defaults to true so older persisted rows keep previous behavior.
+     */
+    val toolResultFound: Boolean = true,
 ) {
     /** True when the judge produced no structured analysis (only raw panel responses, or nothing). */
     val isEmpty: Boolean
         get() = consensus.isEmpty() && contradictions.isEmpty() && partialCoverage.isEmpty() &&
             uniqueInsights.isEmpty() && blindSpots.isEmpty()
+
+    /** Any structured or raw panel signal we can show in the process shell. */
+    val hasUsableDetail: Boolean
+        get() = !isEmpty || responses.isNotEmpty()
+
+    /**
+     * Hard panel failure: we found a tool result and it has no usable content, with explicit
+     * failed models (or a completely empty tool payload after a successful locate).
+     * Unparsed results ([toolResultFound] = false) are never treated as failure.
+     */
+    val isHardFailure: Boolean
+        get() = toolResultFound && !hasUsableDetail && failedModels.isNotEmpty()
 }
 
 /**

@@ -26,4 +26,57 @@ class OpenRouterEchoDecoderTest {
         assertNull(OpenRouterEchoDecoder.scanForAdvisorResult(mapOf("content" to "hello")))
         assertNull(OpenRouterEchoDecoder.scanForFusionResult(emptyMap<String, Any>()))
     }
+
+    @Test fun `finds fusion result with analysis and responses`() {
+        val payload = mapOf(
+            "status" to "ok",
+            "analysis" to mapOf(
+                "consensus" to listOf("A is better"),
+                "contradictions" to emptyList<Any>(),
+            ),
+            "responses" to listOf(
+                mapOf("model" to "openai/gpt-test", "content" to "hello from gpt"),
+                mapOf("model" to "deepseek/v4", "content" to "hello from deepseek"),
+            ),
+        )
+        val direct = OpenRouterEchoDecoder.scanForFusionResult(payload)!!
+        assertEquals(2, direct.responses.size)
+        assertEquals(listOf("A is better"), direct.consensus)
+        assertEquals(true, direct.toolResultFound)
+        assertEquals(false, direct.isHardFailure)
+    }
+
+    @Test fun `finds fusion result nested inside content json string`() {
+        val inner = """{"status":"ok","responses":[{"model":"a/b","content":"hi"}],"analysis":{"consensus":["x"]}}"""
+        val found = OpenRouterEchoDecoder.scanForFusionResult(mapOf("content" to inner))!!
+        assertEquals(1, found.responses.size)
+        assertEquals(listOf("x"), found.consensus)
+    }
+
+    @Test fun `empty analysis without failed models is not a hard failure`() {
+        val empty = FusionAnalysis(panelName = "p", judgeModel = null, models = listOf("a"), toolResultFound = false)
+        assertEquals(false, empty.isHardFailure)
+        val hard = FusionAnalysis(
+            panelName = "p",
+            judgeModel = null,
+            models = listOf("a", "b"),
+            failedModels = listOf("a", "b"),
+            toolResultFound = true,
+        )
+        assertEquals(true, hard.isHardFailure)
+    }
+
+    @Test fun `parses failed_models maps and model_id responses`() {
+        val payload = mapOf(
+            "status" to "ok",
+            "responses" to listOf(
+                mapOf("model_id" to "openai/gpt", "content" to "ok"),
+            ),
+            "failed_models" to listOf(mapOf("model" to "deepseek/x")),
+        )
+        val result = OpenRouterEchoDecoder.scanForFusionResult(payload)!!
+        assertEquals(1, result.responses.size)
+        assertEquals("openai/gpt", result.responses.single().model)
+        assertEquals(listOf("deepseek/x"), result.failedModels)
+    }
 }
