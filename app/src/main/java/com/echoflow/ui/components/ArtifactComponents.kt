@@ -8,7 +8,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -18,7 +17,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -138,42 +137,59 @@ fun ArtifactCard(
         value = withContext(Dispatchers.Default) { versionDeltas(lineage) }
     }
     val isHtml = artifactType == Artifact.TYPE_HTML
-    val previewHtml = remember(lineage, version, isHtml, building) {
-        if (!building && isHtml) {
+    // Live-build memory must NOT key on artifactId/version. The reducer assigns those only on
+    // ArtifactCompleted, in the same update that sets building=false — so remember(id, version)
+    // was wiped at the exact moment we needed the handoff, re-init sawLiveBuild to false and
+    // skipping the thumbnail warm. Key on composition identity only (fresh when the Lazy item
+    // is disposed on chat switch).
+    //
+    // Historical opens: first frame has building=false → sawLiveBuild stays false → settled only.
+    // Live stream: building starts true → sawLiveBuild latches true for the rest of this card.
+    var sawLiveBuild by remember { mutableStateOf(building) }
+    SideEffect {
+        if (building) sawLiveBuild = true
+    }
+
+    val previewHtml = remember(lineage, version, isHtml) {
+        if (isHtml) {
             (lineage.lastOrNull { it.versionNumber == version } ?: lineage.lastOrNull())?.content
                 ?.takeIf { it.isNotBlank() }
         } else {
             null
         }
     }
-    // HTML waits on body rows (async) then on a warm WebView paint. Non-HTML settles immediately.
-    val waitingForHtmlBody = !building && isHtml && previewHtml == null
-    val needsThumbnailWarm = !previewHtml.isNullOrBlank()
-    var thumbnailReady by remember(previewHtml) { mutableStateOf(!needsThumbnailWarm) }
-    // Never hang the UI if onPageFinished is slow/missing (empty doc, WebView quirk).
-    LaunchedEffect(previewHtml, needsThumbnailWarm) {
-        if (needsThumbnailWarm && !thumbnailReady) {
-            delay(2_800)
-            thumbnailReady = true
+
+    // Same stability rule: do not key on artifactId/version or completion resets the warm wait.
+    var liveThumbnailReady by remember { mutableStateOf(false) }
+    LaunchedEffect(building, sawLiveBuild, isHtml) {
+        if (!sawLiveBuild) return@LaunchedEffect
+        if (building) {
+            liveThumbnailReady = false
+        } else if (!isHtml) {
+            // Non-HTML settles as soon as the stream ends — no warm step.
+            liveThumbnailReady = true
         }
     }
-    val preparingThumbnail =
-        !building && isHtml && (waitingForHtmlBody || (needsThumbnailWarm && !thumbnailReady))
-    val showTrace = building || preparingThumbnail
-    val showSettled = !building && !preparingThumbnail
+    LaunchedEffect(previewHtml, sawLiveBuild, building, isHtml, liveThumbnailReady) {
+        // Timeout so a silent WebView never leaves the capsule stuck.
+        if (sawLiveBuild && !building && isHtml && previewHtml != null && !liveThumbnailReady) {
+            delay(2_800)
+            liveThumbnailReady = true
+        }
+    }
 
-    val reducedMotion = rememberReducedMotion()
+    val preparingThumbnail =
+        sawLiveBuild && !building && isHtml && !liveThumbnailReady
+    val showTrace = building || preparingThumbnail
+
     val openSettled: () -> Unit = { artifactId?.let { onOpen(it, version) } }
 
     Column(modifier.fillMaxWidth()) {
-        // Off-screen warm load: real layout size so the WebView paints, parked far below the
-        // viewport. onPageFinished unlocks the settled card so the visible preview is not a
-        // second-class fade layered onto chrome that already appeared.
         if (preparingThumbnail && previewHtml != null) {
             ArtifactPreviewWebView(
                 html = previewHtml,
                 interactive = false,
-                onReady = { thumbnailReady = true },
+                onReady = { liveThumbnailReady = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(PREVIEW_HEIGHT_DP.dp)
@@ -182,37 +198,24 @@ fun ArtifactCard(
             )
         }
 
-        AnimatedContent(
-            targetState = showSettled,
-            transitionSpec = {
-                if (reducedMotion) {
-                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-                } else {
-                    (fadeIn(tween(280)) + expandVertically(tween(320))) togetherWith
-                        (fadeOut(tween(160)) + shrinkVertically(tween(220)))
-                }
-            },
-            label = "artifact-handoff",
-            modifier = Modifier.fillMaxWidth(),
-        ) { settled ->
-            if (settled) {
-                SettledArtifactCard(
-                    title = title,
-                    artifactType = artifactType,
-                    truncated = truncated,
-                    deltas = deltas,
-                    previewHtml = previewHtml,
-                    onOpen = openSettled,
-                )
-            } else {
-                BuildingArtifactTrace(
-                    title = title,
-                    artifactType = artifactType,
-                    charCount = charCount,
-                    streamFinished = !building,
-                    fetchingThumbnail = preparingThumbnail,
-                )
-            }
+        if (showTrace) {
+            BuildingArtifactTrace(
+                title = title,
+                artifactType = artifactType,
+                charCount = charCount,
+                streamFinished = !building,
+                fetchingThumbnail = preparingThumbnail,
+            )
+        } else {
+            // Historical reopen and post-handoff: settled card only — never the build capsule.
+            SettledArtifactCard(
+                title = title,
+                artifactType = artifactType,
+                truncated = truncated,
+                deltas = deltas,
+                previewHtml = previewHtml,
+                onOpen = openSettled,
+            )
         }
     }
 }
