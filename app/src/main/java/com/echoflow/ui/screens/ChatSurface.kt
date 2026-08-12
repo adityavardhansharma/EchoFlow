@@ -348,11 +348,14 @@ internal fun ChatSurface(
                     topInset = topBarInset,
                     bottomInset = messageBottomInset,
                     onCopy = { clipboard.setText(AnnotatedString(it)) },
-                    onArtifactOpen = { chatViewModel.openArtifactWorkspace() },
+                    onArtifactOpen = { artifactId, version ->
+                        chatViewModel.openArtifactWorkspace(artifactId, version)
+                    },
                     onResearchOpen = chatViewModel::openResearchWorkspace,
                     onResearchRetry = chatViewModel::retryResearch,
                     observeResearchRun = chatViewModel::observeResearchRun,
                     observeVideo = chatViewModel::observeVideo,
+                    observeArtifactVersions = chatViewModel::observeArtifactVersions,
                     lastUserMessageId = lastUserMessageId,
                     onEditUserMessage = { id ->
                         chatViewModel.beginEditUserMessage(id)?.let { textInput = it }

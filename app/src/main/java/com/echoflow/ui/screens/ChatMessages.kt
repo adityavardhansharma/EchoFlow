@@ -81,6 +81,7 @@ import com.echoflow.data.ResearchRef
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.SearchSource
 import com.echoflow.data.AppMode
+import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.GeneratedVideo
 import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ToolEventJson
@@ -99,6 +100,7 @@ import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.ResearchResultCard
 import com.echoflow.ui.components.ResearchTimeline
 import com.echoflow.ui.components.RichMarkdown
+import com.echoflow.ui.legacy.LegacyArtifactCard
 import com.echoflow.ui.legacy.LegacyDataResultCard
 import com.echoflow.ui.legacy.LegacyReportCard
 import com.echoflow.ui.legacy.LegacyResearchProgressCard
@@ -134,11 +136,12 @@ internal fun MessagesPane(
     topInset: Dp = Spacing.l,
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
-    onArtifactOpen: () -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
     lastUserMessageId: String? = null,
     onEditUserMessage: (String) -> Unit = {},
     replyVersionIndexFor: (messageId: String, total: Int) -> Int = { _, total -> (total - 1).coerceAtLeast(0) },
@@ -190,6 +193,7 @@ internal fun MessagesPane(
                 onResearchRetry = onResearchRetry,
                 observeResearchRun = observeResearchRun,
                 observeVideo = observeVideo,
+                observeArtifactVersions = observeArtifactVersions,
                 canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
                 onEditUserMessage = onEditUserMessage,
                 replyVersionIndex = if (msg.role == "assistant") {
@@ -228,7 +232,7 @@ internal fun MessagesPane(
             }
         }
         if (segments.isNotEmpty()) item(key = "streaming") {
-            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen)
+            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen, observeArtifactVersions = observeArtifactVersions)
         }
     }
 }
@@ -275,7 +279,8 @@ internal fun StreamingAssistantBubble(
     segments: List<StreamSegment>,
     statusNote: String?,
     isStreaming: Boolean,
-    onArtifactOpen: () -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -333,12 +338,14 @@ internal fun StreamingAssistantBubble(
                     }
                     is StreamSegment.Artifact -> {
                         ArtifactCard(
+                            artifactId = segment.artifactId,
                             title = segment.title,
                             artifactType = segment.artifactType,
                             version = segment.version,
                             building = segment.building,
                             charCount = segment.charCount,
                             truncated = segment.truncated,
+                            observeVersions = observeArtifactVersions,
                             onOpen = onArtifactOpen,
                         )
                         Spacer(Modifier.height(Spacing.s))
@@ -455,11 +462,12 @@ internal fun MessageBubble(
     message: ChatMessage,
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
-    onArtifactOpen: () -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
     onCopy: (String) -> Unit,
     canEditUserMessage: Boolean = false,
     onEditUserMessage: (String) -> Unit = {},
@@ -510,6 +518,7 @@ internal fun MessageBubble(
                         onResearchRetry = onResearchRetry,
                         observeResearchRun = observeResearchRun,
                         observeVideo = observeVideo,
+                        observeArtifactVersions = observeArtifactVersions,
                         onCopy = onCopy,
                     )
                 }
@@ -546,11 +555,12 @@ private fun AssistantAnswerBody(
     message: ChatMessage,
     messageKey: String,
     streaming: Boolean,
-    onArtifactOpen: () -> Unit,
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit,
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
     observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
     onCopy: (String) -> Unit,
 ) {
     // Finished replies render their persisted timeline in arrival order, so
@@ -640,17 +650,39 @@ private fun AssistantAnswerBody(
                             Spacer(Modifier.height(Spacing.s))
                         }
                     }
+                    // ── Artifacts ───────────────────────────────────────────────────
+                    // Old and new artifact cards are told apart here, and only here.
+                    // Pre-redesign rows omit ArtifactRef.uiVersion and deserialize to
+                    // UI_VERSION_LEGACY, so they draw through the frozen ui/legacy card and
+                    // look exactly as they always have. Artifacts produced by the current app
+                    // stamp UI_VERSION_CURRENT and get the redesigned chips + preview card.
+                    // Because the default is the legacy value, no existing conversation can
+                    // ever be reclassified.
                     "artifact" -> {
                         segment.artifact?.let { a ->
-                            ArtifactCard(
-                                title = a.title,
-                                artifactType = a.type,
-                                version = a.version,
-                                building = false,
-                                charCount = 0,
-                                truncated = false,
-                                onOpen = onArtifactOpen,
-                            )
+                            if (a.usesLegacyUi) {
+                                LegacyArtifactCard(
+                                    title = a.title,
+                                    artifactType = a.type,
+                                    version = a.version,
+                                    building = false,
+                                    charCount = 0,
+                                    truncated = false,
+                                    onOpen = { onArtifactOpen(a.artifactId, a.version) },
+                                )
+                            } else {
+                                ArtifactCard(
+                                    artifactId = a.artifactId,
+                                    title = a.title,
+                                    artifactType = a.type,
+                                    version = a.version,
+                                    building = false,
+                                    charCount = 0,
+                                    truncated = false,
+                                    observeVersions = observeArtifactVersions,
+                                    onOpen = onArtifactOpen,
+                                )
+                            }
                             if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                         }
                     }

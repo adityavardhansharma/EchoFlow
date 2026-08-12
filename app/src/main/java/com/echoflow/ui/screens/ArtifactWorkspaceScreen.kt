@@ -74,18 +74,22 @@ import com.echoflow.ui.theme.Spacing
 private enum class ArtifactViewMode { PREVIEW, CODE }
 
 /**
- * The fullscreen Artifact Workspace — a stripped-down viewer for the chat's current artifact.
+ * The fullscreen Artifact Workspace — a stripped-down viewer for one artifact lineage.
  * No address bar and no command composer (iteration happens back in chat): just a minimize action,
  * a Preview/Code mode switcher, a version selector, and per-type actions (Export PDF for reports,
  * Copy source). HTML renders in a sandboxed WebView; markdown/latex render with the native engine.
+ *
+ * Which lineage is shown is decided at open time ([ChatViewModel.openArtifactWorkspace] with an
+ * artifact id), not by "latest for this chat", so a historical card always opens the artifact it
+ * represents even if the chat later holds more than one lineage.
  */
 @Composable
 fun ArtifactWorkspaceScreen(
     chatViewModel: ChatViewModel,
     onClose: () -> Unit,
 ) {
-    val artifact by chatViewModel.currentArtifact.collectAsState()
-    val versions by chatViewModel.currentArtifactVersions.collectAsState()
+    val artifact by chatViewModel.workspaceArtifact.collectAsState()
+    val versions by chatViewModel.workspaceArtifactVersions.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
@@ -100,12 +104,24 @@ fun ArtifactWorkspaceScreen(
     val a = artifact ?: return
 
     var mode by remember { mutableStateOf(ArtifactViewMode.PREVIEW) }
-    var selectedVersion by remember(a.id) { mutableIntStateOf(a.currentVersion) }
-    // Follow the latest version as new ones stream in, unless the user pinned an older one.
-    LaunchedEffect(a.currentVersion) {
-        if (selectedVersion < a.currentVersion && selectedVersion == a.currentVersion - 1) {
+    // Open at the version of the card that was tapped (a scrolled-back card represents an older
+    // version), falling back to that lineage's latest when the open request omitted a version.
+    // Key selection on the open *session*, not just lineage id: reopening the same artifact from
+    // a different card (v2 → close → v1) must re-seed, and id alone would keep the prior version.
+    val requestedVersion by chatViewModel.artifactInitialVersion.collectAsState()
+    val openSession by chatViewModel.workspaceOpenSession.collectAsState()
+    var selectedVersion by remember(openSession) {
+        mutableIntStateOf((requestedVersion ?: a.currentVersion).coerceIn(1, a.currentVersion))
+    }
+    // Follow a genuinely newer version as it streams in — but only if the user was viewing the
+    // previously-latest. Tracking the last-seen version (rather than testing currentVersion - 1)
+    // keeps a deliberately-opened older version pinned instead of snapping it to the newest.
+    var lastKnownVersion by remember(openSession) { mutableIntStateOf(a.currentVersion) }
+    LaunchedEffect(openSession, a.currentVersion) {
+        if (a.currentVersion > lastKnownVersion && selectedVersion == lastKnownVersion) {
             selectedVersion = a.currentVersion
         }
+        lastKnownVersion = a.currentVersion
     }
     val content = remember(versions, selectedVersion) {
         (versions.firstOrNull { it.versionNumber == selectedVersion } ?: versions.lastOrNull())?.content.orEmpty()

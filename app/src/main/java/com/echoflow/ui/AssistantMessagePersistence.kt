@@ -47,7 +47,20 @@ internal object AssistantMessagePersistence {
                 .copy(panelName = segment.panelName, models = segment.models.ifEmpty { segment.analysis?.models ?: emptyList() }),
         )
         is StreamSegment.Subagent -> PersistedSegment("subagent", subagent = SubagentResult(segment.taskName, segment.taskDescription, segment.workerModel, segment.outcome.orEmpty(), segment.error))
-        is StreamSegment.Artifact -> segment.artifactId?.let { PersistedSegment("artifact", artifact = ArtifactRef(it, segment.title, segment.artifactType, segment.version)) }
+        // Stamp CURRENT so the redesigned card is what reloads; pre-redesign rows omit uiVersion
+        // and stay on LegacyArtifactCard forever (see ArtifactRef.usesLegacyUi).
+        is StreamSegment.Artifact -> segment.artifactId?.let {
+            PersistedSegment(
+                "artifact",
+                artifact = ArtifactRef(
+                    artifactId = it,
+                    title = segment.title,
+                    type = segment.artifactType,
+                    version = segment.version,
+                    uiVersion = ArtifactRef.UI_VERSION_CURRENT,
+                ),
+            )
+        }
         is StreamSegment.Image -> segment.filePath?.let { path ->
             PersistedSegment("image", image = ImageRef(segment.imageId.orEmpty(), path))
         }

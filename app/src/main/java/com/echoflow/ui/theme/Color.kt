@@ -5,6 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Material 3 Expressive color system.
@@ -27,6 +28,18 @@ private val ErrDark = Color(0xFFFFB4AB)
 private val OnErrDark = Color(0xFF690005)
 private val ErrContDark = Color(0xFF93000A)
 private val OnErrContDark = Color(0xFFFFDAD6)
+
+// Diff "added" signal --------------------------------------------------------------------------
+// Removals reuse the theme's `error` role; additions have no Material slot, so — exactly like the
+// shared error baseline above — they get a fixed semantic green (not a brand seed) so a `+N`
+// always reads as "added" in every palette. The shade flips with surface luminance to stay legible
+// on both light and dark bases, even under a manual (non-system) theme override.
+private val AddedLight = Color(0xFF2E7D32)
+private val AddedDark = Color(0xFF7BD88E)
+
+/** The green a diff addition (`+N`) is tinted with, chosen for the current scheme's brightness. */
+val ColorScheme.diffAdded: Color
+    get() = if (surface.luminance() < 0.5f) AddedDark else AddedLight
 
 private fun expressiveLight(
     primary: Color, onPrimary: Color, primaryContainer: Color, onPrimaryContainer: Color,

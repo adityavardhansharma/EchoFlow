@@ -18,6 +18,12 @@ class ArtifactManager(
     /** A one-shot read of the chat's latest artifact, for decisions that can't wait on the cold flow. */
     suspend fun getLatestForChat(chatId: String): Artifact? = artifactDao.getLatestForChat(chatId)
 
+    /** Observe one lineage by id — used by the workspace so open is not tied to "latest for chat". */
+    fun observeById(artifactId: String): Flow<Artifact?> = artifactDao.observeById(artifactId)
+
+    /** One-shot read by id, for open guards and deep-links that already know the lineage. */
+    suspend fun getById(artifactId: String): Artifact? = artifactDao.getById(artifactId)
+
     fun observeVersions(artifactId: String): Flow<List<ArtifactVersion>> =
         artifactVersionDao.observeForArtifact(artifactId)
 
@@ -69,7 +75,13 @@ class ArtifactManager(
                 createdAt = now,
             )
         )
-        return ArtifactRef(artifactId = artifactId, title = resolvedTitle, type = normalizedType, version = nextVersion)
+        return ArtifactRef(
+            artifactId = artifactId,
+            title = resolvedTitle,
+            type = normalizedType,
+            version = nextVersion,
+            uiVersion = ArtifactRef.UI_VERSION_CURRENT,
+        )
     }
 
     private fun defaultTitle(type: String): String = when (type) {
