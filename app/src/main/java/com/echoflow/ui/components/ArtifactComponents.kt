@@ -137,10 +137,15 @@ fun ArtifactCard(
         value = withContext(Dispatchers.Default) { versionDeltas(lineage) }
     }
     val isHtml = artifactType == Artifact.TYPE_HTML
-    // Only a *live* stream may show the step capsule / thumbnail handoff. Persisted messages
-    // always arrive with building=false; without this flag they still entered "Fetching
-    // thumbnail" while versions loaded and replayed the build timeline for ~1s on chat switch.
-    var sawLiveBuild by remember(artifactId, version) { mutableStateOf(building) }
+    // Live-build memory must NOT key on artifactId/version. The reducer assigns those only on
+    // ArtifactCompleted, in the same update that sets building=false — so remember(id, version)
+    // was wiped at the exact moment we needed the handoff, re-init sawLiveBuild to false and
+    // skipping the thumbnail warm. Key on composition identity only (fresh when the Lazy item
+    // is disposed on chat switch).
+    //
+    // Historical opens: first frame has building=false → sawLiveBuild stays false → settled only.
+    // Live stream: building starts true → sawLiveBuild latches true for the rest of this card.
+    var sawLiveBuild by remember { mutableStateOf(building) }
     SideEffect {
         if (building) sawLiveBuild = true
     }
@@ -154,8 +159,8 @@ fun ArtifactCard(
         }
     }
 
-    // Live HTML handoff only: warm preview off-screen after the stream ends, then settle once.
-    var liveThumbnailReady by remember(artifactId, version) { mutableStateOf(false) }
+    // Same stability rule: do not key on artifactId/version or completion resets the warm wait.
+    var liveThumbnailReady by remember { mutableStateOf(false) }
     LaunchedEffect(building, sawLiveBuild, isHtml) {
         if (!sawLiveBuild) return@LaunchedEffect
         if (building) {
