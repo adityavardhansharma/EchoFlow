@@ -168,11 +168,47 @@ data class FusionAnalysis(
     val blindSpots: List<String> = emptyList(),
     val responses: List<FusionResponse> = emptyList(),
     val failedModels: List<String> = emptyList(),
+    /**
+     * False when the HTTP response finished but we never located a fusion tool payload.
+     * Defaults to true so older persisted rows keep previous behavior.
+     */
+    val toolResultFound: Boolean = true,
+    /**
+     * True when Echo Fusion was required (user opted in) but the outer model never produced a
+     * fusion tool payload after the forced call. The UI must disclose this — a plain answer
+     * without deliberation is not a successful fuse.
+     */
+    val deliberationSkipped: Boolean = false,
 ) {
     /** True when the judge produced no structured analysis (only raw panel responses, or nothing). */
     val isEmpty: Boolean
         get() = consensus.isEmpty() && contradictions.isEmpty() && partialCoverage.isEmpty() &&
             uniqueInsights.isEmpty() && blindSpots.isEmpty()
+
+    /** Any structured or raw panel signal we can show in the process shell. */
+    val hasUsableDetail: Boolean
+        get() = !isEmpty || responses.isNotEmpty()
+
+    /**
+     * Hard panel failure: we found a tool result and it has no usable content, with explicit
+     * failed models. Unparsed / skipped results are handled separately in the UI.
+     */
+    val isHardFailure: Boolean
+        get() = toolResultFound && !hasUsableDetail && failedModels.isNotEmpty()
+
+    /**
+     * True only when deliberation was never invoked (not merely unparsed).
+     * Unparsed payloads keep [deliberationSkipped] false so the UI does not claim "panel did not run".
+     */
+    val panelDidNotRun: Boolean
+        get() = deliberationSkipped
+
+    /**
+     * Fusion tool was used (or we expect it was) but we could not decode structured panel detail.
+     * Distinct from [panelDidNotRun].
+     */
+    val detailUnparsed: Boolean
+        get() = !toolResultFound && !deliberationSkipped
 }
 
 /**

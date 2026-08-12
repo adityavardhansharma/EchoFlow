@@ -14,10 +14,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.automirrored.filled.Assignment
@@ -49,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echoflow.data.FusionAnalysis
+import com.echoflow.data.FusionResponse
 import com.echoflow.ui.theme.JetBrainsMono
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
@@ -377,17 +376,14 @@ private fun fusionRevealExit(reducedMotion: Boolean): ExitTransition =
     if (reducedMotion) fadeOut(tween(0)) else shrinkVertically(tween(240)) + fadeOut(tween(120))
 
 /**
- * Echo Fusion process shell — Thinking header + Task rows + Tool chips, in EchoFlow chrome.
+ * Echo Fusion process shell — same family as [ReasoningSection]: soft meta block, open while
+ * live, collapses when the final answer starts so the chat body is one reply.
  *
- * While the panel is out ([active]) or the judge is about to write ([isStreaming] with analysis
- * but no answer text yet), the shell stays open and steps advance honestly. Once the final
- * answer has started ([answerStarted]) or the turn settles, it collapses like [ReasoningSection]
- * so the chat body is only the synthesized answer. Expand anytime for the step replay,
- * comparison digest, and per-model answers.
+ * Multi-line model rows (tool-call style, one spinner each) replace horizontal pills.
  *
  * @param active panel still waiting on the server tool (no analysis yet)
  * @param isStreaming the assistant turn is still live
- * @param answerStarted a [com.echoflow.ui.StreamSegment.Text] has appeared after this segment
+ * @param answerStarted final answer text has appeared after this segment
  */
 @Composable
 fun FusionCard(
@@ -400,20 +396,18 @@ fun FusionCard(
     answerStarted: Boolean = false,
 ) {
     val reducedMotion = rememberReducedMotion()
-    val roster = analysis?.models?.takeIf { it.isNotEmpty() } ?: models
-    // Total failure only when there is nothing usable at all: no raw panel answers AND no
-    // structured comparison. OpenRouter can return analysis without a responses[] list — that
-    // is still a successful fusion and must not be painted as "Panel could not respond".
-    val panelFailed = analysis != null &&
-        analysis.responses.isEmpty() &&
-        analysis.isEmpty
-    // Live process: panel waiting, or tool returned and final answer not on screen yet.
-    // Total panel failure stays open while the turn is still streaming so the user sees the fail
-    // state, but never enters the answer-writing phase.
+    val roster = (analysis?.models?.takeIf { it.isNotEmpty() } ?: models).ifEmpty { models }
+    // Hard fail: tool ran and reported model failures.
+    // Skip: fusion was never invoked. Unparsed: invoked but structured body not decoded.
+    val panelFailed = analysis?.isHardFailure == true
+    val panelDidNotRun = analysis?.panelDidNotRun == true
+    val detailUnparsed = analysis?.detailUnparsed == true
     val processLive = active || (analysis != null && isStreaming && !answerStarted)
 
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
-    val expanded = userToggled ?: processLive
+    // Stay open when we must disclose skip / unparsed so it is not a quiet "success".
+    val expanded = userToggled
+        ?: (processLive || ((panelDidNotRun || detailUnparsed) && !answerStarted))
     val chevron by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(if (reducedMotion) 0 else 300),
@@ -421,7 +415,6 @@ fun FusionCard(
     )
     val toggleInteraction = remember { MutableInteractionSource() }
 
-    // Elapsed clock while live; freezes when the process settles (Reasoning-weight meta).
     val startMs = remember { System.currentTimeMillis() }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(processLive) {
@@ -431,7 +424,6 @@ fun FusionCard(
             delay(250)
         }
     }
-    // Capture final duration once when leaving live.
     var settledMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(processLive, elapsedMs) {
         if (!processLive && elapsedMs > 0L && settledMs == 0L) settledMs = elapsedMs
@@ -442,42 +434,43 @@ fun FusionCard(
         else -> null
     }
 
+    val panelActive = active && analysis == null
     val panelState = when {
-        analysis == null && processLive -> FusionStepState.Active
+        panelActive -> FusionStepState.Active
         analysis == null -> FusionStepState.Pending
-        panelFailed -> FusionStepState.Failed
+        panelFailed || panelDidNotRun -> FusionStepState.Failed
+        detailUnparsed -> FusionStepState.Done // ran; detail missing — not a hard fail
         else -> FusionStepState.Done
     }
     val compareState = when {
         analysis == null -> FusionStepState.Pending
-        panelFailed -> FusionStepState.Failed
+        panelFailed || panelDidNotRun -> FusionStepState.Failed
+        detailUnparsed -> FusionStepState.Done
         else -> FusionStepState.Done
     }
-    val answerState = when {
+    val mergeState = when {
         panelFailed -> FusionStepState.Failed
+        panelDidNotRun && !answerStarted -> FusionStepState.Failed
         answerStarted || (!processLive && analysis != null) -> FusionStepState.Done
         analysis != null && processLive -> FusionStepState.Active
         else -> FusionStepState.Pending
     }
 
-    val statusLine = when {
-        analysis == null && processLive -> "Panel answering in parallel"
-        panelFailed -> "Panel could not respond"
-        analysis != null && processLive && !answerStarted -> "Writing final answer"
-        else -> null
-    }
-
     val headerTitle = when {
-        processLive || panelFailed && isStreaming -> {
-            val name = panelName.ifBlank { "Fusion" }
-            if (panelName.isNotBlank()) "Fusion · $name" else "Fusion"
+        processLive -> {
+            if (panelName.isNotBlank()) "Fusion · $panelName" else "Fusion"
+        }
+        panelDidNotRun -> {
+            if (panelName.isNotBlank()) "Fusion · $panelName · panel did not run" else "Fusion · panel did not run"
+        }
+        detailUnparsed -> {
+            if (panelName.isNotBlank()) "Fusion · $panelName · detail unavailable" else "Fusion · detail unavailable"
         }
         panelFailed -> {
-            val name = panelName.ifBlank { "Fusion" }
-            if (panelName.isNotBlank()) "Fusion failed · $name" else "Fusion failed"
+            if (panelName.isNotBlank()) "Fusion · $panelName" else "Fusion"
         }
         else -> {
-            val n = roster.size.coerceAtLeast(models.size)
+            val n = roster.size.coerceAtLeast(1)
             buildString {
                 append("Fused · $n model")
                 if (n != 1) append('s')
@@ -485,53 +478,13 @@ fun FusionCard(
         }
     }
 
-    val panelMeta = when (panelState) {
-        FusionStepState.Active -> "${roster.size} model${if (roster.size == 1) "" else "s"}"
-        FusionStepState.Done -> {
-            val returned = analysis?.responses?.size ?: 0
-            val failed = analysis?.failedModels?.size ?: 0
-            when {
-                returned > 0 -> buildString {
-                    append("$returned returned")
-                    if (failed > 0) append(" · $failed failed")
-                }
-                // Structured analysis without raw responses — still a successful panel pass.
-                analysis != null && !analysis.isEmpty -> "${roster.size} model${if (roster.size == 1) "" else "s"}"
-                else -> null
-            }
-        }
-        FusionStepState.Failed -> {
-            val failed = analysis?.failedModels?.size ?: roster.size
-            if (failed > 0) "$failed failed" else "Did not respond"
-        }
-        FusionStepState.Pending -> null
-    }
-    val compareMeta = when {
-        panelFailed -> "skipped"
-        else -> analysis?.let { a ->
-            if (a.isEmpty && a.responses.isEmpty()) null
-            else buildString {
-                val parts = mutableListOf<String>()
-                if (a.consensus.isNotEmpty()) parts += "${a.consensus.size} agreed"
-                if (a.contradictions.isNotEmpty()) parts += "${a.contradictions.size} disagreed"
-                if (parts.isEmpty() && (!a.isEmpty || a.responses.isNotEmpty())) parts += "compared"
-                append(parts.joinToString(" · "))
-            }.takeIf { it.isNotBlank() }
-        }
-    }
-    val answerMeta = when (answerState) {
-        FusionStepState.Active -> "writing…"
-        FusionStepState.Failed -> "no answer"
-        else -> null
-    }
-
+    // Reasoning twin: soft tint, not a solid product slab.
     Surface(
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.22f),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m)) {
-            // Thinking-style header — open while live, collapses when the answer owns the turn.
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -579,15 +532,6 @@ fun FusionCard(
                 )
             }
 
-            if (statusLine != null) {
-                Spacer(Modifier.height(Spacing.xs))
-                Text(
-                    statusLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             AnimatedVisibility(
                 visible = expanded,
                 enter = fusionRevealEnter(reducedMotion),
@@ -595,46 +539,98 @@ fun FusionCard(
             ) {
                 Column(
                     Modifier.padding(top = Spacing.m),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
-                    // Task-row steps with Research mark grammar (secondary accent).
                     FusionProcessStep(
-                        label = "Panel",
+                        label = when {
+                            panelActive -> "Asking the panel…"
+                            panelDidNotRun -> "Panel"
+                            panelFailed -> "Panel"
+                            else -> "Panel"
+                        },
                         state = panelState,
-                        meta = panelMeta,
-                        reducedMotion = reducedMotion,
-                    )
-                    if (roster.isNotEmpty()) {
-                        FusionModelChips(
-                            models = roster,
-                            failed = analysis?.failedModels.orEmpty(),
-                            // Only mark chips resolved when we have per-model outcomes or a
-                            // confirmed total failure — not when we only have aggregate analysis.
-                            resolved = analysis != null &&
-                                (analysis.responses.isNotEmpty() || analysis.failedModels.isNotEmpty() || panelFailed),
-                            allFailed = panelFailed,
-                        )
-                    }
-                    FusionProcessStep(
-                        label = "Compare",
-                        state = compareState,
-                        meta = compareMeta,
-                        reducedMotion = reducedMotion,
-                    )
-                    // Count chips whenever structured comparison exists (even if raw responses
-                    // were omitted from the tool payload).
-                    if (analysis != null && !analysis.isEmpty) {
-                        FusionCountChips(analysis)
-                    }
-                    FusionProcessStep(
-                        label = "Answer",
-                        state = answerState,
-                        meta = answerMeta,
+                        meta = when {
+                            panelActive -> "${roster.size}"
+                            panelDidNotRun -> "not invoked"
+                            detailUnparsed -> "ran · detail missing"
+                            panelFailed -> {
+                                val n = analysis?.failedModels?.size ?: roster.size
+                                "$n failed"
+                            }
+                            analysis != null && analysis.responses.isNotEmpty() -> {
+                                val n = analysis.responses.size
+                                val f = analysis.failedModels.size
+                                if (f > 0) "$n ok · $f failed" else "$n ok"
+                            }
+                            else -> null
+                        },
                         reducedMotion = reducedMotion,
                     )
 
-                    // Settled expand only: full comparison + per-model answers stay optional depth.
-                    if (!processLive && analysis != null) {
+                    if (roster.isNotEmpty()) {
+                        FusionModelRows(
+                            models = roster,
+                            analysis = analysis,
+                            panelActive = panelActive,
+                            // Only mark every model failed on hard fail or true skip — not unparsed.
+                            panelFailed = panelFailed || panelDidNotRun,
+                            reducedMotion = reducedMotion,
+                        )
+                    }
+
+                    FusionProcessStep(
+                        label = "Compare",
+                        state = compareState,
+                        meta = when {
+                            panelDidNotRun || panelFailed -> "skipped"
+                            detailUnparsed -> "unavailable"
+                            analysis == null -> null
+                            else -> buildString {
+                                val parts = mutableListOf<String>()
+                                if (analysis.consensus.isNotEmpty()) parts += "${analysis.consensus.size} agreed"
+                                if (analysis.contradictions.isNotEmpty()) parts += "${analysis.contradictions.size} disagreed"
+                                if (parts.isEmpty() && analysis.hasUsableDetail) parts += "done"
+                                append(parts.joinToString(" · "))
+                            }.takeIf { it.isNotBlank() }
+                        },
+                        reducedMotion = reducedMotion,
+                    )
+
+                    FusionProcessStep(
+                        label = when (mergeState) {
+                            FusionStepState.Active -> "Merging into one answer…"
+                            FusionStepState.Failed -> "Answer"
+                            else -> "Answer"
+                        },
+                        state = mergeState,
+                        meta = when {
+                            panelDidNotRun -> "no deliberation"
+                            mergeState == FusionStepState.Active -> null
+                            mergeState == FusionStepState.Failed -> "no answer"
+                            mergeState == FusionStepState.Done && (answerStarted || !processLive) -> "ready"
+                            else -> null
+                        },
+                        reducedMotion = reducedMotion,
+                    )
+
+                    if (panelDidNotRun && !processLive) {
+                        Text(
+                            "Your panel was not used — the model replied without multi-model deliberation. Try again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = Spacing.xs),
+                        )
+                    } else if (detailUnparsed && !processLive) {
+                        Text(
+                            "The panel ran, but structured comparison detail could not be read. The answer below may still be a fusion synthesis.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = Spacing.xs),
+                        )
+                    }
+
+                    // Optional depth only when settled and we actually have structured detail.
+                    if (!processLive && analysis != null && analysis.hasUsableDetail) {
                         Spacer(Modifier.height(Spacing.xs))
                         FusionDeliberation(analysis)
                     }
@@ -670,7 +666,7 @@ private fun FusionProcessStep(
                 MaterialTheme.colorScheme.onSurface
             },
             modifier = Modifier.weight(1f),
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         if (meta != null) {
@@ -692,7 +688,7 @@ private fun FusionProcessStep(
 
 /**
  * Active busy mark. [LoadingIndicator] keeps spinning even when animator duration scale is 0,
- * so reduced-motion falls back to a still secondary ring (same stillness rule as Research reveals).
+ * so reduced-motion falls back to a still secondary ring.
  */
 @Composable
 private fun FusionBusyIndicator(reducedMotion: Boolean, size: Dp) {
@@ -752,89 +748,74 @@ private fun FusionStepMark(state: FusionStepState, reducedMotion: Boolean) {
     }
 }
 
-/** Tool-chip density for the panel roster — labels only; checks only after resolve. */
-@Composable
-private fun FusionModelChips(
-    models: List<String>,
-    failed: List<String>,
-    resolved: Boolean,
-    allFailed: Boolean = false,
-) {
-    val failedSet = remember(failed) { failed.map { it.lowercase() }.toSet() }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 18.dp + Spacing.s)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-    ) {
-        models.forEach { model ->
-            val isFailed = resolved && (
-                allFailed ||
-                    failedSet.contains(model.lowercase()) ||
-                    failed.any { model.endsWith(it) || it.endsWith(model) }
-                )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                Row(
-                    Modifier.padding(start = Spacing.s, end = Spacing.m, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (resolved) {
-                        Icon(
-                            if (isFailed) Icons.Default.Close else Icons.Default.Check,
-                            null,
-                            Modifier.size(12.dp),
-                            tint = if (isFailed) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.secondary
-                            },
-                        )
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    Text(
-                        shortModel(model),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+private fun fusionModelFailed(model: String, failed: List<String>): Boolean {
+    if (failed.isEmpty()) return false
+    val id = model.lowercase()
+    val short = shortModel(model).lowercase()
+    return failed.any { f ->
+        val fl = f.lowercase()
+        fl == id || fl.endsWith(id) || id.endsWith(fl) ||
+            fl == short || fl.endsWith(short) || short.endsWith(fl)
     }
 }
 
-/** Compact count chips after compare (agreed / disagreed) — not a full report. */
-@Composable
-private fun FusionCountChips(analysis: FusionAnalysis) {
-    val chips = buildList {
-        if (analysis.consensus.isNotEmpty()) add("${analysis.consensus.size} agreed")
-        if (analysis.contradictions.isNotEmpty()) add("${analysis.contradictions.size} disagreed")
-        if (analysis.uniqueInsights.isNotEmpty()) add("${analysis.uniqueInsights.size} unique")
-        if (analysis.blindSpots.isNotEmpty()) add("${analysis.blindSpots.size} gaps")
+private fun fusionModelResponded(model: String, responses: List<FusionResponse>): Boolean {
+    if (responses.isEmpty()) return false
+    val id = model.lowercase()
+    val short = shortModel(model).lowercase()
+    return responses.any { r ->
+        val m = r.model.lowercase()
+        m == id || m.endsWith(id) || id.endsWith(m) ||
+            shortModel(r.model).lowercase() == short
     }
-    if (chips.isEmpty()) return
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 18.dp + Spacing.s)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+}
+
+/**
+ * Multi-line tool-call style rows — one spinner (or check/fail) per panel model.
+ * While the panel is out every row is active; after resolve, marks follow real outcomes when known.
+ */
+@Composable
+private fun FusionModelRows(
+    models: List<String>,
+    analysis: FusionAnalysis?,
+    panelActive: Boolean,
+    panelFailed: Boolean,
+    reducedMotion: Boolean,
+) {
+    Column(
+        Modifier.padding(start = Spacing.base),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        chips.forEach { label ->
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        models.forEach { model ->
+            val state = when {
+                panelActive || analysis == null -> FusionStepState.Active
+                panelFailed -> FusionStepState.Failed
+                !analysis.toolResultFound -> FusionStepState.Done
+                fusionModelFailed(model, analysis.failedModels) -> FusionStepState.Failed
+                fusionModelResponded(model, analysis.responses) -> FusionStepState.Done
+                analysis.responses.isNotEmpty() -> FusionStepState.Failed // others returned; this one silent
+                analysis.hasUsableDetail -> FusionStepState.Done
+                else -> FusionStepState.Done
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 26.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                FusionStepMark(state = state, reducedMotion = reducedMotion)
+                Spacer(Modifier.width(Spacing.s))
                 Text(
-                    label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = Spacing.m, vertical = 4.dp),
+                    shortModel(model),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when (state) {
+                        FusionStepState.Failed -> MaterialTheme.colorScheme.error
+                        FusionStepState.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
