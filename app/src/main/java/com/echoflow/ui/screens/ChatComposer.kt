@@ -264,33 +264,27 @@ internal fun InputToolbar(
         // Only capabilities that ride alongside a real model (Web search, Browser Flow, Artifact)
         // still earn a chip, because the pill keeps showing your actual model and the chip is the
         // one signal they are on. Turning these off happens back in the "+" menu.
-        // The dictation mic is pinned to the trailing edge of this row — *outside* the chip
-        // scroll — so it never scrolls away when capabilities fill the row, and never has to
-        // fight the composer oval's corners. One fixed home for "talk to type".
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ContextChipRow(Modifier.weight(1f).padding(start = Spacing.s)) {
-                ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
-                // Deep Research owns the pill; its only *extra* control is the depth/cost dial,
-                // a real setting rather than a redundant label, so it stays — beside the pill.
-                if (deepResearchActive && showEffortPill) {
-                    EffortPill(effort = exaEffort, onSelect = onSelectEffort)
-                }
-                if (webSearchChipOn) {
-                    CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
-                }
-                if (browserFlowActive) {
-                    CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
-                }
-                if (artifactActive) {
-                    CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
-                }
-            }
+        // The dictation mic lives right beside the model picker — its one fixed home, never in
+        // the composer oval's corners. The capability chips follow to its right. It sits near the
+        // leading edge, so it stays put even as chips fill and scroll the row.
+        ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
+            ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
             if (sttAvailable) {
-                Spacer(Modifier.width(Spacing.s))
                 ModelRowMic(phase = voicePhase, onClick = onMicTap)
+            }
+            // Deep Research owns the pill; its only *extra* control is the depth/cost dial,
+            // a real setting rather than a redundant label, so it stays — beside the pill.
+            if (deepResearchActive && showEffortPill) {
+                EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+            }
+            if (webSearchChipOn) {
+                CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
+            }
+            if (browserFlowActive) {
+                CapabilityChip(Icons.Default.Language, "Browser Flow", onRemove = onToggleBrowserFlow)
+            }
+            if (artifactActive) {
+                CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
             }
         }
 
@@ -396,7 +390,7 @@ internal fun InputToolbar(
                         active = voicePhase == VoicePhase.Recording,
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
+                            .height(48.dp)
                             .padding(horizontal = Spacing.m),
                     )
                 }
