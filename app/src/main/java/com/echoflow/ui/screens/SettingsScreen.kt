@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -149,6 +150,7 @@ internal const val PageWebSearch = "web_search"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
 internal const val PageImagine = "imagine"
+internal const val PageSpeechToText = "speech_to_text"
 internal const val PageDataAgent = "data_agent"
 internal const val PageBrowserFlow = "browser_flow"
 internal const val PageEchoLabs = "echo_labs"
@@ -170,7 +172,7 @@ internal val CustomProviderSectionGap = 28.dp
 internal fun settingsParentPage(page: String): String? = when (page) {
     PageHome -> null
     PageAppearance, PageCloudModels, PageWebSearch, PageLocalModels,
-    PageDeepResearch, PageImagine, PageEchoLabs,
+    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
     PageEchoAgent, PageCustomProvider,
@@ -236,6 +238,11 @@ fun SettingsScreen(
             PageLocalModels -> LocalModelsPage(viewModel, onBack = navigateBack)
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = navigateBack)
             PageImagine -> ImaginePage(viewModel, onBack = navigateBack)
+            PageSpeechToText -> SpeechToTextPage(
+                viewModel,
+                onOpenCloudModels = { page = PageCloudModels },
+                onBack = navigateBack,
+            )
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
             PageDataAgent -> DataAgentPage(viewModel, onBack = navigateBack)
             PageBrowserFlow -> BrowserFlowPage(viewModel, onBack = navigateBack)
@@ -329,6 +336,8 @@ internal fun SettingsHomePage(
             videoGenModelId
         }
     val imagineSubtitle = "$imageGenSubtitle · $videoModelName"
+    val sttCloudModelId by viewModel.sttCloudModel.collectAsState()
+    val sttSubtitle = com.echoflow.data.SttCatalog.resolve(sttCloudModelId).name
     val deepResearchSubtitle = when {
         deepResearchModelId.isBlank() -> "No engine selected"
         else -> DeepResearchCatalog.providerEngineById(deepResearchModelId)?.name
@@ -378,7 +387,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 7,
+                index = 0, count = 8,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -388,7 +397,7 @@ internal fun SettingsHomePage(
                 subtitle = cloudSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 7,
+                index = 1, count = 8,
                 onClick = { onOpen(PageCloudModels) },
             )
             SettingsNavRow(
@@ -398,7 +407,7 @@ internal fun SettingsHomePage(
                 subtitle = localSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 7,
+                index = 2, count = 8,
                 onClick = { onOpen(PageLocalModels) },
             )
             SettingsNavRow(
@@ -408,7 +417,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 7,
+                index = 3, count = 8,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -418,7 +427,7 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 7,
+                index = 4, count = 8,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -428,8 +437,18 @@ internal fun SettingsHomePage(
                 subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 7,
+                index = 5, count = 8,
                 onClick = { onOpen(PageImagine) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Mic,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Speech to text",
+                subtitle = sttSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 6, count = 8,
+                onClick = { onOpen(PageSpeechToText) },
             )
             SettingsNavRow(
                 icon = Icons.Default.AutoAwesome,
@@ -438,7 +457,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 6, count = 7,
+                index = 7, count = 8,
                 onClick = { onOpen(PageEchoLabs) },
             )
         }

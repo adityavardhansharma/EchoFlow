@@ -80,6 +80,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -146,9 +148,6 @@ internal fun InputToolbar(
     echoAdviserActive: Boolean,
     echoFusionActive: Boolean,
     echoAgentActive: Boolean,
-    advisorChipLabel: String?,
-    fusionChipLabel: String?,
-    agentChipLabel: String?,
     onToggleDeepResearch: () -> Unit,
     onToggleWebSearch: () -> Unit,
     onToggleDataAgent: () -> Unit,
@@ -184,6 +183,11 @@ internal fun InputToolbar(
     blockedReason: String? = null,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    sttAvailable: Boolean = false,
+    voicePhase: VoicePhase = VoicePhase.Idle,
+    voiceAmplitude: Float = 0f,
+    onMicTap: () -> Unit = {},
+    onCancelTranscribe: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
@@ -252,8 +256,26 @@ internal fun InputToolbar(
 
         // What this next message will be sent with: the model first, then whatever
         // capabilities are on. Always visible — the model is never implicit.
+        //
+        // Modes that take over the model pill (Adviser, Fusion, Agent, Deep Research, Data
+        // Agent — see `contextModelLabel` in ChatSurface) deliberately get *no* chip here: the
+        // pill already names them, and a second chip saying the same thing read as a duplicate.
+        // Only capabilities that ride alongside a real model (Web search, Browser Flow, Artifact)
+        // still earn a chip, because the pill keeps showing your actual model and the chip is the
+        // one signal they are on. Turning these off happens back in the "+" menu.
+        // The dictation mic lives right beside the model picker — its one fixed home, never in
+        // the composer oval's corners. The capability chips follow to its right. It sits near the
+        // leading edge, so it stays put even as chips fill and scroll the row.
         ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
             ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
+            if (sttAvailable) {
+                ModelRowMic(phase = voicePhase, onClick = onMicTap)
+            }
+            // Deep Research owns the pill; its only *extra* control is the depth/cost dial,
+            // a real setting rather than a redundant label, so it stays — beside the pill.
+            if (deepResearchActive && showEffortPill) {
+                EffortPill(effort = exaEffort, onSelect = onSelectEffort)
+            }
             if (webSearchChipOn) {
                 CapabilityChip(Icons.Default.TravelExplore, "Web search", onRemove = onToggleWebSearch)
             }
@@ -262,43 +284,6 @@ internal fun InputToolbar(
             }
             if (artifactActive) {
                 CapabilityChip(Icons.Default.AutoAwesome, "Artifact", onRemove = onToggleArtifact)
-            }
-            if (echoAdviserActive) {
-                CapabilityChip(
-                    Icons.Default.Psychology,
-                    advisorChipLabel?.let { "Adviser · $it" } ?: "Echo Adviser",
-                    onRemove = onToggleEchoAdviser,
-                )
-            }
-            if (echoFusionActive) {
-                CapabilityChip(
-                    Icons.Default.AccountTree,
-                    fusionChipLabel?.let { "Fusion · $it" } ?: "Echo Fusion",
-                    onRemove = onToggleEchoFusion,
-                )
-            }
-            if (echoAgentActive) {
-                CapabilityChip(
-                    Icons.Default.Hub,
-                    agentChipLabel?.let { "Echo Agent · $it" } ?: "Echo Agents",
-                    onRemove = onToggleEchoAgent,
-                )
-            }
-            if (deepResearchActive) {
-                CapabilityChip(
-                    Icons.Default.Science,
-                    researchEngineLabel?.takeIf { it.isNotBlank() && it != "Choose engine" }?.let { "Research · $it" } ?: "Deep Research",
-                    onRemove = onToggleDeepResearch,
-                )
-                // Exa Agent's depth/cost dial lives here, not in the engine list.
-                if (showEffortPill) EffortPill(effort = exaEffort, onSelect = onSelectEffort)
-            }
-            if (dataAgentActive) {
-                CapabilityChip(
-                    Icons.Default.Science,
-                    dataAgentLabel.takeIf { it.isNotBlank() && it != "Choose agent" }?.let { "Data Agent · $it" } ?: "Data Agent",
-                    onRemove = onToggleDataAgent,
-                )
             }
         }
 
@@ -364,45 +349,68 @@ internal fun InputToolbar(
                     )
                 }
 
-                TextField(
-                    value = text,
-                    onValueChange = onText,
-                    placeholder = {
-                        Text(
-                            when {
-                                browserSession != null -> "Command the browser…"
-                                browserFlowActive -> "Open a site & say what to do…"
-                                dataAgentActive -> "Describe the data to extract…"
-                                deepResearchActive -> "Research a topic…"
-                                artifactActive -> "Describe an artifact to build…"
-                                else -> "Ask anything…"
-                            }
-                        )
-                    },
-                    maxLines = 6,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        disabledContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                    ),
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier
-                        .weight(1f)
-                        .contentReceiver(imageContentReceiver)
-                        .testTag("chat_input_field"),
-                )
+                // While dictating, the whole text area becomes a live waveform (the pill collapses
+                // to a single comfortable line); the text is untouched underneath and returns when
+                // the transcript lands. On stop the bars freeze while transcription is in flight.
+                if (voicePhase == VoicePhase.Idle) {
+                    TextField(
+                        value = text,
+                        onValueChange = onText,
+                        placeholder = {
+                            Text(
+                                when {
+                                    browserSession != null -> "Command the browser…"
+                                    browserFlowActive -> "Open a site & say what to do…"
+                                    dataAgentActive -> "Describe the data to extract…"
+                                    deepResearchActive -> "Research a topic…"
+                                    artifactActive -> "Describe an artifact to build…"
+                                    else -> "Ask anything…"
+                                }
+                            )
+                        },
+                        maxLines = 6,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                        ),
+                        textStyle = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier
+                            .weight(1f)
+                            .contentReceiver(imageContentReceiver)
+                            .testTag("chat_input_field"),
+                    )
+                } else {
+                    VoiceWaveform(
+                        amplitude = voiceAmplitude,
+                        active = voicePhase == VoicePhase.Recording,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .padding(horizontal = Spacing.m),
+                    )
+                }
 
                 val researchMode = deepResearchActive || dataAgentActive
                 // A live research run owns the same Stop control as a streaming reply — not a
                 // separate Cancel chip on the timeline card.
                 val showStop = isStreaming || researchInProgress
+                val transcribing = voicePhase == VoicePhase.Transcribing
                 val hasText = text.trim().isNotEmpty()
                 val hasContent = hasText || (pendingUri != null && !researchMode)
-                val canSend = hasContent && !showStop && blockedReason == null
-                SendButton(enabled = canSend, isStreaming = showStop, research = researchMode, onStop = onStop) {
+                // Inert while capturing/transcribing — the mic owns that phase, not send.
+                val canSend = hasContent && !showStop && blockedReason == null && voicePhase == VoicePhase.Idle
+                SendButton(
+                    enabled = canSend,
+                    isStreaming = showStop,
+                    research = researchMode,
+                    transcribing = transcribing,
+                    onStop = onStop,
+                    onCancelTranscribe = onCancelTranscribe,
+                ) {
                     if (canSend) onSend()
                 }
             }
@@ -665,11 +673,37 @@ private class PlusMenuPositionProvider(
 
 
 @Composable
-internal fun SendButton(enabled: Boolean, isStreaming: Boolean, research: Boolean = false, onStop: () -> Unit = {}, onClick: () -> Unit) {
+internal fun SendButton(
+    enabled: Boolean,
+    isStreaming: Boolean,
+    research: Boolean = false,
+    transcribing: Boolean = false,
+    onStop: () -> Unit = {},
+    onCancelTranscribe: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     // Send and stop are the only two actions that change what the app is *doing*, so they're the
     // two that earn a real haptic — a mirrored rising/falling pair, see [rememberActionHaptics].
     val haptics = rememberActionHaptics()
-    if (isStreaming) {
+    if (transcribing) {
+        // The "working" signal for dictation lives here, on the send slot: the same spinner
+        // language as streaming-Stop, but it means "transcribing…". Tap to cancel and keep
+        // whatever text was already in the box.
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .clickable(onClickLabel = "Cancel transcription") { onCancelTranscribe() }
+                .semantics { contentDescription = "Transcribing. Tap to cancel." },
+            contentAlignment = Alignment.Center,
+        ) {
+            LoadingIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp),
+            )
+        }
+    } else if (isStreaming) {
         // Tappable Stop that stays in visual sync with the "Thinking…" row: the same expressive
         // LoadingIndicator keeps spinning so the reply still feels live, with a Stop glyph centered
         // on top so it reads clearly as "tap to stop". Tapping cancels the in-flight reply (cloud
