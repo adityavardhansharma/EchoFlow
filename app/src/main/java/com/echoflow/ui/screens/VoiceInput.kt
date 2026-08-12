@@ -2,11 +2,8 @@
 
 package com.echoflow.ui.screens
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -17,13 +14,16 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -86,14 +86,14 @@ class VoiceInputController(
         }
     }
 
-    /** Abort whatever is happening: drop the recording, or cancel an in-flight transcription. */
+    /**
+     * Abort whatever is happening: drop the recording, or cancel an in-flight transcription.
+     * Always safe to call from composition disposal — releases the mic even if phase is Idle.
+     */
     fun cancel() {
-        when (phase) {
-            VoicePhase.Recording -> recorder.cancel()
-            VoicePhase.Transcribing -> job?.cancel()
-            VoicePhase.Idle -> {}
-        }
+        job?.cancel()
         job = null
+        recorder.cancel()
         phase = VoicePhase.Idle
     }
 
@@ -103,7 +103,14 @@ class VoiceInputController(
 @Composable
 fun rememberVoiceInputController(): VoiceInputController {
     val scope = rememberCoroutineScope()
-    return remember { VoiceInputController(scope, AudioWavRecorder(), SpeechToTextTranscriber()) }
+    val controller = remember {
+        VoiceInputController(scope, AudioWavRecorder(), SpeechToTextTranscriber())
+    }
+    // Navigating away mid-dictation must release the mic and stop the recorder thread.
+    DisposableEffect(controller) {
+        onDispose { controller.cancel() }
+    }
+    return controller
 }
 
 /**
@@ -118,18 +125,27 @@ fun rememberVoiceInputController(): VoiceInputController {
 @Composable
 fun ModelRowMic(phase: VoicePhase, onClick: () -> Unit) {
     val recording = phase == VoicePhase.Recording
-    val pulse = rememberInfiniteTransition(label = "mic-pulse")
-    val pulseScale by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.14f,
-        animationSpec = infiniteRepeatable(tween(620), RepeatMode.Reverse),
-        label = "mic-scale",
-    )
-    Box(Modifier.scale(if (recording) pulseScale else 1f)) {
+    // Pulse only while recording so Idle does not keep a frame-by-frame animation running.
+    val pulseScale = remember { Animatable(1f) }
+    LaunchedEffect(recording) {
+        if (!recording) {
+            pulseScale.snapTo(1f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            pulseScale.animateTo(1.14f, tween(620))
+            pulseScale.animateTo(1f, tween(620))
+        }
+    }
+    Box(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .scale(pulseScale.value),
+    ) {
         ShapedIconButton(
             onClick = onClick,
             enabled = phase != VoicePhase.Transcribing,
-            size = 40.dp,
+            size = 48.dp,
             restShape = MaterialShapes.Cookie9Sided,
             pressedShape = MaterialShapes.Flower,
             container = if (recording) MaterialTheme.colorScheme.primary
@@ -154,6 +170,7 @@ fun ModelRowMic(phase: VoicePhase, onClick: () -> Unit) {
 @Composable
 fun VoiceWaveform(amplitude: Float, active: Boolean, modifier: Modifier = Modifier) {
     val bars = remember { mutableStateListOf<Float>().apply { repeat(BAR_COUNT) { add(0.06f) } } }
+    val latestAmplitude by rememberUpdatedState(amplitude)
     LaunchedEffect(active) {
         var tick = 0
         while (active) {
@@ -162,7 +179,7 @@ fun VoiceWaveform(amplitude: Float, active: Boolean, modifier: Modifier = Modifi
             // pushes the bars well above the idle motion.
             val idle = 0.12f + 0.07f * kotlin.math.sin(tick * 0.6).toFloat()
             bars.removeAt(0)
-            bars.add(maxOf(amplitude, idle).coerceIn(0.06f, 1f))
+            bars.add(maxOf(latestAmplitude, idle).coerceIn(0.06f, 1f))
             tick++
             delay(55)
         }
