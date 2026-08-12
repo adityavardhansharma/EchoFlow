@@ -174,9 +174,9 @@ data class FusionAnalysis(
      */
     val toolResultFound: Boolean = true,
     /**
-     * True when Echo Fusion was required (user opted in) but the outer model still never
-     * produced a fusion tool payload after force + retry. The UI must disclose this — a plain
-     * answer without deliberation is not a successful fuse.
+     * True when Echo Fusion was required (user opted in) but the outer model never produced a
+     * fusion tool payload after the forced call. The UI must disclose this — a plain answer
+     * without deliberation is not a successful fuse.
      */
     val deliberationSkipped: Boolean = false,
 ) {

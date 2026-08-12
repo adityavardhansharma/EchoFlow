@@ -565,12 +565,12 @@ class OpenRouterService(private val context: Context) {
      * Echo Adviser / Echo Fusion. OpenRouter-only server tools. Non-streaming so the tool
      * result and final answer can be ordered deterministically (Echo card → reasoning → answer).
      *
-     * **Fusion guarantee:** the user opted into a named panel. We force fusion with
-     * `tool_choice: "required"`, retry once if no tool payload appears, and if the panel ran
-     * but the model left no final text (e.g. after a capped second fusion call), we synthesize
-     * the answer in a follow-up request **without** tools. A silent single-model reply without
-     * deliberation is never treated as a successful fuse — the UI is told via
-     * [FusionAnalysis.deliberationSkipped].
+     * **Fusion guarantee:** the user opted into a named panel. We force fusion once with
+     * `tool_choice: "required"`. We never re-issue that request when the payload is missing or
+     * unparsed — a second independent call would run the cost-bearing panel again. If the panel
+     * ran but the model left no final text, we synthesize the answer in a follow-up **without**
+     * tools. A silent single-model reply without deliberation is never treated as a successful
+     * fuse — the UI is told via [FusionAnalysis.deliberationSkipped].
      */
     fun sendWithEchoTools(
         apiKey: String,
@@ -671,8 +671,9 @@ class OpenRouterService(private val context: Context) {
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Force fusion at least once, recover a final answer if the outer model stalls after the
-     * panel, and surface an honest skip when deliberation never ran.
+     * Force fusion once, recover a final answer if the outer model stalls after the panel, and
+     * surface an honest skip when deliberation never ran. No second fusion request: missing or
+     * unparsed payloads must not re-bill the multi-model panel.
      */
     private fun runFusionWithGuarantee(
         apiKey: String,
@@ -682,8 +683,8 @@ class OpenRouterService(private val context: Context) {
         fusion: FusionRequest,
         params: InferenceParams?,
     ): FusionRunOutcome {
-        // Pass 1: force the fusion tool (user selected a panel — do not leave it to chance).
-        var response = postForResponse(
+        // Force the fusion tool once (user selected a panel — do not leave it to chance).
+        val response = postForResponse(
             apiKey,
             buildFusionToolRequest(
                 model = model,
@@ -694,23 +695,7 @@ class OpenRouterService(private val context: Context) {
                 toolChoice = "required",
             ),
         )
-        var parsed = preferredFusionFrom(response)
-
-        // Pass 2: if required still produced no payload, retry once with an explicit system nudge.
-        if (parsed == null) {
-            response = postForResponse(
-                apiKey,
-                buildFusionToolRequest(
-                    model = model,
-                    history = history,
-                    systemPrompt = systemPrompt + "\n\n" + FUSION_FORCE_NUDGE,
-                    fusion = fusion,
-                    params = params,
-                    toolChoice = "required",
-                ),
-            )
-            parsed = preferredFusionFrom(response)
-        }
+        val parsed = preferredFusionFrom(response)
 
         val deliberationSkipped = parsed == null
         val analysis = (parsed ?: FusionAnalysis(
@@ -734,7 +719,7 @@ class OpenRouterService(private val context: Context) {
             ?: (message?.get("reasoning_content") as? String)).orEmpty().trim()
         var annotations = message?.get("annotations") as? List<*>
 
-        // Pass 3: panel ran but no user-facing answer (common after a capped second fusion call).
+        // Panel ran but no user-facing answer (common when the model only emitted the tool result).
         // Synthesize from the panel result with tools disabled so fusion cannot be invoked again.
         if (answer.isBlank() && analysis.hasUsableDetail) {
             val synth = postForResponse(
@@ -906,13 +891,6 @@ class OpenRouterService(private val context: Context) {
             idx = end
             delay(14)
         }
-    }
-
-    private companion object {
-        const val FUSION_FORCE_NUDGE =
-            "You must call the fusion tool now before any final answer. " +
-                "Do not reply to the user until the fusion tool has returned. " +
-                "Call it exactly once."
     }
 
     /** One blocking non-streaming POST for the Echo modes; returns the parsed response map. */
