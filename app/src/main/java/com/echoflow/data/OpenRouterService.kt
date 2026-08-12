@@ -610,11 +610,21 @@ class OpenRouterService(private val context: Context) {
                 "analysis_models" to fusion.models,
             )
             fusion.judge?.takeIf { it.isNotBlank() }?.let { fusionParams["model"] = it }
+            // Server tool + matching plugin config (OpenRouter's recommended pair for a custom panel).
             tools.add(mapOf("type" to "openrouter:fusion", "parameters" to fusionParams))
             emit(StreamChunk.FusionStarted(fusion.panelName, fusion.models))
         }
 
         val hasPdf = historyHasPdfAttachment(history)
+        // Fusion: do NOT use tool_choice "required". With only openrouter:fusion available,
+        // required forces another tool call after the first result → fusion_invocation_capped.
+        // Echo Fusion is already user-opted; the system prompt requires exactly one fusion call,
+        // then a final answer with no further tools. Adviser still uses required (single consult).
+        val toolChoice: Any = when {
+            fusion != null -> "auto"
+            advisor != null -> "required"
+            else -> "auto"
+        }
         val requestMap = mutableMapOf<String, Any>(
             "model" to model,
             "messages" to buildMessagesPayload(history, systemPrompt),
@@ -622,8 +632,19 @@ class OpenRouterService(private val context: Context) {
             "include_reasoning" to true,
             "reasoning" to mapOf("enabled" to true),
             "tools" to tools,
-            "tool_choice" to "required",
+            "tool_choice" to toolChoice,
         )
+        if (fusion != null) {
+            // One fusion call per turn; no parallel multi-tool fan-out on the outer model.
+            requestMap["parallel_tool_calls"] = false
+            val fusionPlugin = mutableMapOf<String, Any>(
+                "id" to "fusion",
+                "analysis_models" to fusion.models,
+            )
+            fusion.judge?.takeIf { it.isNotBlank() }?.let { fusionPlugin["model"] = it }
+                ?: run { fusionPlugin["model"] = model }
+            requestMap["plugins"] = listOf(fusionPlugin)
+        }
         addPdfPluginIfNeeded(requestMap, hasPdf)
         if (params != null) {
             requestMap["temperature"] = params.temperature
@@ -656,9 +677,11 @@ class OpenRouterService(private val context: Context) {
             )
         }
         if (fusion != null) {
-            val parsed = OpenRouterEchoDecoder.scanForFusionResult(response)
-            // If the decoder misses the tool payload, mark toolResultFound=false so the UI does
-            // not paint a false "Panel could not respond" while the judge still answers.
+            // Prefer a successful panel payload over a later fusion_invocation_capped error if the
+            // model tried to call fusion twice in the same turn.
+            val parsed = OpenRouterEchoDecoder.selectPreferredFusionResult(
+                OpenRouterEchoDecoder.scanForAllFusionResults(response),
+            )
             val analysis = (parsed ?: FusionAnalysis(
                 panelName = fusion.panelName,
                 judgeModel = fusion.judge,

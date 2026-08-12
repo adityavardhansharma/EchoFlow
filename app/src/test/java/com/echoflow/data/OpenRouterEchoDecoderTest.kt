@@ -79,4 +79,29 @@ class OpenRouterEchoDecoderTest {
         assertEquals("openai/gpt", result.responses.single().model)
         assertEquals(listOf("deepseek/x"), result.failedModels)
     }
+
+    @Test fun `prefers successful fusion over later capped invocation`() {
+        val ok = mapOf(
+            "status" to "ok",
+            "analysis" to mapOf("consensus" to listOf("use solid panels")),
+            "responses" to listOf(mapOf("model" to "a/b", "content" to "hi")),
+        )
+        val capped = mapOf(
+            "status" to "error",
+            "error" to "Fusion has already been invoked for this request and cannot be called again.",
+            "failure_reason" to "fusion_invocation_capped",
+        )
+        val tree = mapOf(
+            "messages" to listOf(
+                mapOf("role" to "tool", "content" to ok),
+                mapOf("role" to "tool", "content" to capped),
+            ),
+        )
+        val preferred = OpenRouterEchoDecoder.scanForFusionResult(tree)!!
+        assertEquals(listOf("use solid panels"), preferred.consensus)
+        assertEquals(1, preferred.responses.size)
+        // Capped payload must not be collected as a fusion result at all.
+        val all = OpenRouterEchoDecoder.scanForAllFusionResults(tree)
+        assertEquals(1, all.size)
+    }
 }
