@@ -93,6 +93,14 @@ class SettingsRepository(context: Context) {
     private val _artifactsOffline = MutableStateFlow(getArtifactsOfflineDirect())
     val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
 
+    // Speech to text (composer dictation). Cloud only for now; on-device is "coming soon".
+    // Runs on OpenRouter with the same key as Cloud models — see [SttCatalog].
+    private val _sttMode = MutableStateFlow(getSttModeDirect())
+    val sttMode: StateFlow<SttMode> = _sttMode.asStateFlow()
+
+    private val _sttCloudModel = MutableStateFlow(getSttCloudModelDirect())
+    val sttCloudModel: StateFlow<String> = _sttCloudModel.asStateFlow()
+
     // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
     private val _appMode = MutableStateFlow(getAppModeDirect())
     val appMode: StateFlow<AppMode> = _appMode.asStateFlow()
@@ -564,6 +572,24 @@ class SettingsRepository(context: Context) {
     fun saveArtifactsOffline(enabled: Boolean) {
         prefs.edit().putBoolean("artifacts_offline", enabled).apply()
         _artifactsOffline.value = enabled
+    }
+
+    // ── Speech to text ───────────────────────────────────────────────────────────────────
+
+    fun getSttModeDirect(): SttMode = SttMode.fromStorage(prefs.getString("stt_mode", null))
+
+    fun saveSttMode(mode: SttMode) {
+        prefs.edit().putString("stt_mode", mode.storageKey).apply()
+        _sttMode.value = mode
+    }
+
+    fun getSttCloudModelDirect(): String =
+        prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
+            .ifBlank { SttCatalog.DEFAULT_MODEL_ID }
+
+    fun saveSttCloudModel(id: String) {
+        prefs.edit().putString("stt_cloud_model", id).apply()
+        _sttCloudModel.value = id
     }
 
     // ── App mode ───────────────────────────────────────────────────────────────────────

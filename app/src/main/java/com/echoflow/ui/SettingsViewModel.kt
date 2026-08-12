@@ -33,6 +33,7 @@ import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.data.OpenRouterVideoModelDirectory
 import com.echoflow.data.OpenRouterVideoModelInfo
 import com.echoflow.data.SettingsRepository
+import com.echoflow.data.SttMode
 import com.echoflow.data.VideoModel
 import com.echoflow.data.VideoModelDao
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,6 +126,12 @@ class SettingsViewModel(
 
     // Artifacts
     val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
+
+    // Speech to text (composer dictation; always OpenRouter + the Cloud-models key)
+    val sttMode: StateFlow<SttMode> = repository.sttMode
+    val sttCloudModel: StateFlow<String> = repository.sttCloudModel
+    fun saveSttMode(mode: SttMode) = repository.saveSttMode(mode)
+    fun saveSttCloudModel(id: String) = repository.saveSttCloudModel(id)
 
     // Image generation
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
