@@ -657,12 +657,19 @@ class OpenRouterService(private val context: Context) {
         }
         if (fusion != null) {
             val parsed = OpenRouterEchoDecoder.scanForFusionResult(response)
-            val analysis = (parsed ?: FusionAnalysis(panelName = fusion.panelName, judgeModel = fusion.judge, models = fusion.models))
-                .copy(
-                    panelName = fusion.panelName,
-                    judgeModel = fusion.judge ?: parsed?.judgeModel,
-                    models = fusion.models.ifEmpty { parsed?.models ?: emptyList() },
-                )
+            // If the decoder misses the tool payload, mark toolResultFound=false so the UI does
+            // not paint a false "Panel could not respond" while the judge still answers.
+            val analysis = (parsed ?: FusionAnalysis(
+                panelName = fusion.panelName,
+                judgeModel = fusion.judge,
+                models = fusion.models,
+                toolResultFound = false,
+            )).copy(
+                panelName = fusion.panelName,
+                judgeModel = fusion.judge ?: parsed?.judgeModel,
+                models = fusion.models.ifEmpty { parsed?.models ?: emptyList() },
+                toolResultFound = parsed != null,
+            )
             emit(StreamChunk.FusionResolved(analysis))
         }
 

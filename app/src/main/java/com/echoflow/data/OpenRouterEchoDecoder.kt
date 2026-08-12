@@ -63,23 +63,42 @@ internal object OpenRouterEchoDecoder {
 
     fun isFusionResponseList(list: List<*>?): Boolean =
         list != null && list.isNotEmpty() && list.all {
-            (it as? Map<*, *>)?.containsKey("content") == true && (it as? Map<*, *>)?.containsKey("model") == true
+            val m = it as? Map<*, *> ?: return@all false
+            m.containsKey("content") && (m.containsKey("model") || m.containsKey("model_id"))
         }
 
-    /** Walks an SSE chunk for a fusion result `{analysis?, responses?, failed_models?}`. */
+    private fun looksLikeFusionPayload(node: Map<*, *>): Boolean {
+        if (node["analysis"] is Map<*, *>) return true
+        if (isFusionResponseList(node["responses"] as? List<*>)) return true
+        if (node["failed_models"] is List<*> && (node["status"] as? String) == "error") return true
+        // status:ok with only failed_models / empty responses still counts as a located tool result
+        if ((node["status"] as? String) == "ok" &&
+            (node.containsKey("responses") || node.containsKey("analysis") || node.containsKey("failed_models"))
+        ) {
+            return true
+        }
+        return false
+    }
+
+    /** Walks a response for a fusion result `{analysis?, responses?, failed_models?, status?}`. */
     fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? {
-        if (depth > 8) return null
+        if (depth > 10) return null
         when (node) {
             is Map<*, *> -> {
-                val analysisObj = node["analysis"] as? Map<*, *>
-                val responses = node["responses"] as? List<*>
-                if (analysisObj != null || isFusionResponseList(responses)) {
+                if (looksLikeFusionPayload(node)) {
                     return buildFusionAnalysis(node)
                 }
-                (node["content"] as? String)?.let { c ->
-                    parseMaybeJson(c)?.let { scanForFusionResult(it, depth + 1)?.let { r -> return r } }
+                // Tool message content is often a JSON string; also try "text" / "output" aliases.
+                listOf("content", "text", "output", "result", "arguments").forEach { key ->
+                    when (val v = node[key]) {
+                        is String -> parseMaybeJson(v)?.let { scanForFusionResult(it, depth + 1)?.let { r -> return r } }
+                        else -> scanForFusionResult(v, depth + 1)?.let { return it }
+                    }
                 }
-                for (v in node.values) scanForFusionResult(v, depth + 1)?.let { return it }
+                for ((k, v) in node) {
+                    if (k == "content" || k == "text" || k == "output" || k == "result" || k == "arguments") continue
+                    scanForFusionResult(v, depth + 1)?.let { return it }
+                }
             }
             is List<*> -> for (v in node) scanForFusionResult(v, depth + 1)?.let { return it }
         }
@@ -94,7 +113,16 @@ internal object OpenRouterEchoDecoder {
         val contradictions = (analysis?.get("contradictions") as? List<*>)?.mapNotNull { raw ->
             val m = raw as? Map<*, *> ?: return@mapNotNull null
             val topic = m["topic"] as? String ?: return@mapNotNull null
-            val stances = (m["stances"] as? List<*>)?.map { it.toString() } ?: emptyList()
+            val stances = (m["stances"] as? List<*>)?.map { stance ->
+                when (stance) {
+                    is Map<*, *> -> {
+                        val model = (stance["model"] as? String).orEmpty()
+                        val text = (stance["stance"] as? String) ?: stance["text"] as? String ?: stance.toString()
+                        if (model.isNotBlank()) "$model: $text" else text
+                    }
+                    else -> stance.toString()
+                }
+            } ?: emptyList()
             FusionContradiction(topic, stances)
         } ?: emptyList()
 
@@ -115,10 +143,17 @@ internal object OpenRouterEchoDecoder {
         val responses = (result["responses"] as? List<*>)?.mapNotNull { raw ->
             val m = raw as? Map<*, *> ?: return@mapNotNull null
             val content = m["content"] as? String ?: return@mapNotNull null
-            FusionResponse((m["model"] as? String).orEmpty(), content)
+            val model = (m["model"] as? String) ?: (m["model_id"] as? String).orEmpty()
+            FusionResponse(model, content)
         } ?: emptyList()
 
-        val failed = (result["failed_models"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+        val failed = (result["failed_models"] as? List<*>)?.mapNotNull { item ->
+            when (item) {
+                is String -> item
+                is Map<*, *> -> (item["model"] as? String) ?: (item["id"] as? String)
+                else -> null
+            }
+        } ?: emptyList()
 
         return FusionAnalysis(
             panelName = "",
@@ -131,6 +166,7 @@ internal object OpenRouterEchoDecoder {
             blindSpots = strList("blind_spots"),
             responses = responses,
             failedModels = failed,
+            toolResultFound = true,
         )
     }
 
