@@ -12,9 +12,12 @@ internal object OpenRouterPayloads {
         history.any { it.role == "user" && it.localAttachmentUri != null && isPdf(it.localAttachmentMimeType) }
 
     fun enablePdfPlugin(request: MutableMap<String, Any>, enabled: Boolean) {
-        if (enabled) request["plugins"] = listOf(
-            mapOf("id" to "file-parser", "pdf" to mapOf("engine" to "cloudflare-ai"))
-        )
+        if (!enabled) return
+        val pdfPlugin = mapOf("id" to "file-parser", "pdf" to mapOf("engine" to "cloudflare-ai"))
+        @Suppress("UNCHECKED_CAST")
+        val existing = (request["plugins"] as? List<*>)?.filterIsInstance<Map<String, Any>>().orEmpty()
+        // Merge so callers that already set plugins (e.g. fusion) keep them.
+        request["plugins"] = existing + pdfPlugin
     }
 
     fun messages(

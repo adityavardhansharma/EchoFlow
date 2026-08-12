@@ -68,11 +68,20 @@ internal object OpenRouterEchoDecoder {
         }
 
     private fun looksLikeFusionPayload(node: Map<*, *>): Boolean {
+        val status = node["status"] as? String
+        val failureReason = node["failure_reason"] as? String
+        // A second fusion call in the same turn is rejected — never treat that as the panel result.
+        if (status == "error" && failureReason == "fusion_invocation_capped") return false
+
         if (node["analysis"] is Map<*, *>) return true
         if (isFusionResponseList(node["responses"] as? List<*>)) return true
-        if (node["failed_models"] is List<*> && (node["status"] as? String) == "error") return true
+        if (node["failed_models"] is List<*> && status == "error") return true
+        // Explicit hard failures from the fusion tool (all panels failed, credits, etc.).
+        if (status == "error" && failureReason != null && failureReason != "fusion_invocation_capped") {
+            return true
+        }
         // status:ok with only failed_models / empty responses still counts as a located tool result
-        if ((node["status"] as? String) == "ok" &&
+        if (status == "ok" &&
             (node.containsKey("responses") || node.containsKey("analysis") || node.containsKey("failed_models"))
         ) {
             return true
@@ -80,29 +89,44 @@ internal object OpenRouterEchoDecoder {
         return false
     }
 
-    /** Walks a response for a fusion result `{analysis?, responses?, failed_models?, status?}`. */
-    fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? {
-        if (depth > 10) return null
+    /** Walks a response for the first fusion result (prefer [selectPreferredFusionResult] for multi-hit). */
+    fun scanForFusionResult(node: Any?, depth: Int = 0): FusionAnalysis? =
+        selectPreferredFusionResult(scanForAllFusionResults(node, depth))
+
+    /**
+     * Collects every fusion tool payload in the response tree. A single turn can contain a
+     * successful first result and a later `fusion_invocation_capped` error if the model
+     * re-invokes the tool — callers should prefer the successful payload.
+     */
+    fun scanForAllFusionResults(node: Any?, depth: Int = 0, out: MutableList<FusionAnalysis> = mutableListOf()): List<FusionAnalysis> {
+        if (depth > 10) return out
         when (node) {
             is Map<*, *> -> {
                 if (looksLikeFusionPayload(node)) {
-                    return buildFusionAnalysis(node)
+                    out.add(buildFusionAnalysis(node))
                 }
-                // Tool message content is often a JSON string; also try "text" / "output" aliases.
                 listOf("content", "text", "output", "result", "arguments").forEach { key ->
                     when (val v = node[key]) {
-                        is String -> parseMaybeJson(v)?.let { scanForFusionResult(it, depth + 1)?.let { r -> return r } }
-                        else -> scanForFusionResult(v, depth + 1)?.let { return it }
+                        is String -> parseMaybeJson(v)?.let { scanForAllFusionResults(it, depth + 1, out) }
+                        else -> scanForAllFusionResults(v, depth + 1, out)
                     }
                 }
                 for ((k, v) in node) {
                     if (k == "content" || k == "text" || k == "output" || k == "result" || k == "arguments") continue
-                    scanForFusionResult(v, depth + 1)?.let { return it }
+                    scanForAllFusionResults(v, depth + 1, out)
                 }
             }
-            is List<*> -> for (v in node) scanForFusionResult(v, depth + 1)?.let { return it }
+            is List<*> -> for (v in node) scanForAllFusionResults(v, depth + 1, out)
         }
-        return null
+        return out
+    }
+
+    /** Prefer a usable panel/analysis payload over empty or hard-failure shells. */
+    fun selectPreferredFusionResult(results: List<FusionAnalysis>): FusionAnalysis? {
+        if (results.isEmpty()) return null
+        results.firstOrNull { it.hasUsableDetail }?.let { return it }
+        results.firstOrNull { it.toolResultFound && !it.isHardFailure }?.let { return it }
+        return results.firstOrNull()
     }
 
     fun buildFusionAnalysis(result: Map<*, *>): FusionAnalysis {
@@ -155,6 +179,12 @@ internal object OpenRouterEchoDecoder {
             }
         } ?: emptyList()
 
+        // When the tool returns a hard error with no per-model list, still mark as found so UI
+        // can show failure — except fusion_invocation_capped, which is filtered earlier.
+        val status = result["status"] as? String
+        val failureReason = result["failure_reason"] as? String
+        val hardError = status == "error" && failureReason != null && failureReason != "fusion_invocation_capped"
+
         return FusionAnalysis(
             panelName = "",
             judgeModel = null,
@@ -165,7 +195,11 @@ internal object OpenRouterEchoDecoder {
             uniqueInsights = insights,
             blindSpots = strList("blind_spots"),
             responses = responses,
-            failedModels = failed,
+            failedModels = when {
+                failed.isNotEmpty() -> failed
+                hardError -> listOf(failureReason ?: "error")
+                else -> emptyList()
+            },
             toolResultFound = true,
         )
     }
