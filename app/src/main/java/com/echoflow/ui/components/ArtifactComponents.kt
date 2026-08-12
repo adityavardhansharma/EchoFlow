@@ -2,20 +2,38 @@
 
 package com.echoflow.ui.components
 
+import android.annotation.SuppressLint
+import android.view.ViewGroup
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,11 +43,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -45,12 +63,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.viewinterop.AndroidView
 import com.echoflow.data.Artifact
 import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.VersionDelta
@@ -65,27 +85,29 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
-// The most recent versions carried as chips; older ones fold into a single "+N" marker so the row
-// never wraps past a couple of lines on a phone.
+// Most recent versions as chips; older ones fold into "+N earlier".
 private const val MAX_VERSION_CHIPS = 4
 private const val CARD_RADIUS_DP = 22
 private const val MARK_SIZE_DP = 24
 private const val ROW_MIN_DP = 48
+private const val PREVIEW_HEIGHT_DP = 150
 
 /**
- * The in-chat artifact card for **current** artifacts ([ArtifactRef.UI_VERSION_CURRENT]).
+ * In-chat artifact surface for current-app artifacts.
  *
- * Hybrid of the coding-agent tool-chip reference and EchoFlow's research-capsule grammar:
- * - **Building** is a live tool-row trace (mark + label + mono filename chip + size), not a
- *   greyed-out copy of the old tertiary card.
- * - **Settled** is a result object in the same anatomy as [ResearchResultCard] (filled mark,
- *   title, type meta, open action) with **file-diff-style version chips** at the bottom —
- *   `v1 84 lines`, `v2 +74 −41` — the glanceable edit history from the reference.
+ * **Building** — research-style expandable capsule, **open by default**, with a short narrative
+ * step list (planning → scaffolding → writing → …). Not real engine steps; a readable progress
+ * story driven by stream size so the card feels alive.
  *
- * No live HTML WebView thumbnail: that path was janky (white flash + fade) and not in the
- * reference language. Preview lives in the fullscreen workspace the user deliberately opens.
+ * **Handoff** — when the stream finishes, the capsule stays for HTML and adds a final
+ * "Fetching thumbnail" step while a sandboxed WebView warms the preview **off-screen**. Only
+ * once that paint is ready does the **full settled card** animate in as one unit (header +
+ * preview + chips). No "card first, WebView fades in later" jank.
  *
- * Pre-redesign messages are not drawn here — see `ui/legacy/LegacyArtifactComponents.kt`.
+ * **Settled** — primaryContainer result object (sibling of [ResearchResultCard]) with
+ * file-diff version chips. Non-HTML skips the thumbnail handoff and settles immediately.
+ *
+ * Pre-redesign rows stay on `ui/legacy`.
  */
 @Composable
 fun ArtifactCard(
@@ -100,18 +122,6 @@ fun ArtifactCard(
     modifier: Modifier = Modifier,
     observeVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
-    if (building) {
-        BuildingArtifactCard(
-            title = title,
-            artifactType = artifactType,
-            charCount = charCount,
-            modifier = modifier,
-        )
-        return
-    }
-
-    // All versions of this lineage up to and including the one this card was written at — a card in
-    // scrolled-back history shows its own era's chips, not the lineage's latest state.
     val versionsFlow = remember(artifactId) {
         if (artifactId != null) observeVersions(artifactId) else flowOf(emptyList())
     }
@@ -122,27 +132,329 @@ fun ArtifactCard(
     val deltas by produceState(initialValue = emptyList<VersionDelta>(), lineage) {
         value = withContext(Dispatchers.Default) { versionDeltas(lineage) }
     }
+    val isHtml = artifactType == Artifact.TYPE_HTML
+    val previewHtml = remember(lineage, version, isHtml, building) {
+        if (!building && isHtml) {
+            (lineage.lastOrNull { it.versionNumber == version } ?: lineage.lastOrNull())?.content
+                ?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+    }
+    // HTML waits on body rows (async) then on a warm WebView paint. Non-HTML settles immediately.
+    val waitingForHtmlBody = !building && isHtml && previewHtml == null
+    val needsThumbnailWarm = !previewHtml.isNullOrBlank()
+    var thumbnailReady by remember(previewHtml) { mutableStateOf(!needsThumbnailWarm) }
+    // Never hang the UI if onPageFinished is slow/missing (empty doc, WebView quirk).
+    LaunchedEffect(previewHtml, needsThumbnailWarm) {
+        if (needsThumbnailWarm && !thumbnailReady) {
+            delay(2_800)
+            thumbnailReady = true
+        }
+    }
+    val preparingThumbnail =
+        !building && isHtml && (waitingForHtmlBody || (needsThumbnailWarm && !thumbnailReady))
+    val showTrace = building || preparingThumbnail
+    val showSettled = !building && !preparingThumbnail
 
-    SettledArtifactCard(
-        title = title,
-        artifactType = artifactType,
-        truncated = truncated,
-        deltas = deltas,
-        onOpen = { artifactId?.let { onOpen(it, version) } },
-        modifier = modifier,
-    )
+    val reducedMotion = rememberReducedMotion()
+    val openSettled: () -> Unit = { artifactId?.let { onOpen(it, version) } }
+
+    Column(modifier.fillMaxWidth()) {
+        // Off-screen warm load: real layout size so the WebView paints, parked far below the
+        // viewport. onPageFinished unlocks the settled card so the visible preview is not a
+        // second-class fade layered onto chrome that already appeared.
+        if (preparingThumbnail && previewHtml != null) {
+            ArtifactPreviewWebView(
+                html = previewHtml,
+                interactive = false,
+                onReady = { thumbnailReady = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(PREVIEW_HEIGHT_DP.dp)
+                    .offset(y = 4000.dp)
+                    .graphicsLayer { alpha = 0f },
+            )
+        }
+
+        AnimatedContent(
+            targetState = showSettled,
+            transitionSpec = {
+                if (reducedMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                } else {
+                    (fadeIn(tween(280)) + expandVertically(tween(320))) togetherWith
+                        (fadeOut(tween(160)) + shrinkVertically(tween(220)))
+                }
+            },
+            label = "artifact-handoff",
+            modifier = Modifier.fillMaxWidth(),
+        ) { settled ->
+            if (settled) {
+                SettledArtifactCard(
+                    title = title,
+                    artifactType = artifactType,
+                    truncated = truncated,
+                    deltas = deltas,
+                    previewHtml = previewHtml,
+                    onOpen = openSettled,
+                )
+            } else {
+                BuildingArtifactTrace(
+                    title = title,
+                    artifactType = artifactType,
+                    charCount = charCount,
+                    streamFinished = !building,
+                    fetchingThumbnail = preparingThumbnail,
+                )
+            }
+        }
+    }
 }
 
+// ── Building trace (expandable capsule) ──────────────────────────────────────────────
+
+private enum class StepState { Pending, Active, Done }
+
+private data class TraceStep(val label: String, val state: StepState)
+
 /**
- * Settled result — same weight as [ResearchResultCard]: primary container, filled check mark,
- * title + type, open affordance, then file-diff chips for the version lineage.
+ * Narrative steps from stream progress. Not engine telemetry — a readable story that advances
+ * as the body grows, then ends on "Fetching thumbnail" when HTML is warming.
  */
+private fun buildTraceSteps(
+    charCount: Int,
+    streamFinished: Boolean,
+    fetchingThumbnail: Boolean,
+    typeLabel: String,
+): List<TraceStep> {
+    // Thresholds are soft UX beats, not protocol.
+    val planDone = charCount > 0 || streamFinished
+    val scaffoldDone = charCount > 180 || streamFinished
+    val writeDone = charCount > 900 || streamFinished
+    val polishDone = streamFinished
+
+    fun state(done: Boolean, activeGate: Boolean): StepState = when {
+        done -> StepState.Done
+        activeGate -> StepState.Active
+        else -> StepState.Pending
+    }
+
+    val steps = mutableListOf(
+        TraceStep("Planning $typeLabel structure", state(planDone, !planDone)),
+        TraceStep("Scaffolding layout", state(scaffoldDone, planDone && !scaffoldDone)),
+        TraceStep(
+            if (charCount > 0) "Writing body · $charCount chars" else "Writing body",
+            state(writeDone, scaffoldDone && !writeDone),
+        ),
+        TraceStep("Polishing details", state(polishDone, writeDone && !polishDone)),
+    )
+    if (fetchingThumbnail || (streamFinished && fetchingThumbnail)) {
+        steps.add(
+            TraceStep(
+                "Fetching thumbnail",
+                if (fetchingThumbnail) StepState.Active else StepState.Done,
+            ),
+        )
+    } else if (streamFinished) {
+        // Non-HTML settle path: last beat marks complete before the card swap.
+        steps.add(TraceStep("Ready", StepState.Done))
+    }
+    return steps
+}
+
+@Composable
+private fun BuildingArtifactTrace(
+    title: String,
+    artifactType: String,
+    charCount: Int,
+    streamFinished: Boolean,
+    fetchingThumbnail: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val (_, typeLabel) = artifactGlyph(artifactType)
+    val fileName = artifactFileLabel(title, typeLabel, artifactType)
+    val steps = remember(charCount, streamFinished, fetchingThumbnail, typeLabel) {
+        buildTraceSteps(charCount, streamFinished, fetchingThumbnail, typeLabel)
+    }
+    val reducedMotion = rememberReducedMotion()
+    // Open by default while the artifact is under construction / warming the preview.
+    var expanded by remember { mutableStateOf(true) }
+    val radius by animateDpAsState(
+        targetValue = if (expanded) 14.dp else CARD_RADIUS_DP.dp,
+        animationSpec = tween(if (reducedMotion) 0 else 300),
+        label = "artifact-capsule-radius",
+    )
+    val chevron by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(if (reducedMotion) 0 else 300),
+        label = "artifact-capsule-chevron",
+    )
+    val headerLabel = when {
+        fetchingThumbnail -> "Finishing artifact"
+        streamFinished -> "Finishing artifact"
+        charCount > 0 -> "Building artifact"
+        else -> "Starting artifact"
+    }
+    val meta = when {
+        fetchingThumbnail -> "preview"
+        charCount > 0 -> "$charCount"
+        else -> null
+    }
+
+    Surface(
+        shape = RoundedCornerShape(radius),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .heightIn(min = ROW_MIN_DP.dp)
+                    .padding(horizontal = Spacing.m, vertical = Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(MARK_SIZE_DP.dp), contentAlignment = Alignment.Center) {
+                    if (streamFinished && !fetchingThumbnail) {
+                        FilledArtifactMark(
+                            container = MaterialTheme.colorScheme.primary,
+                            content = MaterialTheme.colorScheme.onPrimary,
+                            icon = Icons.Default.Check,
+                            description = "Done",
+                        )
+                    } else {
+                        LoadingIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(MARK_SIZE_DP.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(Spacing.m))
+                Text(
+                    headerLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(Spacing.s))
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                    Text(
+                        fileName,
+                        Modifier.padding(horizontal = Spacing.s, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (meta != null) {
+                    Spacer(Modifier.width(Spacing.s))
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    if (expanded) "Collapse" else "Expand",
+                    Modifier.padding(start = Spacing.xs).size(18.dp).rotate(chevron),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = if (reducedMotion) fadeIn(tween(0)) else expandVertically(tween(300)) + fadeIn(tween(200)),
+                exit = if (reducedMotion) fadeOut(tween(0)) else shrinkVertically(tween(240)) + fadeOut(tween(120)),
+            ) {
+                Row(
+                    Modifier
+                        .height(IntrinsicSize.Min)
+                        .padding(start = Spacing.m, end = Spacing.m, bottom = Spacing.m),
+                ) {
+                    Box(
+                        Modifier.width(MARK_SIZE_DP.dp).fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.outlineVariant),
+                        )
+                    }
+                    Spacer(Modifier.width(Spacing.m))
+                    Column(
+                        Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                    ) {
+                        steps.forEach { step ->
+                            TraceStepRow(step)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TraceStepRow(step: TraceStep) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        when (step.state) {
+            StepState.Done -> FilledArtifactMark(
+                container = MaterialTheme.colorScheme.primary,
+                content = MaterialTheme.colorScheme.onPrimary,
+                icon = Icons.Default.Check,
+                description = "Done",
+                sizeDp = 18,
+            )
+            StepState.Active -> Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                LoadingIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            StepState.Pending -> Box(
+                Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+            )
+        }
+        Spacer(Modifier.width(Spacing.s))
+        Text(
+            step.label,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (step.state == StepState.Active) FontWeight.Medium else FontWeight.Normal,
+            color = when (step.state) {
+                StepState.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// ── Settled result ───────────────────────────────────────────────────────────────────
+
 @Composable
 private fun SettledArtifactCard(
     title: String,
     artifactType: String,
     truncated: Boolean,
     deltas: List<VersionDelta>,
+    previewHtml: String?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -162,7 +474,6 @@ private fun SettledArtifactCard(
                     .padding(horizontal = Spacing.m, vertical = Spacing.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Same 24dp filled mark as the research result card — one system, not a 40dp tile.
                 FilledArtifactMark(
                     container = MaterialTheme.colorScheme.primary,
                     content = MaterialTheme.colorScheme.onPrimary,
@@ -195,7 +506,26 @@ private fun SettledArtifactCard(
                 )
             }
 
-            // File-diff chip row from the reference: mono pills with green + / red − counts.
+            // Preview rides with the settled card — no separate fade after chrome is up.
+            if (!previewHtml.isNullOrBlank()) {
+                Box(
+                    Modifier
+                        .padding(start = Spacing.m, end = Spacing.m, bottom = Spacing.m)
+                        .fillMaxWidth()
+                        .height(PREVIEW_HEIGHT_DP.dp)
+                        .clip(RoundedCornerShape(14.dp)),
+                ) {
+                    ArtifactPreviewWebView(
+                        html = previewHtml,
+                        interactive = false,
+                        onReady = null,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    // Card is the gesture target; swallow WebView touches.
+                    Box(Modifier.matchParentSize().clickable(onClick = onOpen))
+                }
+            }
+
             if (deltas.isNotEmpty()) {
                 VersionChipRow(
                     deltas = deltas,
@@ -207,7 +537,6 @@ private fun SettledArtifactCard(
     }
 }
 
-/** The edit history as glanceable file-diff chips — newest few, older ones folded into "+N". */
 @Composable
 private fun VersionChipRow(
     deltas: List<VersionDelta>,
@@ -216,7 +545,6 @@ private fun VersionChipRow(
 ) {
     val shown = remember(deltas) { deltas.takeLast(MAX_VERSION_CHIPS) }
     val hidden = deltas.size - shown.size
-    // Hairline above the chips, like the reference's separator before the file pills.
     Column(modifier.fillMaxWidth()) {
         Box(
             Modifier
@@ -231,7 +559,6 @@ private fun VersionChipRow(
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             if (hidden > 0) MoreChip("+$hidden earlier")
-            // Leading file pill (reference puts the filename on the diff chips).
             FileNameChip(fileHint)
             shown.forEachIndexed { index, delta ->
                 VersionChip(delta = delta, staggerIndex = index)
@@ -270,7 +597,6 @@ private fun VersionChip(delta: VersionDelta, staggerIndex: Int) {
         animationSpec = if (reducedMotion) tween(0) else spring(stiffness = 520f, dampingRatio = 0.75f),
         label = "chip-appear",
     )
-    // Chip sits on a slightly lifted surface so green/red meta read on primaryContainer.
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -293,18 +619,11 @@ private fun VersionChip(delta: VersionDelta, staggerIndex: Int) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
             when {
-                delta.isFirst -> ChipMeta(
-                    "${delta.lineCount} lines",
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                delta.isFirst -> ChipMeta("${delta.lineCount} lines", MaterialTheme.colorScheme.onSurfaceVariant)
                 delta.delta.isEmpty -> ChipMeta("±0", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> {
-                    if (delta.delta.added > 0) {
-                        ChipMeta("+${delta.delta.added}", MaterialTheme.colorScheme.diffAdded)
-                    }
-                    if (delta.delta.removed > 0) {
-                        ChipMeta("−${delta.delta.removed}", MaterialTheme.colorScheme.error)
-                    }
+                    if (delta.delta.added > 0) ChipMeta("+${delta.delta.added}", MaterialTheme.colorScheme.diffAdded)
+                    if (delta.delta.removed > 0) ChipMeta("−${delta.delta.removed}", MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -312,7 +631,7 @@ private fun VersionChip(delta: VersionDelta, staggerIndex: Int) {
 }
 
 @Composable
-private fun ChipMeta(text: String, color: androidx.compose.ui.graphics.Color) {
+private fun ChipMeta(text: String, color: Color) {
     Text(
         text,
         style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
@@ -332,127 +651,121 @@ private fun MoreChip(text: String) {
     }
 }
 
+// ── Sandboxed HTML preview ───────────────────────────────────────────────────────────
+
 /**
- * Live build as a **tool-chip row**, not a greyscale clone of the old card.
- *
- * Anatomy matches the reference and [ResearchCapsule]: 24dp mark slot, action label, mono
- * filename chip, right-aligned size meta, wavy progress under the row. Building → settled
- * keeps the mark slot so the object resolves in place.
+ * Auto-rendered HTML preview. Network is fully blocked (model HTML must not phone home on
+ * mere compose). [onReady] fires on first [WebViewClient.onPageFinished] so the handoff can
+ * wait before revealing the settled card.
  */
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
-private fun BuildingArtifactCard(
-    title: String,
-    artifactType: String,
-    charCount: Int,
+private fun ArtifactPreviewWebView(
+    html: String,
+    interactive: Boolean,
+    onReady: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val (_, typeLabel) = artifactGlyph(artifactType)
-    val fileName = artifactFileLabel(title, typeLabel, artifactType)
-    val phaseLabel = if (charCount > 0) "Writing" else "Starting"
-    val sizeMeta = when {
-        charCount <= 0 -> null
-        charCount < 1000 -> "$charCount chars"
-        else -> "${charCount / 1000}k chars"
-    }
+    var lastHtml by remember { mutableStateOf<String?>(null) }
+    var readyFired by remember(html) { mutableStateOf(false) }
 
-    Surface(
-        shape = RoundedCornerShape(CARD_RADIUS_DP.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth(),
+    Box(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White),
     ) {
-        Column(Modifier.padding(horizontal = Spacing.m, vertical = Spacing.m)) {
-            // Primary tool row — the reference's "Write 204 lines  [ChurnSchedule.tsx]" line.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = ROW_MIN_DP.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(MARK_SIZE_DP.dp), contentAlignment = Alignment.Center) {
-                    LoadingIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(MARK_SIZE_DP.dp),
+        AndroidView(
+            modifier = Modifier.matchParentSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
                     )
-                }
-                Spacer(Modifier.width(Spacing.m))
-                Text(
-                    phaseLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.width(Spacing.s))
-                // Mono filename chip — the reference's grey pill next to the action.
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ) {
-                    Text(
-                        fileName,
-                        Modifier.padding(horizontal = Spacing.s, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                if (sizeMeta != null) {
-                    Text(
-                        sizeMeta,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+                    isVerticalScrollBarEnabled = false
+                    isHorizontalScrollBarEnabled = false
+                    isClickable = interactive
+                    isLongClickable = interactive
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    @Suppress("DEPRECATION") settings.allowFileAccessFromFileURLs = false
+                    @Suppress("DEPRECATION") settings.allowUniversalAccessFromFileURLs = false
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    @Suppress("DEPRECATION") settings.setSupportZoom(false)
+                    // Auto-preview: never let model HTML phone home.
+                    settings.blockNetworkLoads = true
+                    settings.blockNetworkImage = true
+                    if (!interactive) {
+                        setOnTouchListener { _, _ -> true }
+                    }
+                    setBackgroundColor(android.graphics.Color.WHITE)
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            if (!readyFired) {
+                                readyFired = true
+                                onReady?.invoke()
+                            }
+                        }
 
-            // Quiet second beat once content is flowing — echoes the expanded "detail" lines
-            // under a Write row without dumping code into the bubble.
-            if (charCount > 0) {
-                Spacer(Modifier.height(Spacing.s))
-                Row(
-                    Modifier.padding(start = MARK_SIZE_DP.dp + Spacing.m),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier
-                            .width(1.dp)
-                            .height(14.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant),
-                    )
-                    Spacer(Modifier.width(Spacing.m))
-                    Text(
-                        "Streaming into $typeLabel…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): Boolean = true
 
-            Spacer(Modifier.height(Spacing.m))
-            LinearWavyProgressIndicator(
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+                        @Deprecated("Pre-24 navigation guard")
+                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean = true
+
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): WebResourceResponse? {
+                            val scheme = request?.url?.scheme?.lowercase()
+                            return if (scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss") {
+                                WebResourceResponse("text/plain", "utf-8", null)
+                            } else {
+                                null
+                            }
+                        }
+                    }
+                    loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                    lastHtml = html
+                }
+            },
+            update = { web ->
+                if (lastHtml != html) {
+                    readyFired = false
+                    web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                    lastHtml = html
+                }
+            },
+            onRelease = { web ->
+                web.stopLoading()
+                web.loadUrl("about:blank")
+                web.destroy()
+            },
+        )
     }
 }
 
 @Composable
 private fun FilledArtifactMark(
-    container: androidx.compose.ui.graphics.Color,
-    content: androidx.compose.ui.graphics.Color,
+    container: Color,
+    content: Color,
     icon: ImageVector,
     description: String,
+    sizeDp: Int = MARK_SIZE_DP,
 ) {
     Box(
         Modifier
-            .size(MARK_SIZE_DP.dp)
+            .size(sizeDp.dp)
             .clip(CircleShape)
             .background(container),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, Modifier.size(MARK_SIZE_DP.dp * 0.6f), tint = content)
+        Icon(icon, description, Modifier.size(sizeDp.dp * 0.6f), tint = content)
     }
 }
 
@@ -462,7 +775,6 @@ private fun artifactGlyph(type: String): Pair<ImageVector, String> = when (type)
     else -> Icons.Default.Code to "Web page"
 }
 
-/** A short mono filename-style label for chips — `Pricing.html`, `Report.md`. */
 private fun artifactFileLabel(title: String, typeLabel: String, artifactType: String): String {
     val base = title.trim().ifBlank { typeLabel }.replace(Regex("\\s+"), "-")
     val ext = when (artifactType) {
@@ -470,6 +782,5 @@ private fun artifactFileLabel(title: String, typeLabel: String, artifactType: St
         Artifact.TYPE_LATEX -> "tex"
         else -> "html"
     }
-    // Avoid double extensions if the model already put one in the title.
     return if (base.contains('.')) base else "$base.$ext"
 }
