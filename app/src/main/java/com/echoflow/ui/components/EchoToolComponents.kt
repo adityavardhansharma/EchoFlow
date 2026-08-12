@@ -397,14 +397,14 @@ fun FusionCard(
 ) {
     val reducedMotion = rememberReducedMotion()
     val roster = (analysis?.models?.takeIf { it.isNotEmpty() } ?: models).ifEmpty { models }
-    // Hard fail only with a located tool result that reports failed models and no usable detail.
-    // Unparsed tool payloads (toolResultFound=false) are never painted as failure — the judge
-    // often still streams a full answer.
+    // Hard fail: tool ran and reported model failures. Skip: user asked for fusion but panel never ran.
     val panelFailed = analysis?.isHardFailure == true
+    val panelDidNotRun = analysis?.panelDidNotRun == true
     val processLive = active || (analysis != null && isStreaming && !answerStarted)
 
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
-    val expanded = userToggled ?: processLive
+    // Stay open when deliberation was skipped so the user sees the disclosure, not a quiet success.
+    val expanded = userToggled ?: (processLive || (panelDidNotRun && !answerStarted))
     val chevron by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(if (reducedMotion) 0 else 300),
@@ -435,18 +435,17 @@ fun FusionCard(
     val panelState = when {
         panelActive -> FusionStepState.Active
         analysis == null -> FusionStepState.Pending
-        panelFailed -> FusionStepState.Failed
+        panelFailed || panelDidNotRun -> FusionStepState.Failed
         else -> FusionStepState.Done
     }
     val compareState = when {
         analysis == null -> FusionStepState.Pending
-        panelFailed -> FusionStepState.Failed
-        !analysis.toolResultFound -> FusionStepState.Done // unparsed: skip drama, move on
-        analysis.hasUsableDetail || analysis.responses.isNotEmpty() -> FusionStepState.Done
+        panelFailed || panelDidNotRun -> FusionStepState.Failed
         else -> FusionStepState.Done
     }
     val mergeState = when {
         panelFailed -> FusionStepState.Failed
+        panelDidNotRun && !answerStarted -> FusionStepState.Failed
         answerStarted || (!processLive && analysis != null) -> FusionStepState.Done
         analysis != null && processLive -> FusionStepState.Active
         else -> FusionStepState.Pending
@@ -455,6 +454,9 @@ fun FusionCard(
     val headerTitle = when {
         processLive -> {
             if (panelName.isNotBlank()) "Fusion · $panelName" else "Fusion"
+        }
+        panelDidNotRun -> {
+            if (panelName.isNotBlank()) "Fusion · $panelName · panel did not run" else "Fusion · panel did not run"
         }
         panelFailed -> {
             if (panelName.isNotBlank()) "Fusion · $panelName" else "Fusion"
@@ -534,12 +536,14 @@ fun FusionCard(
                     FusionProcessStep(
                         label = when {
                             panelActive -> "Asking the panel…"
+                            panelDidNotRun -> "Panel"
                             panelFailed -> "Panel"
                             else -> "Panel"
                         },
                         state = panelState,
                         meta = when {
                             panelActive -> "${roster.size}"
+                            panelDidNotRun -> "not invoked"
                             panelFailed -> {
                                 val n = analysis?.failedModels?.size ?: roster.size
                                 "$n failed"
@@ -559,7 +563,7 @@ fun FusionCard(
                             models = roster,
                             analysis = analysis,
                             panelActive = panelActive,
-                            panelFailed = panelFailed,
+                            panelFailed = panelFailed || panelDidNotRun,
                             reducedMotion = reducedMotion,
                         )
                     }
@@ -568,9 +572,8 @@ fun FusionCard(
                         label = "Compare",
                         state = compareState,
                         meta = when {
-                            panelFailed -> "skipped"
+                            panelDidNotRun || panelFailed -> "skipped"
                             analysis == null -> null
-                            !analysis.toolResultFound -> null
                             else -> buildString {
                                 val parts = mutableListOf<String>()
                                 if (analysis.consensus.isNotEmpty()) parts += "${analysis.consensus.size} agreed"
@@ -589,14 +592,24 @@ fun FusionCard(
                             else -> "Answer"
                         },
                         state = mergeState,
-                        meta = when (mergeState) {
-                            FusionStepState.Active -> null
-                            FusionStepState.Failed -> "no answer"
-                            FusionStepState.Done -> if (answerStarted || !processLive) "ready" else null
+                        meta = when {
+                            panelDidNotRun -> "no deliberation"
+                            mergeState == FusionStepState.Active -> null
+                            mergeState == FusionStepState.Failed -> "no answer"
+                            mergeState == FusionStepState.Done && (answerStarted || !processLive) -> "ready"
                             else -> null
                         },
                         reducedMotion = reducedMotion,
                     )
+
+                    if (panelDidNotRun && !processLive) {
+                        Text(
+                            "Your panel was not used — the model replied without multi-model deliberation. Try again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = Spacing.xs),
+                        )
+                    }
 
                     // Optional depth only when settled and we actually have structured detail.
                     if (!processLive && analysis != null && analysis.hasUsableDetail) {

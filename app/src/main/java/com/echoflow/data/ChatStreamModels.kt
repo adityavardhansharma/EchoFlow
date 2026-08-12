@@ -170,10 +170,15 @@ data class FusionAnalysis(
     val failedModels: List<String> = emptyList(),
     /**
      * False when the HTTP response finished but we never located a fusion tool payload.
-     * That is **not** a panel failure — the outer model may still stream a full answer.
      * Defaults to true so older persisted rows keep previous behavior.
      */
     val toolResultFound: Boolean = true,
+    /**
+     * True when Echo Fusion was required (user opted in) but the outer model still never
+     * produced a fusion tool payload after force + retry. The UI must disclose this — a plain
+     * answer without deliberation is not a successful fuse.
+     */
+    val deliberationSkipped: Boolean = false,
 ) {
     /** True when the judge produced no structured analysis (only raw panel responses, or nothing). */
     val isEmpty: Boolean
@@ -186,11 +191,14 @@ data class FusionAnalysis(
 
     /**
      * Hard panel failure: we found a tool result and it has no usable content, with explicit
-     * failed models (or a completely empty tool payload after a successful locate).
-     * Unparsed results ([toolResultFound] = false) are never treated as failure.
+     * failed models. Unparsed / skipped results are handled separately in the UI.
      */
     val isHardFailure: Boolean
         get() = toolResultFound && !hasUsableDetail && failedModels.isNotEmpty()
+
+    /** Panel never deliberated (skipped or missing tool payload). */
+    val panelDidNotRun: Boolean
+        get() = deliberationSkipped || !toolResultFound
 }
 
 /**
