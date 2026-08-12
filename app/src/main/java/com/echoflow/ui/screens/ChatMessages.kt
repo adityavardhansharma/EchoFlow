@@ -136,7 +136,7 @@ internal fun MessagesPane(
     topInset: Dp = Spacing.l,
     bottomInset: Dp = Spacing.l,
     onCopy: (String) -> Unit,
-    onArtifactOpen: (Int) -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
@@ -279,7 +279,7 @@ internal fun StreamingAssistantBubble(
     segments: List<StreamSegment>,
     statusNote: String?,
     isStreaming: Boolean,
-    onArtifactOpen: (Int) -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -462,7 +462,7 @@ internal fun MessageBubble(
     message: ChatMessage,
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
-    onArtifactOpen: (Int) -> Unit = {},
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
@@ -555,7 +555,7 @@ private fun AssistantAnswerBody(
     message: ChatMessage,
     messageKey: String,
     streaming: Boolean,
-    onArtifactOpen: (Int) -> Unit,
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit,
     onResearchOpen: (ResearchRef) -> Unit = {},
     onResearchRetry: (ResearchRef) -> Unit = {},
     observeResearchRun: (String) -> Flow<ResearchRun?> = { flowOf(null) },
@@ -668,7 +668,7 @@ private fun AssistantAnswerBody(
                                     building = false,
                                     charCount = 0,
                                     truncated = false,
-                                    onOpen = { onArtifactOpen(a.version) },
+                                    onOpen = { onArtifactOpen(a.artifactId, a.version) },
                                 )
                             } else {
                                 ArtifactCard(

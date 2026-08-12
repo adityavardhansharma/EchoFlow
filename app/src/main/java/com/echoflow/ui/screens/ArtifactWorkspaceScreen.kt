@@ -74,18 +74,22 @@ import com.echoflow.ui.theme.Spacing
 private enum class ArtifactViewMode { PREVIEW, CODE }
 
 /**
- * The fullscreen Artifact Workspace — a stripped-down viewer for the chat's current artifact.
+ * The fullscreen Artifact Workspace — a stripped-down viewer for one artifact lineage.
  * No address bar and no command composer (iteration happens back in chat): just a minimize action,
  * a Preview/Code mode switcher, a version selector, and per-type actions (Export PDF for reports,
  * Copy source). HTML renders in a sandboxed WebView; markdown/latex render with the native engine.
+ *
+ * Which lineage is shown is decided at open time ([ChatViewModel.openArtifactWorkspace] with an
+ * artifact id), not by "latest for this chat", so a historical card always opens the artifact it
+ * represents even if the chat later holds more than one lineage.
  */
 @Composable
 fun ArtifactWorkspaceScreen(
     chatViewModel: ChatViewModel,
     onClose: () -> Unit,
 ) {
-    val artifact by chatViewModel.currentArtifact.collectAsState()
-    val versions by chatViewModel.currentArtifactVersions.collectAsState()
+    val artifact by chatViewModel.workspaceArtifact.collectAsState()
+    val versions by chatViewModel.workspaceArtifactVersions.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
@@ -101,7 +105,7 @@ fun ArtifactWorkspaceScreen(
 
     var mode by remember { mutableStateOf(ArtifactViewMode.PREVIEW) }
     // Open at the version of the card that was tapped (a scrolled-back card represents an older
-    // version), falling back to the latest for the global/composer entry point.
+    // version), falling back to that lineage's latest when the open request omitted a version.
     val requestedVersion by chatViewModel.artifactInitialVersion.collectAsState()
     var selectedVersion by remember(a.id) {
         mutableIntStateOf((requestedVersion ?: a.currentVersion).coerceIn(1, a.currentVersion))

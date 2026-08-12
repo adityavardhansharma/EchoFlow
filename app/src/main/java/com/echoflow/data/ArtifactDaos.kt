@@ -10,13 +10,14 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ArtifactDao {
-    /** The most-recent artifact for one chat — drives the in-chat card and the workspace. */
+    /** The most-recent artifact for one chat — used when iterating the chat's current lineage. */
     @Query("SELECT * FROM artifacts WHERE chatId = :chatId ORDER BY updatedAt DESC LIMIT 1")
     fun observeLatestForChat(chatId: String): Flow<Artifact?>
 
     @Query("SELECT * FROM artifacts WHERE chatId = :chatId ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getLatestForChat(chatId: String): Artifact?
 
+    /** One lineage by id — workspace open targets this so historical cards don't depend on "latest". */
     @Query("SELECT * FROM artifacts WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): Artifact?
 

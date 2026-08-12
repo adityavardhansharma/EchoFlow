@@ -101,7 +101,7 @@ fun ArtifactCard(
     building: Boolean,
     charCount: Int,
     truncated: Boolean,
-    onOpen: (version: Int) -> Unit,
+    onOpen: (artifactId: String, version: Int) -> Unit,
     modifier: Modifier = Modifier,
     observeVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
@@ -141,7 +141,9 @@ fun ArtifactCard(
         truncated = truncated,
         deltas = deltas,
         previewHtml = previewHtml,
-        onOpen = { onOpen(version) },
+        // Pass the lineage id with the version so the workspace opens *this* artifact, not
+        // whatever the chat's "latest" row happens to be.
+        onOpen = { artifactId?.let { onOpen(it, version) } },
         modifier = modifier,
     )
 }
