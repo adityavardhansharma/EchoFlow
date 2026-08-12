@@ -584,12 +584,14 @@ class SettingsRepository(context: Context) {
     }
 
     fun getSttCloudModelDirect(): String =
-        prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
-            .ifBlank { SttCatalog.DEFAULT_MODEL_ID }
+        SttCatalog.resolve(
+            prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty(),
+        ).id
 
     fun saveSttCloudModel(id: String) {
-        prefs.edit().putString("stt_cloud_model", id).apply()
-        _sttCloudModel.value = id
+        val resolvedId = SttCatalog.resolve(id).id
+        prefs.edit().putString("stt_cloud_model", resolvedId).apply()
+        _sttCloudModel.value = resolvedId
     }
 
     // ── App mode ───────────────────────────────────────────────────────────────────────

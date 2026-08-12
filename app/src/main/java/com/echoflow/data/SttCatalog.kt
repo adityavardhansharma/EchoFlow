@@ -47,14 +47,16 @@ object SttCatalog {
             id = "x-ai/grok-stt-1.0",
             name = "Grok STT 1.0",
             provider = "xAI",
-            pricing = "~\$0.010 / min",
+            // OpenRouter lists \$0.10/hour → ≈ \$0.0017/min.
+            pricing = "~\$0.0017 / min",
             blurb = "Strong on noisy, conversational speech.",
         ),
         SttModel(
             id = "google/chirp-3",
             name = "Chirp 3",
             provider = "Google",
-            pricing = "~\$0.008 / min",
+            // OpenRouter lists \$0.016/min.
+            pricing = "~\$0.016 / min",
             blurb = "Broad language coverage, robust punctuation.",
         ),
     )
