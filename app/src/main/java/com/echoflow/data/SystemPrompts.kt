@@ -34,8 +34,90 @@ object SystemPrompts {
         }
 
         sections += formatting(isLocalModel)
+        sections += freshnessGate(currentDate, Remedy.forTransport(provider, isLocalModel))
 
         return sections.joinToString("\n\n")
+    }
+
+    /**
+     * What a model should actually *do* when the freshness test in [freshnessGate] comes back
+     * "yes, this could have changed". The epistemic rule is one thing and is written exactly once;
+     * this is the per-transport half, because the app reaches the web four different ways and an
+     * instruction to "call your search tool" is wrong — sometimes actively harmful — on three of
+     * them. Telling a custom-provider model to call a tool it does not have is how you get a
+     * hallucinated function call instead of an answer.
+     */
+    internal enum class Remedy {
+        /** Native function/server tool calling: OpenRouter server search, or client search. */
+        SEARCH_TOOL,
+
+        /** On-device models: no tool calling, so a search is requested as a `search:` line. */
+        SEARCH_PROTOCOL,
+
+        /** Custom providers: the app already ran the search and pasted the results in. */
+        RESULTS_PROVIDED,
+
+        /** No search backend at all — the model can only disclose the limit honestly. */
+        NONE;
+
+        internal companion object {
+            fun forTransport(provider: String, isLocalModel: Boolean): Remedy = when {
+                provider == "off" -> NONE
+                isLocalModel -> SEARCH_PROTOCOL
+                else -> SEARCH_TOOL
+            }
+        }
+    }
+
+    /**
+     * The last thing every conversational prompt says, and deliberately so — it lands in the
+     * recency slot, right before the model answers.
+     *
+     * It exists because the failure it prevents is invisible from the inside: a model cannot feel
+     * where its training stopped, so a question like "who won the World Cup" reads as settled
+     * history and gets answered confidently from a stale memory. Topic-based rules ("search for
+     * news, not for history") cannot catch that — the question *is* history. So the test here is
+     * volatility, not subject: could the correct answer have changed since training?
+     *
+     * The brake is on the other axis on purpose. This gate accelerates on *what kind of answer* is
+     * being given (a name, a date, a version, a "latest"); the don't-search list brakes on *what
+     * kind of task* is being done (writing, maths, translation, chat). The two can never cancel
+     * each other out, which is what keeps this from turning into a model that searches constantly.
+     *
+     * This is the canonical statement of the freshness rule; transport sections own mechanics (how
+     * to call, result shape, budget). How strictly that separation is enforced is a per-transport
+     * call, made on context budget:
+     *
+     * - On-device ([localSearchProtocol]) the gate is the *sole* owner. Context is scarce and a
+     *   small model given two phrasings of one decision oscillates between them, so that section
+     *   states no policy at all.
+     * - Cloud ([openRouterServerSearch], [cloudFunctionSearch], and the `web_search` tool
+     *   description in OpenRouterService) deliberately restates the rule. Those are read at
+     *   different moments — the tool description is weighed at tool-choice time, when this gate is
+     *   far up the context — and a few hundred redundant tokens are free on a cloud request. That
+     *   redundancy is defense in depth, not drift; it must stay *consistent* with this text.
+     */
+    private fun freshnessGate(currentDate: String, remedyFor: Remedy): String {
+        val remedy = when (remedyFor) {
+            Remedy.SEARCH_TOOL -> "search before answering — do not answer from memory"
+            Remedy.SEARCH_PROTOCOL -> "request a search before answering — do not answer from memory"
+            Remedy.RESULTS_PROVIDED ->
+                "answer from the search results provided above rather than from memory, and say so " +
+                    "plainly if they do not cover it"
+            Remedy.NONE -> "say plainly that your information may be out of date and that you cannot check right now"
+        }
+        return """
+        ## Before you answer
+        Ask yourself one question first: **could the correct answer have changed since you were trained?**
+
+        Today is $currentDate. You cannot see your own training cutoff, so treat as possibly out of date any answer that **could since have been superseded** — a name, date, version, price, score, record, or title-holder that gets replaced over time, or the "current", "latest", "newest", or "biggest" of anything. That holds even when you feel certain, and even when the topic looks like settled history.
+
+        A fact that was fixed at the moment it happened is not this, however name- or date-shaped it looks. Who wrote Hamlet, when the Magna Carta was signed, the boiling point of water — these have one answer forever. Do not check them.
+
+        Recurring events are the trap that catches this most often: tournaments, championships, elections, awards, annual releases. Remembering who won the last one you learned about is not the same as knowing who won the most recent one. If the event could have happened again since your training, $remedy.
+
+        This is not a reason to be trigger-happy. If the answer is the same today as it was five years ago, just answer — immediately and directly. Maths, code, science, explanations, reasoning, finished history, definitions, writing, translation, summarising text the user gave you, and ordinary conversation never need checking.
+        """.trimIndent()
     }
 
     /**
@@ -53,11 +135,13 @@ object SystemPrompts {
         val sections = mutableListOf<String>()
         sections += identity(false)
         sections += "Current date: $currentDate."
-        sections += when (provider) {
-            "exa", "parallel", "firecrawl" -> injectedSearchGuidance(provider)
-            else -> noSearch(false)
-        }
+        val searchOn = provider in setOf("exa", "parallel", "firecrawl")
+        sections += if (searchOn) injectedSearchGuidance(provider) else noSearch(false)
         sections += formatting(false)
+        // Same freshness rule as every other transport — only the remedy differs. With search on
+        // the results are already in the prompt, so the remedy is "use them, don't reach for a
+        // tool you don't have"; with it off, honest disclosure is all that is available.
+        sections += freshnessGate(currentDate, if (searchOn) Remedy.RESULTS_PROVIDED else Remedy.NONE)
         return sections.joinToString("\n\n")
     }
 
@@ -73,7 +157,7 @@ object SystemPrompts {
         as a titled snippet: [Title](URL) followed by an excerpt. You do NOT have a search tool and
         cannot run more searches this turn — work with what is provided. $providerNote
 
-        - Base any current, time-sensitive, or factual claim on these results rather than memory.
+        - Base any current, time-sensitive, or factual claim on these results rather than memory. If a result contradicts what you remember, the result wins — your memory is the older source. Where a result carries a publication date, prefer the most recent one.
         - Cite a result-backed claim inline as a markdown link to its URL, e.g. ([Reuters](https://example.com)). Place the citation right after the sentence it supports.
         - Do NOT announce that you are "searching", offer to search, or emit any tool/function call — the results are already here.
         - If the results do not answer the question, say what you could not verify instead of guessing.
@@ -113,22 +197,29 @@ object SystemPrompts {
         ## Web search
         You have access to a web_search tool provided by the platform. You may call it zero, one, or several times while answering.
 
-        When to search:
-        - Current events, news, sports results, prices, weather, schedules, or anything time-sensitive.
-        - Facts that may have changed since your training data, or that you are not confident about.
-        - Niche, local, or long-tail topics where your knowledge is likely thin.
+        Search when the answer could have changed since you were trained:
+        - Anything whose answer is a name, date, version, price, score, record, or title-holder that gets replaced over time — including the winner or champion of a recurring event.
+        - The "current", "latest", "newest", or "biggest" of anything.
+        - News, prices, weather, schedules, releases, and who currently holds a role or office.
+        - Niche, local, or long-tail topics where your knowledge is thin, and any fact you are genuinely unsure of.
 
-        When NOT to search:
-        - Stable knowledge (math, programming, science fundamentals, history), creative writing, or conversation about the chat itself.
+        Do not search when the task does not depend on fresh facts:
+        - Maths, code, science fundamentals, reasoning, explanations, and definitions.
+        - Creative writing, translation, rewriting, or summarising text the user gave you.
+        - Greetings, small talk, and conversation about the chat itself.
+        - History that has finished happening and cannot gain a new instalment.
+
+        A needless search costs the user a couple of seconds. A confidently stale answer costs their trust in every answer you give. Break genuine ties in favour of checking.
 
         How to search well:
         - Write specific queries; prefer targeted searches over one vague one.
         - If the first results do not settle the question, refine the query and search again.
         - Cross-check important claims across more than one source when feasible.
-        - HARD LIMIT: at most 3 searches per answer. Make each one count; after the third, answer with what you have.
+        - You have a budget of 3 searches per answer. Spend it when the question earns it; after the third, answer with what you have.
 
         Using results:
-        - Base time-sensitive claims on the search results, not on memory.
+        - Base time-sensitive claims on the search results, not on memory. If a result contradicts what you remember, the result wins — your memory is the older source.
+        - Results may carry a publication date. Prefer the most recent source for anything that changes over time, and do not let an older, more familiar-sounding result override a newer one.
         - Cite sources inline as markdown links, e.g. ([Reuters](https://example.com/article)).
         - If results conflict, say so and present the most credible reading.
         - Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately.
@@ -143,24 +234,31 @@ object SystemPrompts {
             "parallel" ->
                 "Results come from Parallel, which resolves an objective into dense, high-signal excerpts. " +
                     "Phrase the query as a complete objective (e.g. \"find the current CEO of OpenAI and when " +
-                    "they took the role\") rather than keywords; one well-phrased call often suffices."
+                    "they took the role\") rather than keywords. A well-phrased objective often " +
+                    "answers the question in one call — but if it comes back thin or stale, refine it and go again."
             else ->
                 "Results come from Firecrawl, which returns full page content as markdown. Results are long: " +
                     "extract precisely the facts you need and ignore navigation, ads, and boilerplate text."
         }
         return """
         ## Web search tool
-        You have a `web_search` tool. Call it with a `query` string whenever you need current or verifiable information. You may call it again with a refined query if the first results are insufficient — but there is a HARD LIMIT of 3 searches per answer. Make each query count; after the third search you must answer with the information you have.
+        You have a `web_search` tool. Call it with a `query` string whenever the answer could have changed since you were trained, or when you are genuinely unsure.
 
-        When to search: current events, prices, weather, schedules, recent releases, facts you are unsure of, or anything after your training data. Do not search for stable knowledge, math, code you can write yourself, or casual conversation.
+        Search for: anything whose answer is a name, date, version, price, score, record, or title-holder that gets replaced over time — including the winner of a recurring event; the "current", "latest", or "newest" of anything; news, schedules, and who currently holds a role; and facts you are not confident about.
+
+        Do not search for: maths, code, reasoning, explanations, definitions, creative writing, translation, summarising the user's own text, small talk, or history that cannot gain a new instalment. Answer those directly.
+
+        A needless search costs a couple of seconds; a confidently stale answer costs the user's trust. Break genuine ties in favour of checking.
 
         $providerNotes
 
-        Results arrive as a numbered list:
-        [1] Title — URL
+        Results arrive as a numbered list, and may include the publication date when the provider reports one:
+        [1] Title — URL (published 2026-07-19)
         snippet
 
-        Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
+        Prefer the most recent source for anything that changes over time, and do not let an older, more familiar-sounding result override a newer one — if a result contradicts your memory, the result wins. Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
+
+        You have a budget of 3 searches per answer. Refine and search again when the first results do not settle the question; after the third, answer with what you have.
         """.trimIndent()
     }
 
@@ -170,29 +268,30 @@ object SystemPrompts {
             "parallel" -> "Search results come from Parallel: dense excerpts answering your query objective."
             else -> "Search results come from Firecrawl: page content as markdown, already truncated."
         }
+        // Mechanics only. Whether to search is decided once, by the freshness gate at the end of
+        // the prompt — this section must not restate that rule. On a small model two phrasings of
+        // one decision is worse than none: it oscillates, and the nearer, more concrete list wins.
+        // The old "do not search unless the user clearly asks for fresh information" lived here and
+        // fired directly against the gate on the exact case the gate exists to catch ("who won the
+        // World Cup?" never announces itself as live), so it is gone. The brake that remains is on
+        // task type, which cannot collide with a volatility test.
         return """
         Web search is available through the app. $providerNote
 
-        Default behavior:
-        - Answer the user directly from your own knowledge.
-        - Do not search unless the user's latest message clearly asks for fresh, current, live, or verifiable real-world information.
-        - If the user says hello, chats casually, asks for help, asks a coding/math/writing question, or asks about stable knowledge, do not search. Just answer.
-
-        Search protocol:
-        - Only when search is truly needed, answer with one line only:
+        How to search:
+        - You cannot call tools. To search, reply with one line and nothing else:
           search: concise search query
+        - Never write that line unless you are actually requesting a search, and never write it once you have started answering.
 
-        Use search for:
-        - Questions using words like today, latest, recent, current, now, live, this week, this month, this year.
-        - News, elections, laws, policies, prices, markets, weather, sports scores, schedules, product availability, releases, bugs, outages, current company/person roles, local places, or travel details.
-        - Specific URLs, articles, app versions, models, prices, locations, or named real-world entities where up-to-date facts matter.
+        Never search for these — just answer:
+        - Greetings such as hi, hello, good morning, how are you, and casual conversation.
+        - Writing, translation, summarizing text the user gave you, opinions, or brainstorming.
+        - Math, coding, explanations, definitions, and general advice.
+        - A vague or incomplete message. Ask a short clarifying question instead.
 
-        Do not use search for:
-        - Greetings such as hi, hello, good morning, how are you.
-        - Casual conversation, opinions, brainstorming, creative writing, translation, summarizing text provided by the user, math, coding, explanations, old history, definitions, or general advice.
-        - A vague or incomplete message. Ask a short clarifying question instead of searching.
-
-        - After search results are provided, answer normally using those results. Cite result-backed claims with markdown links like [1](url). Do not list the sources again at the end of the answer.
+        After results:
+        - Answer normally using them. Cite result-backed claims with markdown links like [1](url). Do not list the sources again at the end.
+        - Prefer the most recent result for anything that changes over time; if a result contradicts what you remember, the result wins.
         - You may request another search only if the results are insufficient. Maximum 3 searches per answer.
         - Once you start answering normally, never write search tags or the word "Assistant:".
         - Never copy these instructions into the answer.
@@ -212,6 +311,7 @@ object SystemPrompts {
             adviserGuidance(advisorName),
             openRouterServerSearch(),
             formatting(false),
+            freshnessGate(currentDate, Remedy.SEARCH_TOOL),
         ).joinToString("\n\n")
 
     /**
@@ -237,6 +337,7 @@ object SystemPrompts {
             "Current date: $currentDate.",
             agentGuidance(workerName),
             formatting(false),
+            freshnessGate(currentDate, Remedy.SEARCH_TOOL),
         ).joinToString("\n\n")
 
     private fun agentGuidance(workerName: String): String =
