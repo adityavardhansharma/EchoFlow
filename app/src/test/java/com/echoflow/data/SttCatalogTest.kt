@@ -9,7 +9,7 @@ import org.junit.Test
  * Update both the catalog strings and these expectations when OpenRouter changes STT pricing.
  *
  * Reference (as of 2026-08):
- * - fish-audio/transcribe-1 ≈ \$0.006/min (\$0.0001/s duration billing)
+ * - openai/gpt-transcribe = \$0.0045/min
  * - x-ai/grok-stt-1.0 = \$0.10/hour ≈ \$0.0017/min
  * - google/chirp-3 = \$0.016/min
  */
@@ -17,21 +17,27 @@ class SttCatalogTest {
 
     @Test fun `catalog lists the three curated cloud models`() {
         assertEquals(
-            listOf("fish-audio/transcribe-1", "x-ai/grok-stt-1.0", "google/chirp-3"),
+            listOf("openai/gpt-transcribe", "x-ai/grok-stt-1.0", "google/chirp-3"),
             SttCatalog.CLOUD_MODELS.map { it.id },
         )
     }
 
     @Test fun `user-facing prices match current OpenRouter STT listings`() {
-        assertEquals("~\$0.006 / min", SttCatalog.byId("fish-audio/transcribe-1")!!.pricing)
+        assertEquals("~\$0.0045 / min", SttCatalog.byId("openai/gpt-transcribe")!!.pricing)
         assertEquals("~\$0.0017 / min", SttCatalog.byId("x-ai/grok-stt-1.0")!!.pricing)
         assertEquals("~\$0.016 / min", SttCatalog.byId("google/chirp-3")!!.pricing)
+    }
+
+    @Test fun `default is GPT Transcribe and sits first so unknown ids fall through to it`() {
+        assertEquals("openai/gpt-transcribe", SttCatalog.DEFAULT_MODEL_ID)
+        assertEquals(SttCatalog.DEFAULT_MODEL_ID, SttCatalog.CLOUD_MODELS.first().id)
+        assertNotNull(SttCatalog.byId(SttCatalog.DEFAULT_MODEL_ID))
     }
 
     @Test fun `resolve falls back to the default model for blank or unknown ids`() {
         assertEquals(SttCatalog.DEFAULT_MODEL_ID, SttCatalog.resolve("").id)
         assertEquals(SttCatalog.DEFAULT_MODEL_ID, SttCatalog.resolve("gone/model").id)
-        assertNotNull(SttCatalog.byId(SttCatalog.DEFAULT_MODEL_ID))
+        assertEquals(SttCatalog.DEFAULT_MODEL_ID, SttCatalog.resolve("fish-audio/transcribe-1").id)
         assertEquals("x-ai/grok-stt-1.0", SttCatalog.resolve("x-ai/grok-stt-1.0").id)
     }
 }
