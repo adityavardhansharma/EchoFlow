@@ -1282,7 +1282,8 @@ class ChatViewModel(
             val artifactSystemPrompt = if (artifactMode) {
                 val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
                 val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
-                SystemPrompts.buildArtifact(isLocal, offline, prior)
+                val artifactSearch = if (!isLocal && effectiveProvider != "off") effectiveProvider else "off"
+                SystemPrompts.buildArtifact(isLocal, offline, prior, artifactSearch)
             } else null
 
             val systemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
@@ -1498,8 +1499,8 @@ class ChatViewModel(
                         agent = agentReq,
                         params = inferenceParams,
                     )
-                // Artifact mode runs the plain streaming path (no search); the parser extracts the
-                // <echo:artifact> block from the content stream.
+                // Artifact mode: on-device stays search-free; cloud uses the same search paths as
+                // normal chat. The parser extracts the <echo:artifact> block from the content stream.
                 artifactMode && isLocal ->
                     localGateway.stream(
                         LlmStreamRequest(
@@ -1511,8 +1512,40 @@ class ChatViewModel(
                             localModel = localModel,
                         )
                     ).withLocalInferenceGate("a chat reply")
+                artifactMode && customToolCallingActive ->
+                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                        webSearchService.search(provider, searchKey, query)
+                    }
+                artifactMode && customProviderActive && clientSearchReady ->
+                    flow {
+                        val query = prompt
+                        emit(StreamChunk.SearchStarted(query))
+                        val sources = webSearchService.search(provider, searchKey, query)
+                        emit(StreamChunk.SearchSources(query, sources))
+                        val searchContext = sources.joinToString("\n\n") { source ->
+                            "[${source.title}](${source.url})\n${source.snippet.orEmpty()}"
+                        }
+                        val withSearch = systemPrompt + "\n\nUse these web search results when relevant:\n$searchContext"
+                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, withSearch, inferenceParams))
+                    }
                 artifactMode && customProviderActive ->
                     customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
+                artifactMode && provider == "openrouter" ->
+                    openRouterGateway.stream(
+                        LlmStreamRequest(
+                            apiKey = apiKey,
+                            model = selectedModel,
+                            chatId = chatId,
+                            history = fullHistory,
+                            systemPrompt = systemPrompt,
+                            params = inferenceParams,
+                            serverWebSearch = true,
+                        )
+                    )
+                artifactMode && clientSearchReady ->
+                    openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                        webSearchService.search(provider, searchKey, query)
+                    }
                 artifactMode ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
