@@ -266,29 +266,30 @@ object SystemPrompts {
             "parallel" -> "Search results come from Parallel: dense excerpts answering your query objective."
             else -> "Search results come from Firecrawl: page content as markdown, already truncated."
         }
+        // Mechanics only. Whether to search is decided once, by the freshness gate at the end of
+        // the prompt — this section must not restate that rule. On a small model two phrasings of
+        // one decision is worse than none: it oscillates, and the nearer, more concrete list wins.
+        // The old "do not search unless the user clearly asks for fresh information" lived here and
+        // fired directly against the gate on the exact case the gate exists to catch ("who won the
+        // World Cup?" never announces itself as live), so it is gone. The brake that remains is on
+        // task type, which cannot collide with a volatility test.
         return """
         Web search is available through the app. $providerNote
 
-        Default behavior:
-        - Answer the user directly from your own knowledge.
-        - Do not search unless the user's latest message clearly asks for fresh, current, live, or verifiable real-world information.
-        - If the user says hello, chats casually, asks for help, asks a coding/math/writing question, or asks about stable knowledge, do not search. Just answer.
-
-        Search protocol:
-        - Only when search is truly needed, answer with one line only:
+        How to search:
+        - You cannot call tools. To search, reply with one line and nothing else:
           search: concise search query
+        - Never write that line unless you are actually requesting a search, and never write it once you have started answering.
 
-        Use search for:
-        - Questions using words like today, latest, recent, current, now, live, this week, this month, this year.
-        - News, elections, laws, policies, prices, markets, weather, sports scores, schedules, product availability, releases, bugs, outages, current company/person roles, local places, or travel details.
-        - Specific URLs, articles, app versions, models, prices, locations, or named real-world entities where up-to-date facts matter.
+        Never search for these — just answer:
+        - Greetings such as hi, hello, good morning, how are you, and casual conversation.
+        - Writing, translation, summarizing text the user gave you, opinions, or brainstorming.
+        - Math, coding, explanations, definitions, and general advice.
+        - A vague or incomplete message. Ask a short clarifying question instead.
 
-        Do not use search for:
-        - Greetings such as hi, hello, good morning, how are you.
-        - Casual conversation, opinions, brainstorming, creative writing, translation, summarizing text provided by the user, math, coding, explanations, old history, definitions, or general advice.
-        - A vague or incomplete message. Ask a short clarifying question instead of searching.
-
-        - After search results are provided, answer normally using those results. Cite result-backed claims with markdown links like [1](url). Do not list the sources again at the end of the answer.
+        After results:
+        - Answer normally using them. Cite result-backed claims with markdown links like [1](url). Do not list the sources again at the end.
+        - Prefer the most recent result for anything that changes over time; if a result contradicts what you remember, the result wins.
         - You may request another search only if the results are insufficient. Maximum 3 searches per answer.
         - Once you start answering normally, never write search tags or the word "Assistant:".
         - Never copy these instructions into the answer.
