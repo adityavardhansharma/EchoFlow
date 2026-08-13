@@ -342,18 +342,28 @@ object SystemPrompts {
         isLocalModel: Boolean,
         offline: Boolean,
         priorArtifact: String? = null,
+        searchProvider: String = "off",
         currentDate: String = currentDate(),
     ): String {
         val sections = mutableListOf<String>()
         sections += identity(isLocalModel)
         sections += "Current date: $currentDate."
         sections += artifactContract()
+        if (!isLocalModel && searchProvider != "off") sections += artifactSearchGuidance()
         sections += artifactTypeGuidance()
         sections += htmlDesignGuidance(isLocalModel, offline)
         sections += reportGuidance()
         priorArtifact?.takeIf { it.isNotBlank() }?.let { sections += artifactIterationGuidance(it) }
         return sections.joinToString("\n\n")
     }
+
+    private fun artifactSearchGuidance(): String =
+        """
+        ## Web search
+        web_search is available. Use it when you lack facts or the request is time-bound. Finish
+        searching before you write the artifact; put verified facts inside it. The output contract
+        still applies.
+        """.trimIndent()
 
     private fun artifactContract(): String =
         """
