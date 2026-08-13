@@ -162,21 +162,17 @@ class SpeechToTextTranscriber {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
-    private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
     suspend fun transcribe(apiKey: String, modelId: String, wav: ByteArray): Result<String> =
         withContext(Dispatchers.IO) {
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(IllegalStateException("No OpenRouter key"))
             }
-            val payload = mapOf(
-                "model" to modelId,
-                "input_audio" to mapOf(
-                    "data" to Base64.encodeToString(wav, Base64.NO_WRAP),
-                    "format" to "wav",
-                ),
+            val payload = SttPayloads.requestBody(
+                modelId,
+                Base64.encodeToString(wav, Base64.NO_WRAP),
             )
-            val body = json.toJson(payload).toRequestBody("application/json".toMediaType())
+            val body = SttPayloads.encode(payload).toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url("https://openrouter.ai/api/v1/audio/transcriptions")
                 .header("Authorization", "Bearer $apiKey")
@@ -190,12 +186,31 @@ class SpeechToTextTranscriber {
                     if (!resp.isSuccessful) {
                         error(ProviderHttpSupport.errorMessage("Speech to text", resp.code, text))
                     }
-                    parseTranscript(text) ?: error("Couldn't hear that — try again.")
+                    SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
                 }
             }
         }
+}
 
-    private fun parseTranscript(body: String): String? {
+/**
+ * The JSON posted to `/audio/transcriptions` and the two response shapes we accept.
+ * Kept separate from the HTTP client so the default model id and the `{ "text": ... }`
+ * parse can be asserted without opening a socket.
+ */
+internal object SttPayloads {
+    private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
+
+    fun requestBody(modelId: String, wavBase64: String): Map<String, Any> = mapOf(
+        "model" to modelId,
+        "input_audio" to mapOf(
+            "data" to wavBase64,
+            "format" to "wav",
+        ),
+    )
+
+    fun encode(payload: Map<String, Any>): String = json.toJson(payload)
+
+    fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
         (map["text"] as? String)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         val choice = (map["choices"] as? List<*>)?.firstOrNull() as? Map<*, *>
