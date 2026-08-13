@@ -34,8 +34,88 @@ object SystemPrompts {
         }
 
         sections += formatting(isLocalModel)
+        sections += freshnessGate(currentDate, Remedy.forTransport(provider, isLocalModel))
 
         return sections.joinToString("\n\n")
+    }
+
+    /**
+     * What a model should actually *do* when the freshness test in [freshnessGate] comes back
+     * "yes, this could have changed". The epistemic rule is one thing and is written exactly once;
+     * this is the per-transport half, because the app reaches the web four different ways and an
+     * instruction to "call your search tool" is wrong — sometimes actively harmful — on three of
+     * them. Telling a custom-provider model to call a tool it does not have is how you get a
+     * hallucinated function call instead of an answer.
+     */
+    internal enum class Remedy {
+        /** Native function/server tool calling: OpenRouter server search, or client search. */
+        SEARCH_TOOL,
+
+        /** On-device models: no tool calling, so a search is requested as a `search:` line. */
+        SEARCH_PROTOCOL,
+
+        /** Custom providers: the app already ran the search and pasted the results in. */
+        RESULTS_PROVIDED,
+
+        /** No search backend at all — the model can only disclose the limit honestly. */
+        NONE;
+
+        internal companion object {
+            fun forTransport(provider: String, isLocalModel: Boolean): Remedy = when {
+                provider == "off" -> NONE
+                isLocalModel -> SEARCH_PROTOCOL
+                else -> SEARCH_TOOL
+            }
+        }
+    }
+
+    /**
+     * The last thing every conversational prompt says, and deliberately so — it lands in the
+     * recency slot, right before the model answers.
+     *
+     * It exists because the failure it prevents is invisible from the inside: a model cannot feel
+     * where its training stopped, so a question like "who won the World Cup" reads as settled
+     * history and gets answered confidently from a stale memory. Topic-based rules ("search for
+     * news, not for history") cannot catch that — the question *is* history. So the test here is
+     * volatility, not subject: could the correct answer have changed since training?
+     *
+     * The brake is on the other axis on purpose. This gate accelerates on *what kind of answer* is
+     * being given (a name, a date, a version, a "latest"); the don't-search list brakes on *what
+     * kind of task* is being done (writing, maths, translation, chat). The two can never cancel
+     * each other out, which is what keeps this from turning into a model that searches constantly.
+     *
+     * This is the canonical statement of the freshness rule; transport sections own mechanics (how
+     * to call, result shape, budget). How strictly that separation is enforced is a per-transport
+     * call, made on context budget:
+     *
+     * - On-device ([localSearchProtocol]) the gate is the *sole* owner. Context is scarce and a
+     *   small model given two phrasings of one decision oscillates between them, so that section
+     *   states no policy at all.
+     * - Cloud ([openRouterServerSearch], [cloudFunctionSearch], and the `web_search` tool
+     *   description in OpenRouterService) deliberately restates the rule. Those are read at
+     *   different moments — the tool description is weighed at tool-choice time, when this gate is
+     *   far up the context — and a few hundred redundant tokens are free on a cloud request. That
+     *   redundancy is defense in depth, not drift; it must stay *consistent* with this text.
+     */
+    private fun freshnessGate(currentDate: String, remedyFor: Remedy): String {
+        val remedy = when (remedyFor) {
+            Remedy.SEARCH_TOOL -> "search before answering — do not answer from memory"
+            Remedy.SEARCH_PROTOCOL -> "request a search before answering — do not answer from memory"
+            Remedy.RESULTS_PROVIDED ->
+                "answer from the search results provided above rather than from memory, and say so " +
+                    "plainly if they do not cover it"
+            Remedy.NONE -> "say plainly that your information may be out of date and that you cannot check right now"
+        }
+        return """
+        ## Before you answer
+        Ask yourself one question first: **could the correct answer have changed since you were trained?**
+
+        Today is $currentDate. You cannot see your own training cutoff, so treat any answer that is itself a name, a date, a version, a price, a score, a record, a holder of a title, or the "current", "latest", "newest", or "biggest" of anything as possibly out of date — even when you feel certain, and even when the topic looks like settled history.
+
+        Recurring events are the trap that catches this most often: tournaments, championships, elections, awards, annual releases. Remembering who won the last one you learned about is not the same as knowing who won the most recent one. If the event could have happened again since your training, $remedy.
+
+        This is not a reason to be trigger-happy. If the answer is the same today as it was five years ago, just answer — immediately and directly. Maths, code, science, explanations, reasoning, finished history, definitions, writing, translation, summarising text the user gave you, and ordinary conversation never need checking.
+        """.trimIndent()
     }
 
     /**
@@ -53,11 +133,13 @@ object SystemPrompts {
         val sections = mutableListOf<String>()
         sections += identity(false)
         sections += "Current date: $currentDate."
-        sections += when (provider) {
-            "exa", "parallel", "firecrawl" -> injectedSearchGuidance(provider)
-            else -> noSearch(false)
-        }
+        val searchOn = provider in setOf("exa", "parallel", "firecrawl")
+        sections += if (searchOn) injectedSearchGuidance(provider) else noSearch(false)
         sections += formatting(false)
+        // Same freshness rule as every other transport — only the remedy differs. With search on
+        // the results are already in the prompt, so the remedy is "use them, don't reach for a
+        // tool you don't have"; with it off, honest disclosure is all that is available.
+        sections += freshnessGate(currentDate, if (searchOn) Remedy.RESULTS_PROVIDED else Remedy.NONE)
         return sections.joinToString("\n\n")
     }
 
@@ -226,6 +308,7 @@ object SystemPrompts {
             adviserGuidance(advisorName),
             openRouterServerSearch(),
             formatting(false),
+            freshnessGate(currentDate, Remedy.SEARCH_TOOL),
         ).joinToString("\n\n")
 
     /**
@@ -251,6 +334,7 @@ object SystemPrompts {
             "Current date: $currentDate.",
             agentGuidance(workerName),
             formatting(false),
+            freshnessGate(currentDate, Remedy.SEARCH_TOOL),
         ).joinToString("\n\n")
 
     private fun agentGuidance(workerName: String): String =
