@@ -1,20 +1,16 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
-
 package com.echoflow.ui.screens
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardVoice
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,8 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -117,50 +113,35 @@ fun rememberVoiceInputController(): VoiceInputController {
  * The mic that lives beside the model picker (never in the oval's corners). One fixed home: tap to
  * dictate, tap again to stop.
  *
- * It's built on the same expressive [ShapedIconButton] as the composer's "+" and Send — a filled
- * fun-shape with a 2.5D top-lit gradient that morphs on press — so it reads as one modern family,
- * not a bolted-on stock icon button. Rest is a soft nine-sided cookie; while recording it lifts to
- * the accent, breathes with a gentle pulse and shows a Stop; it's inert during transcription.
+ * A plain circle the same height as [com.echoflow.ui.components.ModelPill] (22.dp mark + 5.dp
+ * vertical padding). Theme roles only — no morphing shapes, no pulse that grows over the row.
+ * Recording lifts to primary and swaps the glyph for Stop; it's inert during transcription.
  */
 @Composable
 fun ModelRowMic(phase: VoicePhase, onClick: () -> Unit) {
     val recording = phase == VoicePhase.Recording
-    // Pulse only while recording so Idle does not keep a frame-by-frame animation running.
-    val pulseScale = remember { Animatable(1f) }
-    LaunchedEffect(recording) {
-        if (!recording) {
-            pulseScale.snapTo(1f)
-            return@LaunchedEffect
-        }
-        while (true) {
-            pulseScale.animateTo(1.14f, tween(620))
-            pulseScale.animateTo(1f, tween(620))
-        }
-    }
-    Box(
-        Modifier
-            .minimumInteractiveComponentSize()
-            .scale(pulseScale.value),
+    Surface(
+        onClick = onClick,
+        enabled = phase != VoicePhase.Transcribing,
+        shape = CircleShape,
+        color = if (recording) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.size(ModelRowMicSize),
     ) {
-        ShapedIconButton(
-            onClick = onClick,
-            enabled = phase != VoicePhase.Transcribing,
-            size = 48.dp,
-            restShape = MaterialShapes.Cookie9Sided,
-            pressedShape = MaterialShapes.Flower,
-            container = if (recording) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.secondaryContainer,
-        ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(
                 if (recording) Icons.Default.Stop else Icons.Default.KeyboardVoice,
                 if (recording) "Stop dictation" else "Dictate",
-                Modifier.size(20.dp),
+                Modifier.size(18.dp),
                 tint = if (recording) MaterialTheme.colorScheme.onPrimary
                 else MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
     }
 }
+
+/** Matches [com.echoflow.ui.components.ModelPill]: 22.dp provider mark + 5.dp top/bottom padding. */
+private val ModelRowMicSize = 32.dp
 
 /**
  * A live voice waveform that takes over the composer's text area while recording. Keeps a rolling
