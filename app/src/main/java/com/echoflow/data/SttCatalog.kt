@@ -37,11 +37,12 @@ object SttCatalog {
     /** The three cloud options offered on the STT settings page, in display order. */
     val CLOUD_MODELS = listOf(
         SttModel(
-            id = "fish-audio/transcribe-1",
-            name = "Fish Audio Transcribe 1",
-            provider = "Fish Audio",
-            pricing = "~\$0.006 / min",
-            blurb = "Fast, budget multilingual transcription.",
+            id = "openai/gpt-transcribe",
+            name = "GPT Transcribe",
+            provider = "OpenAI",
+            // OpenRouter lists \$0.0045/min.
+            pricing = "~\$0.0045 / min",
+            blurb = "High-accuracy dictation, strong on mixed or quiet speech.",
         ),
         SttModel(
             id = "x-ai/grok-stt-1.0",
@@ -61,7 +62,7 @@ object SttCatalog {
         ),
     )
 
-    const val DEFAULT_MODEL_ID = "fish-audio/transcribe-1"
+    const val DEFAULT_MODEL_ID = "openai/gpt-transcribe"
 
     fun byId(id: String): SttModel? = CLOUD_MODELS.firstOrNull { it.id == id }
 
