@@ -177,6 +177,25 @@ class SystemPromptsFreshnessTest {
     }
 
     @Test
+    fun `the accelerator is scoped to answers that can be superseded`() {
+        // The answer-shape trigger has to carry a replaceability qualifier. Without one it reads as
+        // "any name or date is suspect", which sweeps in permanently-fixed facts — who wrote
+        // Hamlet, when the Magna Carta was signed — and collides with the same gate's own promise
+        // that finished history never needs checking. The cloud sections always carried the
+        // qualifier ("that gets replaced over time"); the gate briefly did not.
+        allConversationalPrompts().forEach { (name, prompt) ->
+            assertTrue(
+                "$name treats every name/date answer as volatile — it will search settled facts",
+                prompt.contains("could since have been superseded"),
+            )
+            assertTrue(
+                "$name does not carve out permanently-fixed facts",
+                prompt.contains("fixed at the moment it happened"),
+            )
+        }
+    }
+
+    @Test
     fun `no prompt keeps the old topic-bucket phrasing`() {
         // The original bug in one line: sorting questions by subject sent "who won the World Cup"
         // into the do-not-search bucket, because it is topically history.

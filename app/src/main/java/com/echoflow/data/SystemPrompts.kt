@@ -110,7 +110,9 @@ object SystemPrompts {
         ## Before you answer
         Ask yourself one question first: **could the correct answer have changed since you were trained?**
 
-        Today is $currentDate. You cannot see your own training cutoff, so treat any answer that is itself a name, a date, a version, a price, a score, a record, a holder of a title, or the "current", "latest", "newest", or "biggest" of anything as possibly out of date — even when you feel certain, and even when the topic looks like settled history.
+        Today is $currentDate. You cannot see your own training cutoff, so treat as possibly out of date any answer that **could since have been superseded** — a name, date, version, price, score, record, or title-holder that gets replaced over time, or the "current", "latest", "newest", or "biggest" of anything. That holds even when you feel certain, and even when the topic looks like settled history.
+
+        A fact that was fixed at the moment it happened is not this, however name- or date-shaped it looks. Who wrote Hamlet, when the Magna Carta was signed, the boiling point of water — these have one answer forever. Do not check them.
 
         Recurring events are the trap that catches this most often: tournaments, championships, elections, awards, annual releases. Remembering who won the last one you learned about is not the same as knowing who won the most recent one. If the event could have happened again since your training, $remedy.
 
