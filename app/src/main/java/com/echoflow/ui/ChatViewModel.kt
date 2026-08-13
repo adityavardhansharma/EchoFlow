@@ -1528,6 +1528,8 @@ class ChatViewModel(
                         val withSearch = systemPrompt + "\n\nUse these web search results when relevant:\n$searchContext"
                         emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, withSearch, inferenceParams))
                     }
+                artifactMode && customProviderActive ->
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
                 artifactMode && provider == "openrouter" ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
@@ -1544,8 +1546,6 @@ class ChatViewModel(
                     openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
-                artifactMode && customProviderActive ->
-                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
                 artifactMode ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
