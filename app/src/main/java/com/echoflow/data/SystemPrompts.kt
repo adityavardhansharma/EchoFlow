@@ -73,7 +73,7 @@ object SystemPrompts {
         as a titled snippet: [Title](URL) followed by an excerpt. You do NOT have a search tool and
         cannot run more searches this turn — work with what is provided. $providerNote
 
-        - Base any current, time-sensitive, or factual claim on these results rather than memory.
+        - Base any current, time-sensitive, or factual claim on these results rather than memory. If a result contradicts what you remember, the result wins — your memory is the older source. Where a result carries a publication date, prefer the most recent one.
         - Cite a result-backed claim inline as a markdown link to its URL, e.g. ([Reuters](https://example.com)). Place the citation right after the sentence it supports.
         - Do NOT announce that you are "searching", offer to search, or emit any tool/function call — the results are already here.
         - If the results do not answer the question, say what you could not verify instead of guessing.
@@ -113,22 +113,29 @@ object SystemPrompts {
         ## Web search
         You have access to a web_search tool provided by the platform. You may call it zero, one, or several times while answering.
 
-        When to search:
-        - Current events, news, sports results, prices, weather, schedules, or anything time-sensitive.
-        - Facts that may have changed since your training data, or that you are not confident about.
-        - Niche, local, or long-tail topics where your knowledge is likely thin.
+        Search when the answer could have changed since you were trained:
+        - Anything whose answer is a name, date, version, price, score, record, or title-holder that gets replaced over time — including the winner or champion of a recurring event.
+        - The "current", "latest", "newest", or "biggest" of anything.
+        - News, prices, weather, schedules, releases, and who currently holds a role or office.
+        - Niche, local, or long-tail topics where your knowledge is thin, and any fact you are genuinely unsure of.
 
-        When NOT to search:
-        - Stable knowledge (math, programming, science fundamentals, history), creative writing, or conversation about the chat itself.
+        Do not search when the task does not depend on fresh facts:
+        - Maths, code, science fundamentals, reasoning, explanations, and definitions.
+        - Creative writing, translation, rewriting, or summarising text the user gave you.
+        - Greetings, small talk, and conversation about the chat itself.
+        - History that has finished happening and cannot gain a new instalment.
+
+        A needless search costs the user a couple of seconds. A confidently stale answer costs their trust in every answer you give. Break genuine ties in favour of checking.
 
         How to search well:
         - Write specific queries; prefer targeted searches over one vague one.
         - If the first results do not settle the question, refine the query and search again.
         - Cross-check important claims across more than one source when feasible.
-        - HARD LIMIT: at most 3 searches per answer. Make each one count; after the third, answer with what you have.
+        - You have a budget of 3 searches per answer. Spend it when the question earns it; after the third, answer with what you have.
 
         Using results:
-        - Base time-sensitive claims on the search results, not on memory.
+        - Base time-sensitive claims on the search results, not on memory. If a result contradicts what you remember, the result wins — your memory is the older source.
+        - Results may carry a publication date. Prefer the most recent source for anything that changes over time, and do not let an older, more familiar-sounding result override a newer one.
         - Cite sources inline as markdown links, e.g. ([Reuters](https://example.com/article)).
         - If results conflict, say so and present the most credible reading.
         - Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately.
@@ -143,24 +150,31 @@ object SystemPrompts {
             "parallel" ->
                 "Results come from Parallel, which resolves an objective into dense, high-signal excerpts. " +
                     "Phrase the query as a complete objective (e.g. \"find the current CEO of OpenAI and when " +
-                    "they took the role\") rather than keywords; one well-phrased call often suffices."
+                    "they took the role\") rather than keywords. A well-phrased objective often " +
+                    "answers the question in one call — but if it comes back thin or stale, refine it and go again."
             else ->
                 "Results come from Firecrawl, which returns full page content as markdown. Results are long: " +
                     "extract precisely the facts you need and ignore navigation, ads, and boilerplate text."
         }
         return """
         ## Web search tool
-        You have a `web_search` tool. Call it with a `query` string whenever you need current or verifiable information. You may call it again with a refined query if the first results are insufficient — but there is a HARD LIMIT of 3 searches per answer. Make each query count; after the third search you must answer with the information you have.
+        You have a `web_search` tool. Call it with a `query` string whenever the answer could have changed since you were trained, or when you are genuinely unsure.
 
-        When to search: current events, prices, weather, schedules, recent releases, facts you are unsure of, or anything after your training data. Do not search for stable knowledge, math, code you can write yourself, or casual conversation.
+        Search for: anything whose answer is a name, date, version, price, score, record, or title-holder that gets replaced over time — including the winner of a recurring event; the "current", "latest", or "newest" of anything; news, schedules, and who currently holds a role; and facts you are not confident about.
+
+        Do not search for: maths, code, reasoning, explanations, definitions, creative writing, translation, summarising the user's own text, small talk, or history that cannot gain a new instalment. Answer those directly.
+
+        A needless search costs a couple of seconds; a confidently stale answer costs the user's trust. Break genuine ties in favour of checking.
 
         $providerNotes
 
-        Results arrive as a numbered list:
-        [1] Title — URL
+        Results arrive as a numbered list, and may include the publication date when the provider reports one:
+        [1] Title — URL (published 2026-07-19)
         snippet
 
-        Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
+        Prefer the most recent source for anything that changes over time, and do not let an older, more familiar-sounding result override a newer one — if a result contradicts your memory, the result wins. Cite every claim drawn from a result using the matching number as a markdown link: [1](url). Place citations directly after the sentence they support. Never append a "Sources" or "References" list at the end of the answer — the app already shows your sources separately. If results conflict, note the disagreement. If a search fails or returns nothing useful, say what you could not verify rather than guessing.
+
+        You have a budget of 3 searches per answer. Refine and search again when the first results do not settle the question; after the third, answer with what you have.
         """.trimIndent()
     }
 

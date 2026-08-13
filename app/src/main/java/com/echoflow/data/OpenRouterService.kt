@@ -977,9 +977,16 @@ class OpenRouterService(private val context: Context) {
                 "type" to "function",
                 "function" to mapOf(
                     "name" to "web_search",
-                    "description" to "Search the web for current, factual information. " +
-                        "Returns a numbered list of results with titles, URLs and content snippets. " +
-                        "Call again with a refined query if the first results are insufficient.",
+                    // The model weighs this description as heavily as the system prompt when
+                    // deciding whether to call at all, so it states the same volatility test
+                    // rather than the narrower "current information" framing it used to.
+                    "description" to "Look up information on the web. Use this whenever the correct " +
+                        "answer could have changed since your training — the current holder of a " +
+                        "title or role, the winner of a recurring event, the latest version, a " +
+                        "price, a score, a date — or when you are unsure of a fact. Returns a " +
+                        "numbered list of results with titles, URLs, content snippets, and a " +
+                        "publication date where available. Call again with a refined query if the " +
+                        "first results are insufficient.",
                     "parameters" to mapOf(
                         "type" to "object",
                         "properties" to mapOf(
