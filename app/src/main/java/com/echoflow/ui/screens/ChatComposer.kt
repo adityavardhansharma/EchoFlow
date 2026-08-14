@@ -489,7 +489,9 @@ internal fun PlusMenu(
                 shape = menuShape,
                 color = Color.Transparent,
                 shadowElevation = 12.dp,
-                modifier = Modifier.widthIn(max = 260.dp),
+                modifier = Modifier
+                    .widthIn(max = 260.dp)
+                    .testTag("plus_menu_shadow_shell"),
             ) {
                 // Inner card: quick unified motion for fill + all rows together.
                 Surface(
@@ -497,7 +499,9 @@ internal fun PlusMenu(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 3.dp,
                     shadowElevation = 0.dp,
-                    modifier = Modifier.graphicsLayer {
+                    modifier = Modifier
+                        .testTag("plus_menu_card")
+                        .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         this.alpha = alpha
@@ -621,7 +625,7 @@ private fun PlusMenuDivider() {
  * Positions the "+" popup just above the anchor (the "+" button), left edges aligned, and flips it
  * below only if there isn't room above — which at the foot of the screen there almost always is.
  */
-private class PlusMenuPositionProvider(
+internal class PlusMenuPositionProvider(
     private val gapPx: Int,
     private val onFlipDown: (Boolean) -> Unit,
 ) : PopupPositionProvider {
