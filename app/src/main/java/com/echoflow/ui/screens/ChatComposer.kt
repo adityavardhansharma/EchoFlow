@@ -9,12 +9,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -449,10 +446,8 @@ internal fun PlusMenu(
     onToggleBrowserFlow: () -> Unit,
     onToggleArtifact: () -> Unit,
 ) {
-    // A bespoke popup rather than the stock DropdownMenu: it opens *upward* from the "+", growing
-    // from that bottom-left corner with a slight overshoot, staggers its rows in, and collapses
-    // faster than it opened. Same interaction as before (tap the "+", tap a row, it applies and
-    // closes) — just built, not boxed.
+    // Bespoke popup anchored above the "+". One quick fade/scale on the whole card; shadow stays on
+    // a static outer layer so it doesn't stretch or fade with the content.
     val visible = remember { MutableTransitionState(false) }
     visible.targetState = expanded
     val reducedMotion = rememberReducedMotion()
@@ -466,17 +461,19 @@ internal fun PlusMenu(
             properties = PopupProperties(focusable = true),
         ) {
             val transition = updateTransition(visible, label = "plus-menu")
+            val enterMs = if (reducedMotion) 0 else 80
+            val exitMs = if (reducedMotion) 0 else 60
             val scaleRaw by transition.animateFloat(
                 transitionSpec = {
-                    if (false isTransitioningTo true) spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
-                    else tween(120, easing = FastOutLinearInEasing)
+                    if (false isTransitioningTo true) tween(enterMs, easing = FastOutLinearInEasing)
+                    else tween(exitMs, easing = FastOutLinearInEasing)
                 },
                 label = "scale",
-            ) { if (it) 1f else 0.82f }
+            ) { if (it) 1f else 0.97f }
             val scale = if (reducedMotion) 1f else scaleRaw
             val alpha by transition.animateFloat(
                 transitionSpec = {
-                    if (false isTransitioningTo true) tween(130) else tween(100, easing = FastOutLinearInEasing)
+                    if (false isTransitioningTo true) tween(enterMs) else tween(exitMs, easing = FastOutLinearInEasing)
                 },
                 label = "alpha",
             ) { if (it) 1f else 0f }
@@ -485,62 +482,66 @@ internal fun PlusMenu(
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
             val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+            val menuShape = RoundedCornerShape(22.dp)
+            val transformOrigin = TransformOrigin(if (isRtl) 1f else 0f, if (flippedDown.value) 0f else 1f)
+            // Outer shell: stable elevation shadow that never scales or fades.
             Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 3.dp,
-                shadowElevation = 10.dp,
-                // widthIn (not a fixed width) so the popup shrinks to fit narrow windows rather
-                // than overflowing off-screen.
-                modifier = Modifier
-                    .widthIn(max = 260.dp)
-                    .graphicsLayer {
+                shape = menuShape,
+                color = Color.Transparent,
+                shadowElevation = 12.dp,
+                modifier = Modifier.widthIn(max = 260.dp),
+            ) {
+                // Inner card: quick unified motion for fill + all rows together.
+                Surface(
+                    shape = menuShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         this.alpha = alpha
-                        // Grow from the corner nearest the "+": the anchor's leading side (right in
-                        // RTL), and bottom when above the button (the usual case), top if flipped.
-                        transformOrigin = TransformOrigin(if (isRtl) 1f else 0f, if (flippedDown.value) 0f else 1f)
+                        this.transformOrigin = transformOrigin
                     },
-            ) {
-                Column(
-                    Modifier
-                        .heightIn(max = maxMenuHeight)
-                        .verticalScroll(rememberScrollState())
-                        .padding(6.dp),
                 ) {
-                    var i = 0
-                    if (showImage || showFiles) {
-                        MenuSectionLabel("Attach")
-                        if (showImage) {
-                            PlusMenuRow(transition, i++, reducedMotion, Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
+                    Column(
+                        Modifier
+                            .heightIn(max = maxMenuHeight)
+                            .verticalScroll(rememberScrollState())
+                            .padding(6.dp),
+                    ) {
+                        if (showImage || showFiles) {
+                            MenuSectionLabel("Attach")
+                            if (showImage) {
+                                PlusMenuRow(Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
+                            }
+                            if (showFiles) {
+                                PlusMenuRow(Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
+                            }
+                            PlusMenuDivider()
                         }
-                        if (showFiles) {
-                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
+                        MenuSectionLabel("Capabilities")
+                        PlusMenuRow(Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
+                        PlusMenuRow(Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
+                        PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
+                        if (dataAgentAvailable) {
+                            PlusMenuRow(Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
                         }
-                        PlusMenuDivider()
-                    }
-                    MenuSectionLabel("Capabilities")
-                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
-                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
-                    PlusMenuRow(transition, i++, reducedMotion, Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
-                    if (dataAgentAvailable) {
-                        PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
-                    }
-                    if (browserFlowAvailable) {
-                        PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
-                    }
-                    if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
-                        PlusMenuDivider()
-                        MenuSectionLabel("Echo Labs")
-                        if (echoAdviserAvailable) {
-                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
+                        if (browserFlowAvailable) {
+                            PlusMenuRow(Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
                         }
-                        if (echoFusionAvailable) {
-                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
-                        }
-                        if (echoAgentAvailable) {
-                            PlusMenuRow(transition, i++, reducedMotion, Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
+                        if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
+                            PlusMenuDivider()
+                            MenuSectionLabel("Echo Labs")
+                            if (echoAdviserAvailable) {
+                                PlusMenuRow(Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
+                            }
+                            if (echoFusionAvailable) {
+                                PlusMenuRow(Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
+                            }
+                            if (echoAgentAvailable) {
+                                PlusMenuRow(Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
+                            }
                         }
                     }
                 }
@@ -552,34 +553,15 @@ internal fun PlusMenu(
 /**
  * One row of the "+" popup. [on] = null marks a one-shot action (Attach); a non-null value marks a
  * capability toggle, whose leading chip lifts to the accent and gains a trailing check when active.
- * Rows stagger in top-to-bottom on open; under reduced motion only a plain fade remains.
  */
 @Composable
 private fun PlusMenuRow(
-    transition: Transition<Boolean>,
-    index: Int,
-    reducedMotion: Boolean,
     icon: ImageVector,
     label: String,
     on: Boolean?,
     onClick: () -> Unit,
 ) {
     val active = on == true
-    val stagger = if (reducedMotion) 0 else 30 + index * 34
-    val rowAlpha by transition.animateFloat(
-        transitionSpec = {
-            if (false isTransitioningTo true) tween(210, delayMillis = stagger, easing = LinearOutSlowInEasing)
-            else tween(90, easing = FastOutLinearInEasing)
-        },
-        label = "row-alpha",
-    ) { if (it) 1f else 0f }
-    val shiftRaw by transition.animateFloat(
-        transitionSpec = {
-            if (false isTransitioningTo true) tween(250, delayMillis = stagger, easing = EaseOutBack) else tween(90)
-        },
-        label = "row-shift",
-    ) { if (it) 0f else -8f }
-    val shift = if (reducedMotion) 0f else shiftRaw
 
     // Attach chips are a neutral tonal; an active capability lifts to the accent container.
     val chipColor = when {
@@ -597,7 +579,6 @@ private fun PlusMenuRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .graphicsLayer { alpha = rowAlpha; translationX = shift }
             .clip(RoundedCornerShape(13.dp))
             .clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
             .heightIn(min = 46.dp)
