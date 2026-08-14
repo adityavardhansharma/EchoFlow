@@ -31,12 +31,14 @@ fun EchoFlowTheme(
     val colorScheme = when {
         themeName == "dynamic" && supportsDynamic ->
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        themeName == "dynamic" ->
+            if (darkTheme) OceanDark else OceanLight // pre-Android 12: no Material You sampling
         themeName == "ocean" -> if (darkTheme) OceanDark else OceanLight
         themeName == "forest" -> if (darkTheme) ForestDark else ForestLight
         themeName == "sunset" -> if (darkTheme) SunsetDark else SunsetLight
         themeName == "lavender" -> if (darkTheme) LavenderDark else LavenderLight
         themeName == "rose" -> if (darkTheme) RoseDark else RoseLight
-        else -> if (darkTheme) MonochromeDark else MonochromeLight // monochrome is the default
+        else -> if (darkTheme) MonochromeDark else MonochromeLight // unknown theme names
     }
 
     MaterialExpressiveTheme(
