@@ -2,8 +2,12 @@ package com.echoflow.ui.theme
 
 import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+
+/** Test override for [rememberReducedMotion]; null means read the system animator scale. */
+internal val LocalReducedMotionOverride = compositionLocalOf<Boolean?> { null }
 
 /**
  * True when the user has turned animations off system-wide (Developer options → animator
@@ -20,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
  */
 @Composable
 fun rememberReducedMotion(): Boolean {
+    LocalReducedMotionOverride.current?.let { return it }
     val context = LocalContext.current
     return remember(context) {
         runCatching {
