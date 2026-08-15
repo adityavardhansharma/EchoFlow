@@ -62,6 +62,32 @@ class PlusMenuPositionProviderTest {
   }
 
   @Test
+  fun pivotIsZeroWhenLeadingEdgeAligns() {
+    var pivot = -1f
+    val provider = PlusMenuPositionProvider(gapPx = gapPx, onFlipDown = {}, onPivotFractionX = { pivot = it })
+    val anchor = IntRect(left = 100, top = 1400, right = 144, bottom = 1444)
+
+    provider.calculatePosition(anchor, windowSize, LayoutDirection.Ltr, popupSize)
+
+    assertEquals(0f, pivot, 0.0001f)
+  }
+
+  @Test
+  fun pivotTracksAnchorWhenClampedNearRightEdge() {
+    var pivot = -1f
+    val provider = PlusMenuPositionProvider(gapPx = gapPx, onFlipDown = {}, onPivotFractionX = { pivot = it })
+    // Anchor near the right edge: the popup can't align its left edge to it, so it clamps left.
+    val anchor = IntRect(left = 950, top = 1400, right = 994, bottom = 1444)
+
+    val position = provider.calculatePosition(anchor, windowSize, LayoutDirection.Ltr, popupSize)
+
+    // Origin must land on the "+" (anchor.left), not the popup's shifted left edge.
+    val expected = (anchor.left - position.x).toFloat() / popupSize.width
+    assertEquals(expected, pivot, 0.0001f)
+    assertTrue("pivot should be pulled inward, not 0", pivot > 0f)
+  }
+
+  @Test
   fun rtl_clampsTrailingEdgeInsideWindow() {
     val provider = PlusMenuPositionProvider(gapPx = gapPx, onFlipDown = {})
     val anchor = IntRect(left = 1036, top = 1400, right = 1080, bottom = 1444)

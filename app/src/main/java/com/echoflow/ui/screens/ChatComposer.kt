@@ -454,8 +454,13 @@ internal fun PlusMenu(
     // is gated on that: the popup mounts invisibly, [PlusMenuPositionProvider] resolves flip, then
     // the enter animation starts with the transform origin on the correct (anchor) corner.
     var flippedDown by remember { mutableStateOf<Boolean?>(null) }
+    var pivotFractionX by remember { mutableStateOf<Float?>(null) }
     val positionProvider = remember {
-        PlusMenuPositionProvider(gapPx = 10, onFlipDown = { flippedDown = it })
+        PlusMenuPositionProvider(
+            gapPx = 10,
+            onFlipDown = { flippedDown = it },
+            onPivotFractionX = { pivotFractionX = it },
+        )
     }
     val motion = remember { MutableTransitionState(false) }
     if (expanded && flippedDown != null) {
@@ -466,6 +471,7 @@ internal fun PlusMenu(
     LaunchedEffect(motion.isIdle, motion.currentState, expanded) {
         if (motion.isIdle && !motion.currentState && !expanded) {
             flippedDown = null
+            pivotFractionX = null
         }
     }
     val keepPopup = expanded || motion.currentState || motion.targetState || !motion.isIdle
@@ -481,11 +487,13 @@ internal fun PlusMenu(
             val enterMs = if (reducedMotion) 0 else 115
             val exitMs = if (reducedMotion) 0 else 80
 
-            // Grow out of the "+" corner: scale + fade with the transform origin pinned to the anchor
-            // edge (bottom when the menu sits above, top when it flips below; right edge in RTL).
+            // Grow out of the "+": scale + fade with the transform origin on the button. X is the
+            // anchor's resolved position inside the popup (from the position provider, so on-screen
+            // clamping can't pull the origin off the button); Y is the edge nearest the anchor —
+            // bottom when the menu sits above, top when it flips below.
             val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             val transformOrigin = TransformOrigin(
-                pivotFractionX = if (isRtl) 1f else 0f,
+                pivotFractionX = pivotFractionX ?: if (isRtl) 1f else 0f,
                 pivotFractionY = if (flippedDown == true) 0f else 1f,
             )
             val scale by transition.animateFloat(
@@ -649,6 +657,7 @@ private fun PlusMenuDivider() {
 internal class PlusMenuPositionProvider(
     private val gapPx: Int,
     private val onFlipDown: (Boolean) -> Unit,
+    private val onPivotFractionX: (Float) -> Unit = {},
 ) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
@@ -664,6 +673,16 @@ internal class PlusMenuPositionProvider(
         } else {
             (anchorBounds.right - popupContentSize.width).coerceIn(gapPx, maxX)
         }
+        // Where the "+" sits inside the *resolved* (post-clamp) popup box, as a 0..1 fraction. The
+        // enter/exit scale grows from this point so it always blooms out of the button — including
+        // when horizontal clamping shifts the popup off the anchor's leading edge.
+        val anchorLeadingX = if (layoutDirection == LayoutDirection.Ltr) anchorBounds.left else anchorBounds.right
+        val pivotFractionX = if (popupContentSize.width <= 0) {
+            if (layoutDirection == LayoutDirection.Ltr) 0f else 1f
+        } else {
+            ((anchorLeadingX - x).toFloat() / popupContentSize.width).coerceIn(0f, 1f)
+        }
+        onPivotFractionX(pivotFractionX)
         val above = anchorBounds.top - popupContentSize.height - gapPx
         val flipDown = above < gapPx
         onFlipDown(flipDown)
