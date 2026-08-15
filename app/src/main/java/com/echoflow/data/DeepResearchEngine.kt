@@ -825,7 +825,7 @@ class DeepResearchEngine(
         attachment: OpenRouterService.LocalAttachment?,
     ) {
         if (openRouterKey.isBlank()) {
-            emit(ResearchEvent.Failed("OpenRouter API key is missing — add it in Settings → Cloud models."))
+            emit(ResearchEvent.Failed("OpenRouter API key is missing — add it in Settings → Models → OpenRouter."))
             return
         }
         val searchProvider = config.searchProvider

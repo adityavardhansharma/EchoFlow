@@ -129,7 +129,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
     var keyVisible by remember { mutableStateOf(false) }
     var showModelDirectory by remember { mutableStateOf(false) }
 
-    SettingsPageBody(embedded, title = "Cloud models", subtitle = "OpenRouter key & model list", onBack = onBack) {
+    SettingsPageBody(embedded, title = "OpenRouter models", subtitle = "API key & model list", onBack = onBack) {
         PageSection("API key", "One key from openrouter.ai unlocks every cloud model")
         FormCard {
             OutlinedTextField(

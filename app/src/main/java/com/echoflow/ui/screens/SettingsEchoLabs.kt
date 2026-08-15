@@ -366,7 +366,7 @@ internal fun EchoAdviserPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
         if (apiKey.isBlank()) {
             Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Adviser.", error = true)
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Adviser.", error = true)
         }
 
         Spacer(Modifier.height(Spacing.xl))
@@ -459,7 +459,7 @@ internal fun EchoFusionPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
         if (apiKey.isBlank()) {
             Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Fusion.", error = true)
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Fusion.", error = true)
         }
 
         Spacer(Modifier.height(Spacing.xl))
@@ -690,7 +690,7 @@ internal fun EchoAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
         if (apiKey.isBlank()) {
             Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key in Cloud models to use Echo Agents.", error = true)
+            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Agents.", error = true)
         }
 
         Spacer(Modifier.height(Spacing.xl))

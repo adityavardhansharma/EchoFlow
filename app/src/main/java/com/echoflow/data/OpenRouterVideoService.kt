@@ -87,7 +87,7 @@ class OpenRouterVideoService {
     ): VideoJobHandle = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             throw VideoGenerationException.MissingApiKey(
-                "Video generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                "Video generation uses OpenRouter. Add your API key in Settings → Models → OpenRouter."
             )
         }
         val payload = buildMap<String, Any> {
@@ -206,7 +206,7 @@ class OpenRouterVideoService {
         400 -> ProviderHttpSupport.errorMessage("OpenRouter", code, body)
             .takeIf { !it.endsWith("HTTP $code.") }
             ?: "$model rejected these settings. Try a different aspect ratio or resolution."
-        401 -> "OpenRouter rejected your API key. Check it in Settings → Cloud models."
+        401 -> "OpenRouter rejected your API key. Check it in Settings → Models → OpenRouter."
         402, 403 -> "OpenRouter refused the request — your credit may be depleted."
         404 -> "$model is not available for video generation."
         else -> ProviderHttpSupport.errorMessage("OpenRouter", code, body)

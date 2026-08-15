@@ -1116,7 +1116,7 @@ class ChatViewModel(
                     return@launch
                 }
                 if (apiKey.isBlank()) {
-                    _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                    _errorMessage.value = "Image generation uses OpenRouter. Add your API key in Settings → Models → OpenRouter."
                     return@launch
                 }
             }
@@ -1127,7 +1127,7 @@ class ChatViewModel(
                     return@launch
                 }
                 if (apiKey.isBlank()) {
-                    _errorMessage.value = "Video generation uses OpenRouter. Add your API key in Settings → Cloud models."
+                    _errorMessage.value = "Video generation uses OpenRouter. Add your API key in Settings → Models → OpenRouter."
                     return@launch
                 }
                 if (attachmentMime.equals("application/pdf", ignoreCase = true)) {
@@ -1873,7 +1873,7 @@ class ChatViewModel(
                 }
             } else {
                 if (settingsRepository.getApiKeyDirect().isBlank()) {
-                    _errorMessage.value = "OpenRouter API key is missing. Add it in Settings → Cloud models."
+                    _errorMessage.value = "OpenRouter API key is missing. Add it in Settings → Models → OpenRouter."
                     return@launch
                 }
                 val chosen = settingsRepository.getDeepResearchSearchProviderDirect()
