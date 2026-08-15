@@ -54,13 +54,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -515,36 +520,36 @@ internal fun PlusMenu(
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
             val menuShape = RoundedCornerShape(22.dp)
-            // Soft, rounded drop shadow drawn by *this* layer (not Surface.shadowElevation) so it
-            // follows [menuShape] instead of clipping to a hard rectangle under the fade layer, and
-            // so scale/alpha/shadow all composite as one clean surface. Enough presence to lift the
-            // menu clear of the input box below it — elevated, not heavy.
-            val spotShadow = Color.Black.copy(alpha = 0.44f)
-            val ambientShadow = Color.Black.copy(alpha = 0.22f)
-            Surface(
-                shape = menuShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .widthIn(max = 260.dp)
-                    .testTag("plus_menu_surface")
+            // Even, soft drop shadow. Android's native elevation *spot* shadow is directional — it
+            // casts to one side depending on where the popup sits on screen, which looked lopsided
+            // and harsh (a hard band down one edge). Instead draw a symmetric Gaussian shadow
+            // (setShadowLayer) that blooms evenly around the rounded rect with a gentle downward
+            // bias. Its alpha is baked into the colour so it fades with the menu; the shared layer
+            // is driven by scale only (not alpha), so the out-of-bounds shadow isn't clipped square.
+            val shadowColor = Color.Black.copy(alpha = 0.22f * alpha)
+            Box(
+                Modifier
                     .graphicsLayer {
-                        this.alpha = alpha
                         this.scaleX = scale
                         this.scaleY = scale
                         this.transformOrigin = transformOrigin
-                        this.shadowElevation = 16.dp.toPx()
-                        this.shape = menuShape
-                        this.clip = false
-                        this.spotShadowColor = spotShadow
-                        this.ambientShadowColor = ambientShadow
-                    },
+                    }
+                    .softDropShadow(shadowColor, cornerRadius = 22.dp, blurRadius = 24.dp, offsetY = 8.dp),
             ) {
-                Column(
-                    Modifier
-                        .heightIn(max = maxMenuHeight)
-                        .verticalScroll(rememberScrollState())
-                        .padding(6.dp),
+                Surface(
+                    shape = menuShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .widthIn(max = 260.dp)
+                        .testTag("plus_menu_surface")
+                        .graphicsLayer { this.alpha = alpha },
                 ) {
+                    Column(
+                        Modifier
+                            .heightIn(max = maxMenuHeight)
+                            .verticalScroll(rememberScrollState())
+                            .padding(6.dp),
+                    ) {
                     if (showImage || showFiles) {
                         MenuSectionLabel("Attach")
                         if (showImage) {
@@ -577,6 +582,7 @@ internal fun PlusMenu(
                         if (echoAgentAvailable) {
                             PlusMenuRow(Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
                         }
+                    }
                     }
                 }
             }
@@ -639,6 +645,29 @@ private fun PlusMenuRow(
         if (active) {
             Icon(Icons.Default.Check, "On", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+/**
+ * Even, symmetric soft shadow around a rounded rect, drawn with a Gaussian [setShadowLayer] rather
+ * than Android's directional elevation spot shadow. [offsetY] gives a gentle downward bias; the
+ * horizontal spread stays symmetric so the menu doesn't look lit from one side.
+ */
+private fun Modifier.softDropShadow(
+    color: Color,
+    cornerRadius: Dp,
+    blurRadius: Dp,
+    offsetY: Dp,
+): Modifier = drawBehind {
+    if (color.alpha <= 0f || blurRadius <= 0.dp) return@drawBehind
+    drawIntoCanvas { canvas ->
+        val frameworkPaint = Paint().asFrameworkPaint().apply {
+            isAntiAlias = true
+            this.color = android.graphics.Color.TRANSPARENT
+            setShadowLayer(blurRadius.toPx(), 0f, offsetY.toPx(), color.toArgb())
+        }
+        val r = cornerRadius.toPx()
+        canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, r, r, frameworkPaint)
     }
 }
 
