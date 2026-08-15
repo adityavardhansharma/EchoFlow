@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -57,7 +58,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,7 +75,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -446,34 +445,52 @@ internal fun PlusMenu(
     onToggleBrowserFlow: () -> Unit,
     onToggleArtifact: () -> Unit,
 ) {
-    // Bespoke popup anchored above the "+". One quick fade/scale on the whole card; shadow stays on
-    // a static outer layer so it doesn't stretch or fade with the content.
-    val visible = remember { MutableTransitionState(false) }
-    visible.targetState = expanded
-    val reducedMotion = rememberReducedMotion()
-    val flippedDown = remember { mutableStateOf(false) }
-    val positionProvider = remember { PlusMenuPositionProvider(gapPx = 8, onFlipDown = { flippedDown.value = it }) }
-    // Keep it composed through its exit animation, then drop it.
-    if (visible.currentState || visible.targetState || !visible.isIdle) {
+    // Bespoke popup anchored above the "+". One surface, one shadow — fade + a short slide from the
+    // anchor corner. No scale (keeps the shadow from stretching) and no stacked shadow shells.
+    //
+    // Placement (above vs below the "+") is only known after the first popup measure pass, so motion
+    // is gated on that: the popup mounts invisibly, [PlusMenuPositionProvider] resolves flip, then
+    // the enter animation starts with the correct slide direction.
+    var flippedDown by remember { mutableStateOf<Boolean?>(null) }
+    val positionProvider = remember {
+        PlusMenuPositionProvider(gapPx = 10, onFlipDown = { flippedDown = it })
+    }
+    val motion = remember { MutableTransitionState(false) }
+    if (expanded && flippedDown != null) {
+        motion.targetState = true
+    } else if (!expanded) {
+        motion.targetState = false
+    }
+    LaunchedEffect(motion.isIdle, motion.currentState, expanded) {
+        if (motion.isIdle && !motion.currentState && !expanded) {
+            flippedDown = null
+        }
+    }
+    val keepPopup = expanded || motion.currentState || motion.targetState || !motion.isIdle
+    if (keepPopup) {
         Popup(
             popupPositionProvider = positionProvider,
             onDismissRequest = onDismiss,
             properties = PopupProperties(focusable = true),
         ) {
-            val transition = updateTransition(visible, label = "plus-menu")
-            val enterMs = if (reducedMotion) 0 else 80
-            val exitMs = if (reducedMotion) 0 else 60
-            val scaleRaw by transition.animateFloat(
+            val transition = updateTransition(motion, label = "plus-menu")
+            val reducedMotion = rememberReducedMotion()
+            val enterMs = if (reducedMotion) 0 else 140
+            val exitMs = if (reducedMotion) 0 else 100
+            val slidePx = with(LocalDensity.current) { 6.dp.toPx() }
+            val slideSign = if (flippedDown == true) -1f else 1f
+            val translationYRaw by transition.animateFloat(
                 transitionSpec = {
-                    if (false isTransitioningTo true) tween(enterMs, easing = FastOutLinearInEasing)
+                    if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
                     else tween(exitMs, easing = FastOutLinearInEasing)
                 },
-                label = "scale",
-            ) { if (it) 1f else 0.97f }
-            val scale = if (reducedMotion) 1f else scaleRaw
+                label = "slide",
+            ) { if (it) 0f else slideSign * slidePx }
+            val translationY = if (reducedMotion) 0f else translationYRaw
             val alpha by transition.animateFloat(
                 transitionSpec = {
-                    if (false isTransitioningTo true) tween(enterMs) else tween(exitMs, easing = FastOutLinearInEasing)
+                    if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
+                    else tween(exitMs, easing = FastOutLinearInEasing)
                 },
                 label = "alpha",
             ) { if (it) 1f else 0f }
@@ -481,71 +498,56 @@ internal fun PlusMenu(
             // Never taller than the window (compact/landscape/split-screen): cap the height and let
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
-            val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             val menuShape = RoundedCornerShape(22.dp)
-            val transformOrigin = TransformOrigin(if (isRtl) 1f else 0f, if (flippedDown.value) 0f else 1f)
-            // Outer shell: stable elevation shadow that never scales or fades.
             Surface(
                 shape = menuShape,
-                color = Color.Transparent,
-                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 6.dp,
                 modifier = Modifier
                     .widthIn(max = 260.dp)
-                    .testTag("plus_menu_shadow_shell"),
-            ) {
-                // Inner card: quick unified motion for fill + all rows together.
-                Surface(
-                    shape = menuShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 3.dp,
-                    shadowElevation = 0.dp,
-                    modifier = Modifier
-                        .testTag("plus_menu_card")
-                        .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
+                    .testTag("plus_menu_surface")
+                    .graphicsLayer {
                         this.alpha = alpha
-                        this.transformOrigin = transformOrigin
+                        this.translationY = translationY
                     },
+            ) {
+                Column(
+                    Modifier
+                        .heightIn(max = maxMenuHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(6.dp),
                 ) {
-                    Column(
-                        Modifier
-                            .heightIn(max = maxMenuHeight)
-                            .verticalScroll(rememberScrollState())
-                            .padding(6.dp),
-                    ) {
-                        if (showImage || showFiles) {
-                            MenuSectionLabel("Attach")
-                            if (showImage) {
-                                PlusMenuRow(Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
-                            }
-                            if (showFiles) {
-                                PlusMenuRow(Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
-                            }
-                            PlusMenuDivider()
+                    if (showImage || showFiles) {
+                        MenuSectionLabel("Attach")
+                        if (showImage) {
+                            PlusMenuRow(Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
                         }
-                        MenuSectionLabel("Capabilities")
-                        PlusMenuRow(Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
-                        PlusMenuRow(Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
-                        PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
-                        if (dataAgentAvailable) {
-                            PlusMenuRow(Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
+                        if (showFiles) {
+                            PlusMenuRow(Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
                         }
-                        if (browserFlowAvailable) {
-                            PlusMenuRow(Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
+                        PlusMenuDivider()
+                    }
+                    MenuSectionLabel("Capabilities")
+                    PlusMenuRow(Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
+                    PlusMenuRow(Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
+                    PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
+                    if (dataAgentAvailable) {
+                        PlusMenuRow(Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
+                    }
+                    if (browserFlowAvailable) {
+                        PlusMenuRow(Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
+                    }
+                    if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
+                        PlusMenuDivider()
+                        MenuSectionLabel("Echo Labs")
+                        if (echoAdviserAvailable) {
+                            PlusMenuRow(Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
                         }
-                        if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
-                            PlusMenuDivider()
-                            MenuSectionLabel("Echo Labs")
-                            if (echoAdviserAvailable) {
-                                PlusMenuRow(Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
-                            }
-                            if (echoFusionAvailable) {
-                                PlusMenuRow(Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
-                            }
-                            if (echoAgentAvailable) {
-                                PlusMenuRow(Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
-                            }
+                        if (echoFusionAvailable) {
+                            PlusMenuRow(Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
+                        }
+                        if (echoAgentAvailable) {
+                            PlusMenuRow(Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
                         }
                     }
                 }
