@@ -116,7 +116,7 @@ import com.echoflow.ui.theme.rememberMorphProgress
 import kotlin.math.roundToInt
 
 @Composable
-internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, embedded: Boolean = false) {
     val localModelsEnabled by viewModel.localModelsEnabled.collectAsState()
     val ggufEnabled by viewModel.ggufEnabled.collectAsState()
     val hfToken by viewModel.hfAccessToken.collectAsState()
@@ -140,7 +140,7 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         uri?.let { viewModel.importModel(it) }
     }
 
-    SettingsPageScaffold(title = "Local models", subtitle = "On-device intelligence", onBack = onBack) {
+    SettingsPageBody(embedded, title = "Local models", subtitle = "On-device intelligence", onBack = onBack) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainer,

@@ -123,7 +123,6 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
     val echoFusionEnabled by viewModel.echoFusionEnabled.collectAsState()
     val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
     val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
-    val customProviderConfig by viewModel.customProviderConfig.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
@@ -138,13 +137,6 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
         firecrawlKey.isBlank() -> "On · add a Firecrawl key"
         else -> "Live browser · chat-controlled"
     }
-    val customProviderCount = listOf(
-        customProviderConfig.cloudApisEnabled,
-        customProviderConfig.ollamaEnabled,
-        customProviderConfig.openAiCompatibleEnabled,
-    ).count { it }
-    val customProviderSubtitle = if (customProviderCount == 0) "Off" else "$customProviderCount provider" + if (customProviderCount == 1) "" else "s"
-
     SettingsPageScaffold(title = "Echo Labs", subtitle = "Experimental modes · turn on what you need", onBack = onBack) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
             SettingsNavRow(
@@ -154,7 +146,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = dataAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 0, count = 5,
+                index = 0, count = 4,
                 onClick = { onOpen(PageDataAgent) },
             )
             SettingsNavRow(
@@ -164,7 +156,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = adviserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 1, count = 5,
+                index = 1, count = 4,
                 onClick = { onOpen(PageEchoAdviser) },
             )
             SettingsNavRow(
@@ -174,7 +166,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = fusionSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 2, count = 5,
+                index = 2, count = 4,
                 onClick = { onOpen(PageEchoFusion) },
             )
             SettingsNavRow(
@@ -184,18 +176,8 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = agentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 5,
+                index = 3, count = 4,
                 onClick = { onOpen(PageEchoAgent) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Language,
-                polygon = MaterialShapes.Gem,
-                title = "Custom API Endpoint",
-                subtitle = customProviderSubtitle,
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 5,
-                onClick = { onOpen(PageCustomProvider) },
             )
         }
 
@@ -248,7 +230,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
 internal fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit, onBack: () -> Unit) {
     val config by viewModel.customProviderConfig.collectAsState()
 
-    SettingsPageScaffold(title = "Custom API Endpoint", subtitle = "Prerelease model providers", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom", subtitle = "Bring your own API keys & endpoints", onBack = onBack) {
         FormCard {
             Text("Bring your own endpoint", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))

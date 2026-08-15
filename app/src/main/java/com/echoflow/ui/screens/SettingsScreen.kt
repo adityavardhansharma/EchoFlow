@@ -145,6 +145,7 @@ internal const val CatalogPreviewCount = 3
 
 internal const val PageHome = "home"
 internal const val PageAppearance = "appearance"
+internal const val PageModels = "models"
 internal const val PageCloudModels = "cloud_models"
 internal const val PageWebSearch = "web_search"
 internal const val PageLocalModels = "local_models"
@@ -171,11 +172,11 @@ internal val CustomProviderSectionGap = 28.dp
 /** Parent page when backing out of [page]; null on the settings hub. */
 internal fun settingsParentPage(page: String): String? = when (page) {
     PageHome -> null
-    PageAppearance, PageCloudModels, PageWebSearch, PageLocalModels,
-    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs,
+    PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
+    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProvider,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
-    PageEchoAgent, PageCustomProvider,
+    PageEchoAgent,
     -> PageEchoLabs
     PageCustomProviderCloud -> PageCustomProvider
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
@@ -233,6 +234,7 @@ fun SettingsScreen(
     ) { current ->
         when (current) {
             PageAppearance -> AppearancePage(viewModel, onBack = navigateBack)
+            PageModels -> ModelsPage(viewModel, onBack = navigateBack)
             PageCloudModels -> CloudModelsPage(viewModel, onBack = navigateBack)
             PageWebSearch -> WebSearchPage(viewModel, onBack = navigateBack)
             PageLocalModels -> LocalModelsPage(viewModel, onBack = navigateBack)
@@ -259,6 +261,42 @@ fun SettingsScreen(
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
+        }
+    }
+}
+
+// ── Models (cloud + on-device) ────────────────────────────────────────────────────────
+
+/**
+ * One home for the models that answer you: a Cloud / On-device toggle over the two existing
+ * catalogs, each rendered embedded (no nested app bar). Custom providers keep their own
+ * top-level entry since they're connections, not a browsable catalog.
+ */
+@Composable
+internal fun ModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    var tab by rememberSaveable { mutableStateOf(PageCloudModels) }
+    val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+
+    SettingsPageScaffold(title = "Models", subtitle = "Cloud & on-device", onBack = onBack) {
+        ConnectedToggleRow(
+            options = listOf(
+                PageCloudModels to "Cloud",
+                PageLocalModels to "On-device",
+            ),
+            selected = tab,
+            onSelect = { tab = it },
+            icons = listOf(Icons.Default.Language, Icons.Default.PhoneAndroid),
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = { fadeIn(effects) togetherWith fadeOut(effects) },
+            label = "modelsTab",
+        ) { current ->
+            when (current) {
+                PageLocalModels -> LocalModelsPage(viewModel, onBack = onBack, embedded = true)
+                else -> CloudModelsPage(viewModel, onBack = onBack, embedded = true)
+            }
         }
     }
 }
@@ -301,11 +339,6 @@ internal fun SettingsHomePage(
     val accentLabel = if (themeColor == "dynamic") "Wallpaper"
     else accents.firstOrNull { it.id == themeColor }?.label ?: "Wallpaper"
 
-    val cloudSubtitle = when {
-        apiKey.isBlank() -> "Add your OpenRouter key to get started"
-        customModels.isEmpty() -> "Key saved · default model only"
-        else -> "Key saved · ${customModels.size} model" + (if (customModels.size == 1) "" else "s") + " added"
-    }
     val searchSubtitle = if (webSearchProvider == "off") "Off" else buildString {
         append(searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: webSearchProvider)
         append(" · ")
@@ -316,11 +349,6 @@ internal fun SettingsHomePage(
                 else -> "All models"
             }
         )
-    }
-    val localSubtitle = when {
-        !localModelsEnabled -> "Off"
-        localModels.isEmpty() -> "On · No models installed yet"
-        else -> "On · ${localModels.size} installed"
     }
     val imageGenModelId by viewModel.imageGenModelId.collectAsState()
     val imageModelsHome by viewModel.imageModels.collectAsState()
@@ -391,24 +419,24 @@ internal fun SettingsHomePage(
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
-                icon = Icons.Default.Language,
+                icon = Icons.Default.Hub,
                 polygon = MaterialShapes.Gem,
-                title = "Cloud models",
-                subtitle = cloudSubtitle,
+                title = "Models",
+                subtitle = "Cloud & on-device",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
                 index = 1, count = 8,
-                onClick = { onOpen(PageCloudModels) },
+                onClick = { onOpen(PageModels) },
             )
             SettingsNavRow(
-                icon = Icons.Default.PhoneAndroid,
+                icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
-                title = "Local models",
-                subtitle = localSubtitle,
+                title = "Custom",
+                subtitle = "Bring your own API keys",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = 8,
-                onClick = { onOpen(PageLocalModels) },
+                onClick = { onOpen(PageCustomProvider) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Search,

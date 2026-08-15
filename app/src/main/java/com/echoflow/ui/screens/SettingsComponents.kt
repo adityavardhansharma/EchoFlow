@@ -155,6 +155,26 @@ internal fun SettingsPageScaffold(
     }
 }
 
+/**
+ * Wraps a detail page's content. Standalone pages get the full scaffold (top app bar +
+ * scroll); when [embedded] (e.g. inside the Models toggle) the body is emitted directly so
+ * the host page owns the app bar and scrolling — no nested bar, no double scroll.
+ */
+@Composable
+internal fun SettingsPageBody(
+    embedded: Boolean,
+    title: String,
+    subtitle: String?,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (embedded) {
+        Column(Modifier.fillMaxWidth(), content = content)
+    } else {
+        SettingsPageScaffold(title = title, subtitle = subtitle, onBack = onBack, content = content)
+    }
+}
+
 /** Section header used on every page: title plus optional supporting line. */
 @Composable
 internal fun PageSection(title: String, supporting: String? = null) {
