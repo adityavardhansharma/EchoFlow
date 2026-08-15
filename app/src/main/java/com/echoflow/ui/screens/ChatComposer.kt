@@ -457,7 +457,7 @@ internal fun PlusMenu(
     var pivotFractionX by remember { mutableStateOf<Float?>(null) }
     val positionProvider = remember {
         PlusMenuPositionProvider(
-            gapPx = 10,
+            gapPx = 14,
             onFlipDown = { flippedDown = it },
             onPivotFractionX = { pivotFractionX = it },
         )
@@ -515,11 +515,12 @@ internal fun PlusMenu(
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
             val menuShape = RoundedCornerShape(22.dp)
-            // Soft, wide, rounded drop shadow drawn by *this* layer (not Surface.shadowElevation) so
-            // it follows [menuShape] instead of clipping to a hard rectangle under the fade layer,
-            // and so scale/alpha/shadow all composite as one clean surface.
-            val spotShadow = Color.Black.copy(alpha = 0.30f)
-            val ambientShadow = Color.Black.copy(alpha = 0.16f)
+            // Soft, rounded drop shadow drawn by *this* layer (not Surface.shadowElevation) so it
+            // follows [menuShape] instead of clipping to a hard rectangle under the fade layer, and
+            // so scale/alpha/shadow all composite as one clean surface. Enough presence to lift the
+            // menu clear of the input box below it — elevated, not heavy.
+            val spotShadow = Color.Black.copy(alpha = 0.44f)
+            val ambientShadow = Color.Black.copy(alpha = 0.22f)
             Surface(
                 shape = menuShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -531,7 +532,7 @@ internal fun PlusMenu(
                         this.scaleX = scale
                         this.scaleY = scale
                         this.transformOrigin = transformOrigin
-                        this.shadowElevation = 18.dp.toPx()
+                        this.shadowElevation = 16.dp.toPx()
                         this.shape = menuShape
                         this.clip = false
                         this.spotShadowColor = spotShadow
