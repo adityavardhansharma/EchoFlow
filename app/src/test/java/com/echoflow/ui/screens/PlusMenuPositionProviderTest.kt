@@ -97,4 +97,28 @@ class PlusMenuPositionProviderTest {
     val maxX = windowSize.width - popupSize.width - gapPx
     assertEquals(maxX, position.x)
   }
+
+  @Test
+  fun shadowPad_offsetsSoTheCardAlignsWithTheAnchor() {
+    val pad = 20
+    val provider = PlusMenuPositionProvider(gapPx = gapPx, shadowPadPx = pad, onFlipDown = {})
+    val anchor = IntRect(left = 40, top = 1400, right = 84, bottom = 1444)
+
+    val position = provider.calculatePosition(anchor, windowSize, LayoutDirection.Ltr, popupSize)
+
+    assertEquals(anchor.left - pad, position.x)
+    assertEquals(anchor.top - popupSize.height - gapPx, position.y)
+  }
+
+  @Test
+  fun shadowPad_clampsFlushWhenTheAnchorSitsOnTheLeftEdge() {
+    val pad = 20
+    val provider = PlusMenuPositionProvider(gapPx = gapPx, shadowPadPx = pad, onFlipDown = {})
+    val anchor = IntRect(left = 10, top = 1400, right = 54, bottom = 1444)
+
+    val position = provider.calculatePosition(anchor, windowSize, LayoutDirection.Ltr, popupSize)
+
+    // Pad itself is the margin, so the window may sit at x = 0 and still keep the card on-screen.
+    assertEquals(0, position.x)
+  }
 }

@@ -22,7 +22,7 @@ class SettingsNavigationTest {
             PageDeepResearch,
             PageImagine,
             PageEchoLabs,
-            PageCustomProvider,
+            PageCustomProviderCloud,
         ).forEach { page ->
             assertEquals(PageHome, settingsParentPage(page))
         }
@@ -36,6 +36,7 @@ class SettingsNavigationTest {
             PageEchoAdviser,
             PageEchoFusion,
             PageEchoAgent,
+            PageCustomProvider,
         ).forEach { page ->
             assertEquals(PageEchoLabs, settingsParentPage(page))
         }
@@ -43,8 +44,8 @@ class SettingsNavigationTest {
 
     @Test
     fun customProviderPagesUseNestedParents() {
-        assertEquals(PageHome, settingsParentPage(PageCustomProvider))
-        assertEquals(PageCustomProvider, settingsParentPage(PageCustomProviderCloud))
+        assertEquals(PageEchoLabs, settingsParentPage(PageCustomProvider))
+        assertEquals(PageHome, settingsParentPage(PageCustomProviderCloud))
         assertEquals(PageCustomProvider, settingsParentPage(PageCustomProviderOllama))
         assertEquals(PageCustomProvider, settingsParentPage(PageCustomProviderCompatible))
         assertEquals(PageCustomProviderCloud, settingsParentPage(PageCustomProviderOpenAi))

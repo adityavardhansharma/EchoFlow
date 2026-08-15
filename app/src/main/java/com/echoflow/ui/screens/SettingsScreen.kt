@@ -173,12 +173,11 @@ internal val CustomProviderSectionGap = 28.dp
 internal fun settingsParentPage(page: String): String? = when (page) {
     PageHome -> null
     PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
-    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProvider,
+    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
-    PageEchoAgent,
+    PageEchoAgent, PageCustomProvider,
     -> PageEchoLabs
-    PageCustomProviderCloud -> PageCustomProvider
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderXAi,
@@ -268,9 +267,9 @@ fun SettingsScreen(
 // ── Models (cloud + on-device) ────────────────────────────────────────────────────────
 
 /**
- * One home for the models that answer you: a Cloud / On-device toggle over the two existing
- * catalogs, each rendered embedded (no nested app bar). Custom providers keep their own
- * top-level entry since they're connections, not a browsable catalog.
+ * One home for the models that answer you: an OpenRouter / On-device toggle over the two
+ * existing catalogs, each rendered embedded (no nested app bar). Brand APIs keep their own
+ * top-level Custom entry; Ollama and OpenAI-compatible stay under Echo Labs.
  */
 @Composable
 internal fun ModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -387,7 +386,6 @@ internal fun SettingsHomePage(
         echoFusionEnabled,
         echoAgentEnabled,
         browserFlowEnabled,
-        customProviderConfig.cloudApisEnabled,
         customProviderConfig.ollamaEnabled,
         customProviderConfig.openAiCompatibleEnabled,
     ).count { it }
@@ -432,11 +430,11 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
                 title = "Custom",
-                subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI · Ollama · LM Studio",
+                subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = 8,
-                onClick = { onOpen(PageCustomProvider) },
+                onClick = { onOpen(PageCustomProviderCloud) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Search,

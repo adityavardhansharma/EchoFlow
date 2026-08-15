@@ -1169,14 +1169,24 @@ class ChatViewModel(
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
             if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
-                _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in Settings → Echo Labs → Custom API Endpoint."
+                val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
+                    "Settings → Echo Labs → Custom API Endpoint"
+                } else {
+                    "Settings → Custom"
+                }
+                _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in $where."
                 return@launch
             }
             if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = if (customProvider == "xai") {
                     "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
                 } else {
-                    "Images are off for this custom endpoint. Turn them on in Settings → Echo Labs → Custom API Endpoint."
+                    val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
+                        "Settings → Echo Labs → Custom API Endpoint"
+                    } else {
+                        "Settings → Custom"
+                    }
+                    "Images are off for this custom endpoint. Turn them on in $where."
                 }
                 return@launch
             }

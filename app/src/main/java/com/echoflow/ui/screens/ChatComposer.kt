@@ -4,6 +4,7 @@
 package com.echoflow.ui.screens
 
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,6 +58,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
@@ -80,6 +84,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -460,9 +465,18 @@ internal fun PlusMenu(
     // the enter animation starts with the transform origin on the correct (anchor) corner.
     var flippedDown by remember { mutableStateOf<Boolean?>(null) }
     var pivotFractionX by remember { mutableStateOf<Float?>(null) }
-    val positionProvider = remember {
+    var popupSize by remember { mutableStateOf(IntSize.Zero) }
+    // Shadow is drawn *outside* the card. Pad the popup by that bloom so the window
+    // (and the screen edge) don't clip the left/top, which was leaving a hard band on
+    // the right and bottom. The position provider then aligns the *card* to the "+".
+    val shadowBlur = 20.dp
+    val shadowOffsetY = 2.dp
+    val shadowPad = 22.dp
+    val shadowPadPx = with(LocalDensity.current) { shadowPad.roundToPx() }
+    val positionProvider = remember(shadowPadPx) {
         PlusMenuPositionProvider(
-            gapPx = 14,
+            gapPx = 8,
+            shadowPadPx = shadowPadPx,
             onFlipDown = { flippedDown = it },
             onPivotFractionX = { pivotFractionX = it },
         )
@@ -497,9 +511,11 @@ internal fun PlusMenu(
             // clamping can't pull the origin off the button); Y is the edge nearest the anchor —
             // bottom when the menu sits above, top when it flips below.
             val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+            val padFracX = if (popupSize.width > 0) shadowPadPx.toFloat() / popupSize.width else 0f
+            val padFracY = if (popupSize.height > 0) shadowPadPx.toFloat() / popupSize.height else 0f
             val transformOrigin = TransformOrigin(
-                pivotFractionX = pivotFractionX ?: if (isRtl) 1f else 0f,
-                pivotFractionY = if (flippedDown == true) 0f else 1f,
+                pivotFractionX = pivotFractionX ?: if (isRtl) 1f - padFracX else padFracX,
+                pivotFractionY = if (flippedDown == true) padFracY else 1f - padFracY,
             )
             val scale by transition.animateFloat(
                 transitionSpec = {
@@ -523,18 +539,22 @@ internal fun PlusMenu(
             // Even, soft drop shadow. Android's native elevation *spot* shadow is directional — it
             // casts to one side depending on where the popup sits on screen, which looked lopsided
             // and harsh (a hard band down one edge). Instead draw a symmetric Gaussian shadow
-            // (setShadowLayer) that blooms evenly around the rounded rect with a gentle downward
-            // bias. Its alpha is baked into the colour so it fades with the menu; the shared layer
-            // is driven by scale only (not alpha), so the out-of-bounds shadow isn't clipped square.
-            val shadowColor = Color.Black.copy(alpha = 0.22f * alpha)
+            // (setShadowLayer) that blooms evenly around the rounded rect with a tiny downward
+            // bias. The popup is padded by [shadowPad] so that bloom is part of the window and
+            // isn't clipped into a hard band on the right/bottom. Alpha is baked into the colour
+            // so it fades with the menu; the shared layer is driven by scale only (not alpha).
+            val shadowColor = Color.Black.copy(alpha = 0.16f * alpha)
             Box(
                 Modifier
+                    .onSizeChanged { popupSize = it }
                     .graphicsLayer {
                         this.scaleX = scale
                         this.scaleY = scale
                         this.transformOrigin = transformOrigin
+                        clip = false
                     }
-                    .softDropShadow(shadowColor, cornerRadius = 22.dp, blurRadius = 24.dp, offsetY = 8.dp),
+                    .padding(shadowPad)
+                    .softDropShadow(shadowColor, cornerRadius = 22.dp, blurRadius = shadowBlur, offsetY = shadowOffsetY),
             ) {
                 Surface(
                     shape = menuShape,
@@ -650,8 +670,12 @@ private fun PlusMenuRow(
 
 /**
  * Even, symmetric soft shadow around a rounded rect, drawn with a Gaussian [setShadowLayer] rather
- * than Android's directional elevation spot shadow. [offsetY] gives a gentle downward bias; the
+ * than Android's directional elevation spot shadow. [offsetY] gives a tiny downward bias; the
  * horizontal spread stays symmetric so the menu doesn't look lit from one side.
+ *
+ * The caller must pad the popup by at least [blurRadius] + |[offsetY]| so the bloom is inside
+ * the window. On API 24–27, [setShadowLayer] is ignored for non-text on a hardware canvas, so
+ * we fall back to a soft expanded rounded rect.
  */
 private fun Modifier.softDropShadow(
     color: Color,
@@ -660,14 +684,25 @@ private fun Modifier.softDropShadow(
     offsetY: Dp,
 ): Modifier = drawBehind {
     if (color.alpha <= 0f || blurRadius <= 0.dp) return@drawBehind
-    drawIntoCanvas { canvas ->
-        val frameworkPaint = Paint().asFrameworkPaint().apply {
-            isAntiAlias = true
-            this.color = android.graphics.Color.TRANSPARENT
-            setShadowLayer(blurRadius.toPx(), 0f, offsetY.toPx(), color.toArgb())
+    val r = cornerRadius.toPx()
+    val blurPx = blurRadius.toPx()
+    val dy = offsetY.toPx()
+    if (Build.VERSION.SDK_INT >= 28) {
+        drawIntoCanvas { canvas ->
+            val frameworkPaint = Paint().asFrameworkPaint().apply {
+                isAntiAlias = true
+                this.color = android.graphics.Color.TRANSPARENT
+                setShadowLayer(blurPx, 0f, dy, color.toArgb())
+            }
+            canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, r, r, frameworkPaint)
         }
-        val r = cornerRadius.toPx()
-        canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, r, r, frameworkPaint)
+    } else {
+        drawRoundRect(
+            color = color.copy(alpha = color.alpha * 0.4f),
+            topLeft = Offset(-blurPx * 0.4f, -blurPx * 0.4f + dy),
+            size = Size(size.width + blurPx * 0.8f, size.height + blurPx * 0.8f),
+            cornerRadius = CornerRadius(r + blurPx * 0.2f),
+        )
     }
 }
 
@@ -683,9 +718,14 @@ private fun PlusMenuDivider() {
 /**
  * Positions the "+" popup just above the anchor (the "+" button), left edges aligned, and flips it
  * below only if there isn't room above — which at the foot of the screen there almost always is.
+ *
+ * [shadowPadPx] is the bloom reserved around the card. The *card* (not the padded window) aligns
+ * to the "+", so the shadow can sit on every side without being clipped by the popup or the
+ * screen edge.
  */
 internal class PlusMenuPositionProvider(
     private val gapPx: Int,
+    private val shadowPadPx: Int = 0,
     private val onFlipDown: (Boolean) -> Unit,
     private val onPivotFractionX: (Float) -> Unit = {},
 ) : PopupPositionProvider {
@@ -695,13 +735,14 @@ internal class PlusMenuPositionProvider(
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
     ): IntOffset {
-        // Align the popup's leading edge to the anchor: left edge in LTR, right edge in RTL (where
-        // the "+" sits on the right), then clamp on-screen.
-        val maxX = (windowSize.width - popupContentSize.width - gapPx).coerceAtLeast(gapPx)
+        // When the popup is padded for its shadow, that pad *is* the margin — don't add [gapPx]
+        // on top or the card drifts away from the "+". Without a pad, keep [gapPx] from the edge.
+        val edge = (gapPx - shadowPadPx).coerceAtLeast(0)
+        val maxX = (windowSize.width - popupContentSize.width - edge).coerceAtLeast(edge)
         val x = if (layoutDirection == LayoutDirection.Ltr) {
-            anchorBounds.left.coerceIn(gapPx, maxX)
+            (anchorBounds.left - shadowPadPx).coerceIn(edge, maxX)
         } else {
-            (anchorBounds.right - popupContentSize.width).coerceIn(gapPx, maxX)
+            (anchorBounds.right - popupContentSize.width + shadowPadPx).coerceIn(edge, maxX)
         }
         // Where the "+" sits inside the *resolved* (post-clamp) popup box, as a 0..1 fraction. The
         // enter/exit scale grows from this point so it always blooms out of the button — including
@@ -714,11 +755,11 @@ internal class PlusMenuPositionProvider(
         }
         onPivotFractionX(pivotFractionX)
         val above = anchorBounds.top - popupContentSize.height - gapPx
-        val flipDown = above < gapPx
+        val flipDown = above < edge
         onFlipDown(flipDown)
         val y = if (flipDown) {
             (anchorBounds.bottom + gapPx)
-                .coerceIn(gapPx, (windowSize.height - popupContentSize.height - gapPx).coerceAtLeast(gapPx))
+                .coerceIn(edge, (windowSize.height - popupContentSize.height - edge).coerceAtLeast(edge))
         } else {
             above
         }

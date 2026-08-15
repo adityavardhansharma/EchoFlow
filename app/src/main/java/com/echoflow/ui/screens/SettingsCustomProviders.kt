@@ -146,7 +146,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = dataAgentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 0, count = 4,
+                index = 0, count = 5,
                 onClick = { onOpen(PageDataAgent) },
             )
             SettingsNavRow(
@@ -156,7 +156,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = adviserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 1, count = 4,
+                index = 1, count = 5,
                 onClick = { onOpen(PageEchoAdviser) },
             )
             SettingsNavRow(
@@ -166,7 +166,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = fusionSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 2, count = 4,
+                index = 2, count = 5,
                 onClick = { onOpen(PageEchoFusion) },
             )
             SettingsNavRow(
@@ -176,8 +176,18 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = agentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 4,
+                index = 3, count = 5,
                 onClick = { onOpen(PageEchoAgent) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Language,
+                polygon = MaterialShapes.Gem,
+                title = "Custom API Endpoint",
+                subtitle = "Ollama · OpenAI-compatible",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 4, count = 5,
+                onClick = { onOpen(PageCustomProvider) },
             )
         }
 
@@ -230,12 +240,12 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
 internal fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit, onBack: () -> Unit) {
     val config by viewModel.customProviderConfig.collectAsState()
 
-    SettingsPageScaffold(title = "Custom", subtitle = "Bring your own API keys & endpoints", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom API Endpoint", subtitle = "Ollama · OpenAI-compatible · LAN", onBack = onBack) {
         FormCard {
             Text("Bring your own endpoint", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text(
-                "Add direct cloud APIs, an Ollama server, or any OpenAI-compatible endpoint. Only models you select here appear in the chat model picker.",
+                "Add an Ollama server or any OpenAI-compatible endpoint — LM Studio, Jan, vLLM, or another host on your network. Only models you select here appear in the chat model picker.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -244,31 +254,20 @@ internal fun CustomApiEndpointPage(viewModel: SettingsViewModel, onOpen: (String
         Spacer(Modifier.height(CustomProviderSectionGap))
         PageSection("Providers", "Each provider has its own setup page")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-            SettingsNavRow(
-                icon = Icons.Default.Language,
-                polygon = MaterialShapes.Gem,
-                title = "Direct Cloud APIs",
-                subtitle = endpointSubtitle(config.cloudApisEnabled, "OpenAI · Claude · Gemini · Cerebras · xAI"),
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 0,
-                count = 3,
-                onClick = { onOpen(PageCustomProviderCloud) },
-            )
             DirectBrandNavRow(
                 provider = CustomModelProvider.Ollama,
                 enabled = config.ollamaEnabled,
                 subtitle = config.ollamaBaseUrl.ifBlank { "Local or LAN server" },
-                index = 1,
-                count = 3,
+                index = 0,
+                count = 2,
                 onClick = { onOpen(PageCustomProviderOllama) },
             )
             DirectBrandNavRow(
                 provider = CustomModelProvider.OpenAiCompatible,
                 enabled = config.openAiCompatibleEnabled,
                 subtitle = config.openAiBaseUrl.ifBlank { "LM Studio · Jan · vLLM" },
-                index = 2,
-                count = 3,
+                index = 1,
+                count = 2,
                 onClick = { onOpen(PageCustomProviderCompatible) },
             )
         }
@@ -287,7 +286,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.XAi to PageCustomProviderXAi,
     )
 
-    SettingsPageScaffold(title = "Direct Cloud APIs", subtitle = "Brand keys and model lists", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI", onBack = onBack) {
         EndpointMasterToggle(
             title = "Direct Cloud APIs",
             subtitle = "Use brand APIs without OpenRouter",
