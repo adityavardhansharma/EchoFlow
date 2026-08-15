@@ -38,8 +38,8 @@ It started as a chat app and grew into a small workspace: web search, background
 ```text
 1. Install the APK from Releases.
 2. Open Settings and connect a model:
-     - Cloud models    -> OpenRouter
-     - Local models     -> on-device catalog
+     - Models           -> OpenRouter & on-device
+     - Custom           -> OpenAI, Claude, Gemini, Cerebras, xAI
      - Anything else    -> Echo Labs -> Custom API Endpoint
 3. Start chatting.
 ```
@@ -50,12 +50,11 @@ No keys are required just to install and look around — on-device models work f
 
 | Provider | Where to set it up | Attachments |
 |---|---|---|
-| OpenRouter | Settings → Cloud models | Images/PDFs, depending on the model |
-| OpenAI · Claude · Gemini | Echo Labs → Custom API Endpoint → Direct Cloud APIs | Images and PDFs |
-| Cerebras | Echo Labs → Custom API Endpoint → Direct Cloud APIs | Images on Gemma-family models only |
+| OpenRouter | Settings → Models | Images/PDFs, depending on the model |
+| OpenAI · Claude · Gemini · Cerebras · xAI | Settings → Custom | Images and PDFs (Cerebras: Gemma-family images only) |
 | Ollama (local/LAN) | Echo Labs → Custom API Endpoint → Ollama API | Per-model toggle |
 | OpenAI-compatible (LM Studio, Jan, vLLM, LocalAI…) | Echo Labs → Custom API Endpoint | Per-model toggle |
-| On-device (LiteRT / MediaPipe) | Settings → Local models | `.litertlm` models only |
+| On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
 
 Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search work across every provider above except where noted.
 
