@@ -25,7 +25,7 @@ class PlusMenuAnimationTest {
   val composeRule = createComposeRule()
 
   @Test
-  fun opening_midEnter_keepsShadowShellAndCardComposedTogether() {
+  fun opening_midEnter_keepsMenuSurfaceComposed() {
     var expanded by mutableStateOf(false)
     composeRule.mainClock.autoAdvance = false
     composeRule.setContent {
@@ -39,13 +39,12 @@ class PlusMenuAnimationTest {
     composeRule.mainClock.advanceTimeByFrame()
     composeRule.mainClock.advanceTimeBy(40)
 
-    composeRule.onAllNodesWithTag("plus_menu_shadow_shell").assertCountEquals(1)
-    composeRule.onAllNodesWithTag("plus_menu_card").assertCountEquals(1)
+    composeRule.onAllNodesWithTag("plus_menu_surface").assertCountEquals(1)
     composeRule.onNodeWithText("Web search").assertIsDisplayed()
   }
 
   @Test
-  fun closing_midExit_keepsBothLayersUntilAnimationEnds() {
+  fun closing_midExit_keepsSurfaceUntilAnimationEnds() {
     var expanded by mutableStateOf(true)
     composeRule.mainClock.autoAdvance = false
     composeRule.setContent {
@@ -60,8 +59,7 @@ class PlusMenuAnimationTest {
     composeRule.mainClock.advanceTimeByFrame()
     composeRule.mainClock.advanceTimeBy(30)
 
-    composeRule.onAllNodesWithTag("plus_menu_shadow_shell").assertCountEquals(1)
-    composeRule.onAllNodesWithTag("plus_menu_card").assertCountEquals(1)
+    composeRule.onAllNodesWithTag("plus_menu_surface").assertCountEquals(1)
   }
 
   @Test
@@ -77,8 +75,7 @@ class PlusMenuAnimationTest {
     }
     composeRule.waitForIdle()
 
-    composeRule.onAllNodesWithTag("plus_menu_shadow_shell").assertCountEquals(1)
-    composeRule.onAllNodesWithTag("plus_menu_card").assertCountEquals(1)
+    composeRule.onAllNodesWithTag("plus_menu_surface").assertCountEquals(1)
     composeRule.onNodeWithText("Web search").assertIsDisplayed()
   }
 
@@ -95,7 +92,7 @@ class PlusMenuAnimationTest {
     }
 
     composeRule.waitForIdle()
-    composeRule.onNodeWithTag("plus_menu_shadow_shell").assertIsDisplayed()
+    composeRule.onNodeWithTag("plus_menu_surface").assertIsDisplayed()
     composeRule.onNodeWithText("Artifact").assertIsDisplayed()
   }
 
@@ -111,7 +108,7 @@ class PlusMenuAnimationTest {
     }
 
     composeRule.waitForIdle()
-    composeRule.onNodeWithTag("plus_menu_card").assertIsDisplayed()
+    composeRule.onNodeWithTag("plus_menu_surface").assertIsDisplayed()
     composeRule.onNodeWithText("Capabilities").assertIsDisplayed()
   }
 }
