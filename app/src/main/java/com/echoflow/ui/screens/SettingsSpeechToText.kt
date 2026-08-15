@@ -222,13 +222,13 @@ private fun SttKeyStatusCard(hasKey: Boolean, onOpenCloudModels: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text("OpenRouter key needed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text(
-                        "Add it under Cloud models to turn on the chat mic.",
+                        "Add it under OpenRouter in Models to turn on the chat mic.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
                 Spacer(Modifier.width(Spacing.s))
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open Cloud models", tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open OpenRouter in Models", tint = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
     }

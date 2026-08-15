@@ -277,10 +277,10 @@ internal fun ModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(PageCloudModels) }
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
 
-    SettingsPageScaffold(title = "Models", subtitle = "Cloud & on-device", onBack = onBack) {
+    SettingsPageScaffold(title = "Models", subtitle = "OpenRouter & on-device", onBack = onBack) {
         ConnectedToggleRow(
             options = listOf(
-                PageCloudModels to "Cloud",
+                PageCloudModels to "OpenRouter",
                 PageLocalModels to "On-device",
             ),
             selected = tab,
@@ -422,7 +422,7 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Hub,
                 polygon = MaterialShapes.Gem,
                 title = "Models",
-                subtitle = "Cloud & on-device",
+                subtitle = "OpenRouter & on-device",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
                 index = 1, count = 8,
@@ -432,7 +432,7 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
                 title = "Custom",
-                subtitle = "Bring your own API keys",
+                subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI · Ollama · LM Studio",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = 8,
