@@ -116,7 +116,7 @@ import com.echoflow.ui.theme.rememberMorphProgress
 import kotlin.math.roundToInt
 
 @Composable
-internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, embedded: Boolean = false) {
     val apiKey by viewModel.apiKey.collectAsState()
     val customModels by viewModel.customModels.collectAsState()
     val cloudParams by viewModel.cloudInferenceParams.collectAsState()
@@ -129,7 +129,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var keyVisible by remember { mutableStateOf(false) }
     var showModelDirectory by remember { mutableStateOf(false) }
 
-    SettingsPageScaffold(title = "Cloud models", subtitle = "OpenRouter key & model list", onBack = onBack) {
+    SettingsPageBody(embedded, title = "Cloud models", subtitle = "OpenRouter key & model list", onBack = onBack) {
         PageSection("API key", "One key from openrouter.ai unlocks every cloud model")
         FormCard {
             OutlinedTextField(
