@@ -447,23 +447,38 @@ internal fun PlusMenu(
 ) {
     // Bespoke popup anchored above the "+". One surface, one shadow — fade + a short slide from the
     // anchor corner. No scale (keeps the shadow from stretching) and no stacked shadow shells.
-    val visible = remember { MutableTransitionState(false) }
-    visible.targetState = expanded
-    val reducedMotion = rememberReducedMotion()
-    val flippedDown = remember { mutableStateOf(false) }
-    val positionProvider = remember { PlusMenuPositionProvider(gapPx = 10, onFlipDown = { flippedDown.value = it }) }
-    // Keep it composed through its exit animation, then drop it.
-    if (visible.currentState || visible.targetState || !visible.isIdle) {
+    //
+    // Placement (above vs below the "+") is only known after the first popup measure pass, so motion
+    // is gated on that: the popup mounts invisibly, [PlusMenuPositionProvider] resolves flip, then
+    // the enter animation starts with the correct slide direction.
+    var flippedDown by remember { mutableStateOf<Boolean?>(null) }
+    val positionProvider = remember {
+        PlusMenuPositionProvider(gapPx = 10, onFlipDown = { flippedDown = it })
+    }
+    val motion = remember { MutableTransitionState(false) }
+    if (expanded && flippedDown != null) {
+        motion.targetState = true
+    } else if (!expanded) {
+        motion.targetState = false
+    }
+    LaunchedEffect(motion.isIdle, motion.currentState, expanded) {
+        if (motion.isIdle && !motion.currentState && !expanded) {
+            flippedDown = null
+        }
+    }
+    val keepPopup = expanded || motion.currentState || motion.targetState || !motion.isIdle
+    if (keepPopup) {
         Popup(
             popupPositionProvider = positionProvider,
             onDismissRequest = onDismiss,
             properties = PopupProperties(focusable = true),
         ) {
-            val transition = updateTransition(visible, label = "plus-menu")
+            val transition = updateTransition(motion, label = "plus-menu")
+            val reducedMotion = rememberReducedMotion()
             val enterMs = if (reducedMotion) 0 else 140
             val exitMs = if (reducedMotion) 0 else 100
             val slidePx = with(LocalDensity.current) { 6.dp.toPx() }
-            val slideSign = if (flippedDown.value) -1f else 1f
+            val slideSign = if (flippedDown == true) -1f else 1f
             val translationYRaw by transition.animateFloat(
                 transitionSpec = {
                     if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
