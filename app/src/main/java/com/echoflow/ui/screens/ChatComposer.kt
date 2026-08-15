@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -74,7 +75,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -445,12 +446,13 @@ internal fun PlusMenu(
     onToggleBrowserFlow: () -> Unit,
     onToggleArtifact: () -> Unit,
 ) {
-    // Bespoke popup anchored above the "+". One surface, one shadow — fade + a short slide from the
-    // anchor corner. No scale (keeps the shadow from stretching) and no stacked shadow shells.
+    // Bespoke popup anchored above the "+". One surface that blooms out of the anchor corner: a
+    // fast scale + fade, no slide. The drop shadow is drawn by the *same* graphics layer as the
+    // animation (see below) so it stays rounded and composites cleanly with the fade.
     //
     // Placement (above vs below the "+") is only known after the first popup measure pass, so motion
     // is gated on that: the popup mounts invisibly, [PlusMenuPositionProvider] resolves flip, then
-    // the enter animation starts with the correct slide direction.
+    // the enter animation starts with the transform origin on the correct (anchor) corner.
     var flippedDown by remember { mutableStateOf<Boolean?>(null) }
     val positionProvider = remember {
         PlusMenuPositionProvider(gapPx = 10, onFlipDown = { flippedDown = it })
@@ -475,18 +477,24 @@ internal fun PlusMenu(
         ) {
             val transition = updateTransition(motion, label = "plus-menu")
             val reducedMotion = rememberReducedMotion()
-            val enterMs = if (reducedMotion) 0 else 140
-            val exitMs = if (reducedMotion) 0 else 100
-            val slidePx = with(LocalDensity.current) { 6.dp.toPx() }
-            val slideSign = if (flippedDown == true) -1f else 1f
-            val translationYRaw by transition.animateFloat(
+            // Near-instant: a snappy pop in, a quicker fade out. Simple, the way a "+" menu should be.
+            val enterMs = if (reducedMotion) 0 else 115
+            val exitMs = if (reducedMotion) 0 else 80
+
+            // Grow out of the "+" corner: scale + fade with the transform origin pinned to the anchor
+            // edge (bottom when the menu sits above, top when it flips below; right edge in RTL).
+            val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+            val transformOrigin = TransformOrigin(
+                pivotFractionX = if (isRtl) 1f else 0f,
+                pivotFractionY = if (flippedDown == true) 0f else 1f,
+            )
+            val scale by transition.animateFloat(
                 transitionSpec = {
                     if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
                     else tween(exitMs, easing = FastOutLinearInEasing)
                 },
-                label = "slide",
-            ) { if (it) 0f else slideSign * slidePx }
-            val translationY = if (reducedMotion) 0f else translationYRaw
+                label = "scale",
+            ) { if (it) 1f else 0.9f }
             val alpha by transition.animateFloat(
                 transitionSpec = {
                     if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
@@ -499,16 +507,27 @@ internal fun PlusMenu(
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
             val menuShape = RoundedCornerShape(22.dp)
+            // Soft, wide, rounded drop shadow drawn by *this* layer (not Surface.shadowElevation) so
+            // it follows [menuShape] instead of clipping to a hard rectangle under the fade layer,
+            // and so scale/alpha/shadow all composite as one clean surface.
+            val spotShadow = Color.Black.copy(alpha = 0.30f)
+            val ambientShadow = Color.Black.copy(alpha = 0.16f)
             Surface(
                 shape = menuShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 6.dp,
                 modifier = Modifier
                     .widthIn(max = 260.dp)
                     .testTag("plus_menu_surface")
                     .graphicsLayer {
                         this.alpha = alpha
-                        this.translationY = translationY
+                        this.scaleX = scale
+                        this.scaleY = scale
+                        this.transformOrigin = transformOrigin
+                        this.shadowElevation = 18.dp.toPx()
+                        this.shape = menuShape
+                        this.clip = false
+                        this.spotShadowColor = spotShadow
+                        this.ambientShadowColor = ambientShadow
                     },
             ) {
                 Column(
