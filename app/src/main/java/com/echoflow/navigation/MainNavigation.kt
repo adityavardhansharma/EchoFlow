@@ -22,6 +22,7 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
     val researchWorkspace by chatViewModel.researchWorkspace.collectAsState()
     val artifactsGalleryOpen by chatViewModel.artifactsGalleryOpen.collectAsState()
+    val projectsHubOpen by chatViewModel.projectsHubOpen.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
@@ -64,6 +65,10 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeArtifactsGallery() },
             )
+        }
+        if (projectsHubOpen) {
+            // The hub owns its own back stepping: home → list → closed (see ProjectsHubScreen).
+            com.echoflow.ui.screens.ProjectsHubScreen(chatViewModel = chatViewModel)
         }
     }
 }
