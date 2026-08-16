@@ -42,11 +42,16 @@ class ChatViewModel(
     private val artifactVersionDao: ArtifactVersionDao,
     private val generatedImageDao: GeneratedImageDao,
     private val generatedVideoDao: GeneratedVideoDao,
+    private val projectDao: ProjectDao,
+    private val projectDocumentDao: ProjectDocumentDao,
     private val localInferenceGate: LocalInferenceGate
 ) : AndroidViewModel(application) {
 
     // Artifacts: model-built, rendered content (web page / document / report) with version history.
     private val artifactManager = ArtifactManager(artifactDao, artifactVersionDao)
+
+    // Projects: durable workspaces that group chats and give them shared instructions + documents.
+    private val projectManager = ProjectManager(application, projectDao, projectDocumentDao, chatDao)
 
     // Image generation: decoded PNGs on disk, version chain in Room (see GeneratedImageStore).
     private val generatedImageStore = GeneratedImageStore(application, generatedImageDao)
@@ -565,6 +570,144 @@ class ChatViewModel(
         _artifactInitialVersion.value = null
     }
 
+    // ── Artifacts gallery ────────────────────────────────────────────────────────────────
+    // A read-only shelf of every chat's latest artifact, opened from the drawer. Tapping a tile
+    // opens the existing fullscreen workspace (which owns version switching), so the gallery adds
+    // a browse surface without duplicating the viewer.
+
+    private val _artifactsGalleryOpen = MutableStateFlow(false)
+    val artifactsGalleryOpen: StateFlow<Boolean> = _artifactsGalleryOpen.asStateFlow()
+
+    /** Every artifact lineage, newest first — one per chat by the one-lineage-per-chat rule. */
+    val galleryArtifacts: StateFlow<List<Artifact>> = artifactDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun openArtifactsGallery() { _artifactsGalleryOpen.value = true }
+    fun closeArtifactsGallery() { _artifactsGalleryOpen.value = false }
+
+    /** From a gallery tile: open the workspace on that lineage (optionally at a chosen version). */
+    fun openArtifactFromGallery(artifactId: String, targetVersion: Int? = null) {
+        _artifactsGalleryOpen.value = false
+        openArtifactWorkspace(artifactId, targetVersion)
+    }
+
+    // ── Projects ─────────────────────────────────────────────────────────────────────────
+    // The Projects hub (list + create) and a project home (chats + instructions + documents) are
+    // fullscreen surfaces opened from the drawer, mirroring the workspace overlay pattern. Home
+    // stacks on top of the hub, so back steps home → hub → closed.
+
+    private val _projectsHubOpen = MutableStateFlow(false)
+    val projectsHubOpen: StateFlow<Boolean> = _projectsHubOpen.asStateFlow()
+
+    /** The project whose home is open, layered above the hub list; null = showing the list. */
+    private val _openProjectId = MutableStateFlow<String?>(null)
+    val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
+
+    /**
+     * The project a not-yet-created chat will belong to. Starting a new chat from a project home
+     * parks the id here; the thread is created lazily on first send (like every blank chat), and
+     * this is what stamps the project onto it then.
+     */
+    private val _pendingProjectId = MutableStateFlow<String?>(null)
+
+    val projects: StateFlow<List<Project>> = projectManager.observeProjects()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun projectFlow(id: String): Flow<Project?> = projectManager.observeProject(id)
+    fun projectDocumentsFlow(id: String): Flow<List<ProjectDocument>> = projectManager.observeDocuments(id)
+    fun projectDocumentCountFlow(id: String): Flow<Int> = projectManager.observeDocumentCount(id)
+    fun projectChatsFlow(id: String): Flow<List<ChatThread>> = projectManager.observeChats(id)
+
+    /** The open chat's project (or its pending project before the thread exists) — the in-chat pill. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentThreadProject: StateFlow<Project?> =
+        combine(
+            _currentChatThreadId.flatMapLatest { id ->
+                if (id == null) flowOf(null) else chatDao.observeProjectId(id)
+            },
+            _pendingProjectId,
+        ) { threadProjectId, pendingProjectId -> threadProjectId ?: pendingProjectId }
+            .flatMapLatest { projectId ->
+                if (projectId == null) flowOf(null) else projectManager.observeProject(projectId)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun openProjectsHub() {
+        _projectsHubOpen.value = true
+        _openProjectId.value = null
+    }
+
+    fun openProjectHome(projectId: String) { _openProjectId.value = projectId }
+    fun closeProjectHome() { _openProjectId.value = null }
+
+    fun closeProjectsHub() {
+        _projectsHubOpen.value = false
+        _openProjectId.value = null
+    }
+
+    private fun dismissProjectSurfaces() {
+        _projectsHubOpen.value = false
+        _openProjectId.value = null
+        _artifactsGalleryOpen.value = false
+    }
+
+    fun createProject(name: String, onCreated: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            val id = projectManager.createProject(name)
+            onCreated?.invoke(id)
+        }
+    }
+
+    fun renameProject(projectId: String, name: String) {
+        viewModelScope.launch { projectManager.rename(projectId, name) }
+    }
+
+    fun setProjectInstructions(projectId: String, instructions: String) {
+        viewModelScope.launch { projectManager.setInstructions(projectId, instructions) }
+    }
+
+    fun setProjectColor(projectId: String, colorIndex: Int) {
+        viewModelScope.launch { projectManager.setColor(projectId, colorIndex) }
+    }
+
+    fun deleteProject(projectId: String) {
+        viewModelScope.launch {
+            projectManager.deleteProject(projectId)
+            if (_openProjectId.value == projectId) _openProjectId.value = null
+        }
+    }
+
+    fun addProjectDocument(projectId: String, uri: Uri) {
+        viewModelScope.launch {
+            if (projectManager.addDocument(projectId, uri) == null) {
+                _errorMessage.value = "Couldn't read that file."
+            }
+        }
+    }
+
+    fun removeProjectDocument(document: ProjectDocument) {
+        viewModelScope.launch { projectManager.removeDocument(document) }
+    }
+
+    /** Move the open conversation into a project (or out of one when [projectId] is null). */
+    fun assignCurrentChatToProject(projectId: String?) {
+        val chatId = _currentChatThreadId.value ?: return
+        viewModelScope.launch { projectManager.assignChat(chatId, projectId) }
+    }
+
+    /** Start a fresh conversation that will belong to [projectId], and leave the projects surfaces. */
+    fun startNewChatInProject(projectId: String) {
+        selectThread(null)
+        _pendingProjectId.value = projectId
+        dismissProjectSurfaces()
+    }
+
+    /** Open an existing conversation from a project home, leaving the projects surfaces. */
+    fun openChatFromProject(chatId: String) {
+        selectThread(chatId)
+        dismissProjectSurfaces()
+    }
+
     /**
      * The Deep Research report currently open fullscreen, or null.
      *
@@ -837,6 +980,10 @@ class ChatViewModel(
             if (chatId == null) ModePosition.Blank else ModePosition.Thread(chatId),
         )
         clearPendingAttachment()
+        // A pending project only survives until the next explicit navigation. Selecting an
+        // existing thread means that thread's own projectId governs; a plain new chat is loose.
+        // startNewChatInProject re-arms this immediately after calling here.
+        _pendingProjectId.value = null
         clearError()
     }
 
@@ -1295,7 +1442,7 @@ class ChatViewModel(
                 SystemPrompts.buildArtifact(isLocal, offline, prior)
             } else null
 
-            val systemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
+            val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
                 // Tool-calling custom providers behave like cloud models: they call web_search
                 // themselves, so they get the standard "you have a web_search tool" prompt.
                 customToolCallingActive -> SystemPrompts.build(false, effectiveProvider)
@@ -1305,16 +1452,27 @@ class ChatViewModel(
                 else -> SystemPrompts.build(isLocal, effectiveProvider)
             }
 
+            // Project context: the open thread's project (or the pending one for a brand-new
+            // project chat) contributes its instructions + reference documents to the prompt.
+            val activeProjectId =
+                _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
+                    ?: _pendingProjectId.value
+            val systemPrompt = baseSystemPrompt + (activeProjectId?.let { projectManager.buildSystemContext(it) } ?: "")
+
             var isFirstMsgInChat = false
             var chatId = _currentChatThreadId.value
 
             if (chatId == null) {
                 isFirstMsgInChat = true
-                chatId = chatRepository.createThread(mode = appMode.value).id
+                chatId = chatRepository.createThread(mode = appMode.value, projectId = activeProjectId).id
                 openThread(chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
+                if (activeProjectId != null) {
+                    projectManager.touch(activeProjectId)
+                    _pendingProjectId.value = null
+                }
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
@@ -2306,6 +2464,8 @@ class ChatViewModel(
             artifactVersionDao: ArtifactVersionDao,
             generatedImageDao: GeneratedImageDao,
             generatedVideoDao: GeneratedVideoDao,
+            projectDao: ProjectDao,
+            projectDocumentDao: ProjectDocumentDao,
             localInferenceGate: LocalInferenceGate
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -2315,6 +2475,7 @@ class ChatViewModel(
                     researchRunDao, deepResearchModelDao, advisorProfileDao, fusionPanelDao,
                     agentProfileDao, browserSessionDao, browserStepDao, artifactDao, artifactVersionDao,
                     generatedImageDao, generatedVideoDao,
+                    projectDao, projectDocumentDao,
                     localInferenceGate
                 ) as T
             }

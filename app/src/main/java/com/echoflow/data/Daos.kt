@@ -69,6 +69,10 @@ interface ChatDao {
 
     @Query("SELECT * FROM chat_threads WHERE id = :id LIMIT 1")
     suspend fun getThreadById(id: String): ChatThread?
+
+    /** The project a conversation belongs to (or null), observed for the in-chat project pill. */
+    @Query("SELECT projectId FROM chat_threads WHERE id = :id LIMIT 1")
+    fun observeProjectId(id: String): Flow<String?>
 }
 
 @Dao

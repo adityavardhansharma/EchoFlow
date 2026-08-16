@@ -37,6 +37,7 @@ class ChatRepository(
         mode: AppMode = AppMode.Chat,
         title: String = defaultTitleFor(mode),
         now: Long = System.currentTimeMillis(),
+        projectId: String? = null,
     ): ChatThread {
         val thread = ChatThread(
             id = UUID.randomUUID().toString(),
@@ -44,6 +45,7 @@ class ChatRepository(
             createdAt = now,
             updatedAt = now,
             kind = mode.storageKey,
+            projectId = projectId,
         )
         chatDao.insertThread(thread)
         return thread

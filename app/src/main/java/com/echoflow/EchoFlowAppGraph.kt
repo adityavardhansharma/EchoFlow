@@ -68,6 +68,8 @@ class EchoFlowAppGraph(application: Application) {
             database.artifactVersionDao(),
             database.generatedImageDao(),
             database.generatedVideoDao(),
+            database.projectDao(),
+            database.projectDocumentDao(),
             localInferenceGate,
         )
     }
