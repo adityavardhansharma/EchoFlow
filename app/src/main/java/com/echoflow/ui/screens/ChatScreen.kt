@@ -51,6 +51,7 @@ fun ChatScreen(
     val mode by chatViewModel.appMode.collectAsState()
     val renderingModes by chatViewModel.renderingModes.collectAsState()
     val errorMessage by chatViewModel.errorMessage.collectAsState()
+    val currentProject by chatViewModel.currentThreadProject.collectAsState()
 
     // Top inset so content scrolls behind the floating bar without hiding its first item.
     val topBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp
@@ -99,6 +100,23 @@ fun ChatScreen(
                 onMenu = onMenuClicked,
                 onNewChat = { chatViewModel.startNewChat() },
             )
+
+            // In-chat project pill: sits just under the top bar when the open conversation belongs
+            // to a project, and yields to an error banner (which claims the same slot).
+            AnimatedVisibility(
+                visible = currentProject != null && errorMessage == null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                currentProject?.let { project ->
+                    com.echoflow.ui.components.ProjectChip(
+                        name = project.name,
+                        colorIndex = project.colorIndex,
+                        onClick = { chatViewModel.openProjectFromChat(project.id) },
+                    )
+                }
+            }
 
             // Errors belong to the app, not to a surface: a failure raised in one mode should
             // still be readable if the user has already switched away from it.

@@ -708,6 +708,12 @@ class ChatViewModel(
         dismissProjectSurfaces()
     }
 
+    /** From the in-chat pill: open the current chat's project home over the conversation. */
+    fun openProjectFromChat(projectId: String) {
+        _projectsHubOpen.value = true
+        _openProjectId.value = projectId
+    }
+
     /**
      * The Deep Research report currently open fullscreen, or null.
      *

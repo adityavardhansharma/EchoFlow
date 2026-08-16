@@ -395,12 +395,15 @@ abstract class AppDatabase : RoomDatabase() {
          */
         internal val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // No DEFAULT clauses: the entity fields carry no @ColumnInfo(defaultValue), so a
+                // fresh Room install creates these columns without SQL defaults — the migrated
+                // table must match that exactly. Every insert supplies all columns anyway.
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS projects (" +
                         "id TEXT NOT NULL PRIMARY KEY, " +
                         "name TEXT NOT NULL, " +
-                        "instructions TEXT NOT NULL DEFAULT '', " +
-                        "colorIndex INTEGER NOT NULL DEFAULT 0, " +
+                        "instructions TEXT NOT NULL, " +
+                        "colorIndex INTEGER NOT NULL, " +
                         "createdAt INTEGER NOT NULL, " +
                         "updatedAt INTEGER NOT NULL)"
                 )
