@@ -36,6 +36,7 @@ import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.ChatScreen
 import com.echoflow.ui.screens.SettingsScreen
 import com.echoflow.ui.theme.EchoFlowTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -45,10 +46,26 @@ class MainActivity : ComponentActivity() {
     // A chat id to open, set when launched/resumed from a reply-ready notification tap.
     private val openChatRequest = MutableStateFlow<String?>(null)
 
+    // Held so the encrypted backup can be refreshed when the app goes to the background.
+    private var appGraph: EchoFlowAppGraph? = null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
+    }
+
+    /**
+     * Refresh the encrypted uninstall-surviving backup when the app leaves the foreground, so it
+     * stays current without hooking every write path. No-op unless the feature is on.
+     */
+    override fun onStop() {
+        super.onStop()
+        // lifecycleScope is cancelled with the Activity, so rapid stop/start does not pile up
+        // unscoped export jobs. BackupManager also serializes export/delete with a mutex.
+        appGraph?.backupManager?.let { manager ->
+            lifecycleScope.launch(Dispatchers.IO) { manager.exportIfEnabled() }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,6 +82,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val appGraph = EchoFlowAppGraph(application)
+        this.appGraph = appGraph
 
         // Resume any Deep Research run that was interrupted by an app kill — but only spin
         // up the service when there is actually something to resume (no idle notification).

@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.AdvisorProfileDao
+import com.echoflow.data.BackupManager
+import com.echoflow.data.BackupResult
 import com.echoflow.data.AgentProfile
 import com.echoflow.data.AgentProfileDao
 import com.echoflow.data.CatalogEntry
@@ -36,6 +38,7 @@ import com.echoflow.data.SettingsRepository
 import com.echoflow.data.SttMode
 import com.echoflow.data.VideoModel
 import com.echoflow.data.VideoModelDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
@@ -57,6 +60,7 @@ class SettingsViewModel(
     private val agentProfileDao: AgentProfileDao,
     private val imageModelDao: ImageModelDao,
     private val videoModelDao: VideoModelDao,
+    private val backupManager: BackupManager,
 ) : ViewModel() {
     private val hfModelSearch = HuggingFaceModelSearch()
     private val customProviderService = CustomProviderService()
@@ -675,7 +679,67 @@ class SettingsViewModel(
         }
     }
 
+    // ── Encrypted backup (Privacy page) ────────────────────────────────────────────────
+
+    val backupEnabled: StateFlow<Boolean> = repository.backupEnabled
+
+    /** True once a passkey has ever been set — after which it is fixed and never re-prompted. */
+    fun hasBackupPasskey(): Boolean = repository.hasBackupPasskey()
+
+    /**
+     * First-time enable: set the write-once passkey, turn on, and write the first backup.
+     * The passkey is trimmed and must be at least [MIN_BACKUP_PASSKEY_LENGTH] non-whitespace
+     * characters — a spaces-only string must not enable the feature with no stored key.
+     */
+    fun enableBackupWithPasskey(passkey: String) {
+        val normalized = passkey.trim()
+        if (normalized.length < MIN_BACKUP_PASSKEY_LENGTH) return
+        repository.saveBackupPasskeyIfAbsent(normalized)
+        if (!repository.hasBackupPasskey()) return
+        repository.saveBackupEnabled(true)
+        viewModelScope.launch(Dispatchers.IO) { backupManager.export() }
+    }
+
+    /** Re-enable when a passkey already exists — reuses the same one, no prompt. */
+    fun reEnableBackup() {
+        if (!repository.hasBackupPasskey()) return
+        repository.saveBackupEnabled(true)
+        viewModelScope.launch(Dispatchers.IO) { backupManager.export() }
+    }
+
+    /**
+     * Turn off and delete the external backup file; the passkey is kept for next time.
+     * The enabled flag is cleared first so any in-flight export rechecks and aborts before writing.
+     */
+    fun disableBackup() {
+        repository.saveBackupEnabled(false)
+        viewModelScope.launch(Dispatchers.IO) { backupManager.deleteBackupFile() }
+    }
+
+    private val _restoreState = MutableStateFlow<RestoreUiState>(RestoreUiState.Idle)
+    val restoreState: StateFlow<RestoreUiState> = _restoreState.asStateFlow()
+
+    fun restoreFrom(uri: Uri, passkey: String) {
+        val normalized = passkey.trim()
+        if (normalized.isEmpty()) {
+            _restoreState.value = RestoreUiState.Failed("Enter your recovery key.")
+            return
+        }
+        _restoreState.value = RestoreUiState.Working
+        viewModelScope.launch(Dispatchers.IO) {
+            _restoreState.value = when (val result = backupManager.restore(uri, normalized)) {
+                is BackupResult.Success -> RestoreUiState.Done
+                is BackupResult.WrongKey -> RestoreUiState.Failed("Couldn't unlock — check your recovery key.")
+                is BackupResult.Error -> RestoreUiState.Failed(result.message)
+            }
+        }
+    }
+
+    fun clearRestoreState() { _restoreState.value = RestoreUiState.Idle }
+
     companion object {
+        const val MIN_BACKUP_PASSKEY_LENGTH = 6
+
         fun provideFactory(
             repository: SettingsRepository,
             customModelDao: CustomModelDao,
@@ -687,11 +751,20 @@ class SettingsViewModel(
             agentProfileDao: AgentProfileDao,
             imageModelDao: ImageModelDao,
             videoModelDao: VideoModelDao,
+            backupManager: BackupManager,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, videoModelDao) as T
+                return SettingsViewModel(repository, customModelDao, localModelDao, downloadManager, deepResearchModelDao, advisorProfileDao, fusionPanelDao, agentProfileDao, imageModelDao, videoModelDao, backupManager) as T
             }
         }
     }
+}
+
+/** UI state for the "Recover old data" flow on the Privacy page. */
+sealed interface RestoreUiState {
+    data object Idle : RestoreUiState
+    data object Working : RestoreUiState
+    data object Done : RestoreUiState
+    data class Failed(val message: String) : RestoreUiState
 }

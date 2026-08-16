@@ -163,6 +163,11 @@ class SettingsRepository(context: Context) {
     private val _customProviderConfig = MutableStateFlow(getCustomProviderConfigDirect())
     val customProviderConfig: StateFlow<CustomProviderConfig> = _customProviderConfig.asStateFlow()
 
+    // Encrypted uninstall-surviving backup (Privacy page). Off by default; the passkey is
+    // write-once — set the first time it is turned on and never changeable afterwards.
+    private val _backupEnabled = MutableStateFlow(getBackupEnabledDirect())
+    val backupEnabled: StateFlow<Boolean> = _backupEnabled.asStateFlow()
+
     fun getApiKeyDirect(): String {
         return prefs.getString("openrouter_api_key", "").orEmpty()
     }
@@ -742,6 +747,64 @@ class SettingsRepository(context: Context) {
         _browserIdleMinutes.value = value
     }
 
+    // ── Encrypted backup (Privacy page) ────────────────────────────────────────────────
+
+    fun getBackupEnabledDirect(): Boolean = prefs.getBoolean(KEY_BACKUP_ENABLED, false)
+
+    fun saveBackupEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BACKUP_ENABLED, enabled).apply()
+        _backupEnabled.value = enabled
+    }
+
+    fun getBackupPasskeyDirect(): String = prefs.getString(KEY_BACKUP_PASSKEY, "").orEmpty()
+
+    fun hasBackupPasskey(): Boolean = getBackupPasskeyDirect().isNotBlank()
+
+    /**
+     * Write-once: the passkey is stored only if none exists yet. This is what makes a passkey
+     * unchangeable — turning the feature off and on again reuses the same one, and there is no
+     * code path that overwrites it. Only an uninstall (which wipes secure prefs) clears it, and
+     * then the user re-enters it on the Recover screen.
+     */
+    fun saveBackupPasskeyIfAbsent(passkey: String) {
+        if (!hasBackupPasskey() && passkey.isNotBlank()) {
+            prefs.edit().putString(KEY_BACKUP_PASSKEY, passkey).apply()
+        }
+    }
+
+    /** All persisted settings/keys as a typed, backup-friendly list — minus backup-internal keys. */
+    fun exportSettings(): List<BackupSetting> =
+        prefs.all.mapNotNull { (key, value) ->
+            if (key in BACKUP_INTERNAL_KEYS) return@mapNotNull null
+            when (value) {
+                is String -> BackupSetting(key, "string", value = value)
+                is Boolean -> BackupSetting(key, "bool", value = value.toString())
+                is Int -> BackupSetting(key, "int", value = value.toString())
+                is Long -> BackupSetting(key, "long", value = value.toString())
+                is Float -> BackupSetting(key, "float", value = value.toString())
+                is Set<*> -> BackupSetting(key, "stringSet", set = value.filterIsInstance<String>())
+                else -> null
+            }
+        }
+
+    /** Writes restored settings/keys back into secure prefs. The app is restarted after, so the
+     *  cached StateFlows above do not need re-emitting here. */
+    fun importSettings(entries: List<BackupSetting>) {
+        val edit = prefs.edit()
+        entries.forEach { e ->
+            if (e.key in BACKUP_INTERNAL_KEYS) return@forEach
+            when (e.type) {
+                "string" -> edit.putString(e.key, e.value.orEmpty())
+                "bool" -> edit.putBoolean(e.key, e.value.toBoolean())
+                "int" -> e.value?.toIntOrNull()?.let { edit.putInt(e.key, it) }
+                "long" -> e.value?.toLongOrNull()?.let { edit.putLong(e.key, it) }
+                "float" -> e.value?.toFloatOrNull()?.let { edit.putFloat(e.key, it) }
+                "stringSet" -> edit.putStringSet(e.key, (e.set ?: emptyList()).toSet())
+            }
+        }
+        edit.apply()
+    }
+
     companion object {
         private const val KEY_APP_MODE = "app_mode"
 
@@ -756,6 +819,13 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
+        private const val KEY_BACKUP_ENABLED = "backup_enabled"
+        private const val KEY_BACKUP_PASSKEY = "backup_passkey"
+
+        /** Never round-tripped through a backup: the feature's own flags and the migration marker. */
+        private val BACKUP_INTERNAL_KEYS = setOf(
+            KEY_BACKUP_ENABLED, KEY_BACKUP_PASSKEY, SettingsPreferenceStorage.MIGRATED_KEY,
+        )
         const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
 

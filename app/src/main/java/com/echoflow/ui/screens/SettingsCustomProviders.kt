@@ -191,6 +191,22 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
             )
         }
 
+        val backupEnabled by viewModel.backupEnabled.collectAsState()
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("Privacy & data", "How EchoFlow handles your data, and on-device backup")
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SettingsNavRow(
+                icon = Icons.Default.Lock,
+                polygon = MaterialShapes.Cookie7Sided,
+                title = "Privacy",
+                subtitle = if (backupEnabled) "Backup on · encrypted on this phone" else "On-device · nothing on our servers",
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 0, count = 1,
+                onClick = { onOpen(PagePrivacy) },
+            )
+        }
+
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Beta", "Experimental · may break · uses Firecrawl credits while open")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {

@@ -2,6 +2,7 @@ package com.echoflow
 
 import android.app.Application
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.BackupManager
 import com.echoflow.data.LegacyImageModelCleanup
 import com.echoflow.data.LocalInferenceGate
 import com.echoflow.data.ModelDownloadManager
@@ -26,6 +27,10 @@ class EchoFlowAppGraph(application: Application) {
     // One gate app-wide: only one on-device LLM generation runs at a time.
     private val localInferenceGate = LocalInferenceGate()
 
+    // Encrypted uninstall-surviving backup (Privacy page). Exposed so MainActivity can re-export
+    // when the app goes to the background.
+    val backupManager = BackupManager(application.applicationContext, database, settingsRepository)
+
     init {
         // On-device image generation left its model bundles on disk — potentially several GB
         // for anyone who had downloaded one. Room migrations cannot touch the filesystem, so
@@ -47,6 +52,7 @@ class EchoFlowAppGraph(application: Application) {
             database.agentProfileDao(),
             database.imageModelDao(),
             database.videoModelDao(),
+            backupManager,
         )
     }
 

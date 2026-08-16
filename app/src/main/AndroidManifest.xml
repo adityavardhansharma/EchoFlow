@@ -7,6 +7,10 @@
     <uses-sdk tools:overrideLibrary="com.google.ai.edge.litertlm" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Pre-Android-10 only: the encrypted backup (Privacy page) writes to public Downloads so it
+         survives uninstall. On API 29+ this uses MediaStore and needs no permission. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

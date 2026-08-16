@@ -52,6 +52,10 @@ interface ChatDao {
 
     @Query("SELECT * FROM chat_threads WHERE id = :id LIMIT 1")
     suspend fun getThreadById(id: String): ChatThread?
+
+    /** Every thread, for a full backup export. */
+    @Query("SELECT * FROM chat_threads")
+    suspend fun getAllThreadsSync(): List<ChatThread>
 }
 
 @Dao
@@ -84,6 +88,10 @@ interface MessageDao {
     /** Chat ids whose message text matches the drawer search query. */
     @Query("SELECT DISTINCT chatId FROM chat_messages WHERE content LIKE '%' || :query || '%'")
     fun searchChatIdsByContent(query: String): Flow<List<String>>
+
+    /** Every message, for a full backup export. */
+    @Query("SELECT * FROM chat_messages")
+    suspend fun getAllMessagesSync(): List<ChatMessage>
 }
 
 @Dao
