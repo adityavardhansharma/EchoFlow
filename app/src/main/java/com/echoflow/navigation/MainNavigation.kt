@@ -21,6 +21,7 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
     val researchWorkspace by chatViewModel.researchWorkspace.collectAsState()
+    val artifactsGalleryOpen by chatViewModel.artifactsGalleryOpen.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
@@ -57,6 +58,13 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
                 onClose = { chatViewModel.closeResearchWorkspace() },
             )
         }
+        if (artifactsGalleryOpen) {
+            BackHandler { chatViewModel.closeArtifactsGallery() }
+            com.echoflow.ui.screens.ArtifactsGalleryScreen(
+                chatViewModel = chatViewModel,
+                onClose = { chatViewModel.closeArtifactsGallery() },
+            )
+        }
     }
 }
 
@@ -90,6 +98,8 @@ fun AdaptiveChatWorkspace(
                         onPinThread = chatViewModel::pinThread,
                         onUnpinThread = chatViewModel::unpinThread,
                         onSettingsClicked = onSettingsClicked,
+                        onProjectsClicked = chatViewModel::openProjectsHub,
+                        onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )
@@ -120,6 +130,8 @@ fun AdaptiveChatWorkspace(
                         onPinThread = chatViewModel::pinThread,
                         onUnpinThread = chatViewModel::unpinThread,
                         onSettingsClicked = onSettingsClicked,
+                        onProjectsClicked = chatViewModel::openProjectsHub,
+                        onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         onCloseDrawer = { scope.launch { drawerState.close() } },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
