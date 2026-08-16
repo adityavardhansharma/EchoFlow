@@ -6,7 +6,10 @@ import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
 
-@Entity(tableName = "chat_threads")
+@Entity(
+    tableName = "chat_threads",
+    indices = [Index("projectId")],
+)
 data class ChatThread(
     @PrimaryKey val id: String,
     val title: String,
@@ -24,6 +27,12 @@ data class ChatThread(
     @ColumnInfo(defaultValue = "'chat'") val kind: String = AppMode.Chat.storageKey,
     /** When set, the conversation stays at the top of the drawer until unpinned. */
     val pinnedAt: Long? = null,
+    /**
+     * The [Project] this conversation belongs to, or null for a loose chat. Deliberately not a
+     * DB foreign key: deleting a project must return its chats to the drawer, not cascade them
+     * away, so the "set null on project delete" is done in code (see ProjectManager).
+     */
+    val projectId: String? = null,
 ) {
     val mode: AppMode get() = AppMode.fromStorage(kind)
     val isPinned: Boolean get() = pinnedAt != null
