@@ -567,7 +567,7 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
                 )
             }
             Text(
-                "Saved automatically",
+                "Changes save when you leave",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Spacing.xs),
