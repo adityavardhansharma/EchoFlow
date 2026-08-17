@@ -21,8 +21,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -72,6 +74,8 @@ fun ChatDrawerContent(
     onPinThread: (ChatThread) -> Unit,
     onUnpinThread: (ChatThread) -> Unit,
     onSettingsClicked: () -> Unit,
+    onProjectsClicked: () -> Unit = {},
+    onArtifactsClicked: () -> Unit = {},
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -136,6 +140,26 @@ fun ChatDrawerContent(
                 query = searchQuery,
                 onQueryChange = onSearchQueryChange,
                 placeholder = if (imagine) "Search creations" else "Search conversations",
+            )
+        }
+
+        // Two standing destinations under the search, sharing the drawer's own surface (no card,
+        // no accent) and split by a hairline — deliberately quieter than the conversation list so
+        // they read as "places", not entries. Hidden while searching, which is a list operation.
+        if (searchQuery.isBlank()) {
+            Spacer(Modifier.height(Spacing.s))
+            DrawerDestinationRow(
+                icon = Icons.Default.FolderOpen,
+                label = "Projects",
+                onClick = { onProjectsClicked(); onCloseDrawer?.invoke() },
+                modifier = Modifier.testTag("drawer_projects_entry"),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            DrawerDestinationRow(
+                icon = Icons.Default.Dashboard,
+                label = "Artifacts",
+                onClick = { onArtifactsClicked(); onCloseDrawer?.invoke() },
+                modifier = Modifier.testTag("drawer_artifacts_entry"),
             )
         }
 
@@ -407,6 +431,44 @@ private fun pressScale(
         ),
         label = "press-scale",
     )
+}
+
+/**
+ * A standing drawer destination (Projects / Artifacts): icon + label on the drawer's own surface,
+ * with press feedback but no container fill, so it sits a notch below the conversation list in
+ * visual weight while still reading as tappable.
+ */
+@Composable
+private fun DrawerDestinationRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val scale by pressScale(interaction)
+    Surface(
+        onClick = onClick,
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        shape = RoundedCornerShape(16.dp),
+        interactionSource = interaction,
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale },
+    ) {
+        Row(
+            Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(Spacing.m))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
 }
 
 /** Shared empty/no-results state for the drawer list. */

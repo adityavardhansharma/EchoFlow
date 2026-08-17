@@ -14,9 +14,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AgentProfile::class, BrowserSession::class, BrowserStep::class,
         Artifact::class, ArtifactVersion::class,
         ImageModel::class, GeneratedImage::class,
-        VideoModel::class, GeneratedVideo::class
+        VideoModel::class, GeneratedVideo::class,
+        Project::class, ProjectDocument::class
     ],
-    version = 21, // v21: Deep Research step timeline (research_runs.stepsJson/uiVersion)
+    version = 22, // v22: Projects (projects, project_documents, chat_threads.projectId)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +38,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun generatedImageDao(): GeneratedImageDao
     abstract fun videoModelDao(): VideoModelDao
     abstract fun generatedVideoDao(): GeneratedVideoDao
+    abstract fun projectDao(): ProjectDao
+    abstract fun projectDocumentDao(): ProjectDocumentDao
 
     companion object {
         @Volatile
@@ -383,6 +386,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Projects. Two new tables plus an additive nullable column on chat_threads — no data
+         * movement, so every existing conversation is untouched and simply starts life with a
+         * null projectId (a loose chat). The projectId column is deliberately *not* a foreign
+         * key: a project delete returns its chats to the drawer rather than cascading them away,
+         * which the app does in code. The index matches ChatThread's declared Index("projectId").
+         */
+        internal val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // No DEFAULT clauses: the entity fields carry no @ColumnInfo(defaultValue), so a
+                // fresh Room install creates these columns without SQL defaults — the migrated
+                // table must match that exactly. Every insert supplies all columns anyway.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS projects (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "name TEXT NOT NULL, " +
+                        "instructions TEXT NOT NULL, " +
+                        "colorIndex INTEGER NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS project_documents (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "projectId TEXT NOT NULL, " +
+                        "name TEXT NOT NULL, " +
+                        "mimeType TEXT NOT NULL, " +
+                        "sizeBytes INTEGER NOT NULL, " +
+                        "filePath TEXT NOT NULL, " +
+                        "extractedText TEXT, " +
+                        "addedAt INTEGER NOT NULL, " +
+                        "FOREIGN KEY(projectId) REFERENCES projects(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_project_documents_projectId ON project_documents (projectId)")
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN projectId TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chat_threads_projectId ON chat_threads (projectId)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -411,6 +453,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_18_19,
                     MIGRATION_19_20,
                     MIGRATION_20_21,
+                    MIGRATION_21_22,
                 )
                 .build()
                 INSTANCE = instance

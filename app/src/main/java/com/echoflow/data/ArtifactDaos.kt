@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ArtifactDao {
+    /**
+     * Every artifact lineage, newest activity first — one row per chat by the one-lineage-per-chat
+     * rule, so this is exactly "the latest artifact of each chat". Backs the Artifacts gallery.
+     */
+    @Query("SELECT * FROM artifacts ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<Artifact>>
+
     /** The most-recent artifact for one chat — used when iterating the chat's current lineage. */
     @Query("SELECT * FROM artifacts WHERE chatId = :chatId ORDER BY updatedAt DESC LIMIT 1")
     fun observeLatestForChat(chatId: String): Flow<Artifact?>
