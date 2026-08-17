@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,22 +31,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +75,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,8 +84,17 @@ import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.components.PROJECT_ACCENT_COUNT
+import com.echoflow.ui.components.ProjectMedallion
+import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.components.projectAccent
+import com.echoflow.ui.components.projectShape
+import com.echoflow.ui.theme.BrandShapes
+import com.echoflow.ui.theme.MorphPolygonShape
+import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberMorph
+import com.echoflow.ui.theme.rememberMorphProgress
+import com.echoflow.ui.theme.rememberReducedMotion
 
 /**
  * The Projects hub — a fullscreen surface opened from the drawer. It hosts two levels: the list of
@@ -91,6 +102,10 @@ import com.echoflow.ui.theme.Spacing
  * by [ChatViewModel.openProjectId], so back steps home → list → closed. This is Option B ("a
  * launchpad, not a container"): a project home surfaces its chats, and points to instructions and
  * documents as focused sub-screens rather than cramming everything onto one page.
+ *
+ * The surface speaks the app's Expressive language — a rounded hero header, [MaterialShapes]
+ * medallions for each project's identity, morphing empty-state heroes and grouped connected
+ * containers — rather than the flat "bar over a page of buttons" that made it read like a web view.
  */
 @Composable
 fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
@@ -123,37 +138,38 @@ fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
     }
 }
 
-// ── Top bar ────────────────────────────────────────────────────────────────────────────
+// ── Hero header ────────────────────────────────────────────────────────────────────────
 
-/** Shared fullscreen header: a down-chevron to leave, a display-voice title, optional trailing. */
+/**
+ * The shared surface header: a rounded-bottom slab that carries the down-chevron, an optional
+ * trailing action, and a large title block. The rounding and containment are what turn a flat
+ * toolbar into a native header the page hangs off of.
+ */
 @Composable
-private fun ProjectTopBar(
-    title: String,
-    subtitle: String? = null,
+private fun ProjectHeader(
     onBack: () -> Unit,
-    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    titleContent: @Composable ColumnScope.() -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+    ) {
+        Column(
             Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(start = Spacing.xs, end = Spacing.s, top = Spacing.s, bottom = Spacing.m),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(start = Spacing.xs, end = Spacing.s, top = Spacing.xs, bottom = Spacing.l),
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(26.dp)) }
-            if (leading != null) {
-                leading()
-                Spacer(Modifier.width(Spacing.s))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(26.dp)) }
+                Spacer(Modifier.weight(1f))
+                if (trailing != null) trailing()
             }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle != null) {
-                    Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            if (trailing != null) trailing()
+            Column(
+                Modifier.padding(start = Spacing.base, end = Spacing.base, top = Spacing.xs),
+                content = titleContent,
+            )
         }
     }
 }
@@ -179,27 +195,40 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            ProjectTopBar(
-                title = "Projects",
-                subtitle = projects.size.takeIf { it > 0 }?.let { if (it == 1) "1 project" else "$it projects" },
-                onBack = { chatViewModel.closeProjectsHub() },
-            )
-            if (projects.isEmpty()) {
+        if (projects.isEmpty()) {
+            Column(Modifier.fillMaxSize()) {
+                ProjectHeader(onBack = { chatViewModel.closeProjectsHub() }) {
+                    Text("Projects", style = MaterialTheme.typography.displaySmall)
+                }
                 ProjectsEmptyState(onCreate = { showCreate = true }, modifier = Modifier.fillMaxSize())
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(Spacing.base, Spacing.s, Spacing.base, 104.dp),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.m),
-                ) {
-                    items(projects, key = { it.id }) { project ->
-                        ProjectListCard(project) { chatViewModel.openProjectHome(project.id) }
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 104.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.m),
+            ) {
+                item {
+                    ProjectHeader(onBack = { chatViewModel.closeProjectsHub() }) {
+                        Text("Projects", style = MaterialTheme.typography.displaySmall)
+                        Text(
+                            if (projects.size == 1) "1 project" else "${projects.size} projects",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
                     }
                 }
+                items(projects, key = { it.id }) { project ->
+                    ProjectListCard(
+                        project = project,
+                        chatCountFlow = { chatViewModel.projectChatCountFlow(project.id) },
+                        docCountFlow = { chatViewModel.projectDocumentCountFlow(project.id) },
+                        onClick = { chatViewModel.openProjectHome(project.id) },
+                        modifier = Modifier.padding(horizontal = Spacing.base),
+                    )
+                }
             }
-        }
-        if (projects.isNotEmpty()) {
             FloatingActionButton(
                 onClick = { showCreate = true },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
@@ -209,19 +238,27 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
 }
 
 @Composable
-private fun ProjectListCard(project: Project, onClick: () -> Unit) {
-    val accent = projectAccent(project.colorIndex)
+private fun ProjectListCard(
+    project: Project,
+    chatCountFlow: () -> kotlinx.coroutines.flow.Flow<Int>,
+    docCountFlow: () -> kotlinx.coroutines.flow.Flow<Int>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val chatCount by remember(project.id) { chatCountFlow() }.collectAsState(0)
+    val docCount by remember(project.id) { docCountFlow() }.collectAsState(0)
+
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.padding(Spacing.base),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AccentFolder(accent.container, accent.onContainer, 48.dp)
+            ProjectMedallion(project.colorIndex, size = 52.dp)
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -231,9 +268,8 @@ private fun ProjectListCard(project: Project, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val hint = project.instructions.trim().ifBlank { "Empty project · tap to set up" }
                 Text(
-                    hint,
+                    projectMetaLine(chatCount, docCount, project.instructions),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -250,14 +286,16 @@ private fun ProjectListCard(project: Project, onClick: () -> Unit) {
     }
 }
 
-/** The project identity mark — a folder glyph on the project's accent, as a soft squircle. */
-@Composable
-private fun AccentFolder(container: Color, onContainer: Color, size: androidx.compose.ui.unit.Dp) {
-    Box(
-        Modifier.size(size).clip(RoundedCornerShape(size / 3)).background(container),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(Icons.Default.FolderOpen, null, Modifier.size(size * 0.46f), tint = onContainer)
+/** A glanceable summary of what's inside a project — counts when it has substance, a nudge when not. */
+private fun projectMetaLine(chatCount: Int, docCount: Int, instructions: String): String {
+    val parts = buildList {
+        if (chatCount > 0) add(if (chatCount == 1) "1 chat" else "$chatCount chats")
+        if (docCount > 0) add(if (docCount == 1) "1 file" else "$docCount files")
+    }
+    return when {
+        parts.isNotEmpty() -> parts.joinToString(" · ")
+        instructions.isNotBlank() -> "Instructions set · tap to open"
+        else -> "Empty project · tap to set up"
     }
 }
 
@@ -290,6 +328,7 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
             onBack = { detail = ProjectDetail.None },
         )
         p != null && detail == ProjectDetail.Files -> ProjectFilesScreen(
+            project = p,
             documents = documents,
             onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
             onRemove = { chatViewModel.removeProjectDocument(it) },
@@ -326,7 +365,8 @@ private fun ProjectHomeContent(
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showColor by remember { mutableStateOf(false) }
-    val accent = projectAccent(project?.colorIndex ?: 0)
+    val colorIndex = project?.colorIndex ?: 0
+    val accent = projectAccent(colorIndex)
 
     if (showRename && project != null) {
         ProjectNameDialog(
@@ -362,74 +402,86 @@ private fun ProjectHomeContent(
     }
 
     Column(Modifier.fillMaxSize()) {
-        ProjectTopBar(
-            title = project?.name ?: "Project",
+        ProjectHeader(
             onBack = onBack,
-            leading = { AccentFolder(accent.container, accent.onContainer, 32.dp) },
             trailing = {
                 Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Project options") }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuOpen = false; showRename = true })
-                        DropdownMenuItem(text = { Text("Colour") }, leadingIcon = { Icon(Icons.Default.Palette, null) }, onClick = { menuOpen = false; showColor = true })
+                        DropdownMenuItem(text = { Text("Colour & shape") }, leadingIcon = { Icon(Icons.Default.Palette, null) }, onClick = { menuOpen = false; showColor = true })
                         DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuOpen = false; showDelete = true })
                     }
                 }
             },
-        )
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ProjectMedallion(colorIndex, size = 54.dp)
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        project?.name ?: "Project",
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        projectMetaLine(chats.size, documents.size, project?.instructions.orEmpty()),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+        }
 
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(Spacing.base, Spacing.base, Spacing.base, Spacing.xxl),
-            verticalArrangement = Arrangement.spacedBy(Spacing.m),
+            contentPadding = PaddingValues(Spacing.base, Spacing.l, Spacing.base, Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.l),
         ) {
-            // Context strip: two summary cards that point to focused sub-screens. Setup is
-            // glanceable, never in the way — the "launchpad not container" idea.
+            // The primary action — start a chat that already carries this project's context.
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
-                    ContextCard(
+                NewChatHero(
+                    accentContainer = accent.container,
+                    accentOnContainer = accent.onContainer,
+                    shapedMark = { size ->
+                        Box(
+                            Modifier
+                                .size(size)
+                                .clip(RoundedPolygonShape(projectShape(colorIndex)))
+                                .background(accent.onContainer.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Add, null, Modifier.size(size * 0.5f), tint = accent.onContainer) }
+                    },
+                    onClick = { chatViewModel.startNewChatInProject(projectId) },
+                )
+            }
+
+            // Context setup: one connected slab so the two live as a considered pair, not two
+            // squares glued side by side.
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    SetupRow(
+                        index = 0, count = 2,
                         icon = Icons.Default.Description,
                         title = "Instructions",
-                        subtitle = project?.instructions?.trim().orEmpty().ifBlank { "Add instructions" },
+                        status = project?.instructions?.trim().orEmpty().ifBlank { "Set a standing brief for every chat" },
                         filled = !project?.instructions?.trim().isNullOrBlank(),
                         onClick = onOpenInstructions,
-                        modifier = Modifier.weight(1f),
                     )
-                    ContextCard(
+                    SetupRow(
+                        index = 1, count = 2,
                         icon = Icons.Default.FolderOpen,
                         title = "Files",
-                        subtitle = when (documents.size) {
-                            0 -> "Add files"
+                        status = when (documents.size) {
+                            0 -> "Attach reference the model can draw on"
                             1 -> "1 file attached"
                             else -> "${documents.size} files attached"
                         },
                         filled = documents.isNotEmpty(),
                         onClick = onOpenFiles,
-                        modifier = Modifier.weight(1f),
                     )
-                }
-            }
-
-            item {
-                Surface(
-                    onClick = { chatViewModel.startNewChatInProject(projectId) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = accent.container,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        Modifier.padding(Spacing.base),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                    ) {
-                        Icon(Icons.Default.Add, null, tint = accent.onContainer)
-                        Text(
-                            "New chat in this project",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = accent.onContainer,
-                        )
-                    }
                 }
             }
 
@@ -444,74 +496,141 @@ private fun ProjectHomeContent(
 
             if (chats.isEmpty()) {
                 item {
-                    Text(
-                        "No conversations yet. Start one above and it will live in this project.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = Spacing.s, horizontal = Spacing.xs),
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "No conversations yet. Start one above and it will live in this project, carrying its instructions and files.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(Spacing.base),
+                        )
+                    }
                 }
             } else {
                 items(chats, key = { it.id }) { thread ->
-                    ProjectChatRow(thread) { chatViewModel.openChatFromProject(thread.id) }
+                    ProjectChatRow(thread, colorIndex) { chatViewModel.openChatFromProject(thread.id) }
                 }
             }
         }
     }
 }
 
+/** The hero call-to-action: full-bleed accent card, its shaped mark, an arrow that reads as "go". */
 @Composable
-private fun ContextCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String,
-    filled: Boolean,
+private fun NewChatHero(
+    accentContainer: Color,
+    accentOnContainer: Color,
+    shapedMark: @Composable (androidx.compose.ui.unit.Dp) -> Unit,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.height(120.dp),
+        shape = RoundedCornerShape(26.dp),
+        color = accentContainer,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Box(
-                Modifier.size(34.dp).clip(RoundedCornerShape(11.dp))
-                    .background(if (filled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    icon, null, Modifier.size(18.dp),
-                    tint = if (filled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
+            Modifier.padding(Spacing.base),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.base),
+        ) {
+            shapedMark(48.dp)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "New chat",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accentOnContainer,
+                )
+                Text(
+                    "Start with this project's context",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accentOnContainer.copy(alpha = 0.78f),
                 )
             }
-            Spacer(Modifier.weight(1f))
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(24.dp), tint = accentOnContainer)
         }
     }
 }
 
+/** One row in the context slab. Corners are shaped by [groupedItemShape] so the pair reads as one. */
 @Composable
-private fun ProjectChatRow(thread: com.echoflow.data.ChatThread, onClick: () -> Unit) {
+private fun SetupRow(
+    index: Int,
+    count: Int,
+    icon: ImageVector,
+    title: String,
+    status: String,
+    filled: Boolean,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier.size(42.dp).clip(RoundedCornerShape(14.dp))
+                    .background(if (filled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon, null, Modifier.size(20.dp),
+                    tint = if (filled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.m))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    if (filled) {
+                        Spacer(Modifier.width(Spacing.xs))
+                        Icon(Icons.Default.Check, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProjectChatRow(thread: com.echoflow.data.ChatThread, colorIndex: Int, onClick: () -> Unit) {
+    val accent = projectAccent(colorIndex)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(accent.container),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Chat, null, Modifier.size(18.dp), tint = accent.onContainer)
+            }
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -541,19 +660,34 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
     BackHandler { leave() }
 
     Column(Modifier.fillMaxSize()) {
-        ProjectTopBar(
-            title = "Instructions",
+        ProjectHeader(
             onBack = leave,
             trailing = { TextButton(onClick = leave) { Text("Save") } },
-        )
+        ) {
+            Text("Instructions", style = MaterialTheme.typography.headlineMedium)
+        }
         Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            Text(
-                "Given to the model on every message in this project — a standing brief for tone, role and rules.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // A soft callout instead of a bare paragraph — the "why" reads as guidance, not fine print.
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(Spacing.base),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text(
+                        "Given to the model on every message in this project — a standing brief for tone, role and rules.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(22.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
@@ -591,6 +725,7 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
 
 @Composable
 private fun ProjectFilesScreen(
+    project: Project,
     documents: List<ProjectDocument>,
     onAdd: (android.net.Uri) -> Unit,
     onRemove: (ProjectDocument) -> Unit,
@@ -603,19 +738,25 @@ private fun ProjectFilesScreen(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            ProjectTopBar(title = "Files", onBack = onBack)
-            Text(
-                "Text files are read and used as background knowledge in this project's chats.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s),
-            )
+            ProjectHeader(onBack = onBack) {
+                Text("Files", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    when (documents.size) {
+                        0 -> "Background knowledge for this project"
+                        1 -> "1 file"
+                        else -> "${documents.size} files"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             if (documents.isEmpty()) {
                 FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(Spacing.base, Spacing.s, Spacing.base, 104.dp),
+                    contentPadding = PaddingValues(Spacing.base, Spacing.l, Spacing.base, 104.dp),
                     verticalArrangement = Arrangement.spacedBy(Spacing.s),
                 ) {
                     items(documents, key = { it.id }) { doc -> DocumentRow(doc) { onRemove(doc) } }
@@ -634,7 +775,7 @@ private fun ProjectFilesScreen(
 @Composable
 private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -643,7 +784,7 @@ private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.Description, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -669,12 +810,11 @@ private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
 
 @Composable
 private fun ProjectsEmptyState(onCreate: () -> Unit, modifier: Modifier = Modifier) {
-    EmptyState(
-        icon = Icons.Default.CreateNewFolder,
-        title = "No projects yet",
+    HeroEmptyState(
+        glyph = Icons.Default.CreateNewFolder,
+        title = "Start your first\nproject",
         body = "Group related chats, give them a shared instruction, and attach reference files the model can draw on.",
         actionLabel = "New project",
-        actionIcon = Icons.Default.Add,
         onAction = onCreate,
         modifier = modifier,
     )
@@ -682,37 +822,52 @@ private fun ProjectsEmptyState(onCreate: () -> Unit, modifier: Modifier = Modifi
 
 @Composable
 private fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
-    EmptyState(
-        icon = Icons.Default.Description,
+    HeroEmptyState(
+        glyph = Icons.Default.Description,
         title = "No files yet",
         body = "Add text files — notes, briefs, transcripts — and their contents become background knowledge for this project.",
         actionLabel = "Add file",
-        actionIcon = Icons.Default.Add,
         onAction = onAdd,
         modifier = modifier,
     )
 }
 
-/** Shared empty state: upper-biased (not dead-centred in a void), display-voice title, real action. */
+/**
+ * The signature empty state: a haloed, morphing [MaterialShapes] hero — the same focal move the chat
+ * home makes — over a display-voice title and a real action. Upper-biased so it never floats in a
+ * dead-centred void.
+ */
 @Composable
-private fun EmptyState(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun HeroEmptyState(
+    glyph: ImageVector,
     title: String,
     body: String,
     actionLabel: String,
-    actionIcon: androidx.compose.ui.graphics.vector.ImageVector,
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.padding(horizontal = Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.fillMaxHeight(0.24f))
-        Box(
-            Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, null, Modifier.size(38.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        Spacer(Modifier.fillMaxHeight(0.16f))
+        Box(contentAlignment = Alignment.Center) {
+            val morph = rememberMorph(BrandShapes.heroStart, BrandShapes.heroEnd)
+            // Honour the reduced-motion policy: hold the resting frame (never start the infinite
+            // transition) when the user has turned system animations off.
+            val progress = if (rememberReducedMotion()) 0f else {
+                val p by rememberMorphProgress(3400)
+                p
+            }
+            Box(
+                Modifier.size(132.dp).clip(MorphPolygonShape(morph, progress))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+            )
+            Icon(glyph, null, Modifier.size(54.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
-        Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = Spacing.l))
+        Text(
+            title,
+            style = MaterialTheme.typography.displaySmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Spacing.xl),
+        )
         Text(
             body,
             style = MaterialTheme.typography.bodyMedium,
@@ -720,8 +875,8 @@ private fun EmptyState(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = Spacing.s),
         )
-        FilledTonalButton(onClick = onAction, modifier = Modifier.padding(top = Spacing.l)) {
-            Icon(actionIcon, null, Modifier.size(18.dp))
+        FilledTonalButton(onClick = onAction, modifier = Modifier.padding(top = Spacing.xl)) {
+            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
             Spacer(Modifier.width(Spacing.s))
             Text(actionLabel)
         }
@@ -762,25 +917,28 @@ private fun ProjectNameDialog(
 private fun ProjectColorDialog(selected: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Project colour") },
+        title = { Text("Colour & shape") },
         text = {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
                 (0 until PROJECT_ACCENT_COUNT).forEach { index ->
                     val accent = projectAccent(index)
+                    val shape = remember(index) { RoundedPolygonShape(projectShape(index)) }
                     Box(
                         Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(accent.solid)
+                            .size(48.dp)
+                            .clip(shape)
+                            .background(accent.container)
                             .then(
                                 if (index == selected) {
-                                    Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                    Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, shape)
                                 } else Modifier
                             )
                             .clickable { onPick(index) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (index == selected) Icon(Icons.Default.Check, null, Modifier.size(20.dp), tint = accent.onContainer)
+                        if (index == selected) {
+                            Icon(Icons.Default.Check, null, Modifier.size(20.dp), tint = accent.onContainer)
+                        }
                     }
                 }
             }
