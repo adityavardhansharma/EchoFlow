@@ -1046,7 +1046,7 @@ class ChatViewModel(
             val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
             _pendingAttachmentMimeType.value = mimeType
 
-            // Get display name. An override wins outright: a file the app generated has a UUID
+            // An override wins outright: a file the app generated has a UUID
             // for a name, and showing that tells the user nothing about why it is attached.
             var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
             runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
@@ -1548,7 +1548,6 @@ class ChatViewModel(
                 )
                 chatRepository.insertMessage(userMsg)
 
-                // Update Thread Timestamp
                 chatRepository.touchThread(chatId)
 
                 // Trigger background Title generation. Local chats use the word fallback:

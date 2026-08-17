@@ -58,7 +58,7 @@ object SttCatalog {
             provider = "Google",
             // OpenRouter lists \$0.016/min.
             pricing = "~\$0.016 / min",
-            blurb = "Broad language coverage, robust punctuation.",
+            blurb = "Broad language coverage, consistent punctuation.",
         ),
     )
 

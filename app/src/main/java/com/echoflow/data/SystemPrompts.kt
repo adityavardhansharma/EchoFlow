@@ -166,7 +166,7 @@ object SystemPrompts {
     }
 
     private fun identity(isLocalModel: Boolean): String = buildString {
-        append("You are EchoFlow, a helpful, accurate AI assistant inside an Android chat app.")
+        append("You are EchoFlow, an AI assistant in an Android chat app. Be direct and accurate.")
         if (isLocalModel) {
             append(
                 " You run entirely on the user's device: private, offline-capable, and free." +

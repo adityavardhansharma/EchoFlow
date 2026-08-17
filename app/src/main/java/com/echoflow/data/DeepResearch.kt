@@ -52,7 +52,7 @@ object DeepResearchCatalog {
             name = "Exa · Deep Reasoning",
             provider = "exa",
             providerModel = "deep-reasoning",
-            description = "Deep search with enhanced reasoning — recommended",
+            description = "Deep search with step-by-step reasoning — recommended",
         ),
         DrEngine(
             id = "exa-agent",
@@ -74,7 +74,7 @@ object DeepResearchCatalog {
             name = "Parallel · Ultra",
             provider = "parallel",
             providerModel = "ultra",
-            description = "State-of-the-art accuracy, slowest and priciest",
+            description = "Highest accuracy, slowest and priciest",
         ),
         DrEngine(
             id = "firecrawl-research",
