@@ -129,6 +129,7 @@ internal fun ChatSurface(
     val clipboard = LocalClipboardManager.current
 
     val messages by chatViewModel.currentMessages.collectAsState()
+    val currentThreadProject by chatViewModel.currentThreadProject.collectAsState()
     val isStreaming by chatViewModel.isStreaming.collectAsState()
     val activeSegments by chatViewModel.activeSegments.collectAsState()
     val statusNote by chatViewModel.statusNote.collectAsState()
@@ -555,6 +556,9 @@ internal fun ChatSurface(
                 }
             },
             onCancelTranscribe = { voice.cancel() },
+            projectName = currentThreadProject?.name,
+            projectColorIndex = currentThreadProject?.colorIndex ?: 0,
+            onOpenProject = { currentThreadProject?.let { chatViewModel.openProjectFromChat(it.id) } },
         )
         }
 

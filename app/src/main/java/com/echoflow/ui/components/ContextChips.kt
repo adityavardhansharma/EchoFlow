@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -147,6 +148,53 @@ fun ModelPill(
             Icon(
                 Icons.Default.KeyboardArrowDown, null, Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * The project this conversation belongs to, sitting in the chip row beside the mic. It signals the
+ * chat is running with the project's standing context (instructions + files) and taps through to
+ * the project home. Wears the project's own accent so it reads as an identity, not just a toggle.
+ */
+@Composable
+fun ProjectPill(
+    name: String,
+    colorIndex: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = projectAccent(colorIndex)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "project-pill-press",
+    )
+    Surface(
+        onClick = onClick,
+        interactionSource = interaction,
+        shape = CircleShape,
+        color = accent.container,
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .semantics { contentDescription = "Project: $name. Tap to open." },
+    ) {
+        Row(
+            Modifier.padding(start = 10.dp, end = Spacing.m, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.FolderOpen, null, Modifier.size(16.dp), tint = accent.onContainer)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                name,
+                style = MaterialTheme.typography.labelLarge,
+                color = accent.onContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 140.dp),
             )
         }
     }
