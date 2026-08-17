@@ -66,11 +66,16 @@ class ProjectManager(
     /**
      * Delete a project. Its chats are returned to the drawer (projectId set null) rather than
      * deleted, its documents' files are swept, and the row delete cascades away the document rows.
+     *
+     * The Room parent is removed *before* the folder: a concurrent [addDocument] that recreates
+     * the directory then cannot insert (FK) and falls into its dest-delete path. Sweeping first
+     * let an import mkdir, register a row, then lose that row to this cascade with no exception
+     * and a file the files UI cannot see.
      */
     suspend fun deleteProject(id: String) = withContext(Dispatchers.IO) {
         chatDao.clearProjectAssignments(id)
-        runCatching { projectDir(id).deleteRecursively() }
         projectDao.delete(id)
+        runCatching { projectDir(id).deleteRecursively() }
     }
 
     suspend fun assignChat(chatId: String, projectId: String?) {
@@ -101,6 +106,7 @@ class ProjectManager(
         // SIZE when it can, and that check is free. The stream-time cap below still applies
         // when SIZE is missing or understated.
         if (size > MAX_IMPORT_BYTES) return@withContext null
+        if (projectDao.getById(projectId) == null) return@withContext null
 
         val docId = UUID.randomUUID().toString()
         val dir = projectDir(projectId).apply { mkdirs() }
@@ -142,11 +148,18 @@ class ProjectManager(
             addedAt = System.currentTimeMillis(),
         )
         // Copy succeeded; the file is only reachable through a project_documents row. If
-        // insert or touch throws (project deleted mid-import, disk-full, cancellation) the
-        // dest must go with it — otherwise it sits unreferenced until the whole project
-        // folder is swept, and the files UI cannot remove it.
+        // insert or touch throws, or the parent was deleted between copy and now (cascade
+        // removes the row without throwing), dest must go with it — otherwise it sits
+        // unreferenced and the files UI cannot remove it.
         try {
             projectDocumentDao.insert(document)
+            if (projectDao.getById(projectId) == null ||
+                projectDocumentDao.getById(document.id) == null
+            ) {
+                runCatching { projectDocumentDao.delete(document.id) }
+                runCatching { dest.delete() }
+                return@withContext null
+            }
             touch(projectId)
         } catch (t: Throwable) {
             runCatching { projectDocumentDao.delete(document.id) }
