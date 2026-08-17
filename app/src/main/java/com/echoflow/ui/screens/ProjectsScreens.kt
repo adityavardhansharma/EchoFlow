@@ -14,9 +14,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,7 +40,9 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Edit
@@ -46,6 +50,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,6 +59,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,8 +71,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.Project
@@ -113,6 +122,43 @@ fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
     }
 }
 
+// ── Top bar ────────────────────────────────────────────────────────────────────────────
+
+/** Shared fullscreen header: a down-chevron to leave, a display-voice title, optional trailing. */
+@Composable
+private fun ProjectTopBar(
+    title: String,
+    subtitle: String? = null,
+    onBack: () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(start = Spacing.xs, end = Spacing.s, top = Spacing.s, bottom = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(26.dp)) }
+            if (leading != null) {
+                leading()
+                Spacer(Modifier.width(Spacing.s))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle != null) {
+                    Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (trailing != null) trailing()
+        }
+    }
+}
+
+// ── Projects list ──────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun ProjectsListContent(chatViewModel: ChatViewModel) {
     val projects by chatViewModel.projects.collectAsState()
@@ -133,17 +179,17 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            HubTopBar(
+            ProjectTopBar(
                 title = "Projects",
                 subtitle = projects.size.takeIf { it > 0 }?.let { if (it == 1) "1 project" else "$it projects" },
-                onClose = { chatViewModel.closeProjectsHub() },
+                onBack = { chatViewModel.closeProjectsHub() },
             )
             if (projects.isEmpty()) {
-                ProjectsEmptyState(Modifier.fillMaxSize())
+                ProjectsEmptyState(onCreate = { showCreate = true }, modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(Spacing.base, Spacing.s, Spacing.base, 96.dp),
+                    contentPadding = PaddingValues(Spacing.base, Spacing.s, Spacing.base, 104.dp),
                     verticalArrangement = Arrangement.spacedBy(Spacing.m),
                 ) {
                     items(projects, key = { it.id }) { project ->
@@ -152,10 +198,12 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
                 }
             }
         }
-        FloatingActionButton(
-            onClick = { showCreate = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
-        ) { Icon(Icons.Default.Add, "New project") }
+        if (projects.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = { showCreate = true },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
+            ) { Icon(Icons.Default.Add, "New project") }
+        }
     }
 }
 
@@ -164,7 +212,7 @@ private fun ProjectListCard(project: Project, onClick: () -> Unit) {
     val accent = projectAccent(project.colorIndex)
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -172,13 +220,8 @@ private fun ProjectListCard(project: Project, onClick: () -> Unit) {
             Modifier.padding(Spacing.base),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(accent.container),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.CreateNewFolder, null, Modifier.size(22.dp), tint = accent.onContainer)
-            }
-            Spacer(Modifier.width(Spacing.m))
+            AccentFolder(accent.container, accent.onContainer, 48.dp)
+            Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
                     project.name,
@@ -187,16 +230,33 @@ private fun ProjectListCard(project: Project, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val hint = project.instructions.trim().ifBlank { "Tap to open" }
+                val hint = project.instructions.trim().ifBlank { "Empty project · tap to set up" }
                 Text(
                     hint,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            Spacer(Modifier.width(Spacing.s))
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+/** The project identity mark — a folder glyph on the project's accent, as a soft squircle. */
+@Composable
+private fun AccentFolder(container: Color, onContainer: Color, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        Modifier.size(size).clip(RoundedCornerShape(size / 3)).background(container),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Default.FolderOpen, null, Modifier.size(size * 0.46f), tint = onContainer)
     }
 }
 
@@ -291,29 +351,11 @@ private fun ProjectHomeContent(
     }
 
     Column(Modifier.fillMaxSize()) {
-        // Top bar
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = Spacing.s, vertical = Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Back to projects", Modifier.size(26.dp)) }
-                Box(
-                    Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(accent.container),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.CreateNewFolder, null, Modifier.size(16.dp), tint = accent.onContainer) }
-                Spacer(Modifier.width(Spacing.s))
-                Text(
-                    project?.name ?: "Project",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+        ProjectTopBar(
+            title = project?.name ?: "Project",
+            onBack = onBack,
+            leading = { AccentFolder(accent.container, accent.onContainer, 32.dp) },
+            trailing = {
                 Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Project options") }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -322,33 +364,35 @@ private fun ProjectHomeContent(
                         DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuOpen = false; showDelete = true })
                     }
                 }
-            }
-        }
+            },
+        )
 
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(Spacing.base, Spacing.base, Spacing.base, 32.dp),
+            contentPadding = PaddingValues(Spacing.base, Spacing.base, Spacing.base, Spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
-            // Context strip: two compact summary cards that point to focused sub-screens. This is
-            // the whole "launchpad not container" idea — setup is glanceable, never in the way.
+            // Context strip: two summary cards that point to focused sub-screens. Setup is
+            // glanceable, never in the way — the "launchpad not container" idea.
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
                     ContextCard(
                         icon = Icons.Default.Description,
                         title = "Instructions",
                         subtitle = project?.instructions?.trim().orEmpty().ifBlank { "Add instructions" },
+                        filled = !project?.instructions?.trim().isNullOrBlank(),
                         onClick = onOpenInstructions,
                         modifier = Modifier.weight(1f),
                     )
                     ContextCard(
-                        icon = Icons.Default.Description,
+                        icon = Icons.Default.FolderOpen,
                         title = "Files",
                         subtitle = when (documents.size) {
                             0 -> "Add files"
-                            1 -> "1 file"
-                            else -> "${documents.size} files"
+                            1 -> "1 file attached"
+                            else -> "${documents.size} files attached"
                         },
+                        filled = documents.isNotEmpty(),
                         onClick = onOpenFiles,
                         modifier = Modifier.weight(1f),
                     )
@@ -358,7 +402,7 @@ private fun ProjectHomeContent(
             item {
                 Surface(
                     onClick = { chatViewModel.startNewChatInProject(projectId) },
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = accent.container,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -410,26 +454,35 @@ private fun ContextCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
+    filled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier,
+        modifier = modifier.height(120.dp),
     ) {
-        Column(Modifier.padding(Spacing.base)) {
-            Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(Spacing.s))
+        Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Box(
+                Modifier.size(34.dp).clip(RoundedCornerShape(11.dp))
+                    .background(if (filled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon, null, Modifier.size(18.dp),
+                    tint = if (filled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.weight(1f))
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -473,28 +526,53 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
     // rememberSaveable, not remember: autosave only fires on leave, so a config change or process
     // death mid-edit must not discard the in-progress text and snap back to the persisted value.
     var text by rememberSaveable(project.id) { mutableStateOf(project.instructions) }
-    // Autosave on leave: the editor is a place you visit and step back from, not a form you submit.
     val leave = { onSave(text.trim()); onBack() }
     BackHandler { leave() }
 
     Column(Modifier.fillMaxSize()) {
-        DetailTopBar(title = "Instructions", onBack = leave, action = "Save" to { leave() })
-        Text(
-            "Told to the model on every message in this project.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s),
+        ProjectTopBar(
+            title = "Instructions",
+            onBack = leave,
+            trailing = { TextButton(onClick = leave) { Text("Save") } },
         )
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = { Text("e.g. You are helping me write a mystery novel. Keep a wry, noir tone and remember the characters in the attached files.") },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.base)
-                .padding(bottom = Spacing.base)
-                .imePadding(),
-        )
+        Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+            Text(
+                "Given to the model on every message in this project — a standing brief for tone, role and rules.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            ) {
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = {
+                        Text(
+                            "e.g. You are helping me write a noir mystery. Keep a wry, hard-boiled tone and remember the characters and timeline in the attached files.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
+                    modifier = Modifier.fillMaxSize().imePadding(),
+                )
+            }
+            Text(
+                "Saved automatically",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.xs),
+            )
+        }
     }
 }
 
@@ -514,7 +592,7 @@ private fun ProjectFilesScreen(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            DetailTopBar(title = "Files", onBack = onBack, action = null)
+            ProjectTopBar(title = "Files", onBack = onBack)
             Text(
                 "Text files are read and used as background knowledge in this project's chats.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -522,28 +600,23 @@ private fun ProjectFilesScreen(
                 modifier = Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s),
             )
             if (documents.isEmpty()) {
-                Column(
-                    Modifier.fillMaxSize().padding(Spacing.xl),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(Icons.Default.Description, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("No files yet", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = Spacing.m))
-                }
+                FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(Spacing.base, Spacing.s, Spacing.base, 96.dp),
+                    contentPadding = PaddingValues(Spacing.base, Spacing.s, Spacing.base, 104.dp),
                     verticalArrangement = Arrangement.spacedBy(Spacing.s),
                 ) {
                     items(documents, key = { it.id }) { doc -> DocumentRow(doc) { onRemove(doc) } }
                 }
             }
         }
-        FloatingActionButton(
-            onClick = { picker.launch(arrayOf("*/*")) },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
-        ) { Icon(Icons.Default.Add, "Add file") }
+        if (documents.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = { picker.launch(arrayOf("*/*")) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
+            ) { Icon(Icons.Default.Add, "Add file") }
+        }
     }
 }
 
@@ -558,7 +631,12 @@ private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
             Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.Description, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Description, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Text(document.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -576,42 +654,65 @@ private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
     }
 }
 
-// ── Shared bits ────────────────────────────────────────────────────────────────────────
+// ── Empty states & dialogs ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun HubTopBar(title: String, subtitle: String?, onClose: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = Spacing.s, vertical = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onClose) { Icon(Icons.Default.KeyboardArrowDown, "Close", Modifier.size(26.dp)) }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (subtitle != null) {
-                    Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
+private fun ProjectsEmptyState(onCreate: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(
+        icon = Icons.Default.CreateNewFolder,
+        title = "No projects yet",
+        body = "Group related chats, give them a shared instruction, and attach reference files the model can draw on.",
+        actionLabel = "New project",
+        actionIcon = Icons.Default.Add,
+        onAction = onCreate,
+        modifier = modifier,
+    )
 }
 
 @Composable
-private fun DetailTopBar(title: String, onBack: () -> Unit, action: Pair<String, () -> Unit>?) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = Spacing.s, vertical = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
+private fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(
+        icon = Icons.Default.Description,
+        title = "No files yet",
+        body = "Add text files — notes, briefs, transcripts — and their contents become background knowledge for this project.",
+        actionLabel = "Add file",
+        actionIcon = Icons.Default.Add,
+        onAction = onAdd,
+        modifier = modifier,
+    )
+}
+
+/** Shared empty state: upper-biased (not dead-centred in a void), display-voice title, real action. */
+@Composable
+private fun EmptyState(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    body: String,
+    actionLabel: String,
+    actionIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.padding(horizontal = Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.fillMaxHeight(0.24f))
+        Box(
+            Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center,
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(26.dp)) }
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (action != null) TextButton(onClick = action.second) { Text(action.first) }
+            Icon(icon, null, Modifier.size(38.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+        Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = Spacing.l))
+        Text(
+            body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Spacing.s),
+        )
+        FilledTonalButton(onClick = onAction, modifier = Modifier.padding(top = Spacing.l)) {
+            Icon(actionIcon, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text(actionLabel)
         }
     }
 }
@@ -627,6 +728,7 @@ private fun ProjectNameDialog(
     var name by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.CreateNewFolder, null) },
         title = { Text(title) },
         text = {
             OutlinedTextField(
@@ -674,29 +776,6 @@ private fun ProjectColorDialog(selected: Int, onDismiss: () -> Unit, onPick: (In
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
-}
-
-@Composable
-private fun ProjectsEmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier.padding(Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(
-            Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Default.CreateNewFolder, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Text("No projects yet", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = Spacing.base))
-        Text(
-            "Group related chats, give them a shared instruction, and attach reference files. Tap + to start one.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = Spacing.xs, start = Spacing.base, end = Spacing.base),
-        )
-    }
 }
 
 private fun formatBytes(bytes: Long): String = when {
