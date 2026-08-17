@@ -3,6 +3,7 @@ package com.echoflow.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -140,8 +141,19 @@ class ProjectManager(
             extractedText = extracted,
             addedAt = System.currentTimeMillis(),
         )
-        projectDocumentDao.insert(document)
-        touch(projectId)
+        // Copy succeeded; the file is only reachable through a project_documents row. If
+        // insert or touch throws (project deleted mid-import, disk-full, cancellation) the
+        // dest must go with it — otherwise it sits unreferenced until the whole project
+        // folder is swept, and the files UI cannot remove it.
+        try {
+            projectDocumentDao.insert(document)
+            touch(projectId)
+        } catch (t: Throwable) {
+            runCatching { projectDocumentDao.delete(document.id) }
+            runCatching { dest.delete() }
+            if (t is CancellationException) throw t
+            return@withContext null
+        }
         document
     }
 
