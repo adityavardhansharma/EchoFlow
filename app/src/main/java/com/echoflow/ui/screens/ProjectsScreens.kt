@@ -66,6 +66,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -264,12 +265,22 @@ private fun AccentFolder(container: Color, onContainer: Color, size: androidx.co
 
 private enum class ProjectDetail { None, Instructions, Files }
 
+private fun restoreProjectDetail(saved: String): ProjectDetail =
+    ProjectDetail.entries.firstOrNull { it.name == saved } ?: ProjectDetail.None
+
 @Composable
 private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, onBack: () -> Unit) {
     val project by remember(projectId) { chatViewModel.projectFlow(projectId) }.collectAsState(null)
     val documents by remember(projectId) { chatViewModel.projectDocumentsFlow(projectId) }.collectAsState(emptyList())
     val chats by remember(projectId) { chatViewModel.projectChatsFlow(projectId) }.collectAsState(emptyList())
-    var detail by remember(projectId) { mutableStateOf(ProjectDetail.None) }
+    // Saveable so rotation does not reset to home and drop the editor without calling leave/save.
+    var detail by rememberSaveable(
+        projectId,
+        saver = Saver(
+            save = { it.value.name },
+            restore = { saved -> mutableStateOf(restoreProjectDetail(saved)) },
+        ),
+    ) { mutableStateOf(ProjectDetail.None) }
 
     val p = project
     when {
