@@ -66,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -190,6 +191,7 @@ fun ArtifactCard(
                 html = previewHtml,
                 interactive = false,
                 onReady = { liveThumbnailReady = true },
+                backgroundColor = MaterialTheme.colorScheme.surface,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(PREVIEW_HEIGHT_DP.dp)
@@ -534,6 +536,7 @@ private fun SettledArtifactCard(
                         html = previewHtml,
                         interactive = false,
                         onReady = null,
+                        backgroundColor = MaterialTheme.colorScheme.surface,
                         modifier = Modifier.matchParentSize(),
                     )
                     // Card is the gesture target; swallow WebView touches.
@@ -661,7 +664,13 @@ private fun MoreChip(text: String) {
  */
 @Composable
 fun ArtifactHtmlThumbnail(html: String, modifier: Modifier = Modifier) {
-    ArtifactPreviewWebView(html = html, interactive = false, onReady = null, modifier = modifier)
+    ArtifactPreviewWebView(
+        html = html,
+        interactive = false,
+        onReady = null,
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        modifier = modifier,
+    )
 }
 
 /**
@@ -675,15 +684,17 @@ private fun ArtifactPreviewWebView(
     html: String,
     interactive: Boolean,
     onReady: (() -> Unit)?,
+    backgroundColor: Color,
     modifier: Modifier = Modifier,
 ) {
     var lastHtml by remember { mutableStateOf<String?>(null) }
     var readyFired by remember(html) { mutableStateOf(false) }
+    val backgroundArgb = backgroundColor.toArgb()
 
     Box(
         modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White),
+            .background(backgroundColor),
     ) {
         AndroidView(
             modifier = Modifier.matchParentSize(),
@@ -712,7 +723,7 @@ private fun ArtifactPreviewWebView(
                     if (!interactive) {
                         setOnTouchListener { _, _ -> true }
                     }
-                    setBackgroundColor(android.graphics.Color.WHITE)
+                    setBackgroundColor(backgroundArgb)
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             if (!readyFired) {
@@ -746,6 +757,7 @@ private fun ArtifactPreviewWebView(
                 }
             },
             update = { web ->
+                web.setBackgroundColor(backgroundArgb)
                 if (lastHtml != html) {
                     readyFired = false
                     web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
