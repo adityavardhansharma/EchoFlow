@@ -119,15 +119,34 @@ class ProjectsMigrationTest {
         )
         db.execSQL("UPDATE chat_threads SET projectId = 'proj-1' WHERE id = 'thread-1'")
 
-        // The app clears assignments in code before deleting (no FK on chat_threads.projectId).
-        db.execSQL("UPDATE chat_threads SET projectId = NULL WHERE projectId = 'proj-1'")
+        // Delete while the chat is still linked: chat_threads.projectId carries no FK, so the
+        // row must survive. The app clears the assignment in code (see ProjectManager).
         db.execSQL("DELETE FROM projects WHERE id = 'proj-1'")
 
         db.query("SELECT COUNT(*) FROM project_documents").use { c ->
             assertTrue(c.moveToFirst()); assertEquals(0, c.getInt(0)) // cascaded away
         }
         db.query("SELECT COUNT(*) FROM chat_threads").use { c ->
-            assertTrue(c.moveToFirst()); assertEquals(1, c.getInt(0)) // chat kept
+            assertTrue(c.moveToFirst()); assertEquals(1, c.getInt(0)) // chat kept, no cascade
         }
+
+        // And the in-code sweep returns it to the drawer.
+        db.execSQL("UPDATE chat_threads SET projectId = NULL WHERE projectId = 'proj-1'")
+        db.query("SELECT projectId FROM chat_threads WHERE id = 'thread-1'").use { c ->
+            assertTrue(c.moveToFirst()); assertNull(c.getString(0))
+        }
+    }
+
+    @Test fun `migration creates the expected indexes`() {
+        insertThread("thread-1")
+
+        AppDatabase.MIGRATION_21_22.migrate(db)
+
+        val names = mutableSetOf<String>()
+        db.query("SELECT name FROM sqlite_master WHERE type = 'index'").use { c ->
+            while (c.moveToNext()) names += c.getString(0)
+        }
+        assertTrue(names.contains("index_chat_threads_projectId"))
+        assertTrue(names.contains("index_project_documents_projectId"))
     }
 }

@@ -674,7 +674,37 @@ class ChatViewModel(
         viewModelScope.launch {
             projectManager.deleteProject(projectId)
             if (_openProjectId.value == projectId) _openProjectId.value = null
+            // Drop a pending assignment to the now-deleted project so the next blank-chat send
+            // can't stamp a thread with a dangling project id.
+            if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
         }
+    }
+
+    /**
+     * Pending project for a not-yet-created thread, or null if none / it no longer exists.
+     * Does not consume the pending slot — callers clear it after a successful insert so a
+     * failed create can retry with the same assignment.
+     */
+    private suspend fun pendingProjectIfStillExists(): String? {
+        val pendingProjectId = _pendingProjectId.value ?: return null
+        if (projectManager.getProject(pendingProjectId) == null) {
+            _pendingProjectId.value = null
+            return null
+        }
+        return pendingProjectId
+    }
+
+    /**
+     * Stamp a freshly-created blank thread with the pending project (if any) and clear the pending
+     * slot. The normal send path applies the id at insert time; the specialized starters (Deep
+     * Research, Browser, Data Agent) route their new-thread creation through here so a chat begun
+     * from a project home lands in that project no matter which action creates its thread.
+     */
+    private suspend fun consumePendingProjectForNewThread(chatId: String) {
+        val pendingProjectId = pendingProjectIfStillExists() ?: return
+        chatDao.setProjectId(chatId, pendingProjectId)
+        projectManager.touch(pendingProjectId)
+        _pendingProjectId.value = null
     }
 
     fun addProjectDocument(projectId: String, uri: Uri) {
@@ -1462,7 +1492,7 @@ class ChatViewModel(
             // project chat) contributes its instructions + reference documents to the prompt.
             val activeProjectId =
                 _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
-                    ?: _pendingProjectId.value
+                    ?: pendingProjectIfStillExists()
             val systemPrompt = baseSystemPrompt + (activeProjectId?.let { projectManager.buildSystemContext(it) } ?: "")
 
             var isFirstMsgInChat = false
@@ -1470,7 +1500,12 @@ class ChatViewModel(
 
             if (chatId == null) {
                 isFirstMsgInChat = true
-                chatId = chatRepository.createThread(mode = appMode.value, projectId = activeProjectId).id
+                // Project chats are always Chat threads — projects are a Chat concept, so a thread
+                // that carries a projectId is stamped 'chat' regardless of the active surface.
+                chatId = chatRepository.createThread(
+                    mode = if (activeProjectId != null) AppMode.Chat else appMode.value,
+                    projectId = activeProjectId,
+                ).id
                 openThread(chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
@@ -2068,6 +2103,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = chatRepository.createThread(now = now).id
                 openThread(chatId)
+                consumePendingProjectForNewThread(chatId)
                 val fallbackTitle = fallbackThreadTitle(topic)
                 chatRepository.renameThread(chatId, fallbackTitle)
             }
@@ -2145,6 +2181,7 @@ class ChatViewModel(
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
                 openThread(chatId)
+                consumePendingProjectForNewThread(chatId)
             } else {
                 openThread(chatId)
             }
@@ -2184,6 +2221,7 @@ class ChatViewModel(
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
                 openThread(chatId)
+                consumePendingProjectForNewThread(chatId)
                 val fallbackTitle = fallbackThreadTitle(topic)
                 chatDao.setTitle(chatId, fallbackTitle)
             }

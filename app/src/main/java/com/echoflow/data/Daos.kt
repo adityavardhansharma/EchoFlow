@@ -47,14 +47,18 @@ interface ChatDao {
     @Query("UPDATE chat_threads SET pinnedAt = :pinnedAt WHERE id = :id")
     suspend fun setPinnedAt(id: String, pinnedAt: Long?)
 
-    /** Conversations belonging to one project, newest activity first (pins still float to the top). */
+    /**
+     * Conversations belonging to one project, newest activity first (pins still float to the top).
+     * Scoped to Chat threads: projects are a Chat concept, so an Imagine thread that somehow
+     * carries a projectId never surfaces in a project.
+     */
     @Query(
-        "SELECT * FROM chat_threads WHERE projectId = :projectId ORDER BY " +
+        "SELECT * FROM chat_threads WHERE projectId = :projectId AND kind = 'chat' ORDER BY " +
             "CASE WHEN pinnedAt IS NULL THEN 1 ELSE 0 END, pinnedAt DESC, updatedAt DESC"
     )
     fun getThreadsByProject(projectId: String): Flow<List<ChatThread>>
 
-    @Query("SELECT COUNT(*) FROM chat_threads WHERE projectId = :projectId")
+    @Query("SELECT COUNT(*) FROM chat_threads WHERE projectId = :projectId AND kind = 'chat'")
     fun countThreadsInProject(projectId: String): Flow<Int>
 
     @Query("UPDATE chat_threads SET projectId = :projectId WHERE id = :id")

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,6 +59,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -468,7 +470,9 @@ private fun ProjectChatRow(thread: com.echoflow.data.ChatThread, onClick: () -> 
 
 @Composable
 private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit, onBack: () -> Unit) {
-    var text by remember(project.id) { mutableStateOf(project.instructions) }
+    // rememberSaveable, not remember: autosave only fires on leave, so a config change or process
+    // death mid-edit must not discard the in-progress text and snap back to the persisted value.
+    var text by rememberSaveable(project.id) { mutableStateOf(project.instructions) }
     // Autosave on leave: the editor is a place you visit and step back from, not a form you submit.
     val leave = { onSave(text.trim()); onBack() }
     BackHandler { leave() }

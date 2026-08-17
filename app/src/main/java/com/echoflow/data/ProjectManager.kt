@@ -41,7 +41,7 @@ class ProjectManager(
         projectDao.upsert(
             Project(
                 id = id,
-                name = name.trim().ifBlank { "Untitled project" },
+                name = name.trim().ifBlank { UNTITLED_PROJECT },
                 instructions = "",
                 colorIndex = colorIndex,
                 createdAt = now,
@@ -52,7 +52,7 @@ class ProjectManager(
     }
 
     suspend fun rename(id: String, name: String) =
-        projectDao.rename(id, name.trim().ifBlank { "Untitled project" }, System.currentTimeMillis())
+        projectDao.rename(id, name.trim().ifBlank { UNTITLED_PROJECT }, System.currentTimeMillis())
 
     suspend fun setInstructions(id: String, instructions: String) =
         projectDao.setInstructions(id, instructions, System.currentTimeMillis())
@@ -96,16 +96,37 @@ class ProjectManager(
             }
         }
 
+        // Reject oversized selections before we open a stream or allocate dest. SAF reports
+        // SIZE when it can, and that check is free. The stream-time cap below still applies
+        // when SIZE is missing or understated.
+        if (size > MAX_IMPORT_BYTES) return@withContext null
+
         val docId = UUID.randomUUID().toString()
         val dir = projectDir(projectId).apply { mkdirs() }
         val dest = File(dir, docId)
+        // Bounded copy: stop (and delete) once the source exceeds the import cap, so a huge or
+        // hostile file can't fill app storage. Any failure mid-write also sweeps the partial file
+        // — otherwise it would linger unreferenced until the whole project is deleted.
         val copied = runCatching {
             resolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
+                dest.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_IMPORT_BYTES) throw java.io.IOException("File exceeds import cap")
+                        output.write(buffer, 0, read)
+                    }
+                }
             } ?: return@runCatching false
             true
         }.getOrDefault(false)
-        if (!copied) return@withContext null
+        if (!copied) {
+            runCatching { dest.delete() }
+            return@withContext null
+        }
         if (size <= 0L) size = dest.length()
 
         val extracted = extractText(dest, mimeType, displayName)
@@ -173,8 +194,8 @@ class ProjectManager(
         File(File(context.filesDir, "project_documents"), projectId)
 
     /**
-     * Extract text for context injection. v1 reads text-shaped formats only (text/*, and a few
-     * textual application/* types); binary formats like PDF keep a null body — they still list in
+     * Extract text for context injection. v1 reads text-shaped formats only (text MIME types, and a
+     * few textual application types); binary formats like PDF keep a null body — they still list in
      * the project, they just contribute no context, and the UI says so. Extraction is capped per
      * document so one huge file can't dominate later assembly.
      */
@@ -185,14 +206,31 @@ class ProjectManager(
             lower in TEXTUAL_MIME_TYPES ||
             ext in TEXTUAL_EXTENSIONS
         if (!looksTextual) return null
+        // Read at most MAX_EXTRACT_CHARS characters so peak allocation is capped regardless of file
+        // size — readText() would materialize the whole (possibly hundreds of MB) file first, then
+        // truncate, risking OutOfMemoryError on large log/csv/sql files selected through SAF.
         return runCatching {
-            val text = file.readText(Charsets.UTF_8)
-            if (text.length > MAX_EXTRACT_CHARS) text.take(MAX_EXTRACT_CHARS) else text
+            file.bufferedReader(Charsets.UTF_8).use { reader ->
+                val buffer = CharArray(MAX_EXTRACT_CHARS)
+                var filled = 0
+                while (filled < buffer.size) {
+                    val read = reader.read(buffer, filled, buffer.size - filled)
+                    if (read < 0) break
+                    filled += read
+                }
+                if (filled <= 0) null else String(buffer, 0, filled)
+            }
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     companion object {
-        /** Per-document extraction cap on import. */
+        /** Fallback when the user supplies a blank project name. */
+        const val UNTITLED_PROJECT = "Untitled project"
+
+        /** Hard cap on an imported file's size (bytes) — larger selections are rejected. */
+        private const val MAX_IMPORT_BYTES = 25L * 1024 * 1024
+
+        /** Per-document extraction cap on import (characters read into memory). */
         private const val MAX_EXTRACT_CHARS = 200_000
 
         /** Combined document budget injected into any single system prompt. */
