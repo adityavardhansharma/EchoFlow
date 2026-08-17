@@ -655,6 +655,16 @@ private fun MoreChip(text: String) {
 // ── Sandboxed HTML preview ───────────────────────────────────────────────────────────
 
 /**
+ * Public, non-interactive HTML thumbnail — the same sandboxed, network-blocked preview the in-chat
+ * artifact card uses, exposed for the Artifacts gallery so a tile shows a live sliver of the page
+ * rather than a flat glyph. Touches are swallowed; the caller owns the tap.
+ */
+@Composable
+fun ArtifactHtmlThumbnail(html: String, modifier: Modifier = Modifier) {
+    ArtifactPreviewWebView(html = html, interactive = false, onReady = null, modifier = modifier)
+}
+
+/**
  * Auto-rendered HTML preview. Network is fully blocked (model HTML must not phone home on
  * mere compose). [onReady] fires on first [WebViewClient.onPageFinished] so the handoff can
  * wait before revealing the settled card.

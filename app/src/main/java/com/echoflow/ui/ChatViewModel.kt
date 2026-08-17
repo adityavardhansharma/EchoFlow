@@ -585,10 +585,19 @@ class ChatViewModel(
     fun openArtifactsGallery() { _artifactsGalleryOpen.value = true }
     fun closeArtifactsGallery() { _artifactsGalleryOpen.value = false }
 
-    /** From a gallery tile: open the workspace on that lineage (optionally at a chosen version). */
+    /**
+     * From a gallery tile: open the workspace on that lineage (optionally at a chosen version). The
+     * gallery stays mounted underneath so the workspace slides up over it as one flow and closing
+     * returns to the gallery — see the overlay order in MainNavigationHub.
+     */
     fun openArtifactFromGallery(artifactId: String, targetVersion: Int? = null) {
-        _artifactsGalleryOpen.value = false
         openArtifactWorkspace(artifactId, targetVersion)
+    }
+
+    /** The latest rendered body of an artifact lineage, for the gallery's inline preview/thumbnail. */
+    suspend fun galleryArtifactContent(artifactId: String): String? {
+        val artifact = artifactManager.getById(artifactId) ?: return null
+        return artifactManager.getVersion(artifactId, artifact.currentVersion)?.content
     }
 
     // ── Projects ─────────────────────────────────────────────────────────────────────────

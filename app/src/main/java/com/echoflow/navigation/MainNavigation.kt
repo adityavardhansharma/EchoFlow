@@ -45,13 +45,6 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
                 onClose = { chatViewModel.closeBrowserWorkspace() },
             )
         }
-        if (artifactWorkspaceOpen) {
-            BackHandler { chatViewModel.closeArtifactWorkspace() }
-            com.echoflow.ui.screens.ArtifactWorkspaceScreen(
-                chatViewModel = chatViewModel,
-                onClose = { chatViewModel.closeArtifactWorkspace() },
-            )
-        }
         if (researchWorkspace != null) {
             BackHandler { chatViewModel.closeResearchWorkspace() }
             com.echoflow.ui.screens.ResearchWorkspaceScreen(
@@ -69,6 +62,16 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
         if (projectsHubOpen) {
             // The hub owns its own back stepping: home → list → closed (see ProjectsHubScreen).
             com.echoflow.ui.screens.ProjectsHubScreen(chatViewModel = chatViewModel)
+        }
+        // The artifact workspace is the top-most overlay: opening a tile from the gallery slides it
+        // up *over* the still-mounted gallery (one continuous flow), and closing it reveals the
+        // gallery again rather than flashing the chat behind it.
+        if (artifactWorkspaceOpen) {
+            BackHandler { chatViewModel.closeArtifactWorkspace() }
+            com.echoflow.ui.screens.ArtifactWorkspaceScreen(
+                chatViewModel = chatViewModel,
+                onClose = { chatViewModel.closeArtifactWorkspace() },
+            )
         }
     }
 }
