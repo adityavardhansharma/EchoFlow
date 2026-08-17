@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "anti-slop": {
+      "source": "smithery.ai",
+      "sourceType": "well-known",
+      "computedHash": "0800335799f745c475640bec46c3c57a80ef5025574035d129ec2d5c1cb6847f"
+    }
+  }
+}
