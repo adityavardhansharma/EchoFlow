@@ -117,6 +117,7 @@ import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.ContextChipRow
 import com.echoflow.ui.components.ModelPill
+import com.echoflow.ui.components.ProjectPill
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
 import com.echoflow.ui.components.MarkdownText
@@ -195,6 +196,9 @@ internal fun InputToolbar(
     voiceAmplitude: Float = 0f,
     onMicTap: () -> Unit = {},
     onCancelTranscribe: () -> Unit = {},
+    projectName: String? = null,
+    projectColorIndex: Int = 0,
+    onOpenProject: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
@@ -277,6 +281,11 @@ internal fun InputToolbar(
             ModelPill(modelId = modelId, label = modelLabel, onClick = onOpenModelPicker)
             if (sttAvailable) {
                 ModelRowMic(phase = voicePhase, onClick = onMicTap)
+            }
+            // The project this chat belongs to, right beside the mic — its standing context, one tap
+            // from its home. Present only for a project chat.
+            if (projectName != null) {
+                ProjectPill(name = projectName, colorIndex = projectColorIndex, onClick = onOpenProject)
             }
             // Deep Research owns the pill; its only *extra* control is the depth/cost dial,
             // a real setting rather than a redundant label, so it stays — beside the pill.
