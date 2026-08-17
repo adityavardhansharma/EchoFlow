@@ -625,6 +625,7 @@ class ChatViewModel(
     fun projectFlow(id: String): Flow<Project?> = projectManager.observeProject(id)
     fun projectDocumentsFlow(id: String): Flow<List<ProjectDocument>> = projectManager.observeDocuments(id)
     fun projectDocumentCountFlow(id: String): Flow<Int> = projectManager.observeDocumentCount(id)
+    fun projectChatCountFlow(id: String): Flow<Int> = chatDao.countThreadsInProject(id)
     fun projectChatsFlow(id: String): Flow<List<ChatThread>> = projectManager.observeChats(id)
 
     /** The open chat's project (or its pending project before the thread exists) — the in-chat pill. */
