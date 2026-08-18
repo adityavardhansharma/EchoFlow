@@ -692,7 +692,9 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
         Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
             // A quiet one-line hint — guidance, not a heavy coloured slab competing with the editor.
             Row(
-                Modifier.padding(horizontal = Spacing.xs),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.xs),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -701,6 +703,7 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
                     "Sent to the model on every message in this project — a standing brief for tone, role and rules.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
             }
             // The writing surface: a generous card with comfortable inner margins so long briefs
