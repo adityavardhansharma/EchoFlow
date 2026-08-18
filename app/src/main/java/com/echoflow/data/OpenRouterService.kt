@@ -146,12 +146,10 @@ class OpenRouterService(private val context: Context) {
         }
     }
 
-    private fun readAttachmentBytes(uriString: String): ByteArray? {
-        val asFile = java.io.File(uriString.removePrefix("file://"))
-        if (asFile.isFile) return asFile.readBytes()
-        val uri = Uri.parse(uriString)
-        return context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-    }
+    private fun readAttachmentBytes(uriString: String): ByteArray? =
+        CappedAttachmentBytes.read(uriString) { uri ->
+            context.contentResolver.openInputStream(uri)
+        }
 
     private fun isPdfMime(mime: String?): Boolean = OpenRouterPayloads.isPdf(mime)
 

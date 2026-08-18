@@ -15,7 +15,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 data class CustomProviderConfig(
@@ -586,12 +585,8 @@ class CustomProviderService(private val context: Context? = null) {
     private fun getBase64FromUri(uriString: String?): String? {
         if (uriString == null) return null
         return try {
-            val asFile = java.io.File(uriString.removePrefix("file://"))
-            val bytes = if (asFile.isFile) {
-                asFile.readBytes()
-            } else {
-                val uri = Uri.parse(uriString)
-                context?.contentResolver?.openInputStream(uri)?.use { it.readBytes() }
+            val bytes = CappedAttachmentBytes.read(uriString) { uri ->
+                context?.contentResolver?.openInputStream(uri)
             }
             bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         } catch (_: Exception) {
