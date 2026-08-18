@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -74,12 +76,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
 import com.echoflow.ui.ChatViewModel
@@ -443,45 +447,45 @@ private fun ProjectHomeContent(
             // The primary action — start a chat that already carries this project's context.
             item {
                 NewChatHero(
+                    colorIndex = colorIndex,
                     accentContainer = accent.container,
                     accentOnContainer = accent.onContainer,
-                    shapedMark = { size ->
-                        Box(
-                            Modifier
-                                .size(size)
-                                .clip(RoundedPolygonShape(projectShape(colorIndex)))
-                                .background(accent.onContainer.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.Default.Add, null, Modifier.size(size * 0.5f), tint = accent.onContainer) }
-                    },
                     onClick = { chatViewModel.startNewChatInProject(projectId) },
                 )
             }
 
-            // Context setup: one connected slab so the two live as a considered pair, not two
-            // squares glued side by side.
+            // Context setup: a labelled, connected slab so the two live as a considered pair, not
+            // two squares glued side by side. Label + slab share one item so they stay tight.
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SetupRow(
-                        index = 0, count = 2,
-                        icon = Icons.Default.Description,
-                        title = "Instructions",
-                        status = project?.instructions?.trim().orEmpty().ifBlank { "Set a standing brief for every chat" },
-                        filled = !project?.instructions?.trim().isNullOrBlank(),
-                        onClick = onOpenInstructions,
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    Text(
+                        "Project context",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = Spacing.xs),
                     )
-                    SetupRow(
-                        index = 1, count = 2,
-                        icon = Icons.Default.FolderOpen,
-                        title = "Files",
-                        status = when (documents.size) {
-                            0 -> "Attach reference the model can draw on"
-                            1 -> "1 file attached"
-                            else -> "${documents.size} files attached"
-                        },
-                        filled = documents.isNotEmpty(),
-                        onClick = onOpenFiles,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        SetupRow(
+                            index = 0, count = 2,
+                            icon = Icons.Default.Description,
+                            title = "Instructions",
+                            status = project?.instructions?.trim().orEmpty().ifBlank { "Set a standing brief for every chat" },
+                            filled = !project?.instructions?.trim().isNullOrBlank(),
+                            onClick = onOpenInstructions,
+                        )
+                        SetupRow(
+                            index = 1, count = 2,
+                            icon = Icons.Default.FolderOpen,
+                            title = "Files",
+                            status = when (documents.size) {
+                                0 -> "Attach reference the model can draw on"
+                                1 -> "1 file attached"
+                                else -> "${documents.size} files attached"
+                            },
+                            filled = documents.isNotEmpty(),
+                            onClick = onOpenFiles,
+                        )
+                    }
                 }
             }
 
@@ -518,40 +522,59 @@ private fun ProjectHomeContent(
     }
 }
 
-/** The hero call-to-action: full-bleed accent card, its shaped mark, an arrow that reads as "go". */
+/**
+ * The hero call-to-action: a full-bleed accent card with the project's own shape bled in as a faint
+ * watermark, its shaped mark, and an arrow that reads as "go".
+ */
 @Composable
 private fun NewChatHero(
+    colorIndex: Int,
     accentContainer: Color,
     accentOnContainer: Color,
-    shapedMark: @Composable (androidx.compose.ui.unit.Dp) -> Unit,
     onClick: () -> Unit,
 ) {
+    val shape = remember(colorIndex) { RoundedPolygonShape(projectShape(colorIndex)) }
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(26.dp),
         color = accentContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            Modifier.padding(Spacing.base),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.base),
-        ) {
-            shapedMark(48.dp)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "New chat",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = accentOnContainer,
-                )
-                Text(
-                    "Start with this project's context",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = accentOnContainer.copy(alpha = 0.78f),
-                )
+        Box(Modifier.fillMaxWidth()) {
+            // The identity bleeding into its own action — a big, faint project-shape watermark,
+            // clipped by the card so it only hints at the edge.
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 40.dp)
+                    .size(150.dp)
+                    .clip(shape)
+                    .background(accentOnContainer.copy(alpha = 0.09f)),
+            )
+            Row(
+                Modifier.padding(Spacing.base),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.base),
+            ) {
+                Box(
+                    Modifier.size(48.dp).clip(shape).background(accentOnContainer.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Add, null, Modifier.size(24.dp), tint = accentOnContainer) }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "New chat",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = accentOnContainer,
+                    )
+                    Text(
+                        "Start with this project's context",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = accentOnContainer.copy(alpha = 0.78f),
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(24.dp), tint = accentOnContainer)
             }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(24.dp), tint = accentOnContainer)
         }
     }
 }
@@ -667,27 +690,23 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
             Text("Instructions", style = MaterialTheme.typography.headlineMedium)
         }
         Column(Modifier.fillMaxSize().padding(Spacing.base), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            // A soft callout instead of a bare paragraph — the "why" reads as guidance, not fine print.
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
+            // A quiet one-line hint — guidance, not a heavy coloured slab competing with the editor.
+            Row(
+                Modifier.padding(horizontal = Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier.padding(Spacing.base),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Icon(Icons.Default.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Text(
-                        "Given to the model on every message in this project — a standing brief for tone, role and rules.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
+                Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Sent to the model on every message in this project — a standing brief for tone, role and rules.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            // The writing surface: a generous card with comfortable inner margins so long briefs
+            // read like a document, not a cramped form field.
             Surface(
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
@@ -697,10 +716,11 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
                     placeholder = {
                         Text(
                             "e.g. You are helping me write a noir mystery. Keep a wry, hard-boiled tone and remember the characters and timeline in the attached files.",
+                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
-                    textStyle = MaterialTheme.typography.bodyLarge,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
@@ -708,7 +728,7 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
                         unfocusedIndicatorColor = Color.Transparent,
                         disabledIndicatorColor = Color.Transparent,
                     ),
-                    modifier = Modifier.fillMaxSize().imePadding(),
+                    modifier = Modifier.fillMaxSize().padding(Spacing.s).imePadding(),
                 )
             }
             Text(
@@ -757,9 +777,11 @@ private fun ProjectFilesScreen(
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.base, Spacing.l, Spacing.base, 104.dp),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    items(documents, key = { it.id }) { doc -> DocumentRow(doc) { onRemove(doc) } }
+                    itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
+                        DocumentRow(doc, groupedItemShape(index, documents.size)) { onRemove(doc) }
+                    }
                 }
             }
         }
@@ -773,25 +795,25 @@ private fun ProjectFilesScreen(
 }
 
 @Composable
-private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
+private fun DocumentRow(document: ProjectDocument, shape: Shape, onRemove: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Description, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(Icons.Default.Description, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
-                Text(document.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(document.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
                         append(formatBytes(document.sizeBytes))
@@ -801,7 +823,9 @@ private fun DocumentRow(document: ProjectDocument, onRemove: () -> Unit) {
                     color = if (document.hasText) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
             }
-            IconButton(onClick = onRemove) { Icon(Icons.Default.DeleteOutline, "Remove file", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.DeleteOutline, "Remove file", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
