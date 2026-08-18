@@ -138,18 +138,18 @@ class OpenRouterService(private val context: Context) {
     private fun getBase64FromUri(uriString: String?): String? {
         if (uriString == null) return null
         return try {
-            val uri = Uri.parse(uriString)
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            val bytes = inputStream?.readBytes()
-            inputStream?.close()
-            if (bytes != null) {
-                Base64.encodeToString(bytes, Base64.NO_WRAP)
-            } else null
+            val bytes = readAttachmentBytes(uriString) ?: return null
+            Base64.encodeToString(bytes, Base64.NO_WRAP)
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
     }
+
+    private fun readAttachmentBytes(uriString: String): ByteArray? =
+        CappedAttachmentBytes.read(uriString) { uri ->
+            context.contentResolver.openInputStream(uri)
+        }
 
     private fun isPdfMime(mime: String?): Boolean = OpenRouterPayloads.isPdf(mime)
 

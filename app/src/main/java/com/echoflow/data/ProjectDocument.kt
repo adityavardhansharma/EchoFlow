@@ -27,7 +27,33 @@ data class ProjectDocument(
     val filePath: String,
     val extractedText: String? = null,
     val addedAt: Long,
+    // Nullable so the v22→v23 migration needs no SQL DEFAULT (matches the no-defaultValue entity policy).
+    val extractionStatus: String? = null,
+    val extractionTier: String? = null,
 ) {
     /** Whether this document actually contributes text to the project's context. */
     val hasText: Boolean get() = !extractedText.isNullOrBlank()
+
+    val status: ExtractionStatus
+        get() = ExtractionStatus.from(extractionStatus)
+
+    val tier: ExtractionTier?
+        get() = extractionTier?.let { raw -> ExtractionTier.entries.firstOrNull { it.name == raw } }
 }
+
+enum class ExtractionStatus {
+    PENDING,
+    EXTRACTING,
+    EXTRACTED,
+    NEEDS_PROVIDER,
+    FAILED,
+    UNKNOWN;
+
+    val isBusy: Boolean get() = this == PENDING || this == EXTRACTING
+
+    companion object {
+        fun from(s: String?) = entries.firstOrNull { it.name == s } ?: UNKNOWN
+    }
+}
+
+enum class ExtractionTier { ANYDOC, OCR, PROVIDER, LEGACY_TEXT }

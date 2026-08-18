@@ -37,6 +37,7 @@ class SettingsNavigationTest {
             PageEchoFusion,
             PageEchoAgent,
             PageCustomProvider,
+            PageLicenses,
         ).forEach { page ->
             assertEquals(PageEchoLabs, settingsParentPage(page))
         }

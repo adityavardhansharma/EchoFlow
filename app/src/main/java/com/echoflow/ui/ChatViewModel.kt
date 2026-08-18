@@ -647,7 +647,14 @@ class ChatViewModel(
         _openProjectId.value = null
     }
 
-    fun openProjectHome(projectId: String) { _openProjectId.value = projectId }
+    fun openProjectHome(projectId: String) {
+        _openProjectId.value = projectId
+        viewModelScope.launch { projectManager.backfillProject(projectId) }
+    }
+
+    val modelReadsFiles: StateFlow<Boolean> = settingsRepository.selectedModel
+        .map { com.echoflow.data.extract.ModelFileCapability.readsFiles(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
     fun closeProjectHome() { _openProjectId.value = null }
 
     fun closeProjectsHub() {
@@ -1503,6 +1510,7 @@ class ChatViewModel(
             val activeProjectId =
                 _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
                     ?: pendingProjectIfStillExists()
+            if (activeProjectId != null) projectManager.backfillProject(activeProjectId)
             val systemPrompt = baseSystemPrompt + (activeProjectId?.let { projectManager.buildSystemContext(it) } ?: "")
 
             var isFirstMsgInChat = false
@@ -1612,6 +1620,20 @@ class ChatViewModel(
 
             // Load updated dialog history
             val fullHistory = chatRepository.history(chatId)
+            if (activeProjectId != null &&
+                com.echoflow.data.extract.ModelFileCapability.readsFiles(selectedModel)
+            ) {
+                val extras = projectManager.documentsNeedingProvider(activeProjectId)
+                    .take(MAX_PROVIDER_DOCS)
+                    .map { doc ->
+                        LocalFileAttachment(
+                            uri = File(doc.filePath).absolutePath,
+                            mimeType = doc.mimeType,
+                            name = doc.name,
+                        )
+                    }
+                fullHistory.lastOrNull { it.role == "user" }?.extraAttachments = extras
+            }
 
             // Resolve the user's global sampler settings for whichever model is about to run,
             // clamped to that model's limits (so a budget set for a big model can't break a
@@ -2500,6 +2522,9 @@ class ChatViewModel(
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */
         private const val MAX_FRAME_IMAGE_BYTES = 4 * 1024 * 1024
+
+        /** Bound how many unread project files ride on one send (each is already ≤ 25 MB). */
+        private const val MAX_PROVIDER_DOCS = 3
 
         fun provideFactory(
             application: Application,

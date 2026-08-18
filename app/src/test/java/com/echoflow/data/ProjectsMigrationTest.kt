@@ -149,4 +149,31 @@ class ProjectsMigrationTest {
         assertTrue(names.contains("index_chat_threads_projectId"))
         assertTrue(names.contains("index_project_documents_projectId"))
     }
+
+    @Test fun `v23 adds extraction columns without touching existing documents`() {
+        insertThread("thread-1")
+        AppDatabase.MIGRATION_21_22.migrate(db)
+        db.execSQL(
+            "INSERT INTO projects (id, name, instructions, colorIndex, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
+            arrayOf("proj-1", "Novel", "", 0, 10L, 20L),
+        )
+        db.execSQL(
+            "INSERT INTO project_documents (id, projectId, name, mimeType, sizeBytes, filePath, extractedText, addedAt) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            arrayOf("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
+        )
+
+        AppDatabase.MIGRATION_22_23.migrate(db)
+
+        db.query(
+            "SELECT id, name, extractedText, extractionStatus, extractionTier FROM project_documents WHERE id = 'doc-1'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("doc-1", c.getString(0))
+            assertEquals("notes.txt", c.getString(1))
+            assertEquals("hello", c.getString(2))
+            assertNull(c.getString(3))
+            assertNull(c.getString(4))
+        }
+    }
 }

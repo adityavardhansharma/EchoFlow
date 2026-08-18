@@ -127,6 +127,8 @@ dependencies {
   implementation(libs.mediapipe.tasks.genai)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  // Unbundled on-device OCR — model is downloaded via Play Services on first use.
+  implementation(libs.mlkit.text.recognition)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
