@@ -48,7 +48,9 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
                         renderer.openPage(i).use { page ->
                             val size = OcrBitmapBudget.pdfRenderSize(page.width, page.height)
                                 ?: return@use
-                            val bmp = Bitmap.createBitmap(size.first, size.second, Bitmap.Config.ARGB_8888)
+                            val bmp = runCatching {
+                                Bitmap.createBitmap(size.first, size.second, Bitmap.Config.ARGB_8888)
+                            }.getOrNull() ?: return@use
                             try {
                                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                 val text = recognizeBlocking(InputImage.fromBitmap(bmp, 0))
@@ -71,10 +73,14 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val opts = BitmapFactory.Options().apply {
-            inSampleSize = OcrBitmapBudget.sampleSize(bounds.outWidth, bounds.outHeight)
+        val sample = OcrBitmapBudget.sampleSize(bounds.outWidth, bounds.outHeight) ?: return null
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
+        if (!OcrBitmapBudget.fits(bmp.width, bmp.height)) {
+            if (!bmp.isRecycled) bmp.recycle()
+            return null
         }
-        return BitmapFactory.decodeFile(file.absolutePath, opts)
+        return bmp
     }
 
     private suspend fun recognizeBlocking(img: InputImage): String =
@@ -93,15 +99,26 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
 internal object OcrBitmapBudget {
     const val MAX_PIXELS = 4_000_000L
 
-    fun sampleSize(width: Int, height: Int, maxPixels: Long = MAX_PIXELS): Int {
-        if (width <= 0 || height <= 0) return 1
+    fun fits(width: Int, height: Int, maxPixels: Long = MAX_PIXELS): Boolean {
+        if (width <= 0 || height <= 0) return false
+        return width.toLong() * height.toLong() <= maxPixels
+    }
+
+    /**
+     * Power-of-two [BitmapFactory.Options.inSampleSize], or null when even the
+     * 1024× floor still exceeds [maxPixels]. Callers must not decode on null.
+     */
+    fun sampleSize(width: Int, height: Int, maxPixels: Long = MAX_PIXELS): Int? {
+        if (width <= 0 || height <= 0) return null
         var sample = 1
         var w = width.toLong()
         var h = height.toLong()
         while (w * h > maxPixels) {
+            if (sample >= 1024) return null
             sample *= 2
             w = width.toLong() / sample
             h = height.toLong() / sample
+            if (w < 1L || h < 1L) return null
         }
         return sample
     }
