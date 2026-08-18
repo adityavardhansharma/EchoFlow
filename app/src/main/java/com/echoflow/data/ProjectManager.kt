@@ -178,28 +178,41 @@ class ProjectManager(
             if (t is CancellationException) throw t
             return@withContext null
         }
-        extractAndStore(pending)
+        backfillLock(projectId).withLock {
+            val current = projectDocumentDao.getById(pending.id) ?: return@withLock null
+            if (current.status.isBusy || current.status == ExtractionStatus.UNKNOWN) {
+                extractAndStore(current)
+            } else {
+                current
+            }
+        }
     }
 
     /**
-     * Re-run extraction for a project's legacy rows (`extractionStatus` is null). Existing
-     * text files keep their body and are stamped EXTRACTED / LEGACY_TEXT; unsupported
-     * leftovers go through the new pipeline. Safe to call repeatedly.
+     * Re-run extraction for legacy (`UNKNOWN`) rows and for imports interrupted mid-extract
+     * (`PENDING` / `EXTRACTING`). Existing text files are stamped EXTRACTED / LEGACY_TEXT.
+     * Shares [backfillLock] with [addDocument] so the two cannot extract the same row.
      */
     suspend fun backfillProject(projectId: String) = withContext(Dispatchers.IO) {
         backfillLock(projectId).withLock {
             val docs = projectDocumentDao.getForProjectSync(projectId)
             for (doc in docs) {
-                if (doc.status != ExtractionStatus.UNKNOWN) continue
-                if (doc.hasText) {
-                    projectDocumentDao.update(
-                        doc.copy(
-                            extractionStatus = ExtractionStatus.EXTRACTED.name,
-                            extractionTier = ExtractionTier.LEGACY_TEXT.name,
-                        )
-                    )
-                } else {
-                    extractAndStore(doc)
+                val current = projectDocumentDao.getById(doc.id) ?: continue
+                when (current.status) {
+                    ExtractionStatus.UNKNOWN -> {
+                        if (current.hasText) {
+                            projectDocumentDao.update(
+                                current.copy(
+                                    extractionStatus = ExtractionStatus.EXTRACTED.name,
+                                    extractionTier = ExtractionTier.LEGACY_TEXT.name,
+                                )
+                            )
+                        } else {
+                            extractAndStore(current)
+                        }
+                    }
+                    ExtractionStatus.PENDING, ExtractionStatus.EXTRACTING -> extractAndStore(current)
+                    else -> Unit
                 }
             }
         }

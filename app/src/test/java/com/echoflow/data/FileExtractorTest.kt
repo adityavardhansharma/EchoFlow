@@ -58,6 +58,25 @@ class FileExtractorTest {
         assertNull(result.text)
     }
 
+    @Test fun `pdf with a generic mime still goes to anydoc`() = runBlocking {
+        val file = tmp.newFile("report.pdf").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val extractor = FileExtractor(
+            parser = object : DocumentParser {
+                override val available = true
+                override fun convert(bytes: ByteArray, filename: String) =
+                    Anydoc.Result.Text("# From PDF")
+            },
+            ocr = object : ImageTextRecognizer {
+                override suspend fun ocrImage(file: File) = error("image OCR should not run")
+                override suspend fun ocrPdf(file: File, maxPages: Int) = error("pdf OCR should not run")
+            },
+        )
+        val result = extractor.extract(file, "application/octet-stream", "report.pdf")
+        assertEquals(ExtractionStatus.EXTRACTED, result.status)
+        assertEquals(ExtractionTier.ANYDOC, result.tier)
+        assertEquals("# From PDF", result.text)
+    }
+
     @Test fun `scanned pdf falls through to ocr`() = runBlocking {
         val file = tmp.newFile("scan.pdf").apply { writeBytes(byteArrayOf(1)) }
         val extractor = FileExtractor(

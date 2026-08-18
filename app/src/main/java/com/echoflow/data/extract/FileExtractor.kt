@@ -93,7 +93,7 @@ class FileExtractor(
 
         private val ANYDOC_EXTS = setOf(
             "doc", "docx", "docm", "ppt", "pptx", "xls", "xlsx", "xlsm", "xlsb",
-            "odt", "ods", "odp", "rtf", "epub", "csv",
+            "odt", "ods", "odp", "rtf", "epub", "csv", "pdf",
         )
 
         private val TEXTUAL_MIME_TYPES = setOf(

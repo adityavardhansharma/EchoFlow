@@ -2,10 +2,15 @@ package com.echoflow.data.extract
 
 /**
  * Whether the active model can accept raw files/images on a chat turn (Tier 3).
- * On-device models cannot; OpenRouter and typical cloud endpoints can. Unknown
- * is treated as "no" only for the local prefix — matching the existing user-attachment
- * path, which already sends PDFs to any OpenRouter model.
+ *
+ * Only OpenRouter models get extras attached today. On-device (`local/`) and
+ * custom/direct-cloud (`custom/`) send paths drop PDFs or all extra parts, so
+ * they must not be advertised as file-capable — the Files row would otherwise
+ * say the file was sent when it was not.
  */
 object ModelFileCapability {
-    fun readsFiles(modelId: String): Boolean = !modelId.startsWith("local/")
+    fun readsFiles(modelId: String): Boolean =
+        modelId.isNotBlank() &&
+            !modelId.startsWith("local/") &&
+            !modelId.startsWith("custom/")
 }

@@ -30,7 +30,7 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
     }
 
     override suspend fun ocrImage(file: File): String? = withContext(Dispatchers.IO) {
-        val bmp = BitmapFactory.decodeFile(file.absolutePath) ?: return@withContext null
+        val bmp = decodeBounded(file) ?: return@withContext null
         try {
             recognizeBlocking(InputImage.fromBitmap(bmp, 0)).takeIf { it.isNotBlank() }
         } finally {
@@ -46,11 +46,9 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
                     val pages = minOf(renderer.pageCount, maxPages)
                     for (i in 0 until pages) {
                         renderer.openPage(i).use { page ->
-                            val bmp = Bitmap.createBitmap(
-                                (page.width * 2).coerceAtLeast(1),
-                                (page.height * 2).coerceAtLeast(1),
-                                Bitmap.Config.ARGB_8888,
-                            )
+                            val size = OcrBitmapBudget.pdfRenderSize(page.width, page.height)
+                                ?: return@use
+                            val bmp = Bitmap.createBitmap(size.first, size.second, Bitmap.Config.ARGB_8888)
                             try {
                                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                 val text = recognizeBlocking(InputImage.fromBitmap(bmp, 0))
@@ -69,10 +67,56 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
         }.getOrNull()
     }
 
+    private fun decodeBounded(file: File): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = OcrBitmapBudget.sampleSize(bounds.outWidth, bounds.outHeight)
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, opts)
+    }
+
     private suspend fun recognizeBlocking(img: InputImage): String =
         suspendCancellableCoroutine { cont ->
             recognizer.process(img)
                 .addOnSuccessListener { if (cont.isActive) cont.resume(it.text.orEmpty()) }
                 .addOnFailureListener { if (cont.isActive) cont.resume("") }
         }
+}
+
+/**
+ * Caps OCR bitmaps so a 25 MB JPEG or a huge PDF page box cannot allocate
+ * width×height×4 bytes and OOM the process. Pure math so unit tests do not
+ * need ML Kit or a renderer.
+ */
+internal object OcrBitmapBudget {
+    const val MAX_PIXELS = 4_000_000L
+
+    fun sampleSize(width: Int, height: Int, maxPixels: Long = MAX_PIXELS): Int {
+        if (width <= 0 || height <= 0) return 1
+        var sample = 1
+        var w = width.toLong()
+        var h = height.toLong()
+        while (w * h > maxPixels && sample < 1024) {
+            sample *= 2
+            w = width.toLong() / sample
+            h = height.toLong() / sample
+        }
+        return sample
+    }
+
+    fun pdfRenderSize(pageWidth: Int, pageHeight: Int, maxPixels: Long = MAX_PIXELS): Pair<Int, Int>? {
+        val rawW = pageWidth.toLong() * 2
+        val rawH = pageHeight.toLong() * 2
+        if (rawW <= 0L || rawH <= 0L) return null
+        if (rawW * rawH <= maxPixels) {
+            return rawW.toInt() to rawH.toInt()
+        }
+        val scale = kotlin.math.sqrt(maxPixels.toDouble() / (rawW * rawH).toDouble())
+        val w = (rawW * scale).toInt().coerceAtLeast(1)
+        val h = (rawH * scale).toInt().coerceAtLeast(1)
+        if (w.toLong() * h.toLong() > maxPixels) return null
+        return w to h
+    }
 }
