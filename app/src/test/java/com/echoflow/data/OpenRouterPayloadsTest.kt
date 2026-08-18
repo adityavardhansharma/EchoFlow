@@ -57,6 +57,26 @@ class OpenRouterPayloadsTest {
         assertEquals("image_url", (parts[1] as Map<*, *>)["type"])
     }
 
+    @Test fun `attaches extra project files to the last user message`() {
+        val history = listOf(message(role = "user", content = "use the brief"))
+        history.single().extraAttachments = listOf(
+            LocalFileAttachment("file:///tmp/scan.pdf", "application/pdf", "scan.pdf"),
+            LocalFileAttachment("file:///tmp/photo.png", "image/png", "photo.png"),
+        )
+        val messages = OpenRouterPayloads.messages(history) { uri ->
+            when {
+                uri == null -> null
+                uri.endsWith(".pdf") -> "cGRm"
+                else -> "cG5n"
+            }
+        }
+        val parts = messages.single()["content"] as List<*>
+        assertEquals(3, parts.size)
+        assertEquals("file", (parts[1] as Map<*, *>)["type"])
+        assertEquals("image_url", (parts[2] as Map<*, *>)["type"])
+        assertTrue(OpenRouterPayloads.historyHasPdf(history))
+    }
+
     @Test fun `extracts only structured OpenRouter error message`() {
         assertEquals("quota", OpenRouterPayloads.errorMessage("""{"error":{"message":"quota"}}"""))
         assertNull(OpenRouterPayloads.errorMessage("broken"))

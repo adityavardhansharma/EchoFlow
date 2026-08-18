@@ -2,6 +2,7 @@ package com.echoflow.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Ignore
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -71,6 +72,14 @@ data class ChatMessage(
     val replyVersionsJson: String? = null,
 ) {
     /**
+     * In-memory only. Extra files (project docs that still need the provider) attached to this
+     * outgoing turn. Room never persists this; callers set it on the last user message just
+     * before building the request payload.
+     */
+    @Ignore
+    @Transient
+    var extraAttachments: List<LocalFileAttachment> = emptyList()
+    /**
      * Rewrites a user prompt without moving its turn in the transcript. [createdAt] is the
      * stable ordering key: keeping it means a failed regeneration can restore the original
      * assistant row verbatim and it will still sort after the prompt it answers.
@@ -87,6 +96,13 @@ data class ChatMessage(
         localAttachmentName = attachmentName,
     )
 }
+
+/** An extra file attached to one outgoing chat turn (not stored on the message row). */
+data class LocalFileAttachment(
+    val uri: String,
+    val mimeType: String,
+    val name: String,
+)
 
 @Entity(tableName = "custom_models")
 data class CustomModel(

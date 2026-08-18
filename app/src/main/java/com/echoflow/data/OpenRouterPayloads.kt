@@ -9,7 +9,25 @@ internal object OpenRouterPayloads {
     fun isPdf(mime: String?): Boolean = mime.equals("application/pdf", ignoreCase = true)
 
     fun historyHasPdf(history: List<ChatMessage>): Boolean =
-        history.any { it.role == "user" && it.localAttachmentUri != null && isPdf(it.localAttachmentMimeType) }
+        history.any { message ->
+            message.role == "user" && (
+                (message.localAttachmentUri != null && isPdf(message.localAttachmentMimeType)) ||
+                    message.extraAttachments.any { isPdf(it.mimeType) }
+                )
+        }
+
+    fun attachmentPart(mime: String, name: String?, encoded: String): Map<String, Any> =
+        if (isPdf(mime)) {
+            mapOf(
+                "type" to "file",
+                "file" to mapOf(
+                    "filename" to (name?.takeIf(String::isNotBlank) ?: "document.pdf"),
+                    "file_data" to "[PDF attachment removed — 0 KB]$encoded",
+                ),
+            )
+        } else {
+            mapOf("type" to "image_url", "image_url" to mapOf("url" to "data:$mime;base64,$encoded"))
+        }
 
     fun enablePdfPlugin(request: MutableMap<String, Any>, enabled: Boolean) {
         if (!enabled) return
@@ -28,19 +46,32 @@ internal object OpenRouterPayloads {
         if (!systemPrompt.isNullOrBlank()) add(mapOf("role" to "system", "content" to systemPrompt))
         history.forEach { message ->
             val encoded = readBase64(message.localAttachmentUri)
+            val extras = if (message.role == "user") {
+                message.extraAttachments.mapNotNull { extra ->
+                    val bytes = readBase64(extra.uri) ?: return@mapNotNull null
+                    attachmentPart(extra.mimeType, extra.name, bytes)
+                }
+            } else {
+                emptyList()
+            }
             if (encoded != null && message.role == "user") {
                 val mime = message.localAttachmentMimeType ?: "image/jpeg"
-                val attachment = if (isPdf(mime)) {
-                    mapOf("type" to "file", "file" to mapOf(
-                        "filename" to (message.localAttachmentName?.takeIf(String::isNotBlank) ?: "document.pdf"),
-                        "file_data" to "data:application/pdf;base64,$encoded",
-                    ))
-                } else {
-                    mapOf("type" to "image_url", "image_url" to mapOf("url" to "data:$mime;base64,$encoded"))
-                }
-                add(mapOf("role" to message.role, "content" to listOf(
-                    mapOf("type" to "text", "text" to message.content), attachment,
-                )))
+                add(
+                    mapOf(
+                        "role" to message.role,
+                        "content" to listOf(
+                            mapOf("type" to "text", "text" to message.content),
+                            attachmentPart(mime, message.localAttachmentName, encoded),
+                        ) + extras,
+                    )
+                )
+            } else if (extras.isNotEmpty()) {
+                add(
+                    mapOf(
+                        "role" to message.role,
+                        "content" to listOf(mapOf("type" to "text", "text" to message.content)) + extras,
+                    )
+                )
             } else {
                 add(mapOf("role" to message.role, "content" to message.content))
             }

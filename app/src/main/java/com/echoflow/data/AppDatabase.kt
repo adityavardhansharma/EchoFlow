@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class
     ],
-    version = 22, // v22: Projects (projects, project_documents, chat_threads.projectId)
+    version = 23, // v23: project_documents.extractionStatus + extractionTier
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -425,6 +425,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Project-file extraction status. Additive, nullable — no DEFAULT (matches the
+         * no-defaultValue entity policy). Existing rows keep extractionStatus = NULL
+         * and are read as UNKNOWN, then backfilled the next time that project is opened.
+         */
+        internal val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE project_documents ADD COLUMN extractionStatus TEXT")
+                db.execSQL("ALTER TABLE project_documents ADD COLUMN extractionTier TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -454,6 +466,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_19_20,
                     MIGRATION_20_21,
                     MIGRATION_21_22,
+                    MIGRATION_22_23,
                 )
                 .build()
                 INSTANCE = instance

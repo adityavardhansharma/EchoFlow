@@ -3,9 +3,13 @@ package com.echoflow.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.echoflow.data.extract.FileExtractor
+import com.echoflow.data.extract.OcrExtractor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -24,7 +28,12 @@ class ProjectManager(
     private val projectDao: ProjectDao,
     private val projectDocumentDao: ProjectDocumentDao,
     private val chatDao: ChatDao,
+    private val extractor: FileExtractor = FileExtractor(ocr = OcrExtractor(context)),
 ) {
+    private val backfillLocks = mutableMapOf<String, Mutex>()
+    private fun backfillLock(projectId: String): Mutex = synchronized(backfillLocks) {
+        backfillLocks.getOrPut(projectId) { Mutex() }
+    }
     fun observeProjects(): Flow<List<Project>> = projectDao.observeAll()
     fun observeProject(id: String): Flow<Project?> = projectDao.observeById(id)
     fun observeDocuments(projectId: String): Flow<List<ProjectDocument>> =
@@ -84,9 +93,10 @@ class ProjectManager(
     }
 
     /**
-     * Import [uri] as a reference document: copy it into the project's folder and, for text
-     * formats, extract its text for context injection. Returns the stored row, or null if the
-     * file couldn't be read at all.
+     * Import [uri] as a reference document: copy it into the project's folder, insert a
+     * PENDING row immediately, then extract on this IO dispatcher. The Files UI observes the
+     * Room flow so the row settles in place. Returns the stored row, or null if the file
+     * couldn't be copied at all.
      */
     suspend fun addDocument(projectId: String, uri: Uri): ProjectDocument? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
@@ -136,39 +146,84 @@ class ProjectManager(
         }
         if (size <= 0L) size = dest.length()
 
-        val extracted = extractText(dest, mimeType, displayName)
-        val document = ProjectDocument(
+        val pending = ProjectDocument(
             id = docId,
             projectId = projectId,
             name = displayName,
             mimeType = mimeType,
             sizeBytes = size,
             filePath = dest.absolutePath,
-            extractedText = extracted,
+            extractedText = null,
             addedAt = System.currentTimeMillis(),
+            extractionStatus = ExtractionStatus.PENDING.name,
+            extractionTier = null,
         )
         // Copy succeeded; the file is only reachable through a project_documents row. If
         // insert or touch throws, or the parent was deleted between copy and now (cascade
         // removes the row without throwing), dest must go with it — otherwise it sits
         // unreferenced and the files UI cannot remove it.
         try {
-            projectDocumentDao.insert(document)
+            projectDocumentDao.insert(pending)
             if (projectDao.getById(projectId) == null ||
-                projectDocumentDao.getById(document.id) == null
+                projectDocumentDao.getById(pending.id) == null
             ) {
-                runCatching { projectDocumentDao.delete(document.id) }
+                runCatching { projectDocumentDao.delete(pending.id) }
                 runCatching { dest.delete() }
                 return@withContext null
             }
             touch(projectId)
         } catch (t: Throwable) {
-            runCatching { projectDocumentDao.delete(document.id) }
+            runCatching { projectDocumentDao.delete(pending.id) }
             runCatching { dest.delete() }
             if (t is CancellationException) throw t
             return@withContext null
         }
-        document
+        extractAndStore(pending)
     }
+
+    /**
+     * Re-run extraction for a project's legacy rows (`extractionStatus` is null). Existing
+     * text files keep their body and are stamped EXTRACTED / LEGACY_TEXT; unsupported
+     * leftovers go through the new pipeline. Safe to call repeatedly.
+     */
+    suspend fun backfillProject(projectId: String) = withContext(Dispatchers.IO) {
+        backfillLock(projectId).withLock {
+            val docs = projectDocumentDao.getForProjectSync(projectId)
+            for (doc in docs) {
+                if (doc.status != ExtractionStatus.UNKNOWN) continue
+                if (doc.hasText) {
+                    projectDocumentDao.update(
+                        doc.copy(
+                            extractionStatus = ExtractionStatus.EXTRACTED.name,
+                            extractionTier = ExtractionTier.LEGACY_TEXT.name,
+                        )
+                    )
+                } else {
+                    extractAndStore(doc)
+                }
+            }
+        }
+    }
+
+    private suspend fun extractAndStore(document: ProjectDocument): ProjectDocument {
+        projectDocumentDao.update(document.copy(extractionStatus = ExtractionStatus.EXTRACTING.name))
+        val result = runCatching {
+            extractor.extract(File(document.filePath), document.mimeType, document.name)
+        }.getOrElse {
+            FileExtractor.Result(null, ExtractionStatus.FAILED, null)
+        }
+        val updated = document.copy(
+            extractedText = result.text,
+            extractionStatus = result.status.name,
+            extractionTier = result.tier?.name,
+        )
+        projectDocumentDao.update(updated)
+        return updated
+    }
+
+    suspend fun documentsNeedingProvider(projectId: String): List<ProjectDocument> =
+        projectDocumentDao.getForProjectSync(projectId)
+            .filter { it.status == ExtractionStatus.NEEDS_PROVIDER }
 
     suspend fun removeDocument(document: ProjectDocument) = withContext(Dispatchers.IO) {
         runCatching { File(document.filePath).delete() }
@@ -184,7 +239,9 @@ class ProjectManager(
      */
     suspend fun buildSystemContext(projectId: String): String {
         val project = projectDao.getById(projectId) ?: return ""
-        val docs = projectDocumentDao.getForProjectSync(projectId).filter { it.hasText }
+        val docs = projectDocumentDao.getForProjectSync(projectId).filter { doc ->
+            doc.hasText && (doc.status == ExtractionStatus.EXTRACTED || doc.status == ExtractionStatus.UNKNOWN)
+        }
         val instructions = project.instructions.trim()
         if (instructions.isBlank() && docs.isEmpty()) return ""
 
@@ -218,36 +275,6 @@ class ProjectManager(
     private fun projectDir(projectId: String): File =
         File(File(context.filesDir, "project_documents"), projectId)
 
-    /**
-     * Extract text for context injection. v1 reads text-shaped formats only (text MIME types, and a
-     * few textual application types); binary formats like PDF keep a null body — they still list in
-     * the project, they just contribute no context, and the UI says so. Extraction is capped per
-     * document so one huge file can't dominate later assembly.
-     */
-    private fun extractText(file: File, mimeType: String, name: String): String? {
-        val lower = mimeType.lowercase()
-        val ext = name.substringAfterLast('.', "").lowercase()
-        val looksTextual = lower.startsWith("text/") ||
-            lower in TEXTUAL_MIME_TYPES ||
-            ext in TEXTUAL_EXTENSIONS
-        if (!looksTextual) return null
-        // Read at most MAX_EXTRACT_CHARS characters so peak allocation is capped regardless of file
-        // size — readText() would materialize the whole (possibly hundreds of MB) file first, then
-        // truncate, risking OutOfMemoryError on large log/csv/sql files selected through SAF.
-        return runCatching {
-            file.bufferedReader(Charsets.UTF_8).use { reader ->
-                val buffer = CharArray(MAX_EXTRACT_CHARS)
-                var filled = 0
-                while (filled < buffer.size) {
-                    val read = reader.read(buffer, filled, buffer.size - filled)
-                    if (read < 0) break
-                    filled += read
-                }
-                if (filled <= 0) null else String(buffer, 0, filled)
-            }
-        }.getOrNull()?.takeIf { it.isNotBlank() }
-    }
-
     companion object {
         /** Fallback when the user supplies a blank project name. */
         const val UNTITLED_PROJECT = "Untitled project"
@@ -255,22 +282,7 @@ class ProjectManager(
         /** Hard cap on an imported file's size (bytes) — larger selections are rejected. */
         private const val MAX_IMPORT_BYTES = 25L * 1024 * 1024
 
-        /** Per-document extraction cap on import (characters read into memory). */
-        private const val MAX_EXTRACT_CHARS = 200_000
-
         /** Combined document budget injected into any single system prompt. */
         private const val MAX_DOC_CONTEXT_CHARS = 24_000
-
-        private val TEXTUAL_MIME_TYPES = setOf(
-            "application/json", "application/xml", "application/xhtml+xml",
-            "application/javascript", "application/x-yaml", "application/yaml",
-            "application/markdown", "application/x-sh", "application/csv",
-        )
-
-        private val TEXTUAL_EXTENSIONS = setOf(
-            "txt", "md", "markdown", "json", "xml", "yaml", "yml", "csv", "tsv",
-            "html", "htm", "css", "js", "ts", "kt", "java", "py", "rb", "go",
-            "rs", "c", "cpp", "h", "sh", "toml", "ini", "cfg", "log", "sql",
-        )
     }
 }

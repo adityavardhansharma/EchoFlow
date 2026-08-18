@@ -465,6 +465,18 @@ class CustomProviderService(private val context: Context? = null) {
         if (systemPrompt.isNotBlank()) out.add(mapOf("role" to "system", "content" to systemPrompt))
         history.forEach { msg ->
             val base64 = getBase64FromUri(msg.localAttachmentUri)
+            val extraImages = if (msg.role == "user") {
+                msg.extraAttachments.mapNotNull { extra ->
+                    if (extra.mimeType.equals("application/pdf", ignoreCase = true)) return@mapNotNull null
+                    val encoded = getBase64FromUri(extra.uri) ?: return@mapNotNull null
+                    mapOf(
+                        "type" to "image_url",
+                        "image_url" to mapOf("url" to "data:${extra.mimeType};base64,$encoded"),
+                    )
+                }
+            } else {
+                emptyList()
+            }
             if (base64 != null && msg.role == "user" && !msg.localAttachmentMimeType.equals("application/pdf", ignoreCase = true)) {
                 val mime = msg.localAttachmentMimeType ?: "image/jpeg"
                 out.add(
@@ -473,7 +485,14 @@ class CustomProviderService(private val context: Context? = null) {
                         "content" to listOf(
                             mapOf("type" to "text", "text" to msg.content),
                             mapOf("type" to "image_url", "image_url" to mapOf("url" to "data:$mime;base64,$base64")),
-                        ),
+                        ) + extraImages,
+                    )
+                )
+            } else if (extraImages.isNotEmpty()) {
+                out.add(
+                    mapOf(
+                        "role" to msg.role,
+                        "content" to listOf(mapOf("type" to "text", "text" to msg.content)) + extraImages,
                     )
                 )
             } else {
@@ -567,10 +586,13 @@ class CustomProviderService(private val context: Context? = null) {
     private fun getBase64FromUri(uriString: String?): String? {
         if (uriString == null) return null
         return try {
-            val uri = Uri.parse(uriString)
-            val inputStream: InputStream? = context?.contentResolver?.openInputStream(uri)
-            val bytes = inputStream?.readBytes()
-            inputStream?.close()
+            val asFile = java.io.File(uriString.removePrefix("file://"))
+            val bytes = if (asFile.isFile) {
+                asFile.readBytes()
+            } else {
+                val uri = Uri.parse(uriString)
+                context?.contentResolver?.openInputStream(uri)?.use { it.readBytes() }
+            }
             bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         } catch (_: Exception) {
             null

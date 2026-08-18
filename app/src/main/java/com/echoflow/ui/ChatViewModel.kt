@@ -647,7 +647,14 @@ class ChatViewModel(
         _openProjectId.value = null
     }
 
-    fun openProjectHome(projectId: String) { _openProjectId.value = projectId }
+    fun openProjectHome(projectId: String) {
+        _openProjectId.value = projectId
+        viewModelScope.launch { projectManager.backfillProject(projectId) }
+    }
+
+    val modelReadsFiles: StateFlow<Boolean> = settingsRepository.selectedModel
+        .map { com.echoflow.data.extract.ModelFileCapability.readsFiles(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
     fun closeProjectHome() { _openProjectId.value = null }
 
     fun closeProjectsHub() {
@@ -1503,6 +1510,7 @@ class ChatViewModel(
             val activeProjectId =
                 _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
                     ?: pendingProjectIfStillExists()
+            if (activeProjectId != null) projectManager.backfillProject(activeProjectId)
             val systemPrompt = baseSystemPrompt + (activeProjectId?.let { projectManager.buildSystemContext(it) } ?: "")
 
             var isFirstMsgInChat = false
@@ -1612,6 +1620,18 @@ class ChatViewModel(
 
             // Load updated dialog history
             val fullHistory = chatRepository.history(chatId)
+            if (activeProjectId != null &&
+                com.echoflow.data.extract.ModelFileCapability.readsFiles(selectedModel)
+            ) {
+                val extras = projectManager.documentsNeedingProvider(activeProjectId).map { doc ->
+                    LocalFileAttachment(
+                        uri = File(doc.filePath).absolutePath,
+                        mimeType = doc.mimeType,
+                        name = doc.name,
+                    )
+                }
+                fullHistory.lastOrNull { it.role == "user" }?.extraAttachments = extras
+            }
 
             // Resolve the user's global sampler settings for whichever model is about to run,
             // clamped to that model's limits (so a budget set for a big model can't break a

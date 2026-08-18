@@ -167,6 +167,7 @@ internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
 internal const val PageCustomProviderXAi = "custom_provider_xai"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
+internal const val PageLicenses = "open_source_licenses"
 internal val CustomProviderSectionGap = 28.dp
 
 /** Parent page when backing out of [page]; null on the settings hub. */
@@ -176,7 +177,7 @@ internal fun settingsParentPage(page: String): String? = when (page) {
     PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
-    PageEchoAgent, PageCustomProvider,
+    PageEchoAgent, PageCustomProvider, PageLicenses,
     -> PageEchoLabs
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
@@ -259,6 +260,7 @@ fun SettingsScreen(
             PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
+            PageLicenses -> OpenSourceLicensesPage(onBack = navigateBack)
             else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }

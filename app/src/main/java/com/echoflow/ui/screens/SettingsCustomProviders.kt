@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
@@ -230,6 +231,49 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                     onCheckedChange = { viewModel.saveArtifactsOffline(it) },
                 )
             }
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        PageSection("About", "Third-party notices that ship with the app")
+        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SettingsNavRow(
+                icon = Icons.Default.Policy,
+                polygon = MaterialShapes.Cookie4Sided,
+                title = "Open-source licenses",
+                subtitle = "anydoc and bundled native libraries",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 0, count = 1,
+                onClick = { onOpen(PageLicenses) },
+            )
+        }
+    }
+}
+
+@Composable
+internal fun OpenSourceLicensesPage(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val text = remember {
+        runCatching {
+            context.assets.open("licenses/third_party_rust.txt").bufferedReader().use { it.readText() }
+        }.getOrDefault("License notices are missing from this build.")
+    }
+    SettingsPageScaffold(
+        title = "Open-source licenses",
+        subtitle = "Third-party components",
+        onBack = onBack,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                modifier = Modifier.padding(Spacing.base),
+            )
         }
     }
 }

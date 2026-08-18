@@ -6,8 +6,12 @@ import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +61,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -84,6 +89,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.echoflow.data.ExtractionStatus
 import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
 import com.echoflow.ui.ChatViewModel
@@ -331,13 +339,17 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
             onSave = { chatViewModel.setProjectInstructions(projectId, it) },
             onBack = { detail = ProjectDetail.None },
         )
-        p != null && detail == ProjectDetail.Files -> ProjectFilesScreen(
-            project = p,
-            documents = documents,
-            onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
-            onRemove = { chatViewModel.removeProjectDocument(it) },
-            onBack = { detail = ProjectDetail.None },
-        )
+        p != null && detail == ProjectDetail.Files -> {
+            val modelReadsFiles by chatViewModel.modelReadsFiles.collectAsState()
+            ProjectFilesScreen(
+                project = p,
+                documents = documents,
+                modelReadsFiles = modelReadsFiles,
+                onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
+                onRemove = { chatViewModel.removeProjectDocument(it) },
+                onBack = { detail = ProjectDetail.None },
+            )
+        }
         else -> {
             BackHandler { onBack() }
             ProjectHomeContent(
@@ -750,6 +762,7 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
 private fun ProjectFilesScreen(
     project: Project,
     documents: List<ProjectDocument>,
+    modelReadsFiles: Boolean,
     onAdd: (android.net.Uri) -> Unit,
     onRemove: (ProjectDocument) -> Unit,
     onBack: () -> Unit,
@@ -764,11 +777,7 @@ private fun ProjectFilesScreen(
             ProjectHeader(onBack = onBack) {
                 Text("Files", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    when (documents.size) {
-                        0 -> "Background knowledge for this project"
-                        1 -> "1 file"
-                        else -> "${documents.size} files"
-                    },
+                    filesHeaderSubtitle(documents),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
@@ -783,7 +792,13 @@ private fun ProjectFilesScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
-                        DocumentRow(doc, groupedItemShape(index, documents.size)) { onRemove(doc) }
+                        DocumentRow(
+                            document = doc,
+                            shape = groupedItemShape(index, documents.size),
+                            modelReadsFiles = modelReadsFiles,
+                            onRemove = { onRemove(doc) },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
             }
@@ -798,38 +813,111 @@ private fun ProjectFilesScreen(
 }
 
 @Composable
-private fun DocumentRow(document: ProjectDocument, shape: Shape, onRemove: () -> Unit) {
+private fun DocumentRow(
+    document: ProjectDocument,
+    shape: Shape,
+    modelReadsFiles: Boolean,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val hint = documentStatusHint(document.status, modelReadsFiles)
+    val hintIsError = document.status == ExtractionStatus.FAILED ||
+        (document.status == ExtractionStatus.NEEDS_PROVIDER && !modelReadsFiles)
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .then(
+                        if (document.status.isBusy) {
+                            Modifier.semantics { contentDescription = "Reading ${document.name}" }
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Description, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                AnimatedContent(
+                    targetState = document.status.isBusy,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    label = "docLeading",
+                ) { busy ->
+                    if (busy) {
+                        LoadingIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Description,
+                            null,
+                            Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Text(document.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    buildString {
-                        append(formatBytes(document.sizeBytes))
-                        if (!document.hasText) append(" · not read as text")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (document.hasText) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                )
+                AnimatedContent(
+                    targetState = hint,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    label = "docHint",
+                ) { currentHint ->
+                    Text(
+                        buildString {
+                            append(formatBytes(document.sizeBytes))
+                            if (currentHint != null) {
+                                append(" · ")
+                                append(currentHint)
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (hintIsError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
             }
             IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Default.DeleteOutline, "Remove file", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+private fun documentStatusHint(status: ExtractionStatus, modelReadsFiles: Boolean): String? = when (status) {
+    ExtractionStatus.PENDING, ExtractionStatus.EXTRACTING -> "Reading…"
+    ExtractionStatus.EXTRACTED -> null
+    ExtractionStatus.NEEDS_PROVIDER ->
+        if (modelReadsFiles) "Sent to the model as a file" else "This model can't read this file"
+    ExtractionStatus.FAILED -> "Couldn't read this file"
+    ExtractionStatus.UNKNOWN -> null
+}
+
+private fun filesHeaderSubtitle(documents: List<ProjectDocument>): String {
+    val count = when (documents.size) {
+        0 -> "Background knowledge for this project"
+        1 -> "1 file"
+        else -> "${documents.size} files"
+    }
+    val reading = documents.count { it.status.isBusy }
+    return if (reading > 0 && documents.isNotEmpty()) {
+        "$count · reading $reading"
+    } else {
+        count
     }
 }
 
@@ -852,7 +940,7 @@ private fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
     HeroEmptyState(
         glyph = Icons.Default.Description,
         title = "No files yet",
-        body = "Add text files — notes, briefs, transcripts — and their contents become background knowledge for this project.",
+        body = "Add PDFs, Word or Excel files, slides or notes — EchoFlow reads them on your device and makes them background knowledge for this project.",
         actionLabel = "Add file",
         onAction = onAdd,
         modifier = modifier,

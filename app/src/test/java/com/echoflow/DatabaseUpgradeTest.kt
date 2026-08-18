@@ -114,5 +114,10 @@ class DatabaseUpgradeTest {
             assertEquals("Saved chat", database.chatDao().getThreadById("thread-1")?.title)
             assertEquals("Saved model", database.customModelDao().getCustomModelById("model-1")?.name)
         }
+
+        // v23: extraction status columns exist and are nullable.
+        database.openHelper.readableDatabase.query(
+            "SELECT extractionStatus, extractionTier FROM project_documents LIMIT 0"
+        ).use { /* columns are queryable after the chained migration */ }
     }
 }
