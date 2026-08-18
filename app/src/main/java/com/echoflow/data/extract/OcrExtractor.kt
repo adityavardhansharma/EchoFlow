@@ -98,7 +98,7 @@ internal object OcrBitmapBudget {
         var sample = 1
         var w = width.toLong()
         var h = height.toLong()
-        while (w * h > maxPixels && sample < 1024) {
+        while (w * h > maxPixels) {
             sample *= 2
             w = width.toLong() / sample
             h = height.toLong() / sample
