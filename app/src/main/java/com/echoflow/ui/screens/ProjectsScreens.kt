@@ -374,7 +374,7 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
             val projectFileError by chatViewModel.projectFileError.collectAsState()
             val importProgress by chatViewModel.projectImportProgress.collectAsState()
             val fileError = projectFileError?.takeIf { it.projectId == projectId }?.message
-            val queued = importProgress?.takeIf { it.projectId == projectId }?.queued ?: 0
+            val queued = importProgress[projectId]?.queued ?: 0
             ProjectFilesScreen(
                 project = p,
                 documents = documents,

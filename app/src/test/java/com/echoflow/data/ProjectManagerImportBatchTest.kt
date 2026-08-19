@@ -58,10 +58,11 @@ class ProjectManagerImportBatchTest {
     @Test fun `extracts four files at a time and queues the rest`() = runBlocking {
         assertEquals(4, ProjectManager.EXTRACT_BATCH_SIZE)
         val projectId = manager.createProject("Batch")
+        val admitted = AtomicInteger(0)
         val jobs = (1..6).map { i ->
             async(Dispatchers.IO) {
                 val file = File(context.cacheDir, "batch-$i.docx").apply { writeText("doc $i") }
-                manager.addDocument(projectId, Uri.fromFile(file))
+                manager.addDocument(projectId, Uri.fromFile(file), onAdmitted = { admitted.incrementAndGet() })
             }
         }
 
@@ -69,6 +70,7 @@ class ProjectManagerImportBatchTest {
             while (true) {
                 val rows = database.projectDocumentDao().getForProjectSync(projectId)
                 if (rows.size == 6 &&
+                    admitted.get() == 6 &&
                     rows.count { it.status == ExtractionStatus.EXTRACTING } == 4 &&
                     rows.count { it.status == ExtractionStatus.PENDING } == 2
                 ) break
@@ -76,6 +78,8 @@ class ProjectManagerImportBatchTest {
             }
         }
         assertEquals(4, extractor.maxInFlight.get())
+        // Admission is the Room insert, not extract finishing — all six are in before anydoc resumes.
+        assertEquals(6, admitted.get())
 
         hold.complete(Unit)
         val added = jobs.awaitAll()

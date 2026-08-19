@@ -110,8 +110,16 @@ class ProjectManager(
      * PENDING row immediately, then extract on this IO dispatcher. The Files UI observes the
      * Room flow so the row settles in place. Returns the stored row, or null if the file
      * couldn't be copied at all.
+     *
+     * [onAdmitted] fires once the row is in Room, *before* extraction waits on a batch
+     * slot, so the Files header can drop this pick from the "queued" count without
+     * waiting for anydoc.
      */
-    suspend fun addDocument(projectId: String, uri: Uri): ProjectDocument? = withContext(Dispatchers.IO) {
+    suspend fun addDocument(
+        projectId: String,
+        uri: Uri,
+        onAdmitted: (() -> Unit)? = null,
+    ): ProjectDocument? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val mimeType = resolver.getType(uri) ?: "application/octet-stream"
         var displayName = "Document"
@@ -200,6 +208,7 @@ class ProjectManager(
             if (t is CancellationException) throw t
             return@withContext null
         }
+        onAdmitted?.invoke()
         claimAndExtract(pending)
     }
 

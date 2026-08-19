@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 
 class ChatViewModel(
@@ -623,6 +624,7 @@ class ChatViewModel(
     /**
      * Files the user picked that have not been copied into the project yet. Used so the
      * Files header can say "8 waiting" while the first batch of four occupies copy slots.
+     * Keyed by project so two open imports cannot overwrite each other.
      */
     data class ProjectImportProgress(
         val projectId: String,
@@ -637,8 +639,9 @@ class ChatViewModel(
     val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
     private var nextProjectFileImportId = 0L
     private val importProgressLock = Any()
-    private val _projectImportProgress = MutableStateFlow<ProjectImportProgress?>(null)
-    val projectImportProgress: StateFlow<ProjectImportProgress?> = _projectImportProgress.asStateFlow()
+    private val _projectImportProgress = MutableStateFlow<Map<String, ProjectImportProgress>>(emptyMap())
+    val projectImportProgress: StateFlow<Map<String, ProjectImportProgress>> =
+        _projectImportProgress.asStateFlow()
     fun clearProjectFileError(projectId: String) {
         if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
     }
@@ -765,21 +768,29 @@ class ChatViewModel(
         for (uri in uris) {
             val importId = ++nextProjectFileImportId
             viewModelScope.launch {
+                val admitted = AtomicBoolean(false)
                 val added = try {
-                    projectManager.addDocument(projectId, uri)
+                    projectManager.addDocument(projectId, uri) {
+                        if (admitted.compareAndSet(false, true)) {
+                            noteImportFinished(projectId, admitted = true)
+                        }
+                    }
                 } catch (t: CancellationException) {
-                    noteImportFinished(projectId, admitted = false)
+                    if (!admitted.get()) noteImportFinished(projectId, admitted = false)
                     throw t
                 } catch (_: Throwable) {
-                    val failed = noteImportFinished(projectId, admitted = false)
-                    reportProjectFileError(projectId, importId, failed)
+                    if (!admitted.get()) {
+                        val failed = noteImportFinished(projectId, admitted = false)
+                        reportProjectFileError(projectId, importId, failed)
+                    }
                     return@launch
                 }
                 if (added == null) {
-                    val failed = noteImportFinished(projectId, admitted = false)
-                    reportProjectFileError(projectId, importId, failed)
+                    if (!admitted.get()) {
+                        val failed = noteImportFinished(projectId, admitted = false)
+                        reportProjectFileError(projectId, importId, failed)
+                    }
                 } else {
-                    noteImportFinished(projectId, admitted = true)
                     // Only a newer success may drop this project's banner. An older import
                     // finishing later must not hide a failure that started after it.
                     val current = _projectFileError.value
@@ -793,27 +804,33 @@ class ChatViewModel(
 
     private fun beginImport(projectId: String, count: Int) {
         synchronized(importProgressLock) {
-            val current = _projectImportProgress.value
-            _projectImportProgress.value = if (current != null && current.projectId == projectId) {
+            val map = _projectImportProgress.value.toMutableMap()
+            val current = map[projectId]
+            map[projectId] = if (current != null) {
                 current.copy(selected = current.selected + count)
             } else {
                 ProjectImportProgress(projectId = projectId, selected = count)
             }
+            _projectImportProgress.value = map
         }
     }
 
     /** Returns the running failure count for [projectId] after applying this result. */
     private fun noteImportFinished(projectId: String, admitted: Boolean): Int {
         synchronized(importProgressLock) {
-            val current = _projectImportProgress.value
-            if (current == null || current.projectId != projectId) return if (admitted) 0 else 1
+            val map = _projectImportProgress.value.toMutableMap()
+            val current = map[projectId] ?: return if (admitted) 0 else 1
             val next = if (admitted) {
                 current.copy(admitted = current.admitted + 1)
             } else {
                 current.copy(failed = current.failed + 1)
             }
-            _projectImportProgress.value =
-                if (next.admitted + next.failed >= next.selected) null else next
+            if (next.admitted + next.failed >= next.selected) {
+                map.remove(projectId)
+            } else {
+                map[projectId] = next
+            }
+            _projectImportProgress.value = map
             return next.failed
         }
     }
