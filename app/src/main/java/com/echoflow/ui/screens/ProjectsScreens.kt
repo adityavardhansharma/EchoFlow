@@ -8,7 +8,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -21,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -896,18 +899,29 @@ internal fun DocumentRow(
         (document.status == ExtractionStatus.NEEDS_PROVIDER && !modelReadsFiles)
     val haptics = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     var menuOpen by remember { mutableStateOf(false) }
     // "Open as Markdown" only when we actually have readable on-device text; a file that goes
     // straight to the model (NEEDS_PROVIDER) or failed extraction has none, so the option is hidden.
     val canOpenMarkdown = document.hasText
     val kind = ProjectFileOpener.kindOf(document)
-    // Long-press (or tap) surfaces the open options anchored to the row. Clip to the grouped
-    // shape and skip the default ripple — that indication is a square drawn around the chip,
-    // not a shadow that follows the container.
+    // Long-press (or tap) surfaces the open options anchored to the row. A bounded ripple painted a
+    // square around the rounded chip, so instead we tint the surface fill on press — that feedback
+    // is the container's own colour, so it always follows the grouped rounded shape.
+    val reducedMotion = rememberReducedMotion()
+    val pressColor by animateColorAsState(
+        targetValue = if (pressed) {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = if (reducedMotion) snap() else tween(durationMillis = if (pressed) 90 else 220),
+        label = "docPress",
+    )
     Box {
         Surface(
             shape = shape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = pressColor,
             modifier = modifier
                 .fillMaxWidth()
                 .clip(shape)
