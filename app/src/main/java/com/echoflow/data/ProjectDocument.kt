@@ -49,7 +49,13 @@ enum class ExtractionStatus {
     FAILED,
     UNKNOWN;
 
-    val isBusy: Boolean get() = this == PENDING || this == EXTRACTING
+    /** Copy finished, anydoc/OCR not started yet — waiting for a batch slot. */
+    val isQueued: Boolean get() = this == PENDING
+
+    /** anydoc or OCR is running on this row. */
+    val isExtracting: Boolean get() = this == EXTRACTING
+
+    val isBusy: Boolean get() = isQueued || isExtracting
 
     companion object {
         fun from(s: String?) = entries.firstOrNull { it.name == s } ?: UNKNOWN

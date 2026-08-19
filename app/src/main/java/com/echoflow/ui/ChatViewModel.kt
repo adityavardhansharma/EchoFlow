@@ -620,9 +620,25 @@ class ChatViewModel(
      */
     data class ProjectFileError(val projectId: String, val message: String, val importId: Long = 0L)
 
+    /**
+     * Files the user picked that have not been copied into the project yet. Used so the
+     * Files header can say "8 waiting" while the first batch of four occupies copy slots.
+     */
+    data class ProjectImportProgress(
+        val projectId: String,
+        val selected: Int,
+        val admitted: Int = 0,
+        val failed: Int = 0,
+    ) {
+        val queued: Int get() = (selected - admitted - failed).coerceAtLeast(0)
+    }
+
     private val _projectFileError = MutableStateFlow<ProjectFileError?>(null)
     val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
     private var nextProjectFileImportId = 0L
+    private val importProgressLock = Any()
+    private val _projectImportProgress = MutableStateFlow<ProjectImportProgress?>(null)
+    val projectImportProgress: StateFlow<ProjectImportProgress?> = _projectImportProgress.asStateFlow()
     fun clearProjectFileError(projectId: String) {
         if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
     }
@@ -740,33 +756,73 @@ class ChatViewModel(
     }
 
     fun addProjectDocument(projectId: String, uri: Uri) {
-        val importId = ++nextProjectFileImportId
-        viewModelScope.launch {
-            val added = try {
-                projectManager.addDocument(projectId, uri)
-            } catch (t: CancellationException) {
-                throw t
-            } catch (_: Throwable) {
-                reportProjectFileError(projectId, importId)
-                return@launch
-            }
-            if (added == null) {
-                reportProjectFileError(projectId, importId)
-            } else {
-                // Only a newer success may drop this project's banner. An older import
-                // finishing later must not hide a failure that started after it.
-                val current = _projectFileError.value
-                if (current != null && current.projectId == projectId && current.importId < importId) {
-                    _projectFileError.value = null
+        addProjectDocuments(projectId, listOf(uri))
+    }
+
+    fun addProjectDocuments(projectId: String, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        beginImport(projectId, uris.size)
+        for (uri in uris) {
+            val importId = ++nextProjectFileImportId
+            viewModelScope.launch {
+                val added = try {
+                    projectManager.addDocument(projectId, uri)
+                } catch (t: CancellationException) {
+                    noteImportFinished(projectId, admitted = false)
+                    throw t
+                } catch (_: Throwable) {
+                    val failed = noteImportFinished(projectId, admitted = false)
+                    reportProjectFileError(projectId, importId, failed)
+                    return@launch
+                }
+                if (added == null) {
+                    val failed = noteImportFinished(projectId, admitted = false)
+                    reportProjectFileError(projectId, importId, failed)
+                } else {
+                    noteImportFinished(projectId, admitted = true)
+                    // Only a newer success may drop this project's banner. An older import
+                    // finishing later must not hide a failure that started after it.
+                    val current = _projectFileError.value
+                    if (current != null && current.projectId == projectId && current.importId < importId) {
+                        _projectFileError.value = null
+                    }
                 }
             }
         }
     }
 
-    private fun reportProjectFileError(projectId: String, importId: Long) {
+    private fun beginImport(projectId: String, count: Int) {
+        synchronized(importProgressLock) {
+            val current = _projectImportProgress.value
+            _projectImportProgress.value = if (current != null && current.projectId == projectId) {
+                current.copy(selected = current.selected + count)
+            } else {
+                ProjectImportProgress(projectId = projectId, selected = count)
+            }
+        }
+    }
+
+    /** Returns the running failure count for [projectId] after applying this result. */
+    private fun noteImportFinished(projectId: String, admitted: Boolean): Int {
+        synchronized(importProgressLock) {
+            val current = _projectImportProgress.value
+            if (current == null || current.projectId != projectId) return if (admitted) 0 else 1
+            val next = if (admitted) {
+                current.copy(admitted = current.admitted + 1)
+            } else {
+                current.copy(failed = current.failed + 1)
+            }
+            _projectImportProgress.value =
+                if (next.admitted + next.failed >= next.selected) null else next
+            return next.failed
+        }
+    }
+
+    private fun reportProjectFileError(projectId: String, importId: Long, failedCount: Int = 1) {
         val current = _projectFileError.value
         if (current != null && current.projectId == projectId && current.importId > importId) return
-        _projectFileError.value = ProjectFileError(projectId, "Couldn't add that file.", importId)
+        val message = if (failedCount <= 1) "Couldn't add that file." else "Couldn't add $failedCount files."
+        _projectFileError.value = ProjectFileError(projectId, message, importId)
     }
 
     fun removeProjectDocument(document: ProjectDocument) {
