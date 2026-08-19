@@ -202,12 +202,20 @@ class ChatViewModel(
         val lastUser = currentMessages.value.lastOrNull { it.role == "user" } ?: return null
         if (lastUser.id != messageId) return null
         _editingUserMessageId.value = messageId
-        val uri = lastUser.localAttachmentUri?.let(Uri::parse)
-        if (uri != null) {
-            setPendingAttachment(uri, lastUser.localAttachmentMimeType, lastUser.localAttachmentName)
-        } else {
-            clearPendingAttachment()
+        cancelExtractionJobs()
+        _pendingAttachments.value = lastUser.attachments.map { att ->
+            PendingAttachment(
+                uri = att.uri,
+                mimeType = att.mimeType,
+                name = att.name,
+                kind = if (att.mimeType.startsWith("image/", ignoreCase = true)) PendingAttachment.Kind.Image
+                else PendingAttachment.Kind.Doc,
+                state = PendingAttachment.State.Ready,
+                extractedText = att.extractedText,
+            )
         }
+        // Legacy / cloud-staged docs have no Markdown yet. Parse them if this send will be local.
+        if (settingsRepository.selectedModel.value.startsWith("local/")) extractMissingDocs()
         return lastUser.content
     }
 
@@ -399,15 +407,27 @@ class ChatViewModel(
 
     private val streamJobs = mutableMapOf<String, Job>()
 
-    // Pending attachment references
-    private val _pendingAttachmentUri = MutableStateFlow<Uri?>(null)
-    val pendingAttachmentUri: StateFlow<Uri?> = _pendingAttachmentUri.asStateFlow()
+    // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
+    // every path: cloud/image sends read the first entry (they only ever stage one); the local
+    // multi-doc path stages several and parses each on-device before send.
+    private val _pendingAttachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
+    val pendingAttachments: StateFlow<List<PendingAttachment>> = _pendingAttachments.asStateFlow()
 
-    private val _pendingAttachmentMimeType = MutableStateFlow<String?>(null)
-    val pendingAttachmentMimeType: StateFlow<String?> = _pendingAttachmentMimeType.asStateFlow()
+    // Single-attachment compatibility views for the Imagine surface (image reference / video first
+    // frame), which only ever stages one image. Chat consumes the full [pendingAttachments] list.
+    val pendingAttachmentUri: StateFlow<Uri?> = _pendingAttachments
+        .map { list -> list.firstOrNull()?.let { Uri.parse(it.uri) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val pendingAttachmentName: StateFlow<String?> = _pendingAttachments
+        .map { list -> list.firstOrNull()?.name }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _pendingAttachmentName = MutableStateFlow<String?>(null)
-    val pendingAttachmentName: StateFlow<String?> = _pendingAttachmentName.asStateFlow()
+    /** Per-attachment on-device extraction jobs, keyed by [PendingAttachment.id], so a removed or
+     *  retried chip can cancel its in-flight parse. */
+    private val extractionJobs = mutableMapOf<String, Job>()
+    private val chatAttachmentExtractor by lazy {
+        com.echoflow.data.extract.ChatAttachmentExtractor(getApplication<Application>().contentResolver)
+    }
 
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
@@ -1154,27 +1174,156 @@ class ChatViewModel(
         _errorMessage.value = null
     }
 
+    /**
+     * Stage a single attachment (an image, or a cloud/custom PDF), replacing whatever was staged.
+     * This is the unchanged single-file path — images and cloud files are [State.Ready] at once,
+     * never parsed on-device. The local multi-doc path is [addPendingDocs].
+     */
     fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) {
         viewModelScope.launch {
-            _pendingAttachmentUri.value = uri
             val resolver = getApplication<Application>().contentResolver
             runCatching {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
-            _pendingAttachmentMimeType.value = mimeType
 
             // Get display name. An override wins outright: a file the app generated has a UUID
             // for a name, and showing that tells the user nothing about why it is attached.
-            var displayName = if (mimeType.equals("application/pdf", ignoreCase = true)) "Attached PDF" else "Attached Image"
+            val isPdf = mimeType.equals("application/pdf", ignoreCase = true)
+            var displayName = if (isPdf) "Attached PDF" else "Attached Image"
             runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (nameIndex != -1 && cursor.moveToFirst()) {
                     displayName = cursor.getString(nameIndex)
                 }
             }
-            _pendingAttachmentName.value = overrideName ?: displayName
+            cancelExtractionJobs()
+            _pendingAttachments.value = listOf(
+                PendingAttachment(
+                    uri = uri.toString(),
+                    mimeType = mimeType,
+                    name = overrideName ?: displayName,
+                    kind = if (mimeType.startsWith("image/", ignoreCase = true)) PendingAttachment.Kind.Image
+                    else PendingAttachment.Kind.Doc,
+                    state = PendingAttachment.State.Ready,
+                )
+            )
         }
+    }
+
+    /**
+     * Stage one or more documents for the local-model path (up to [MAX_MESSAGE_ATTACHMENTS] total),
+     * appending to whatever is already staged, and kick off on-device extraction for each. Each chip
+     * stays [State.Extracting] until anydoc yields Markdown (→ [State.Ready]) or declines
+     * (→ [State.Failed], retry/remove in the composer). Extra picks over the cap are dropped.
+     */
+    fun addPendingDocs(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val resolver = getApplication<Application>().contentResolver
+            for (uri in uris) {
+                if (_pendingAttachments.value.size >= MAX_MESSAGE_ATTACHMENTS) break
+                if (_pendingAttachments.value.any { it.uri == uri.toString() }) continue
+                runCatching {
+                    resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+                var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Document"
+                runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        displayName = cursor.getString(nameIndex)
+                    }
+                }
+                val attachment = PendingAttachment(
+                    uri = uri.toString(),
+                    mimeType = mimeType,
+                    name = displayName,
+                    kind = PendingAttachment.Kind.Doc,
+                    state = PendingAttachment.State.Extracting,
+                )
+                _pendingAttachments.value = _pendingAttachments.value + attachment
+                startExtraction(attachment)
+            }
+        }
+    }
+
+    /** Runs (or re-runs) on-device extraction for one staged doc, updating its chip in place. */
+    private fun startExtraction(attachment: PendingAttachment) {
+        extractionJobs.remove(attachment.id)?.cancel()
+        val job = viewModelScope.launch {
+            val result = chatAttachmentExtractor.extract(Uri.parse(attachment.uri), attachment.name)
+            updateAttachment(attachment.id) { current ->
+                when (result) {
+                    is com.echoflow.data.extract.ChatAttachmentExtractor.Result.Text ->
+                        current.copy(state = PendingAttachment.State.Ready, extractedText = result.markdown)
+                    is com.echoflow.data.extract.ChatAttachmentExtractor.Result.Failed ->
+                        current.copy(state = PendingAttachment.State.Failed, extractedText = null)
+                }
+            }
+        }
+        extractionJobs[attachment.id] = job
+    }
+
+    /** Retry the on-device parse for a failed doc chip (the composer's retry arrow). */
+    fun retryPendingAttachment(id: String) {
+        val target = _pendingAttachments.value.firstOrNull { it.id == id } ?: return
+        if (target.kind != PendingAttachment.Kind.Doc) return
+        updateAttachment(id) { it.copy(state = PendingAttachment.State.Extracting, extractedText = null) }
+        startExtraction(target)
+    }
+
+    /** Remove one staged attachment (the composer's ✕). */
+    fun removePendingAttachment(id: String) {
+        extractionJobs.remove(id)?.cancel()
+        _pendingAttachments.value = _pendingAttachments.value.filterNot { it.id == id }
+    }
+
+    /**
+     * Drop files this model/mode cannot send, collapse to one file off the local path, and
+     * start parsing any Ready doc that still has no Markdown (cloud PDF → local switch, or edit).
+     */
+    fun reconcilePendingAttachments(
+        imageAllowed: Boolean,
+        pdfAllowed: Boolean,
+        localFilesAllowed: Boolean,
+    ) {
+        val current = _pendingAttachments.value
+        if (current.isEmpty()) return
+        val next = PendingAttachmentPolicy.keep(
+            current,
+            imageAllowed = imageAllowed,
+            pdfAllowed = pdfAllowed,
+            localFilesAllowed = localFilesAllowed,
+            cap = MAX_MESSAGE_ATTACHMENTS,
+        )
+        if (next.map { it.id } != current.map { it.id }) {
+            val keepIds = next.map { it.id }.toSet()
+            extractionJobs.keys.filter { it !in keepIds }.forEach { extractionJobs.remove(it)?.cancel() }
+            _pendingAttachments.value = next
+            if (next.size < current.size && !localFilesAllowed && next.isNotEmpty()) {
+                _errorMessage.value = "Only one file can go with this model. Extra files were dropped."
+            }
+        }
+        if (localFilesAllowed) extractMissingDocs()
+    }
+
+    private fun extractMissingDocs() {
+        for (att in _pendingAttachments.value) {
+            if (!PendingAttachmentPolicy.needsExtraction(att)) continue
+            updateAttachment(att.id) { it.copy(state = PendingAttachment.State.Extracting, extractedText = null) }
+            val updated = _pendingAttachments.value.firstOrNull { it.id == att.id } ?: continue
+            startExtraction(updated)
+        }
+    }
+
+    private fun updateAttachment(id: String, transform: (PendingAttachment) -> PendingAttachment) {
+        _pendingAttachments.value = _pendingAttachments.value.map { if (it.id == id) transform(it) else it }
+    }
+
+    private fun cancelExtractionJobs() {
+        extractionJobs.values.forEach { it.cancel() }
+        extractionJobs.clear()
     }
 
     fun setPendingPastedImage(uri: Uri, fallbackMimeType: String? = null) {
@@ -1232,9 +1381,8 @@ class ChatViewModel(
         }
 
     fun clearPendingAttachment() {
-        _pendingAttachmentUri.value = null
-        _pendingAttachmentMimeType.value = null
-        _pendingAttachmentName.value = null
+        cancelExtractionJobs()
+        _pendingAttachments.value = emptyList()
     }
 
     fun startNewChat() {
@@ -1327,9 +1475,22 @@ class ChatViewModel(
     fun sendMessage(content: String) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
-        val attachmentUri = _pendingAttachmentUri.value?.toString()
-        val attachmentMime = _pendingAttachmentMimeType.value
-        val attachmentName = _pendingAttachmentName.value
+        val stagedAttachments = _pendingAttachments.value
+        // The representative single attachment drives the legacy columns and the unchanged
+        // cloud/image/deep-research paths (image first so a vision model / video frame still
+        // resolves). The full list — with each doc's on-device Markdown — rides on attachmentsJson.
+        val representative = stagedAttachments.firstOrNull { it.isImage } ?: stagedAttachments.firstOrNull()
+        val attachmentUri = representative?.uri
+        val attachmentMime = representative?.mimeType
+        val attachmentName = representative?.name
+        val messageAttachments = stagedAttachments.map {
+            MessageAttachment(uri = it.uri, mimeType = it.mimeType, name = it.name, extractedText = it.extractedText)
+        }
+        // Only persist the multi-attachment JSON when it carries more than the legacy columns can:
+        // a second file, or parsed doc text. A lone cloud PDF/image stays on the legacy columns.
+        val attachmentsJson = if (stagedAttachments.size > 1 || stagedAttachments.any { it.extractedText != null }) {
+            ToolEventJson.attachmentsToJson(messageAttachments)
+        } else null
 
         if (prompt.isEmpty() && attachmentUri == null) return
 
@@ -1381,8 +1542,6 @@ class ChatViewModel(
                     return@launch
                 }
             }
-
-            clearPendingAttachment()
 
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
@@ -1451,8 +1610,12 @@ class ChatViewModel(
                 return@launch
             }
 
-            if (isLocal && attachmentMime.equals("application/pdf", ignoreCase = true)) {
-                _errorMessage.value = "PDF files work with OpenRouter models only. Pick a cloud model to attach this PDF."
+            if (stagedAttachments.any { it.isProcessing || it.isFailed }) {
+                _errorMessage.value = "Wait for files to finish reading, or remove ones that couldn't be read."
+                return@launch
+            }
+            if (isLocal && stagedAttachments.any { !it.isImage && it.extractedText.isNullOrBlank() }) {
+                _errorMessage.value = "That file has no readable text for the on-device model. Wait for it to finish, or remove it."
                 return@launch
             }
 
@@ -1654,6 +1817,7 @@ class ChatViewModel(
             var replacedAssistant: ChatMessage? = null
 
             if (editingUserId == null) {
+                clearPendingAttachment()
                 // Insert User Message
                 val userMsg = ChatMessage(
                     id = UUID.randomUUID().toString(),
@@ -1663,7 +1827,8 @@ class ChatViewModel(
                     createdAt = System.currentTimeMillis(),
                     localAttachmentUri = attachmentUri,
                     localAttachmentMimeType = attachmentMime,
-                    localAttachmentName = attachmentName
+                    localAttachmentName = attachmentName,
+                    attachmentsJson = attachmentsJson,
                 )
                 chatRepository.insertMessage(userMsg)
 
@@ -1709,6 +1874,7 @@ class ChatViewModel(
                         isLocal = isLocal,
                     ),
                 )
+                clearPendingAttachment()
                 val editResult = withContext(NonCancellable) {
                     commitEditTurn(
                         userMessageId = editingUserId,
@@ -1716,6 +1882,7 @@ class ChatViewModel(
                         attachmentUri = attachmentUri,
                         attachmentMime = attachmentMime,
                         attachmentName = attachmentName,
+                        attachmentsJson = attachmentsJson,
                     )
                 }
                 if (editResult == null) {
@@ -1744,6 +1911,14 @@ class ChatViewModel(
                     }
                 fullHistory.lastOrNull { it.role == "user" }?.extraAttachments = extras
             }
+
+            // On-device history: fold each turn's parsed-doc Markdown into the content the local
+            // engine sees (it can't take raw files). The displayed message keeps only its typed
+            // text — this augmented copy exists only for the prompt. Cloud/custom paths use
+            // fullHistory unchanged.
+            val localHistory = if (isLocal) {
+                fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
+            } else fullHistory
 
             // Resolve the user's global sampler settings for whichever model is about to run,
             // clamped to that model's limits (so a budget set for a big model can't break a
@@ -1856,7 +2031,7 @@ class ChatViewModel(
                         LlmStreamRequest(
                             model = selectedModel,
                             chatId = chatId,
-                            history = fullHistory,
+                            history = localHistory,
                             systemPrompt = systemPrompt,
                             params = inferenceParams,
                             localModel = localModel,
@@ -1887,14 +2062,14 @@ class ChatViewModel(
                         params = inferenceParams,
                     )
                 isLocal && clientSearchReady ->
-                    localPromptProtocolFlow(localModel!!, chatId, fullHistory, systemPrompt, provider, searchKey, inferenceParams)
+                    localPromptProtocolFlow(localModel!!, chatId, localHistory, systemPrompt, provider, searchKey, inferenceParams)
                         .withLocalInferenceGate("a chat reply")
                 isLocal ->
                     localGateway.stream(
                         LlmStreamRequest(
                             model = selectedModel,
                             chatId = chatId,
-                            history = fullHistory,
+                            history = localHistory,
                             systemPrompt = systemPrompt,
                             params = inferenceParams,
                             localModel = localModel,
@@ -2438,6 +2613,7 @@ class ChatViewModel(
         attachmentUri: String?,
         attachmentMime: String?,
         attachmentName: String?,
+        attachmentsJson: String?,
     ): EditTurnResult? {
         val chatId = _currentChatThreadId.value ?: return null
         val messages = chatRepository.history(chatId)
@@ -2459,6 +2635,7 @@ class ChatViewModel(
                 attachmentUri = attachmentUri,
                 attachmentMimeType = attachmentMime,
                 attachmentName = attachmentName,
+                attachmentsJson = attachmentsJson,
             ),
             oldAssistantId = assistant?.id,
         )
@@ -2635,6 +2812,9 @@ class ChatViewModel(
 
         /** Bound how many unread project files ride on one send (each is already ≤ 25 MB). */
         private const val MAX_PROVIDER_DOCS = 3
+
+        /** Files a single chat turn may carry (the local multi-doc path). */
+        const val MAX_MESSAGE_ATTACHMENTS = 3
 
         fun provideFactory(
             application: Application,
