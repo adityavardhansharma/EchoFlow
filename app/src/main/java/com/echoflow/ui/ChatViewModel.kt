@@ -618,10 +618,11 @@ class ChatViewModel(
      * the chat surface sitting behind the hub overlay. The project id travels with the message
      * so a late failure cannot paint a banner onto a different project's Files screen.
      */
-    data class ProjectFileError(val projectId: String, val message: String)
+    data class ProjectFileError(val projectId: String, val message: String, val importId: Long = 0L)
 
     private val _projectFileError = MutableStateFlow<ProjectFileError?>(null)
     val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
+    private var nextProjectFileImportId = 0L
     fun clearProjectFileError(projectId: String) {
         if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
     }
@@ -739,27 +740,33 @@ class ChatViewModel(
     }
 
     fun addProjectDocument(projectId: String, uri: Uri) {
+        val importId = ++nextProjectFileImportId
         viewModelScope.launch {
             val added = try {
                 projectManager.addDocument(projectId, uri)
             } catch (t: CancellationException) {
                 throw t
             } catch (_: Throwable) {
-                reportProjectFileError(projectId)
+                reportProjectFileError(projectId, importId)
                 return@launch
             }
             if (added == null) {
-                reportProjectFileError(projectId)
-            } else if (_projectFileError.value?.projectId == projectId) {
-                // A later success for this project replaces a stale failure banner; leave
-                // another project's error in place.
-                _projectFileError.value = null
+                reportProjectFileError(projectId, importId)
+            } else {
+                // Only a newer success may drop this project's banner. An older import
+                // finishing later must not hide a failure that started after it.
+                val current = _projectFileError.value
+                if (current != null && current.projectId == projectId && current.importId < importId) {
+                    _projectFileError.value = null
+                }
             }
         }
     }
 
-    private fun reportProjectFileError(projectId: String) {
-        _projectFileError.value = ProjectFileError(projectId, "Couldn't add that file.")
+    private fun reportProjectFileError(projectId: String, importId: Long) {
+        val current = _projectFileError.value
+        if (current != null && current.projectId == projectId && current.importId > importId) return
+        _projectFileError.value = ProjectFileError(projectId, "Couldn't add that file.", importId)
     }
 
     fun removeProjectDocument(document: ProjectDocument) {
