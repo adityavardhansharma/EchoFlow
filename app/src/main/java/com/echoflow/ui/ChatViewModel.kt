@@ -613,6 +613,15 @@ class ChatViewModel(
     val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
 
     /**
+     * Errors raised while managing a project's files (e.g. an import that can't be read). Kept
+     * separate from [errorMessage] so it surfaces inside the Files screen that raised it, not on
+     * the chat surface sitting behind the hub overlay.
+     */
+    private val _projectFileError = MutableStateFlow<String?>(null)
+    val projectFileError: StateFlow<String?> = _projectFileError.asStateFlow()
+    fun clearProjectFileError() { _projectFileError.value = null }
+
+    /**
      * The project a not-yet-created chat will belong to. Starting a new chat from a project home
      * parks the id here; the thread is created lazily on first send (like every blank chat), and
      * this is what stamps the project onto it then.
@@ -727,7 +736,7 @@ class ChatViewModel(
     fun addProjectDocument(projectId: String, uri: Uri) {
         viewModelScope.launch {
             if (projectManager.addDocument(projectId, uri) == null) {
-                _errorMessage.value = "Couldn't read that file."
+                _projectFileError.value = "Couldn't add that file."
             }
         }
     }
