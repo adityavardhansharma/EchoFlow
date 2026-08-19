@@ -70,6 +70,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
@@ -976,8 +977,10 @@ private fun DocumentRow(
                         )
                     }
                 }
-                IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.DeleteOutline, "Remove file", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                // The three-dot affordance opens the same menu as a long-press, so the actions are
+                // discoverable without knowing the gesture.
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.MoreVert, "File options", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -994,6 +997,14 @@ private fun DocumentRow(
                     onClick = { menuOpen = false; onOpenMarkdown() },
                 )
             }
+            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+            DropdownMenuItem(
+                text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
+                },
+                onClick = { menuOpen = false; onRemove() },
+            )
         }
     }
 }
