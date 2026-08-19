@@ -68,6 +68,18 @@
             android:name=".data.DeepResearchForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Hands a project file to the user's default viewer (Open as PDF/Word/…). Files live in
+             private storage, so we grant a per-open read URI rather than exposing app storage. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

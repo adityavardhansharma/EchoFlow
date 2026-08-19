@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the app is allowed to hand to other apps through FileProvider. Project files are stored
+  without an extension (their name is the doc id), so we never share them in place; instead we copy
+  the one being opened into cache/shared_docs under its real display name and share that. Only that
+  cache subfolder is exposed here.
+-->
+<paths>
+    <cache-path name="shared_docs" path="shared_docs/" />
+</paths>
