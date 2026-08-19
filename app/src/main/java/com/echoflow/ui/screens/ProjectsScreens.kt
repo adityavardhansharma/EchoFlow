@@ -372,14 +372,17 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
         p != null && detail == ProjectDetail.Files -> {
             val modelReadsFiles by chatViewModel.modelReadsFiles.collectAsState()
             val projectFileError by chatViewModel.projectFileError.collectAsState()
+            val importProgress by chatViewModel.projectImportProgress.collectAsState()
             val fileError = projectFileError?.takeIf { it.projectId == projectId }?.message
+            val queued = importProgress[projectId]?.queued ?: 0
             ProjectFilesScreen(
                 project = p,
                 documents = documents,
+                queued = queued,
                 modelReadsFiles = modelReadsFiles,
                 fileError = fileError,
                 onClearFileError = { chatViewModel.clearProjectFileError(projectId) },
-                onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
+                onAdd = { uris -> chatViewModel.addProjectDocuments(projectId, uris) },
                 onRemove = { chatViewModel.removeProjectDocument(it) },
                 onBack = { chatViewModel.clearProjectFileError(projectId); detail = ProjectDetail.None },
             )
@@ -796,10 +799,11 @@ private fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Unit
 private fun ProjectFilesScreen(
     project: Project,
     documents: List<ProjectDocument>,
+    queued: Int,
     modelReadsFiles: Boolean,
     fileError: String?,
     onClearFileError: () -> Unit,
-    onAdd: (android.net.Uri) -> Unit,
+    onAdd: (List<android.net.Uri>) -> Unit,
     onRemove: (ProjectDocument) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -810,8 +814,8 @@ private fun ProjectFilesScreen(
     val openedDoc = openedDocId?.let { id -> documents.firstOrNull { it.id == id } }
     // The reader owns Back while it's up; the list only handles Back once it's closed.
     BackHandler(enabled = openedDoc == null) { onBack() }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onAdd(uri)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) onAdd(uris)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -819,7 +823,7 @@ private fun ProjectFilesScreen(
             ProjectHeader(onBack = onBack) {
                 Text("Files", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    filesHeaderSubtitle(documents),
+                    filesHeaderSubtitle(documents, queued),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
@@ -838,7 +842,7 @@ private fun ProjectFilesScreen(
                 // transition — `fileError?.let` removed it the moment the error cleared.
                 ErrorBanner(bannerMessage, onDismiss = onClearFileError)
             }
-            if (documents.isEmpty()) {
+            if (documents.isEmpty() && queued == 0) {
                 FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn(
@@ -846,6 +850,14 @@ private fun ProjectFilesScreen(
                     contentPadding = PaddingValues(Spacing.base, Spacing.l, Spacing.base, 104.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
+                    if (queued > 0) {
+                        item(key = "queued-batch") {
+                            QueuedFilesRow(
+                                count = queued,
+                                modifier = Modifier.padding(bottom = if (documents.isEmpty()) 0.dp else Spacing.s),
+                            )
+                        }
+                    }
                     itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
                         DocumentRow(
                             document = doc,
@@ -868,11 +880,11 @@ private fun ProjectFilesScreen(
                 }
             }
         }
-        if (documents.isNotEmpty()) {
+        if (documents.isNotEmpty() || queued > 0) {
             FloatingActionButton(
                 onClick = { picker.launch(arrayOf("*/*")) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
-            ) { Icon(Icons.Default.Add, "Add file") }
+            ) { Icon(Icons.Default.Add, "Add files") }
         }
         // The Markdown reader slides up over the whole list when a file is opened as Markdown.
         if (openedDoc != null) {
@@ -945,16 +957,18 @@ internal fun DocumentRow(
                         .clip(RoundedCornerShape(11.dp))
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .then(
-                            if (document.status.isBusy) {
-                                Modifier.semantics { contentDescription = "Reading ${document.name}" }
-                            } else {
-                                Modifier
+                            when (document.status) {
+                                ExtractionStatus.EXTRACTING ->
+                                    Modifier.semantics { contentDescription = "Reading ${document.name}" }
+                                ExtractionStatus.PENDING ->
+                                    Modifier.semantics { contentDescription = "Waiting to read ${document.name}" }
+                                else -> Modifier
                             },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
                     AnimatedContent(
-                        targetState = document.status.isBusy,
+                        targetState = document.status.isExtracting,
                         transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
                         label = "docLeading",
                     ) { busy ->
@@ -1030,6 +1044,53 @@ internal fun DocumentRow(
     }
 }
 
+@Composable
+private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
+    Surface(
+        shape = groupedItemShape(0, 1),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = if (count == 1) "1 file queued" else "$count files queued"
+            },
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Description,
+                    null,
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Spacer(Modifier.width(Spacing.m))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (count == 1) "1 file queued" else "$count files queued",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "Waiting…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
 private fun kindIcon(kind: ProjectFileOpener.Kind): ImageVector = when (kind) {
     ProjectFileOpener.Kind.PDF -> Icons.Default.PictureAsPdf
     ProjectFileOpener.Kind.WORD -> Icons.Default.Description
@@ -1039,8 +1100,9 @@ private fun kindIcon(kind: ProjectFileOpener.Kind): ImageVector = when (kind) {
     ProjectFileOpener.Kind.OTHER -> Icons.Default.InsertDriveFile
 }
 
-private fun documentStatusHint(status: ExtractionStatus, modelReadsFiles: Boolean): String? = when (status) {
-    ExtractionStatus.PENDING, ExtractionStatus.EXTRACTING -> "Reading…"
+internal fun documentStatusHint(status: ExtractionStatus, modelReadsFiles: Boolean): String? = when (status) {
+    ExtractionStatus.PENDING -> "Waiting…"
+    ExtractionStatus.EXTRACTING -> "Reading…"
     ExtractionStatus.EXTRACTED -> null
     ExtractionStatus.NEEDS_PROVIDER ->
         if (modelReadsFiles) "Sent to the model as a file" else "This model can't read this file"
@@ -1048,18 +1110,21 @@ private fun documentStatusHint(status: ExtractionStatus, modelReadsFiles: Boolea
     ExtractionStatus.UNKNOWN -> null
 }
 
-private fun filesHeaderSubtitle(documents: List<ProjectDocument>): String {
-    val count = when (documents.size) {
+internal fun filesHeaderSubtitle(documents: List<ProjectDocument>, queued: Int = 0): String {
+    val total = documents.size + queued
+    val count = when (total) {
         0 -> "Background knowledge for this project"
         1 -> "1 file"
-        else -> "${documents.size} files"
+        else -> "$total files"
     }
-    val reading = documents.count { it.status.isBusy }
-    return if (reading > 0 && documents.isNotEmpty()) {
-        "$count · reading $reading"
-    } else {
-        count
-    }
+    if (total == 0) return count
+    val reading = documents.count { it.status.isExtracting }
+    val waiting = documents.count { it.status.isQueued } + queued
+    return buildList {
+        add(count)
+        if (reading > 0) add("reading $reading")
+        if (waiting > 0) add("$waiting waiting")
+    }.joinToString(" · ")
 }
 
 // ── Empty states & dialogs ───────────────────────────────────────────────────────────────
@@ -1082,7 +1147,7 @@ private fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
         glyph = Icons.Default.Description,
         title = "No files yet",
         body = "Add PDFs, Word or Excel files, slides or notes — EchoFlow reads them on your device and makes them background knowledge for this project.",
-        actionLabel = "Add file",
+        actionLabel = "Add files",
         onAction = onAdd,
         modifier = modifier,
     )

@@ -11,7 +11,7 @@ import java.io.File
  * provider). Called from [com.echoflow.data.ProjectManager] after a file is copied and from
  * the lazy backfill sweep.
  */
-class FileExtractor(
+open class FileExtractor(
     private val parser: DocumentParser = Anydoc,
     private val ocr: ImageTextRecognizer? = null,
 ) {
@@ -21,7 +21,7 @@ class FileExtractor(
         val tier: ExtractionTier?,
     )
 
-    suspend fun extract(file: File, mime: String, name: String): Result = withContext(Dispatchers.IO) {
+    open suspend fun extract(file: File, mime: String, name: String): Result = withContext(Dispatchers.IO) {
         val ext = name.substringAfterLast('.', "").lowercase()
         val lowerMime = mime.lowercase()
 

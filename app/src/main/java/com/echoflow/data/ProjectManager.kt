@@ -1,15 +1,20 @@
 package com.echoflow.data
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.echoflow.data.extract.FileExtractor
 import com.echoflow.data.extract.OcrExtractor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -30,9 +35,17 @@ class ProjectManager(
     private val chatDao: ChatDao,
     private val extractor: FileExtractor = FileExtractor(ocr = OcrExtractor(context)),
 ) {
-    private val backfillLocks = mutableMapOf<String, Mutex>()
-    private fun backfillLock(projectId: String): Mutex = synchronized(backfillLocks) {
-        backfillLocks.getOrPut(projectId) { Mutex() }
+    /**
+     * Copy and parse at most [EXTRACT_BATCH_SIZE] files at once. anydoc loads the whole
+     * file (up to 25 MB) into a ByteArray, so four in flight is ~100 MB peak — enough to
+     * ingest a handful of large docs quickly, not enough to OOM a mid-range phone if the
+     * user dumps a folder of twenty.
+     */
+    private val copySlots = Semaphore(EXTRACT_BATCH_SIZE)
+    private val extractSlots = Semaphore(EXTRACT_BATCH_SIZE)
+    private val rowLocks = mutableMapOf<String, Mutex>()
+    private fun rowLock(documentId: String): Mutex = synchronized(rowLocks) {
+        rowLocks.getOrPut(documentId) { Mutex() }
     }
     fun observeProjects(): Flow<List<Project>> = projectDao.observeAll()
     fun observeProject(id: String): Flow<Project?> = projectDao.observeById(id)
@@ -97,8 +110,16 @@ class ProjectManager(
      * PENDING row immediately, then extract on this IO dispatcher. The Files UI observes the
      * Room flow so the row settles in place. Returns the stored row, or null if the file
      * couldn't be copied at all.
+     *
+     * [onAdmitted] fires once the row is in Room, *before* extraction waits on a batch
+     * slot, so the Files header can drop this pick from the "queued" count without
+     * waiting for anydoc.
      */
-    suspend fun addDocument(projectId: String, uri: Uri): ProjectDocument? = withContext(Dispatchers.IO) {
+    suspend fun addDocument(
+        projectId: String,
+        uri: Uri,
+        onAdmitted: (() -> Unit)? = null,
+    ): ProjectDocument? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val mimeType = resolver.getType(uri) ?: "application/octet-stream"
         var displayName = "Document"
@@ -118,28 +139,37 @@ class ProjectManager(
         if (size > MAX_IMPORT_BYTES) return@withContext null
         if (projectDao.getById(projectId) == null) return@withContext null
 
+        // Keep the picker grant alive if the copy waits on a batch slot — OpenMultipleDocuments
+        // URIs otherwise die with the activity result.
+        runCatching {
+            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
         val docId = UUID.randomUUID().toString()
         val dir = projectDir(projectId).apply { mkdirs() }
         val dest = File(dir, docId)
         // Bounded copy: stop (and delete) once the source exceeds the import cap, so a huge or
         // hostile file can't fill app storage. Any failure mid-write also sweeps the partial file
         // — otherwise it would linger unreferenced until the whole project is deleted.
-        val copied = runCatching {
-            resolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        total += read
-                        if (total > MAX_IMPORT_BYTES) throw java.io.IOException("File exceeds import cap")
-                        output.write(buffer, 0, read)
+        // Copy shares the same batch size as extract so twenty 25 MB picks don't all stream at once.
+        val copied = copySlots.withPermit {
+            runCatching {
+                resolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > MAX_IMPORT_BYTES) throw java.io.IOException("File exceeds import cap")
+                            output.write(buffer, 0, read)
+                        }
                     }
-                }
-            } ?: return@runCatching false
-            true
-        }.getOrDefault(false)
+                } ?: return@runCatching false
+                true
+            }.getOrDefault(false)
+        }
         if (!copied) {
             runCatching { dest.delete() }
             return@withContext null
@@ -178,42 +208,55 @@ class ProjectManager(
             if (t is CancellationException) throw t
             return@withContext null
         }
-        backfillLock(projectId).withLock {
-            val current = projectDocumentDao.getById(pending.id) ?: return@withLock null
-            if (current.status.isBusy || current.status == ExtractionStatus.UNKNOWN) {
-                extractAndStore(current)
-            } else {
-                current
-            }
-        }
+        onAdmitted?.invoke()
+        claimAndExtract(pending)
     }
 
     /**
      * Re-run extraction for legacy (`UNKNOWN`) rows and for imports interrupted mid-extract
      * (`PENDING` / `EXTRACTING`). Existing text files are stamped EXTRACTED / LEGACY_TEXT.
-     * Shares [backfillLock] with [addDocument] so the two cannot extract the same row.
+     * Shares [rowLock] with [addDocument] so the two cannot extract the same row, and
+     * [extractSlots] so a backfill of many files still batches through anydoc.
      */
     suspend fun backfillProject(projectId: String) = withContext(Dispatchers.IO) {
-        backfillLock(projectId).withLock {
-            val docs = projectDocumentDao.getForProjectSync(projectId)
+        val docs = projectDocumentDao.getForProjectSync(projectId)
+        coroutineScope {
             for (doc in docs) {
-                val current = projectDocumentDao.getById(doc.id) ?: continue
-                when (current.status) {
-                    ExtractionStatus.UNKNOWN -> {
-                        if (current.hasText) {
-                            projectDocumentDao.update(
-                                current.copy(
-                                    extractionStatus = ExtractionStatus.EXTRACTED.name,
-                                    extractionTier = ExtractionTier.LEGACY_TEXT.name,
+                launch {
+                    val current = projectDocumentDao.getById(doc.id) ?: return@launch
+                    when (current.status) {
+                        ExtractionStatus.UNKNOWN -> {
+                            if (current.hasText) {
+                                projectDocumentDao.update(
+                                    current.copy(
+                                        extractionStatus = ExtractionStatus.EXTRACTED.name,
+                                        extractionTier = ExtractionTier.LEGACY_TEXT.name,
+                                    )
                                 )
-                            )
-                        } else {
-                            extractAndStore(current)
+                            } else {
+                                claimAndExtract(current)
+                            }
                         }
+                        ExtractionStatus.PENDING, ExtractionStatus.EXTRACTING -> claimAndExtract(current)
+                        else -> Unit
                     }
-                    ExtractionStatus.PENDING, ExtractionStatus.EXTRACTING -> extractAndStore(current)
-                    else -> Unit
                 }
+            }
+        }
+    }
+
+    /**
+     * Take a parse slot (at most [EXTRACT_BATCH_SIZE] at once) and run [extractAndStore].
+     * The per-row mutex is the claim: add and backfill both go through here, so a
+     * PENDING row cannot be parsed twice.
+     */
+    private suspend fun claimAndExtract(document: ProjectDocument): ProjectDocument? {
+        return rowLock(document.id).withLock {
+            val current = projectDocumentDao.getById(document.id) ?: return@withLock null
+            if (current.status.isBusy || current.status == ExtractionStatus.UNKNOWN) {
+                extractSlots.withPermit { extractAndStore(current) }
+            } else {
+                current
             }
         }
     }
@@ -295,6 +338,13 @@ class ProjectManager(
 
         /** Hard cap on an imported file's size (bytes) — larger selections are rejected. */
         private const val MAX_IMPORT_BYTES = 25L * 1024 * 1024
+
+        /**
+         * How many files copy or parse at once. Four is the memory bound: each anydoc
+         * conversion holds the whole file (≤ 25 MB) as bytes. Picks above this wait in
+         * PENDING until a slot frees.
+         */
+        const val EXTRACT_BATCH_SIZE = 4
 
         /** Combined document budget injected into any single system prompt. */
         private const val MAX_DOC_CONTEXT_CHARS = 24_000
