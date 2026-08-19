@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class
     ],
-    version = 23, // v23: project_documents.extractionStatus + extractionTier
+    version = 24, // v24: chat_messages.attachmentsJson (multi-file chat attachments)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -437,6 +437,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Multi-file chat attachments. One additive, nullable column — no DEFAULT (matches the
+         * no-defaultValue entity policy). Existing rows keep attachmentsJson = NULL and are read
+         * through the legacy single `localAttachment*` columns by [ChatMessage.attachments], so
+         * every existing message renders exactly as before.
+         */
+        internal val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN attachmentsJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -467,6 +479,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_20_21,
                     MIGRATION_21_22,
                     MIGRATION_22_23,
+                    MIGRATION_23_24,
                 )
                 .build()
                 INSTANCE = instance
