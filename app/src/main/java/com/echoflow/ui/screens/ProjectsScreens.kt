@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 
 package com.echoflow.ui.screens
 
@@ -15,9 +15,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,15 +55,22 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
@@ -87,6 +96,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,6 +109,7 @@ import androidx.compose.ui.semantics.semantics
 import com.echoflow.data.ExtractionStatus
 import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
+import com.echoflow.data.ProjectFileOpener
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.components.PROJECT_ACCENT_COUNT
 import com.echoflow.ui.components.ProjectMedallion
@@ -786,7 +799,13 @@ private fun ProjectFilesScreen(
     onRemove: (ProjectDocument) -> Unit,
     onBack: () -> Unit,
 ) {
-    BackHandler { onBack() }
+    val context = LocalContext.current
+    // The file opened in the in-app Markdown reader, or null when the list is showing. Keyed by id
+    // so a Room refresh (e.g. re-extraction finishing) re-resolves to the live row.
+    var openedDocId by remember { mutableStateOf<String?>(null) }
+    val openedDoc = openedDocId?.let { id -> documents.firstOrNull { it.id == id } }
+    // The reader owns Back while it's up; the list only handles Back once it's closed.
+    BackHandler(enabled = openedDoc == null) { onBack() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onAdd(uri)
     }
@@ -828,6 +847,16 @@ private fun ProjectFilesScreen(
                             document = doc,
                             shape = groupedItemShape(index, documents.size),
                             modelReadsFiles = modelReadsFiles,
+                            onOpenExternal = {
+                                if (!ProjectFileOpener.openExternally(context, doc)) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "No app can open this file",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            onOpenMarkdown = { openedDocId = doc.id },
                             onRemove = { onRemove(doc) },
                             modifier = Modifier.animateItem(),
                         )
@@ -841,6 +870,13 @@ private fun ProjectFilesScreen(
                 modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
             ) { Icon(Icons.Default.Add, "Add file") }
         }
+        // The Markdown reader slides up over the whole list when a file is opened as Markdown.
+        if (openedDoc != null) {
+            ProjectDocumentReaderScreen(
+                document = openedDoc,
+                onClose = { openedDocId = null },
+            )
+        }
     }
 }
 
@@ -849,85 +885,137 @@ private fun DocumentRow(
     document: ProjectDocument,
     shape: Shape,
     modelReadsFiles: Boolean,
+    onOpenExternal: () -> Unit,
+    onOpenMarkdown: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hint = documentStatusHint(document.status, modelReadsFiles)
     val hintIsError = document.status == ExtractionStatus.FAILED ||
         (document.status == ExtractionStatus.NEEDS_PROVIDER && !modelReadsFiles)
-    Surface(
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
+    val haptics = LocalHapticFeedback.current
+    var menuOpen by remember { mutableStateOf(false) }
+    // "Open as Markdown" only when we actually have readable on-device text; a file that goes
+    // straight to the model (NEEDS_PROVIDER) or failed extraction has none, so the option is hidden.
+    val canOpenMarkdown = document.hasText
+    val kind = ProjectFileOpener.kindOf(document)
+    // Long-press (or tap) surfaces the open options anchored to the row.
+    Box {
+        Surface(
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { menuOpen = true },
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuOpen = true
+                    },
+                ),
         ) {
-            Box(
-                Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .then(
-                        if (document.status.isBusy) {
-                            Modifier.semantics { contentDescription = "Reading ${document.name}" }
-                        } else {
-                            Modifier
-                        },
-                    ),
-                contentAlignment = Alignment.Center,
+            Row(
+                Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                AnimatedContent(
-                    targetState = document.status.isBusy,
-                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                    label = "docLeading",
-                ) { busy ->
-                    if (busy) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.Description,
-                            null,
-                            Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .then(
+                            if (document.status.isBusy) {
+                                Modifier.semantics { contentDescription = "Reading ${document.name}" }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AnimatedContent(
+                        targetState = document.status.isBusy,
+                        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                        label = "docLeading",
+                    ) { busy ->
+                        if (busy) {
+                            LoadingIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Description,
+                                null,
+                                Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f)) {
+                    Text(document.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    AnimatedContent(
+                        targetState = hint,
+                        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                        label = "docHint",
+                    ) { currentHint ->
+                        Text(
+                            buildString {
+                                append(formatBytes(document.sizeBytes))
+                                if (currentHint != null) {
+                                    append(" · ")
+                                    append(currentHint)
+                                }
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (hintIsError) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     }
                 }
-            }
-            Spacer(Modifier.width(Spacing.m))
-            Column(Modifier.weight(1f)) {
-                Text(document.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                AnimatedContent(
-                    targetState = hint,
-                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                    label = "docHint",
-                ) { currentHint ->
-                    Text(
-                        buildString {
-                            append(formatBytes(document.sizeBytes))
-                            if (currentHint != null) {
-                                append(" · ")
-                                append(currentHint)
-                            }
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (hintIsError) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                // The three-dot affordance opens the same menu as a long-press, so the actions are
+                // discoverable without knowing the gesture.
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.MoreVert, "File options", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.DeleteOutline, "Remove file", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(ProjectFileOpener.openLabel(kind)) },
+                leadingIcon = { Icon(kindIcon(kind), null) },
+                onClick = { menuOpen = false; onOpenExternal() },
+            )
+            if (canOpenMarkdown) {
+                DropdownMenuItem(
+                    text = { Text("Open as Markdown") },
+                    leadingIcon = { Icon(Icons.Default.Notes, null) },
+                    onClick = { menuOpen = false; onOpenMarkdown() },
+                )
             }
+            HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+            DropdownMenuItem(
+                text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
+                },
+                onClick = { menuOpen = false; onRemove() },
+            )
         }
     }
+}
+
+private fun kindIcon(kind: ProjectFileOpener.Kind): ImageVector = when (kind) {
+    ProjectFileOpener.Kind.PDF -> Icons.Default.PictureAsPdf
+    ProjectFileOpener.Kind.WORD -> Icons.Default.Description
+    ProjectFileOpener.Kind.SPREADSHEET -> Icons.Default.TableChart
+    ProjectFileOpener.Kind.SLIDES -> Icons.Default.Slideshow
+    ProjectFileOpener.Kind.IMAGE -> Icons.Default.Image
+    ProjectFileOpener.Kind.OTHER -> Icons.Default.InsertDriveFile
 }
 
 private fun documentStatusHint(status: ExtractionStatus, modelReadsFiles: Boolean): String? = when (status) {
