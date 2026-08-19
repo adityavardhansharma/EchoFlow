@@ -55,10 +55,10 @@ object ProjectFileOpener {
         val mime = resolveMime(document)
 
         val shared = runCatching {
-            val dir = File(context.cacheDir, SHARED_DIR).apply { mkdirs() }
-            // One file lives here at a time — clear prior copies so the cache can't grow per open.
-            dir.listFiles()?.forEach { it.delete() }
-            File(dir, safeFileName(document, mime)).also { source.copyTo(it, overwrite = true) }
+val dir = File(context.cacheDir, SHARED_DIR).apply { mkdirs() }
+// Clean up stale prior copies, but keep recent ones so external viewers don't lose their backing file.
+dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24L * 60L * 60L * 1000L }?.forEach { it.delete() }
+File(dir, safeFileName(document, mime)).also { source.copyTo(it, overwrite = true) }
         }.getOrNull() ?: return false
 
         val uri = runCatching {
