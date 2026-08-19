@@ -119,5 +119,10 @@ class DatabaseUpgradeTest {
         database.openHelper.readableDatabase.query(
             "SELECT extractionStatus, extractionTier FROM project_documents LIMIT 0"
         ).use { /* columns are queryable after the chained migration */ }
+
+        // v24: multi-file chat attachments column exists after the chained migration.
+        database.openHelper.readableDatabase.query(
+            "SELECT attachmentsJson FROM chat_messages LIMIT 0"
+        ).use { /* queryable => the additive column landed */ }
     }
 }

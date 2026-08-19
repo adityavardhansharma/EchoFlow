@@ -139,15 +139,16 @@ import kotlinx.coroutines.launch
 internal fun InputToolbar(
     text: String,
     onText: (String) -> Unit,
-    pendingUri: String?,
-    pendingMime: String?,
-    pendingName: String?,
-    onClearAttachment: () -> Unit,
+    attachments: List<com.echoflow.ui.PendingAttachment>,
+    attachmentLimit: Int,
+    onRemoveAttachment: (String) -> Unit,
+    onRetryAttachment: (String) -> Unit,
     onAttach: () -> Unit,
     onAttachPdf: () -> Unit,
     onReceiveImage: (Uri) -> Unit,
     imageAttachEnabled: Boolean,
     pdfAttachEnabled: Boolean,
+    requireExtractedDocs: Boolean = false,
     isStreaming: Boolean,
     deepResearchActive: Boolean,
     webSearchChipOn: Boolean,
@@ -239,30 +240,13 @@ internal fun InputToolbar(
             )
         }
 
-        AnimatedVisibility(visible = pendingUri != null) {
-            pendingUri?.let { uri ->
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.padding(bottom = Spacing.s),
-                ) {
-                    Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                        if (pendingMime.equals("application/pdf", ignoreCase = true)) {
-                            Icon(
-                                Icons.Default.PictureAsPdf,
-                                null,
-                                Modifier.size(40.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                        } else {
-                            AsyncImage(uri, null, Modifier.size(40.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
-                        }
-                        Spacer(Modifier.width(Spacing.m))
-                        Text(pendingName ?: "Attachment", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
-                        IconButton(onClick = onClearAttachment, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
-                    }
-                }
-            }
+        AnimatedVisibility(visible = attachments.isNotEmpty()) {
+            AttachmentChips(
+                attachments = attachments,
+                onRemove = onRemoveAttachment,
+                onRetry = onRetryAttachment,
+                modifier = Modifier.padding(bottom = Spacing.s),
+            )
         }
 
         // What this next message will be sent with: the model first, then whatever
@@ -416,9 +400,15 @@ internal fun InputToolbar(
                 val showStop = isStreaming || researchInProgress
                 val transcribing = voicePhase == VoicePhase.Transcribing
                 val hasText = text.trim().isNotEmpty()
-                val hasContent = hasText || (pendingUri != null && !researchMode)
+                val hasContent = hasText || (attachments.isNotEmpty() && !researchMode)
+                // Local path: a Ready chip with no Markdown is an unparsed cloud PDF / legacy
+                // attachment — hold send until extract finishes (or the user removes it).
+                val attachmentsSettled = attachments.all { att ->
+                    att.state == com.echoflow.ui.PendingAttachment.State.Ready &&
+                        (!requireExtractedDocs || att.isImage || !att.extractedText.isNullOrBlank())
+                }
                 // Inert while capturing/transcribing — the mic owns that phase, not send.
-                val canSend = hasContent && !showStop && blockedReason == null && voicePhase == VoicePhase.Idle
+                val canSend = hasContent && attachmentsSettled && !showStop && blockedReason == null && voicePhase == VoicePhase.Idle
                 SendButton(
                     enabled = canSend,
                     isStreaming = showStop,
@@ -429,6 +419,98 @@ internal fun InputToolbar(
                 ) {
                     if (canSend) onSend()
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The staged attachments, one pill each (up to the message limit). A pill narrates its own state:
+ * a morphing [LoadingIndicator] while its doc is parsed on-device, a tick once ready, a tap-to-retry
+ * arrow if the parse failed. Every pill carries a ✕ to drop that file from the turn. Images show a
+ * thumbnail and are ready at once (no local parse).
+ */
+@Composable
+private fun AttachmentChips(
+    attachments: List<com.echoflow.ui.PendingAttachment>,
+    onRemove: (String) -> Unit,
+    onRetry: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+    ) {
+        attachments.forEach { attachment ->
+            key(attachment.id) {
+                AttachmentChip(
+                    attachment = attachment,
+                    onRemove = { onRemove(attachment.id) },
+                    onRetry = { onRetry(attachment.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentChip(
+    attachment: com.echoflow.ui.PendingAttachment,
+    onRemove: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val failed = attachment.isFailed
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = if (failed) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.s, vertical = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val onContainer = if (failed) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer
+            // Leading slot: image thumbnail, or a state glyph for a doc (loader → tick → retry).
+            Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+                when {
+                    attachment.isImage ->
+                        AsyncImage(
+                            attachment.uri,
+                            null,
+                            Modifier.size(26.dp).clip(MaterialTheme.shapes.small),
+                            contentScale = ContentScale.Crop,
+                        )
+                    attachment.isProcessing ->
+                        LoadingIndicator(modifier = Modifier.size(20.dp), color = onContainer)
+                    failed ->
+                        Icon(
+                            Icons.Default.Refresh,
+                            "Retry",
+                            Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onRetry)
+                                .semantics { contentDescription = "Retry reading ${attachment.name}" },
+                            tint = onContainer,
+                        )
+                    else ->
+                        Icon(Icons.Default.CheckCircle, "Ready", Modifier.size(20.dp), tint = onContainer)
+                }
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                attachment.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+                color = onContainer,
+                modifier = Modifier.widthIn(max = 160.dp),
+            )
+            Spacer(Modifier.width(Spacing.xs))
+            IconButton(onClick = onRemove, modifier = Modifier.size(26.dp)) {
+                Icon(Icons.Default.Close, "Remove ${attachment.name}", Modifier.size(16.dp), tint = onContainer)
             }
         }
     }

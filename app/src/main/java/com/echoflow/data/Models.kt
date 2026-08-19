@@ -70,6 +70,13 @@ data class ChatMessage(
      * keeps the history so the 1/2 pager can switch between them.
      */
     val replyVersionsJson: String? = null,
+    /**
+     * All files attached to this user turn, as JSON [MessageAttachment] list (up to 3). Used by
+     * the local-model path: doc files are parsed on-device (anydoc → Markdown) into
+     * [MessageAttachment.extractedText] once, here, so the model can read them. Null on rows that
+     * predate multi-attach or that carry only a single legacy attachment (see [attachments]).
+     */
+    val attachmentsJson: String? = null,
 ) {
     /**
      * In-memory only. Extra files (project docs that still need the provider) attached to this
@@ -79,6 +86,26 @@ data class ChatMessage(
     @Ignore
     @Transient
     var extraAttachments: List<LocalFileAttachment> = emptyList()
+
+    /**
+     * The turn's attachments, coalesced across representations: the multi-file [attachmentsJson]
+     * when present, otherwise the single legacy `localAttachment*` columns wrapped as one entry.
+     * Rendering and local-model injection read this so old single-attachment rows and new
+     * multi-attach rows are handled by the same code.
+     */
+    val attachments: List<MessageAttachment>
+        get() = ToolEventJson.attachmentsFromJson(attachmentsJson).ifEmpty {
+            localAttachmentUri?.let { uri ->
+                listOf(
+                    MessageAttachment(
+                        uri = uri,
+                        mimeType = localAttachmentMimeType ?: "application/octet-stream",
+                        name = localAttachmentName ?: "Attachment",
+                    )
+                )
+            } ?: emptyList()
+        }
+
     /**
      * Rewrites a user prompt without moving its turn in the transcript. [createdAt] is the
      * stable ordering key: keeping it means a failed regeneration can restore the original
@@ -89,11 +116,13 @@ data class ChatMessage(
         attachmentUri: String?,
         attachmentMimeType: String?,
         attachmentName: String?,
+        attachmentsJson: String? = null,
     ): ChatMessage = copy(
         content = content,
         localAttachmentUri = attachmentUri,
         localAttachmentMimeType = attachmentMimeType,
         localAttachmentName = attachmentName,
+        attachmentsJson = attachmentsJson,
     )
 }
 
@@ -102,6 +131,19 @@ data class LocalFileAttachment(
     val uri: String,
     val mimeType: String,
     val name: String,
+)
+
+/**
+ * One file attached to a user turn, persisted in [ChatMessage.attachmentsJson]. Up to three per
+ * message. For the local-model path a doc file (PDF/Word/Excel/…) is parsed on-device to Markdown
+ * once and stored in [extractedText]; images carry no text ([extractedText] stays null) and are
+ * fed through the vision path instead.
+ */
+data class MessageAttachment(
+    val uri: String,
+    val mimeType: String,
+    val name: String,
+    val extractedText: String? = null,
 )
 
 @Entity(tableName = "custom_models")

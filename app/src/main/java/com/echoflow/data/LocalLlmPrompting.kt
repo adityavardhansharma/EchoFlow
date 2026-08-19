@@ -23,4 +23,35 @@ internal object LocalLlmPrompting {
 
     fun userTurnPrompt(content: String): String =
         "Human message:\n$content\n\nEchoFlow reply:"
+
+    /**
+     * Typed text plus parsed attachment Markdown. Local runtimes cannot take raw files.
+     * Combined attachment body is capped at [MAX_ATTACHMENT_CONTEXT_CHARS] (same ballpark as
+     * project-doc injection) so a large PDF cannot crowd out the user's question.
+     */
+    fun contentWithAttachments(message: ChatMessage): String {
+        val docs = message.attachments.filter { !it.extractedText.isNullOrBlank() }
+        if (docs.isEmpty()) return message.content
+        var budget = MAX_ATTACHMENT_CONTEXT_CHARS
+        val blocks = buildList {
+            for (attachment in docs) {
+                if (budget <= 0) {
+                    add("[Some attached files were omitted to fit the context window.]")
+                    break
+                }
+                val body = attachment.extractedText.orEmpty()
+                val slice = if (body.length > budget) body.take(budget) else body
+                budget -= slice.length
+                val truncatedMark = if (slice.length < body.length) "\n[…document truncated…]" else ""
+                add(
+                    "--- Attached file: ${attachment.name} ---\n$slice$truncatedMark\n--- End of ${attachment.name} ---"
+                )
+            }
+        }
+        val joined = blocks.joinToString("\n\n")
+        return if (message.content.isBlank()) joined else "${message.content}\n\n$joined"
+    }
+
+    /** Combined Markdown budget injected from one turn's attachments into a local prompt. */
+    internal const val MAX_ATTACHMENT_CONTEXT_CHARS = 24_000
 }

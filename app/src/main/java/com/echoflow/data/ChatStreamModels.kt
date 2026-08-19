@@ -359,6 +359,10 @@ object ToolEventJson {
         Types.newParameterizedType(List::class.java, ReplyVersion::class.java)
     )
 
+    private val attachmentsAdapter: JsonAdapter<List<MessageAttachment>> = moshi.adapter(
+        Types.newParameterizedType(List::class.java, MessageAttachment::class.java)
+    )
+
     fun toolEventsToJson(events: List<ToolEvent>): String? =
         if (events.isEmpty()) null else toolEventsAdapter.toJson(events)
 
@@ -382,6 +386,12 @@ object ToolEventJson {
 
     fun replyVersionsFromJson(json: String?): List<ReplyVersion> =
         json?.let { runCatching { replyVersionsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
+
+    fun attachmentsToJson(attachments: List<MessageAttachment>): String? =
+        if (attachments.isEmpty()) null else attachmentsAdapter.toJson(attachments)
+
+    fun attachmentsFromJson(json: String?): List<MessageAttachment> =
+        json?.let { runCatching { attachmentsAdapter.fromJson(it) }.getOrNull() } ?: emptyList()
 }
 
 /**
