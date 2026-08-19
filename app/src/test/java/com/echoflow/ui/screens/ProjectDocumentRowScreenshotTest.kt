@@ -7,12 +7,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.down
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ExtractionStatus
 import com.echoflow.data.ProjectDocument
@@ -79,19 +78,12 @@ class ProjectDocumentRowScreenshotTest {
     }
 
     @Test
-    fun project_files_row_pressed_matches_shape() {
-        setFileList()
-        composeRule.onNodeWithText("chapter-one.pdf").performTouchInput { down(center) }
-        composeRule.onRoot().captureRoboImage(
-            filePath = "src/test/screenshots/project_files_row_pressed.png",
-        )
-    }
-
-    @Test
-    fun project_files_row_click_opens_menu_without_square_overlay() {
+    fun project_files_row_click_does_not_draw_square_overlay() {
         setFileList()
         composeRule.onNodeWithText("chapter-one.pdf").performClick()
-        composeRule.onRoot().captureRoboImage(
+        // DropdownMenu is a second window; capture the list window so a square overlay
+        // around the file chip would show up here.
+        composeRule.onAllNodes(isRoot())[0].captureRoboImage(
             filePath = "src/test/screenshots/project_files_row_menu_anchor.png",
         )
     }

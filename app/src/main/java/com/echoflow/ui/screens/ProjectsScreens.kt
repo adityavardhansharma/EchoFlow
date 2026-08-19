@@ -77,7 +77,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ripple
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -902,9 +901,9 @@ internal fun DocumentRow(
     // straight to the model (NEEDS_PROVIDER) or failed extraction has none, so the option is hidden.
     val canOpenMarkdown = document.hasText
     val kind = ProjectFileOpener.kindOf(document)
-    // Long-press (or tap) surfaces the open options anchored to the row.
-    // Clip before combinedClickable so the press indication follows the grouped shape — otherwise
-    // the default ripple paints a square around the rounded file chip.
+    // Long-press (or tap) surfaces the open options anchored to the row. Clip to the grouped
+    // shape and skip the default ripple — that indication is a square drawn around the chip,
+    // not a shadow that follows the container.
     Box {
         Surface(
             shape = shape,
@@ -914,7 +913,7 @@ internal fun DocumentRow(
                 .clip(shape)
                 .combinedClickable(
                     interactionSource = interactionSource,
-                    indication = ripple(),
+                    indication = null,
                     onClick = { menuOpen = true },
                     onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
