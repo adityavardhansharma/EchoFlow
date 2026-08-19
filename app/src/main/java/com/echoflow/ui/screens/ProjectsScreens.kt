@@ -10,6 +10,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -907,13 +908,14 @@ internal fun DocumentRow(
     // Long-press (or tap) surfaces the open options anchored to the row. A bounded ripple painted a
     // square around the rounded chip, so instead we tint the surface fill on press — that feedback
     // is the container's own colour, so it always follows the grouped rounded shape.
+    val reducedMotion = rememberReducedMotion()
     val pressColor by animateColorAsState(
         targetValue = if (pressed) {
             MaterialTheme.colorScheme.surfaceContainerHighest
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        animationSpec = tween(durationMillis = if (pressed) 90 else 220),
+        animationSpec = if (reducedMotion) snap() else tween(durationMillis = if (pressed) 90 else 220),
         label = "docPress",
     )
     Box {
