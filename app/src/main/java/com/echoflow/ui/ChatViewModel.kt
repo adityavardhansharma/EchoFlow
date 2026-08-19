@@ -613,6 +613,21 @@ class ChatViewModel(
     val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
 
     /**
+     * Errors raised while managing a project's files (e.g. an import that can't be read). Kept
+     * separate from [errorMessage] so it surfaces inside the Files screen that raised it, not on
+     * the chat surface sitting behind the hub overlay. The project id travels with the message
+     * so a late failure cannot paint a banner onto a different project's Files screen.
+     */
+    data class ProjectFileError(val projectId: String, val message: String, val importId: Long = 0L)
+
+    private val _projectFileError = MutableStateFlow<ProjectFileError?>(null)
+    val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
+    private var nextProjectFileImportId = 0L
+    fun clearProjectFileError(projectId: String) {
+        if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
+    }
+
+    /**
      * The project a not-yet-created chat will belong to. Starting a new chat from a project home
      * parks the id here; the thread is created lazily on first send (like every blank chat), and
      * this is what stamps the project onto it then.
@@ -725,11 +740,33 @@ class ChatViewModel(
     }
 
     fun addProjectDocument(projectId: String, uri: Uri) {
+        val importId = ++nextProjectFileImportId
         viewModelScope.launch {
-            if (projectManager.addDocument(projectId, uri) == null) {
-                _errorMessage.value = "Couldn't read that file."
+            val added = try {
+                projectManager.addDocument(projectId, uri)
+            } catch (t: CancellationException) {
+                throw t
+            } catch (_: Throwable) {
+                reportProjectFileError(projectId, importId)
+                return@launch
+            }
+            if (added == null) {
+                reportProjectFileError(projectId, importId)
+            } else {
+                // Only a newer success may drop this project's banner. An older import
+                // finishing later must not hide a failure that started after it.
+                val current = _projectFileError.value
+                if (current != null && current.projectId == projectId && current.importId < importId) {
+                    _projectFileError.value = null
+                }
             }
         }
+    }
+
+    private fun reportProjectFileError(projectId: String, importId: Long) {
+        val current = _projectFileError.value
+        if (current != null && current.projectId == projectId && current.importId > importId) return
+        _projectFileError.value = ProjectFileError(projectId, "Couldn't add that file.", importId)
     }
 
     fun removeProjectDocument(document: ProjectDocument) {

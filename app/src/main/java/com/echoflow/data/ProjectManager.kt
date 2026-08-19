@@ -223,6 +223,7 @@ class ProjectManager(
         val result = runCatching {
             extractor.extract(File(document.filePath), document.mimeType, document.name)
         }.getOrElse {
+            if (it is CancellationException) throw it
             FileExtractor.Result(null, ExtractionStatus.FAILED, null)
         }
         val updated = document.copy(

@@ -7,10 +7,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -123,8 +126,18 @@ import com.echoflow.ui.theme.rememberReducedMotion
 fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
     val openProjectId by chatViewModel.openProjectId.collectAsState()
 
+    // The hub opens over the chat, whose composer may still hold focus and keep the soft keyboard
+    // up. Nothing in the hub wants it, so dismiss it as the surface appears — otherwise it hangs
+    // over every screen inside the hub until the user taps elsewhere.
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
     var appeared by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { appeared = true }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        appeared = true
+    }
     val openProgress by animateFloatAsState(
         targetValue = if (appeared) 1f else 0f,
         animationSpec = tween(durationMillis = 320),
@@ -341,13 +354,17 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
         )
         p != null && detail == ProjectDetail.Files -> {
             val modelReadsFiles by chatViewModel.modelReadsFiles.collectAsState()
+            val projectFileError by chatViewModel.projectFileError.collectAsState()
+            val fileError = projectFileError?.takeIf { it.projectId == projectId }?.message
             ProjectFilesScreen(
                 project = p,
                 documents = documents,
                 modelReadsFiles = modelReadsFiles,
+                fileError = fileError,
+                onClearFileError = { chatViewModel.clearProjectFileError(projectId) },
                 onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
                 onRemove = { chatViewModel.removeProjectDocument(it) },
-                onBack = { detail = ProjectDetail.None },
+                onBack = { chatViewModel.clearProjectFileError(projectId); detail = ProjectDetail.None },
             )
         }
         else -> {
@@ -763,6 +780,8 @@ private fun ProjectFilesScreen(
     project: Project,
     documents: List<ProjectDocument>,
     modelReadsFiles: Boolean,
+    fileError: String?,
+    onClearFileError: () -> Unit,
     onAdd: (android.net.Uri) -> Unit,
     onRemove: (ProjectDocument) -> Unit,
     onBack: () -> Unit,
@@ -782,6 +801,19 @@ private fun ProjectFilesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
                 )
+            }
+            // A file that couldn't be added is reported here, on the screen that raised it — not
+            // on the chat surface behind the hub, where the user would never see it.
+            var bannerMessage by remember { mutableStateOf("") }
+            if (fileError != null) bannerMessage = fileError
+            AnimatedVisibility(
+                visible = fileError != null,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                // Keep ErrorBanner composed (and its last message) through the exit
+                // transition — `fileError?.let` removed it the moment the error cleared.
+                ErrorBanner(bannerMessage, onDismiss = onClearFileError)
             }
             if (documents.isEmpty()) {
                 FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
