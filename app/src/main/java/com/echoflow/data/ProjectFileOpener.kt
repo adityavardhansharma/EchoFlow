@@ -87,11 +87,11 @@ val intent = Intent(Intent.ACTION_VIEW).apply {
 
     /** The display name, stripped of any path parts, with an extension appended if it lacks one. */
     private fun safeFileName(document: ProjectDocument, mime: String): String {
-        val raw = document.name.substringAfterLast('/').substringAfterLast('\\').trim().ifBlank { "document" }
-        val ext = raw.substringAfterLast('.', "")
-        if (ext.isNotBlank() && ext.length <= 5) return raw
-        val guessed = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
-        return if (guessed != null) "$raw.$guessed" else raw
+val raw = document.name.substringAfterLast('/').substringAfterLast('\\').trim().ifBlank { "document" }
+val ext = raw.substringAfterLast('.', "")
+if (ext.isNotBlank() && MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase()) != null) return raw
+val guessed = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+return if (!guessed.isNullOrBlank()) "$raw.$guessed" else raw
     }
 
     private const val SHARED_DIR = "shared_docs"
