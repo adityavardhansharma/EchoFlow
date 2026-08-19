@@ -65,10 +65,11 @@ object ProjectFileOpener {
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shared)
         }.getOrNull() ?: return false
 
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+val intent = Intent(Intent.ACTION_VIEW).apply {
+    setDataAndType(uri, mime)
+    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+}
         return try {
             context.startActivity(intent)
             true
