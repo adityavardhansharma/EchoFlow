@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +77,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -881,7 +883,7 @@ private fun ProjectFilesScreen(
 }
 
 @Composable
-private fun DocumentRow(
+internal fun DocumentRow(
     document: ProjectDocument,
     shape: Shape,
     modelReadsFiles: Boolean,
@@ -894,19 +896,25 @@ private fun DocumentRow(
     val hintIsError = document.status == ExtractionStatus.FAILED ||
         (document.status == ExtractionStatus.NEEDS_PROVIDER && !modelReadsFiles)
     val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
     var menuOpen by remember { mutableStateOf(false) }
     // "Open as Markdown" only when we actually have readable on-device text; a file that goes
     // straight to the model (NEEDS_PROVIDER) or failed extraction has none, so the option is hidden.
     val canOpenMarkdown = document.hasText
     val kind = ProjectFileOpener.kindOf(document)
     // Long-press (or tap) surfaces the open options anchored to the row.
+    // Clip before combinedClickable so the press indication follows the grouped shape — otherwise
+    // the default ripple paints a square around the rounded file chip.
     Box {
         Surface(
             shape = shape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = modifier
                 .fillMaxWidth()
+                .clip(shape)
                 .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
                     onClick = { menuOpen = true },
                     onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
