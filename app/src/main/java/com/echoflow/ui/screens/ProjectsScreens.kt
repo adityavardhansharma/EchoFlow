@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -881,7 +882,7 @@ private fun ProjectFilesScreen(
 }
 
 @Composable
-private fun DocumentRow(
+internal fun DocumentRow(
     document: ProjectDocument,
     shape: Shape,
     modelReadsFiles: Boolean,
@@ -894,19 +895,25 @@ private fun DocumentRow(
     val hintIsError = document.status == ExtractionStatus.FAILED ||
         (document.status == ExtractionStatus.NEEDS_PROVIDER && !modelReadsFiles)
     val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
     var menuOpen by remember { mutableStateOf(false) }
     // "Open as Markdown" only when we actually have readable on-device text; a file that goes
     // straight to the model (NEEDS_PROVIDER) or failed extraction has none, so the option is hidden.
     val canOpenMarkdown = document.hasText
     val kind = ProjectFileOpener.kindOf(document)
-    // Long-press (or tap) surfaces the open options anchored to the row.
+    // Long-press (or tap) surfaces the open options anchored to the row. Clip to the grouped
+    // shape and skip the default ripple — that indication is a square drawn around the chip,
+    // not a shadow that follows the container.
     Box {
         Surface(
             shape = shape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = modifier
                 .fillMaxWidth()
+                .clip(shape)
                 .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
                     onClick = { menuOpen = true },
                     onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
