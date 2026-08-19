@@ -489,14 +489,18 @@ internal fun MessageBubble(
             onCopy = { onCopy(message.content) },
             onEdit = { onEditUserMessage(message.id) },
             modifier = modifier,
-            attachment = message.localAttachmentUri?.let { uri ->
+            attachment = message.attachments.takeIf { it.isNotEmpty() }?.let { list ->
                 {
-                    MessageAttachmentPreview(
-                        uri = uri,
-                        mimeType = message.localAttachmentMimeType,
-                        name = message.localAttachmentName,
-                        modifier = Modifier.padding(bottom = Spacing.s),
-                    )
+                    Column {
+                        list.forEach { att ->
+                            MessageAttachmentPreview(
+                                uri = att.uri,
+                                mimeType = att.mimeType,
+                                name = att.name,
+                                modifier = Modifier.padding(bottom = Spacing.s),
+                            )
+                        }
+                    }
                 }
             },
         )
@@ -589,11 +593,11 @@ private fun AssistantAnswerBody(
         onCopy(timelineText.ifBlank { message.content })
     }
 
-    message.localAttachmentUri?.let { uri ->
+    message.attachments.forEach { att ->
         MessageAttachmentPreview(
-            uri = uri,
-            mimeType = message.localAttachmentMimeType,
-            name = message.localAttachmentName,
+            uri = att.uri,
+            mimeType = att.mimeType,
+            name = att.name,
             modifier = Modifier.padding(bottom = Spacing.s),
         )
     }
@@ -1031,36 +1035,38 @@ internal fun MessageAttachmentPreview(
     name: String?,
     modifier: Modifier = Modifier,
 ) {
-    if (mimeType.equals("application/pdf", ignoreCase = true)) {
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = modifier.widthIn(max = 280.dp),
-        ) {
-            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.PictureAsPdf,
-                    null,
-                    Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                Spacer(Modifier.width(Spacing.s))
-                Text(
-                    name ?: "PDF file",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    } else {
+    val isImage = mimeType?.startsWith("image/", ignoreCase = true) == true
+    if (isImage) {
         AsyncImage(
             uri,
             null,
             modifier.size(200.dp).clip(MaterialTheme.shapes.large),
             contentScale = ContentScale.Crop,
         )
+        return
+    }
+    val isPdf = mimeType.equals("application/pdf", ignoreCase = true)
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = modifier.widthIn(max = 280.dp),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (isPdf) Icons.Default.PictureAsPdf else Icons.Default.Description,
+                null,
+                Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                name ?: if (isPdf) "PDF file" else "Document",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }

@@ -113,6 +113,29 @@ import kotlinx.coroutines.launch
 private val DEFAULT_MODEL = "google/gemini-2.0-flash" to "Gemini 2.0 Flash"
 
 /**
+ * Doc types the local-model "Files" picker offers — everything the bundled anydoc parser reads.
+ * Extra/unknown picks that anydoc can't handle simply fail their chip (retry/remove), so this list
+ * only needs to be broad enough to surface the common formats in the system picker.
+ */
+private val DOC_ATTACH_MIME_TYPES = arrayOf(
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/rtf",
+    "application/epub+zip",
+    "text/plain",
+    "text/csv",
+    "text/markdown",
+)
+
+/**
  * The Chat surface: turn-taking conversation and every capability that makes an answer
  * better — search, research, artifacts, the browser, the Echo modes.
  *
@@ -137,9 +160,7 @@ internal fun ChatSurface(
     val localModelLoading by chatViewModel.localModelLoading.collectAsState()
     val anyLocalStreamActive by chatViewModel.anyLocalStreamActive.collectAsState()
 
-    val pendingUri by chatViewModel.pendingAttachmentUri.collectAsState()
-    val pendingMime by chatViewModel.pendingAttachmentMimeType.collectAsState()
-    val pendingName by chatViewModel.pendingAttachmentName.collectAsState()
+    val pendingAttachments by chatViewModel.pendingAttachments.collectAsState()
     val selectedModelID by settingsViewModel.selectedModel.collectAsState()
     val customProviderConfig by settingsViewModel.customProviderConfig.collectAsState()
     val customModelsList by settingsViewModel.customModels.collectAsState()
@@ -310,13 +331,24 @@ internal fun ChatSurface(
             else -> selectedModelIsOpenRouter || selectedModelIsCustomPdfCapable
         }
     }
-    LaunchedEffect(pendingUri, pendingMime, imageAttachAvailable, pdfAttachAllowed) {
-        if (pendingUri != null) {
-            val pendingIsPdf = pendingMime.equals("application/pdf", ignoreCase = true)
-            if ((pendingIsPdf && !pdfAttachAllowed) || (!pendingIsPdf && !imageAttachAvailable)) {
-                chatViewModel.clearPendingAttachment()
-            }
-        }
+    // On-device models parse doc files locally (PDF/Word/Excel/…). Fusion/Adviser/Agent/Browser
+    // do not consume that Markdown, so they stay on the single raw-PDF path (or none).
+    val isLocalModel = remember(selectedModelID) { selectedModelID.startsWith("local/") }
+    val filesAttachAllowed = isLocalModel &&
+        !deepResearchActive &&
+        !dataAgentActive &&
+        !echoFusionActive &&
+        !echoAdviserActive &&
+        !echoAgentActive &&
+        !browserFlowActive
+    val fileMenuEnabled = pdfAttachAllowed || filesAttachAllowed
+
+    LaunchedEffect(pendingAttachments, imageAttachAvailable, pdfAttachAllowed, filesAttachAllowed) {
+        chatViewModel.reconcilePendingAttachments(
+            imageAllowed = imageAttachAvailable,
+            pdfAllowed = pdfAttachAllowed,
+            localFilesAllowed = filesAttachAllowed,
+        )
     }
 
     val activeModelList = remember(customModelsList, customProviderModels) {
@@ -372,6 +404,11 @@ internal fun ChatSurface(
     val pdfPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri, "application/pdf") },
+    )
+    // Local-model doc path: pick several files at once; each is parsed on-device (anydoc).
+    val docPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+        onResult = { uris -> if (uris.isNotEmpty()) chatViewModel.addPendingDocs(uris) },
     )
 
     // Measure the floating input's height so the message list always pads exactly enough to clear
@@ -475,15 +512,20 @@ internal fun ChatSurface(
             modifier = Modifier,
             text = textInput,
             onText = { textInput = it },
-            pendingUri = pendingUri?.toString(),
-            pendingMime = pendingMime,
-            pendingName = pendingName,
-            onClearAttachment = { chatViewModel.clearPendingAttachment() },
+            attachments = pendingAttachments,
+            attachmentLimit = com.echoflow.ui.ChatViewModel.MAX_MESSAGE_ATTACHMENTS,
+            onRemoveAttachment = { id -> chatViewModel.removePendingAttachment(id) },
+            onRetryAttachment = { id -> chatViewModel.retryPendingAttachment(id) },
             onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            onAttachPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
+            onAttachPdf = {
+                if (filesAttachAllowed) docPicker.launch(DOC_ATTACH_MIME_TYPES)
+                else pdfPicker.launch(arrayOf("application/pdf"))
+            },
             onReceiveImage = { uri -> chatViewModel.setPendingPastedImage(uri) },
             imageAttachEnabled = imageAttachAvailable,
-            pdfAttachEnabled = pdfAttachAllowed,
+            pdfAttachEnabled = fileMenuEnabled &&
+                (!filesAttachAllowed || pendingAttachments.size < com.echoflow.ui.ChatViewModel.MAX_MESSAGE_ATTACHMENTS),
+            requireExtractedDocs = filesAttachAllowed,
             isStreaming = isStreaming,
             deepResearchActive = deepResearchActive,
             webSearchChipOn = webSearchChipOn,
