@@ -615,11 +615,16 @@ class ChatViewModel(
     /**
      * Errors raised while managing a project's files (e.g. an import that can't be read). Kept
      * separate from [errorMessage] so it surfaces inside the Files screen that raised it, not on
-     * the chat surface sitting behind the hub overlay.
+     * the chat surface sitting behind the hub overlay. The project id travels with the message
+     * so a late failure cannot paint a banner onto a different project's Files screen.
      */
-    private val _projectFileError = MutableStateFlow<String?>(null)
-    val projectFileError: StateFlow<String?> = _projectFileError.asStateFlow()
-    fun clearProjectFileError() { _projectFileError.value = null }
+    data class ProjectFileError(val projectId: String, val message: String)
+
+    private val _projectFileError = MutableStateFlow<ProjectFileError?>(null)
+    val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
+    fun clearProjectFileError(projectId: String) {
+        if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
+    }
 
     /**
      * The project a not-yet-created chat will belong to. Starting a new chat from a project home
@@ -735,10 +740,26 @@ class ChatViewModel(
 
     fun addProjectDocument(projectId: String, uri: Uri) {
         viewModelScope.launch {
-            if (projectManager.addDocument(projectId, uri) == null) {
-                _projectFileError.value = "Couldn't add that file."
+            val added = try {
+                projectManager.addDocument(projectId, uri)
+            } catch (t: CancellationException) {
+                throw t
+            } catch (_: Throwable) {
+                reportProjectFileError(projectId)
+                return@launch
+            }
+            if (added == null) {
+                reportProjectFileError(projectId)
+            } else if (_projectFileError.value?.projectId == projectId) {
+                // A later success for this project replaces a stale failure banner; leave
+                // another project's error in place.
+                _projectFileError.value = null
             }
         }
+    }
+
+    private fun reportProjectFileError(projectId: String) {
+        _projectFileError.value = ProjectFileError(projectId, "Couldn't add that file.")
     }
 
     fun removeProjectDocument(document: ProjectDocument) {

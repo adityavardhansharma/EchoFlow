@@ -354,16 +354,17 @@ private fun ProjectHomeScreen(chatViewModel: ChatViewModel, projectId: String, o
         )
         p != null && detail == ProjectDetail.Files -> {
             val modelReadsFiles by chatViewModel.modelReadsFiles.collectAsState()
-            val fileError by chatViewModel.projectFileError.collectAsState()
+            val projectFileError by chatViewModel.projectFileError.collectAsState()
+            val fileError = projectFileError?.takeIf { it.projectId == projectId }?.message
             ProjectFilesScreen(
                 project = p,
                 documents = documents,
                 modelReadsFiles = modelReadsFiles,
                 fileError = fileError,
-                onClearFileError = { chatViewModel.clearProjectFileError() },
+                onClearFileError = { chatViewModel.clearProjectFileError(projectId) },
                 onAdd = { uri -> chatViewModel.addProjectDocument(projectId, uri) },
                 onRemove = { chatViewModel.removeProjectDocument(it) },
-                onBack = { chatViewModel.clearProjectFileError(); detail = ProjectDetail.None },
+                onBack = { chatViewModel.clearProjectFileError(projectId); detail = ProjectDetail.None },
             )
         }
         else -> {
@@ -803,12 +804,16 @@ private fun ProjectFilesScreen(
             }
             // A file that couldn't be added is reported here, on the screen that raised it — not
             // on the chat surface behind the hub, where the user would never see it.
+            var bannerMessage by remember { mutableStateOf("") }
+            if (fileError != null) bannerMessage = fileError
             AnimatedVisibility(
                 visible = fileError != null,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
             ) {
-                fileError?.let { ErrorBanner(it, onDismiss = onClearFileError) }
+                // Keep ErrorBanner composed (and its last message) through the exit
+                // transition — `fileError?.let` removed it the moment the error cleared.
+                ErrorBanner(bannerMessage, onDismiss = onClearFileError)
             }
             if (documents.isEmpty()) {
                 FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
