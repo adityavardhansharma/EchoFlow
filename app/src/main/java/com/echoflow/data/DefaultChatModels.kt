@@ -30,4 +30,8 @@ object DefaultChatModels {
     fun displayName(modelId: String): String? =
         SHIPPED.firstOrNull { it.first == modelId }?.second
             ?: if (modelId == LEGACY_DEFAULT_MODEL_ID) LEGACY_DEFAULT_MODEL_NAME else null
+
+    /** Picker-only label; the composer pill keeps [displayName] without the free badge. */
+    fun pickerDisplayName(modelId: String, name: String): String =
+        if (modelId == ECHO_LUMEN_MODEL_ID) "(Free) $name" else name
 }

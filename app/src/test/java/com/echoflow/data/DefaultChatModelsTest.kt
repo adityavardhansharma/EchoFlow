@@ -27,4 +27,22 @@ class DefaultChatModelsTest {
         assertEquals("Gemini 2.0 Flash", DefaultChatModels.displayName(DefaultChatModels.LEGACY_DEFAULT_MODEL_ID))
         assertNull(DefaultChatModels.displayName("anthropic/claude-sonnet-4.5"))
     }
+
+    @Test fun `pickerDisplayName adds a free badge only for Echo Lumen`() {
+        assertEquals(
+            "(Free) Echo Lumen",
+            DefaultChatModels.pickerDisplayName(
+                DefaultChatModels.ECHO_LUMEN_MODEL_ID,
+                DefaultChatModels.ECHO_LUMEN_MODEL_NAME,
+            ),
+        )
+        assertEquals(
+            "GPT 5.6 Luna",
+            DefaultChatModels.pickerDisplayName(
+                DefaultChatModels.DEFAULT_MODEL_ID,
+                DefaultChatModels.DEFAULT_MODEL_NAME,
+            ),
+        )
+        assertEquals("Echo Lumen", DefaultChatModels.displayName(DefaultChatModels.ECHO_LUMEN_MODEL_ID))
+    }
 }
