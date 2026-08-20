@@ -80,6 +80,7 @@ import com.echoflow.data.AgentProfile
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.CustomProviderCapabilities
 import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.DefaultChatModels
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
@@ -109,8 +110,6 @@ import com.echoflow.ui.theme.rememberMorphProgress
 import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.launch
 
-/** Single built-in model. Everything else the user adds in Settings. */
-private val DEFAULT_MODEL = "google/gemini-2.0-flash" to "Gemini 2.0 Flash"
 
 /**
  * Doc types the local-model "Files" picker offers — everything the bundled anydoc parser reads.
@@ -279,6 +278,7 @@ internal fun ChatSurface(
     // support vision); .task models are text-only, so the Image option is hidden for them.
     val imageAttachAllowed = remember(selectedModelID, localModelsList, customProviderConfig) {
         when {
+            selectedModelID == DefaultChatModels.ECHO_LUMEN_MODEL_ID -> false
             selectedModelID.startsWith("local/") ->
                 localModelsList.firstOrNull { it.id == selectedModelID }
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
@@ -294,6 +294,9 @@ internal fun ChatSurface(
     val imageAttachAvailable = imageAttachAllowed && !deepResearchActive && !dataAgentActive
     val selectedModelIsOpenRouter = remember(selectedModelID) {
         !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
+    }
+    val selectedModelUsesAnydocExtraction = remember(selectedModelID) {
+        com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(selectedModelID)
     }
     val selectedModelIsDirectCloudPdfCapable = remember(selectedModelID) {
         selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) ||
@@ -326,15 +329,18 @@ internal fun ChatSurface(
             dataAgentActive -> false
             deepResearchActive -> deepResearchUsesOpenRouter
             echoFusionActive -> true
-            echoAdviserActive -> selectedModelIsOpenRouter
-            echoAgentActive -> selectedModelIsOpenRouter
-            else -> selectedModelIsOpenRouter || selectedModelIsCustomPdfCapable
+            echoAdviserActive -> selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID
+            echoAgentActive -> selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID
+            else -> (selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID) ||
+                selectedModelIsCustomPdfCapable
         }
     }
-    // On-device models parse doc files locally (PDF/Word/Excel/…). Fusion/Adviser/Agent/Browser
-    // do not consume that Markdown, so they stay on the single raw-PDF path (or none).
-    val isLocalModel = remember(selectedModelID) { selectedModelID.startsWith("local/") }
-    val filesAttachAllowed = isLocalModel &&
+    // On-device models and Echo Lumen parse doc files locally (anydoc → Markdown). Fusion/Adviser/
+    // Agent/Browser do not consume that Markdown, so they stay on the single raw-PDF path (or none).
+    val filesAttachAllowed = selectedModelUsesAnydocExtraction &&
         !deepResearchActive &&
         !dataAgentActive &&
         !echoFusionActive &&
@@ -352,7 +358,7 @@ internal fun ChatSurface(
     }
 
     val activeModelList = remember(customModelsList, customProviderModels) {
-        val list = mutableListOf(DEFAULT_MODEL)
+        val list = DefaultChatModels.BUILT_IN.toMutableList()
         customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
         customProviderModels.filter { !it.isLocalLike }.forEach { model ->
             if (list.none { it.first == model.id }) list.add(model.id to "${model.group}: ${model.name}")
@@ -360,7 +366,7 @@ internal fun ChatSurface(
         list
     }
     val openRouterOnlyModelList = remember(customModelsList) {
-        val list = mutableListOf(DEFAULT_MODEL)
+        val list = DefaultChatModels.BUILT_IN.toMutableList()
         customModelsList.forEach { custom -> if (list.none { it.first == custom.id }) list.add(custom.id to custom.name) }
         list
     }

@@ -61,6 +61,9 @@ interface ChatDao {
     @Query("SELECT COUNT(*) FROM chat_threads WHERE projectId = :projectId AND kind = 'chat'")
     fun countThreadsInProject(projectId: String): Flow<Int>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM chat_threads LIMIT 1)")
+    suspend fun hasAnyThreads(): Boolean
+
     @Query("UPDATE chat_threads SET projectId = :projectId WHERE id = :id")
     suspend fun setProjectId(id: String, projectId: String?)
 

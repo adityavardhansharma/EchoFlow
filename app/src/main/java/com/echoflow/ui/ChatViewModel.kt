@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
+import com.echoflow.data.extract.ModelFileCapability
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
@@ -214,8 +215,10 @@ class ChatViewModel(
                 extractedText = att.extractedText,
             )
         }
-        // Legacy / cloud-staged docs have no Markdown yet. Parse them if this send will be local.
-        if (settingsRepository.selectedModel.value.startsWith("local/")) extractMissingDocs()
+        // Legacy / cloud-staged docs have no Markdown yet. Parse them if this send uses anydoc.
+        if (com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(settingsRepository.selectedModel.value)) {
+            extractMissingDocs()
+        }
         return lastUser.content
     }
 
@@ -1614,8 +1617,10 @@ class ChatViewModel(
                 _errorMessage.value = "Wait for files to finish reading, or remove ones that couldn't be read."
                 return@launch
             }
-            if (isLocal && stagedAttachments.any { !it.isImage && it.extractedText.isNullOrBlank() }) {
-                _errorMessage.value = "That file has no readable text for the on-device model. Wait for it to finish, or remove it."
+            if (ModelFileCapability.extractsDocsLocally(selectedModel) &&
+                stagedAttachments.any { !it.isImage && it.extractedText.isNullOrBlank() }
+            ) {
+                _errorMessage.value = "That file has no readable text for this model. Wait for it to finish, or remove it."
                 return@launch
             }
 
@@ -1919,6 +1924,11 @@ class ChatViewModel(
             val localHistory = if (isLocal) {
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
+            val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
+                LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
+            } else {
+                fullHistory
+            }
 
             // Resolve the user's global sampler settings for whichever model is about to run,
             // clamped to that model's limits (so a budget set for a big model can't break a
@@ -2045,7 +2055,7 @@ class ChatViewModel(
                             apiKey = apiKey,
                             model = selectedModel,
                             chatId = chatId,
-                            history = fullHistory,
+                            history = openRouterHistory,
                             systemPrompt = systemPrompt,
                             params = inferenceParams,
                             serverWebSearch = false,
@@ -2099,14 +2109,14 @@ class ChatViewModel(
                             apiKey = apiKey,
                             model = selectedModel,
                             chatId = chatId,
-                            history = fullHistory,
+                            history = openRouterHistory,
                             systemPrompt = systemPrompt,
                             params = inferenceParams,
                             serverWebSearch = true,
                         )
                     )
                 clientSearchReady ->
-                    openRouterService.sendWithClientSearch(apiKey, selectedModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                    openRouterService.sendWithClientSearch(apiKey, selectedModel, openRouterHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
                 else ->
@@ -2115,7 +2125,7 @@ class ChatViewModel(
                             apiKey = apiKey,
                             model = selectedModel,
                             chatId = chatId,
-                            history = fullHistory,
+                            history = openRouterHistory,
                             systemPrompt = systemPrompt,
                             params = inferenceParams,
                             serverWebSearch = false,

@@ -2,6 +2,7 @@ package com.echoflow
 
 import android.app.Application
 import com.echoflow.data.AppDatabase
+import com.echoflow.data.DefaultChatModelsSeed
 import com.echoflow.data.LegacyImageModelCleanup
 import com.echoflow.data.LocalInferenceGate
 import com.echoflow.data.ModelDownloadManager
@@ -11,6 +12,7 @@ import com.echoflow.ui.SettingsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Application-scoped composition root.
@@ -20,7 +22,13 @@ import kotlinx.coroutines.launch
  */
 class EchoFlowAppGraph(application: Application) {
     val database: AppDatabase = AppDatabase.getDatabase(application)
-    val settingsRepository = SettingsRepository(application.applicationContext)
+
+    val settingsRepository: SettingsRepository = run {
+        // Must run before SettingsRepository reads selected_model so upgrades preserve legacy picks.
+        runBlocking { DefaultChatModelsSeed.run(application.applicationContext, database) }
+        SettingsRepository(application.applicationContext)
+    }
+
     private val modelDownloadManager =
         ModelDownloadManager(application.applicationContext, database.localModelDao())
     // One gate app-wide: only one on-device LLM generation runs at a time.

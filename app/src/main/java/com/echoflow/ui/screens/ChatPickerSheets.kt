@@ -72,6 +72,7 @@ import com.echoflow.data.AgentProfile
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.CustomProviderCapabilities
 import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.DefaultChatModels
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DrEngine
@@ -457,7 +458,9 @@ internal fun DrEngineRow(name: String, description: String, selected: Boolean, o
 
 @Composable
 internal fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: Boolean = false, onClick: () -> Unit) {
-    val displayName = remember(name, isLocal) { modelPickerDisplayName(name, isLocal) }
+    val displayName = remember(name, modelId, isLocal) {
+        modelPickerDisplayName(DefaultChatModels.pickerDisplayName(modelId, name), isLocal)
+    }
     val provider = when {
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) -> "Direct OpenAI API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLAUDE) -> "Direct Claude API"

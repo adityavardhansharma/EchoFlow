@@ -95,6 +95,7 @@ import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModelProvider
 import com.echoflow.data.CustomProviderConfig
 import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.DefaultChatModels
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
@@ -245,6 +246,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
             loading = orLoading,
             error = orError,
             addedIds = customModels.map { it.id }.toSet(),
+            builtInIds = DefaultChatModels.BUILT_IN_IDS,
             onQueryChange = viewModel::updateOrModelQuery,
             onRetry = viewModel::loadOpenRouterDirectory,
             onAdd = { info -> viewModel.addCustomModel(info.id, info.name.substringAfter(": ")) },
@@ -262,6 +264,7 @@ internal fun OpenRouterDirectorySheet(
     loading: Boolean,
     error: String?,
     addedIds: Set<String>,
+    builtInIds: Set<String> = emptySet(),
     onQueryChange: (String) -> Unit,
     onRetry: () -> Unit,
     onAdd: (OpenRouterModelInfo) -> Unit,
@@ -361,7 +364,8 @@ internal fun OpenRouterDirectorySheet(
                                 info = info,
                                 index = index,
                                 count = results.size,
-                                added = info.id in addedIds,
+                                added = info.id in addedIds || info.id in builtInIds,
+                                removable = info.id in addedIds && info.id !in builtInIds,
                                 onAdd = { onAdd(info) },
                                 onRemove = { onRemove(info.id) },
                             )
@@ -380,11 +384,17 @@ internal fun OrModelRow(
     index: Int,
     count: Int,
     added: Boolean,
+    removable: Boolean = added,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Surface(
-        onClick = { if (added) onRemove() else onAdd() },
+        onClick = {
+            when {
+                added && removable -> onRemove()
+                !added -> onAdd()
+            }
+        },
         shape = groupedItemShape(index, count),
         color = if (added) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),

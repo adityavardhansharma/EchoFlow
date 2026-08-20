@@ -52,6 +52,23 @@ internal object LocalLlmPrompting {
         return if (message.content.isBlank()) joined else "${message.content}\n\n$joined"
     }
 
+    /**
+     * Request-only history for cloud models that read attachments via anydoc text injection
+     * (Echo Lumen). Strips raw attachment URIs so OpenRouter never receives Tier-3 file parts.
+     */
+    fun historyWithInjectedDocs(history: List<ChatMessage>): List<ChatMessage> =
+        history.map { message ->
+            val cleared = message.also { it.extraAttachments = emptyList() }
+            if (cleared.attachments.none { !it.extractedText.isNullOrBlank() }) cleared
+            else cleared.copy(
+                content = contentWithAttachments(cleared),
+                localAttachmentUri = null,
+                localAttachmentMimeType = null,
+                localAttachmentName = null,
+                attachmentsJson = null,
+            ).also { it.extraAttachments = emptyList() }
+        }
+
     /** Combined Markdown budget injected from one turn's attachments into a local prompt. */
     internal const val MAX_ATTACHMENT_CONTEXT_CHARS = 24_000
 }
