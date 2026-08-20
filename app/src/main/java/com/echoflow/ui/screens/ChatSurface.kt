@@ -278,6 +278,7 @@ internal fun ChatSurface(
     // support vision); .task models are text-only, so the Image option is hidden for them.
     val imageAttachAllowed = remember(selectedModelID, localModelsList, customProviderConfig) {
         when {
+            selectedModelID == DefaultChatModels.ECHO_LUMEN_MODEL_ID -> false
             selectedModelID.startsWith("local/") ->
                 localModelsList.firstOrNull { it.id == selectedModelID }
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
@@ -293,6 +294,9 @@ internal fun ChatSurface(
     val imageAttachAvailable = imageAttachAllowed && !deepResearchActive && !dataAgentActive
     val selectedModelIsOpenRouter = remember(selectedModelID) {
         !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
+    }
+    val selectedModelUsesAnydocExtraction = remember(selectedModelID) {
+        com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(selectedModelID)
     }
     val selectedModelIsDirectCloudPdfCapable = remember(selectedModelID) {
         selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI) ||
@@ -325,15 +329,18 @@ internal fun ChatSurface(
             dataAgentActive -> false
             deepResearchActive -> deepResearchUsesOpenRouter
             echoFusionActive -> true
-            echoAdviserActive -> selectedModelIsOpenRouter
-            echoAgentActive -> selectedModelIsOpenRouter
-            else -> selectedModelIsOpenRouter || selectedModelIsCustomPdfCapable
+            echoAdviserActive -> selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID
+            echoAgentActive -> selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID
+            else -> (selectedModelIsOpenRouter &&
+                selectedModelID != DefaultChatModels.ECHO_LUMEN_MODEL_ID) ||
+                selectedModelIsCustomPdfCapable
         }
     }
-    // On-device models parse doc files locally (PDF/Word/Excel/…). Fusion/Adviser/Agent/Browser
-    // do not consume that Markdown, so they stay on the single raw-PDF path (or none).
-    val isLocalModel = remember(selectedModelID) { selectedModelID.startsWith("local/") }
-    val filesAttachAllowed = isLocalModel &&
+    // On-device models and Echo Lumen parse doc files locally (anydoc → Markdown). Fusion/Adviser/
+    // Agent/Browser do not consume that Markdown, so they stay on the single raw-PDF path (or none).
+    val filesAttachAllowed = selectedModelUsesAnydocExtraction &&
         !deepResearchActive &&
         !dataAgentActive &&
         !echoFusionActive &&

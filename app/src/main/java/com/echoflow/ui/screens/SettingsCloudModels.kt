@@ -245,7 +245,8 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
             results = orResults,
             loading = orLoading,
             error = orError,
-            addedIds = (customModels.map { it.id } + DefaultChatModels.BUILT_IN_IDS).toSet(),
+            addedIds = customModels.map { it.id }.toSet(),
+            builtInIds = DefaultChatModels.BUILT_IN_IDS,
             onQueryChange = viewModel::updateOrModelQuery,
             onRetry = viewModel::loadOpenRouterDirectory,
             onAdd = { info -> viewModel.addCustomModel(info.id, info.name.substringAfter(": ")) },
@@ -263,6 +264,7 @@ internal fun OpenRouterDirectorySheet(
     loading: Boolean,
     error: String?,
     addedIds: Set<String>,
+    builtInIds: Set<String> = emptySet(),
     onQueryChange: (String) -> Unit,
     onRetry: () -> Unit,
     onAdd: (OpenRouterModelInfo) -> Unit,
@@ -362,7 +364,8 @@ internal fun OpenRouterDirectorySheet(
                                 info = info,
                                 index = index,
                                 count = results.size,
-                                added = info.id in addedIds,
+                                added = info.id in addedIds || info.id in builtInIds,
+                                removable = info.id in addedIds && info.id !in builtInIds,
                                 onAdd = { onAdd(info) },
                                 onRemove = { onRemove(info.id) },
                             )
@@ -381,11 +384,17 @@ internal fun OrModelRow(
     index: Int,
     count: Int,
     added: Boolean,
+    removable: Boolean = added,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Surface(
-        onClick = { if (added) onRemove() else onAdd() },
+        onClick = {
+            when {
+                added && removable -> onRemove()
+                !added -> onAdd()
+            }
+        },
         shape = groupedItemShape(index, count),
         color = if (added) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
