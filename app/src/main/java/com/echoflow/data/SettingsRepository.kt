@@ -173,8 +173,7 @@ class SettingsRepository(context: Context) {
     }
 
     fun getSelectedModelDirect(): String {
-        // Defaulting to "google/gemini-2.0-flash" which is standard and rapid
-        return prefs.getString("selected_model", "google/gemini-2.0-flash").orEmpty()
+        return prefs.getString("selected_model", DefaultChatModels.DEFAULT_MODEL_ID).orEmpty()
     }
 
     fun saveSelectedModel(modelId: String) {
@@ -756,7 +755,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
-        const val DEFAULT_MODEL_ID = "google/gemini-2.0-flash"
+        const val DEFAULT_MODEL_ID = DefaultChatModels.DEFAULT_MODEL_ID
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
 
         /** Veo 3.1 Fast: good quality without the flagship's per-second price. */

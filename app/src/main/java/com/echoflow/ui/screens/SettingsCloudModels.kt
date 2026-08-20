@@ -95,6 +95,7 @@ import com.echoflow.data.CatalogEntry
 import com.echoflow.data.CustomModelProvider
 import com.echoflow.data.CustomProviderConfig
 import com.echoflow.data.DataAgentCatalog
+import com.echoflow.data.DefaultChatModels
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
@@ -244,7 +245,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
             results = orResults,
             loading = orLoading,
             error = orError,
-            addedIds = customModels.map { it.id }.toSet(),
+            addedIds = (customModels.map { it.id } + DefaultChatModels.BUILT_IN_IDS).toSet(),
             onQueryChange = viewModel::updateOrModelQuery,
             onRetry = viewModel::loadOpenRouterDirectory,
             onAdd = { info -> viewModel.addCustomModel(info.id, info.name.substringAfter(": ")) },
