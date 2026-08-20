@@ -32,4 +32,12 @@ class SttSettingsTest {
         val repository = SettingsRepository(context)
         assertEquals("openai/gpt-transcribe", repository.getSttCloudModelDirect())
     }
+
+    @Test fun `Nemotron ASR is a selectable cloud model`() {
+        val repository = SettingsRepository(context)
+        val id = "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b"
+        repository.saveSttCloudModel(id)
+        assertEquals(id, repository.getSttCloudModelDirect())
+        assertEquals(id, repository.sttCloudModel.value)
+    }
 }

@@ -39,25 +39,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.SttCatalog
+import com.echoflow.data.SttCostTier
 import com.echoflow.data.SttMode
+import com.echoflow.data.SttModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.diffAdded
 
 /**
  * Speech-to-text settings — shaped like Imagine: a Cloud | On-device selector on top, then
  * whatever applies to the chosen side.
  *
- * Cloud is the default and the only one that does anything today: it lists three curated
- * OpenRouter STT models with their pricing. STT always runs on OpenRouter with the *Cloud
- * models* key, no matter which chat model is selected — so the page also surfaces whether that
- * key is present, and points at Cloud models when it isn't. On-device is a "coming soon"
- * placeholder; local STT is not built yet.
+ * Cloud is the default and the only one that does anything today: it lists curated
+ * OpenRouter STT models with their pricing, a $ / $$ / $$$ cost mark, and a Best badge on
+ * the lowest Artificial Analysis word-error rate. STT always runs on OpenRouter with the
+ * *Cloud models* key, no matter which chat model is selected — so the page also surfaces
+ * whether that key is present, and points at Cloud models when it isn't. On-device is a
+ * "coming soon" placeholder; local STT is not built yet.
  */
 @Composable
 internal fun SpeechToTextPage(
@@ -118,73 +125,131 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
 
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Model", "Which model transcribes your voice")
-        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-            SttCatalog.CLOUD_MODELS.forEachIndexed { index, model ->
-                val selected = model.id == selectedId
-                Surface(
-                    onClick = { viewModel.saveSttCloudModel(model.id) },
-                    shape = groupedItemShape(index, SttCatalog.CLOUD_MODELS.size),
-                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth(),
+        SttCloudModelList(
+            models = SttCatalog.CLOUD_MODELS,
+            selectedId = selectedId,
+            onSelect = viewModel::saveSttCloudModel,
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Text(
+            "Prices are per minute of audio, billed by OpenRouter to your key. " +
+                "One red \$ is cheap; two or three green \$ cost more. " +
+                "Best is the lowest word-error rate on Artificial Analysis evals.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+internal fun SttCloudModelList(
+    models: List<SttModel>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+        models.forEachIndexed { index, model ->
+            val selected = model.id == selectedId
+            Surface(
+                onClick = { onSelect(model.id) },
+                shape = groupedItemShape(index, models.size),
+                color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(start = Spacing.base, end = Spacing.base, top = Spacing.m, bottom = Spacing.m),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        Modifier.padding(start = Spacing.base, end = Spacing.base, top = Spacing.m, bottom = Spacing.m),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(RoundedPolygonShape(MaterialShapes.Cookie6Sided))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.tertiaryContainer
+                            ),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            Modifier
-                                .size(40.dp)
-                                .clip(RoundedPolygonShape(MaterialShapes.Cookie6Sided))
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.tertiaryContainer
-                                ),
-                            contentAlignment = Alignment.Center,
+                        Icon(
+                            Icons.Default.GraphicEq, null, Modifier.size(20.dp),
+                            tint = if (selected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.width(Spacing.base))
+                    Column(Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                         ) {
-                            Icon(
-                                Icons.Default.GraphicEq, null, Modifier.size(20.dp),
-                                tint = if (selected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onTertiaryContainer,
-                            )
-                        }
-                        Spacer(Modifier.width(Spacing.base))
-                        Column(Modifier.weight(1f)) {
                             Text(
                                 model.name,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                                 else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
-                            Text(
-                                "${model.provider} · ${model.pricing}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                else MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                model.blurb,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
+                            if (model.isBest) SttBestBadge()
+                            SttCostMark(model.costTier)
                         }
-                        if (selected) {
-                            Spacer(Modifier.width(Spacing.s))
-                            Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
-                        }
+                        Text(
+                            "${model.provider} · ${model.pricing}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            model.blurb,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (selected) {
+                        Spacer(Modifier.width(Spacing.s))
+                        Icon(Icons.Default.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
         }
-        Spacer(Modifier.height(Spacing.m))
+    }
+}
+
+@Composable
+private fun SttBestBadge() {
+    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
         Text(
-            "Prices are per minute of audio, billed by OpenRouter to your key.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Best",
+            modifier = Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
         )
     }
+}
+
+@Composable
+private fun SttCostMark(tier: SttCostTier) {
+    val color = when (tier) {
+        SttCostTier.Cheap -> MaterialTheme.colorScheme.error
+        SttCostTier.Moderate, SttCostTier.Expensive -> MaterialTheme.colorScheme.diffAdded
+    }
+    val label = when (tier) {
+        SttCostTier.Cheap -> "Cheap"
+        SttCostTier.Moderate -> "A bit expensive"
+        SttCostTier.Expensive -> "Very expensive"
+    }
+    Text(
+        text = "\$".repeat(tier.dollars),
+        color = color,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.semantics { contentDescription = label },
+    )
 }
 
 /** Present-or-missing OpenRouter key, with a jump to Cloud models when it's missing. */
