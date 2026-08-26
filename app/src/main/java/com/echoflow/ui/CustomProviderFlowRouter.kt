@@ -17,7 +17,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
     }
 
     fun streamWithTools(provider: String?, config: CustomProviderConfig, model: String, history: List<ChatMessage>, prompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> = when (provider) {
-        "openai" -> service.streamOpenAiTools("https://api.openai.com/v1", config.openAiApiKey, model, history, prompt, params, search)
+        "openai" -> service.streamOpenAiResponsesTools(config.openAiApiKey, model, history, prompt, params, search)
         "cerebras" -> service.streamOpenAiTools("https://api.cerebras.ai/v1", config.cerebrasApiKey, model, history, prompt, params, search)
         "xai" -> service.streamOpenAiTools("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params, search)
         "openai-compatible" -> service.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params, search)

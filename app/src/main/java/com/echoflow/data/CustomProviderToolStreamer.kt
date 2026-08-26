@@ -15,12 +15,14 @@ internal class CustomProviderToolStreamer(
     private val client: OkHttpClient,
     private val dynamicAdapter: JsonAdapter<Any>,
     private val openAiMessages: (List<ChatMessage>, String) -> List<Map<String, Any>>,
+    private val openAiResponsesInput: (List<ChatMessage>, String) -> List<Map<String, Any>>,
     private val simpleMessages: (List<ChatMessage>, String) -> List<Map<String, String>>,
     private val urlJoiner: (String, String) -> String,
     private val baseUrlValidator: (String) -> ProviderValidationResult,
     private val errorDecoder: (String, Int, String) -> String,
 ) {
     private fun buildOpenAiMessages(history: List<ChatMessage>, prompt: String) = openAiMessages(history, prompt)
+    private fun buildOpenAiResponsesInput(history: List<ChatMessage>, prompt: String) = openAiResponsesInput(history, prompt)
     private fun buildSimpleMessages(history: List<ChatMessage>, prompt: String) = simpleMessages(history, prompt)
     private fun joinUrl(base: String, path: String) = urlJoiner(base, path)
     private fun validateBaseUrl(base: String) = baseUrlValidator(base)
@@ -192,6 +194,108 @@ internal class CustomProviderToolStreamer(
                 )
                 messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to toolContent))
             }
+            round++
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /** Official OpenAI `/v1/responses` tool loop — flat function tools + `function_call_output`. */
+    fun streamOpenAiResponsesTools(
+        apiKey: String,
+        model: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        params: InferenceParams,
+        search: suspend (String) -> List<SearchSource>,
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) throw Exception("OpenAI API key is missing.")
+        if (model.isBlank()) throw Exception("Enter a model name.")
+        var previousResponseId: String? = null
+        var pendingOutputs: List<Map<String, Any>> = buildOpenAiResponsesInput(history, systemPrompt)
+        var searchCount = 0
+        var round = 0
+        while (true) {
+            val payload = OpenAiResponses.request(
+                model = model,
+                input = pendingOutputs,
+                instructions = systemPrompt,
+                params = params,
+                tools = if (searchCount < maxToolSearches) listOf(OpenAiResponses.webSearchTool) else null,
+                previousResponseId = previousResponseId,
+            )
+            val request = Request.Builder()
+                .url(joinUrl(OpenAiResponses.DEFAULT_BASE_URL, OpenAiResponses.PATH))
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val pending = linkedMapOf<String, OpenAiPendingCall>()
+            fun slot(itemId: String): OpenAiPendingCall {
+                val key = itemId.ifBlank { "call_$round" }
+                return pending.getOrPut(key) { OpenAiPendingCall() }
+            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception(customError("OpenAI", response.code, response.body?.string().orEmpty()))
+                val body = response.body ?: throw Exception("Empty stream body received.")
+                body.source().use { source ->
+                    OpenAiResponses.consumeStream(source) { event ->
+                        when (event) {
+                            is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
+                            is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
+                            is OpenAiResponses.Event.ResponseId -> previousResponseId = event.id
+                            is OpenAiResponses.Event.FunctionCallMeta -> {
+                                val call = slot(event.itemId)
+                                if (event.callId.isNotEmpty()) call.id = event.callId
+                                if (event.name.isNotEmpty()) call.name = event.name
+                            }
+                            is OpenAiResponses.Event.FunctionCallArgsDelta -> slot(event.itemId).args.append(event.delta)
+                            is OpenAiResponses.Event.FunctionCallArgsDone -> {
+                                val call = slot(event.itemId)
+                                if (event.callId.isNotEmpty()) call.id = event.callId
+                                if (event.name.isNotEmpty()) call.name = event.name
+                                if (event.arguments.isNotEmpty()) {
+                                    call.args.clear()
+                                    call.args.append(event.arguments)
+                                }
+                            }
+                            is OpenAiResponses.Event.Failed -> throw Exception(event.message)
+                        }
+                    }
+                }
+            }
+
+            if (pending.values.none { it.name == "web_search" }) break
+
+            val outputs = mutableListOf<Map<String, Any>>()
+            for (call in pending.values) {
+                val callId = call.id.ifBlank { "call_${call.name}" }
+                if (call.name != "web_search") {
+                    outputs.add(OpenAiResponses.functionCallOutput(callId, "Unknown tool."))
+                    continue
+                }
+                val query = extractQuery(call.args.toString())
+                if (searchCount >= maxToolSearches) {
+                    emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
+                    outputs.add(OpenAiResponses.functionCallOutput(callId, "Search limit reached. Answer now using the results already available."))
+                    continue
+                }
+                searchCount++
+                emit(StreamChunk.SearchStarted(query))
+                val searchResult = runCatching { search(query) }
+                val toolContent = searchResult.fold(
+                    onSuccess = { sources ->
+                        emit(StreamChunk.SearchSources(query, sources))
+                        formatSearchResultsForModel(sources)
+                    },
+                    onFailure = {
+                        emit(StreamChunk.SearchSources(query, emptyList()))
+                        emit(StreamChunk.StatusNote("Search failed: ${it.message}"))
+                        "Search failed: ${it.message ?: "Unknown error"}"
+                    },
+                )
+                outputs.add(OpenAiResponses.functionCallOutput(callId, toolContent))
+            }
+            pendingOutputs = outputs
             round++
         }
     }.flowOn(Dispatchers.IO)
