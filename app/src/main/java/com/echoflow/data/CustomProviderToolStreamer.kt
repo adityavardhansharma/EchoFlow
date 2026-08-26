@@ -432,8 +432,8 @@ internal class CustomProviderToolStreamer(
                 "messages" to messages,
                 "stream" to true,
                 "max_tokens" to params.maxTokens.coerceAtLeast(1024),
-                "temperature" to params.temperature,
             )
+            CustomProviderCapabilities.putClaudeSampling(payload, model, params)
             if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolClaude)
             if (systemPrompt.isNotBlank()) payload["system"] = systemPrompt
             val request = Request.Builder()
