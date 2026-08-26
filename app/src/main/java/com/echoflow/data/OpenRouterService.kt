@@ -458,6 +458,56 @@ class OpenRouterService(private val context: Context) {
         ) { emit(it) }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Dedicated Image API (`POST /api/v1/images`). Used for image-only models that are not
+     * chat completions — Meta Muse Image, Flux, Seedream, `gpt-image-*`. Prompt plus optional
+     * reference images; the response is base64, not a token stream.
+     */
+    fun sendDedicatedImageGeneration(
+        apiKey: String,
+        model: String,
+        prompt: String,
+        aspectRatio: String? = null,
+        referenceImageDataUrls: List<String> = emptyList(),
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) {
+            throw Exception("API key is missing! Please configure it in your Settings.")
+        }
+        val payload = buildMap<String, Any> {
+            put("model", model)
+            put("prompt", framedImagePrompt(prompt, aspectRatio))
+            val refs = referenceImageDataUrls.mapNotNull { url ->
+                url.takeIf { it.isNotBlank() }?.let {
+                    mapOf(
+                        "type" to "image_url",
+                        "image_url" to mapOf("url" to it),
+                    )
+                }
+            }
+            if (refs.isNotEmpty()) put("input_references", refs)
+        }
+        val request = Request.Builder()
+            .url("https://openrouter.ai/api/v1/images")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("HTTP-Referer", "https://localhost")
+            .addHeader("X-Title", "EchoFlow")
+            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .build()
+        echoClient.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw Exception(
+                    parseErrorMessage(body)
+                        ?: ProviderHttpSupport.errorMessage("OpenRouter", response.code, body)
+                )
+            }
+            val dataUrl = firstImageDataUrl(dynamicAdapter.fromJson(body))
+                ?: throw Exception("OpenRouter did not return an image.")
+            emit(StreamChunk.ImageGenerated(dataUrl))
+        }
+    }.flowOn(Dispatchers.IO)
+
     /** Config for one Echo Agent turn: the worker (subagent) model and its tool-call budget. */
     data class AgentRequest(val workerModel: String, val workerModelName: String, val maxToolCalls: Int)
 
@@ -1088,6 +1138,25 @@ class OpenRouterService(private val context: Context) {
         } catch (e: Exception) {
             // Fallback: derive a title from the user's message (row clips overflow itself).
             fallbackThreadTitle(firstUserMessage).ifBlank { "New Conversation" }
+        }
+    }
+
+    companion object {
+        fun framedImagePrompt(prompt: String, aspectRatio: String?): String {
+            val framing = aspectRatio?.takeIf { it.isNotBlank() }?.let { "Aspect ratio: $it. " }.orEmpty()
+            return framing + prompt
+        }
+
+        fun firstImageDataUrl(parsed: Any?): String? {
+            val root = parsed as? Map<*, *> ?: return null
+            val images = root["data"] as? List<*> ?: return null
+            for (item in images) {
+                val map = item as? Map<*, *> ?: continue
+                val b64 = (map["b64_json"] as? String)?.takeIf { it.isNotBlank() } ?: continue
+                val media = (map["media_type"] as? String)?.takeIf { it.isNotBlank() } ?: "image/png"
+                return "data:$media;base64,$b64"
+            }
+            return null
         }
     }
 }

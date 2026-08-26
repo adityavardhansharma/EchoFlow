@@ -4,26 +4,37 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * Cloud image generation, unchanged in behaviour: one streaming chat completion with
- * `modalities: ["image","text"]` through [OpenRouterService.sendImageGeneration]
- * (conversational editing included via [ImageGenerationRequest.editImageDataUrl]). The
- * base64 payload is persisted through [GeneratedImageStore] here so raw multi-MB data
- * URLs never travel further up than this class.
+ * Cloud image generation. Chat-native image models (Gemini Flash Image, GPT-5 Image) still
+ * stream a chat completion with `modalities: ["image","text"]`. Dedicated Image API models
+ * (Muse, Flux, Seedream, gpt-image-*) POST `/api/v1/images` instead — they are not in the
+ * chat catalog and do not speak that protocol.
  */
 class OpenRouterImageGenerationEngine(
     private val service: OpenRouterService,
     private val store: GeneratedImageStore,
+    private val directory: OpenRouterModelDirectory = OpenRouterModelDirectory(),
 ) : ImageGenerationEngine {
 
     override fun generate(request: ImageGenerationRequest): Flow<ImageGenerationEvent> = flow {
-        service.sendImageGeneration(
-            apiKey = request.apiKey,
-            model = request.modelId,
-            history = request.history,
-            systemPrompt = request.systemPrompt,
-            editImageDataUrl = request.editImageDataUrl,
-            params = request.params,
-        ).collect { chunk ->
+        val chunks = if (usesDedicatedImageApi(request.modelId)) {
+            service.sendDedicatedImageGeneration(
+                apiKey = request.apiKey,
+                model = request.modelId,
+                prompt = request.prompt,
+                aspectRatio = request.aspectRatio,
+                referenceImageDataUrls = listOfNotNull(request.editImageDataUrl) + request.referenceImageDataUrls,
+            )
+        } else {
+            service.sendImageGeneration(
+                apiKey = request.apiKey,
+                model = request.modelId,
+                history = request.history,
+                systemPrompt = request.systemPrompt,
+                editImageDataUrl = request.editImageDataUrl,
+                params = request.params,
+            )
+        }
+        chunks.collect { chunk ->
             when (chunk) {
                 is StreamChunk.Content -> emit(ImageGenerationEvent.Text(chunk.text))
                 is StreamChunk.ImageGenerated -> {
@@ -35,9 +46,16 @@ class OpenRouterImageGenerationEngine(
                     )
                     emit(ImageGenerationEvent.ImageFile(saved))
                 }
-                else -> Unit // reasoning/search chunks don't occur on the image path
+                else -> Unit
             }
         }
+    }
+
+    private suspend fun usesDedicatedImageApi(modelId: String): Boolean {
+        val listed = runCatching { directory.imageModels() }.getOrNull()
+            ?.firstOrNull { it.id == modelId }
+        return listed?.usesDedicatedImageApi
+            ?: OpenRouterModelDirectory.fallbackUsesDedicatedImageApi(modelId)
     }
 
     /** The one-shot HTTP call is cancelled by cancelling the collecting coroutine. */

@@ -461,6 +461,12 @@ internal fun formatContext(tokens: Int): String = when {
 
 internal fun formatPricing(info: OpenRouterModelInfo): String {
     if (info.isFree) return "Free"
+    if ((info.promptPricePerM ?: 0.0) == 0.0 &&
+        (info.completionPricePerM ?: 0.0) == 0.0 &&
+        info.hasImageOutputPrice
+    ) {
+        return "Priced per image"
+    }
     fun fmt(v: Double?): String? = v?.let {
         when {
             it >= 10 -> "$%.0f".format(it)

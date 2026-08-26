@@ -2009,6 +2009,10 @@ class ChatViewModel(
                                 aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                             ),
                             editImageDataUrl = imageEditUrl,
+                            referenceImageDataUrls = listOfNotNull(
+                                if (attachmentUri != null && !pendingIsPdf) attachmentAsDataUrl(attachmentUri) else null,
+                            ),
+                            aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                             params = inferenceParams,
                         )
                         val relay: suspend (ImageGenerationEvent) -> Unit = { event ->
