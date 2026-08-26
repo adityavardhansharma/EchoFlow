@@ -132,7 +132,7 @@ internal object OpenAiResponses {
 
     suspend fun consumeStream(source: BufferedSource, onEvent: suspend (Event) -> Unit) {
         val decoder = SseDecoder()
-        fun dispatch(frame: SseEvent) {
+        suspend fun dispatch(frame: SseEvent) {
             when (val event = parseData(frame.data)) {
                 null -> Unit
                 is Event.Failed -> throw Exception(event.message)
@@ -141,9 +141,9 @@ internal object OpenAiResponses {
         }
         while (!source.exhausted()) {
             val line = source.readUtf8Line() ?: break
-            decoder.accept(line)?.let(::dispatch)
+            decoder.accept(line)?.let { dispatch(it) }
         }
-        decoder.flush()?.let(::dispatch)
+        decoder.flush()?.let { dispatch(it) }
     }
 
     private fun inputImage(dataUrl: String): Map<String, Any> = mapOf(
