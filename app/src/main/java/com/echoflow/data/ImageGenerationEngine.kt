@@ -12,6 +12,8 @@ data class ImageGenerationRequest(
     val history: List<ChatMessage> = emptyList(),
     val systemPrompt: String = "",
     val editImageDataUrl: String? = null,
+    val referenceImageDataUrls: List<String> = emptyList(),
+    val aspectRatio: String? = null,
     val params: InferenceParams? = null,
 )
 

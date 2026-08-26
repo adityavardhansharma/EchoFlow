@@ -53,8 +53,8 @@ internal fun ImageGenSection(viewModel: SettingsViewModel) {
     val selectedId by viewModel.imageGenModelId.collectAsState()
     val orQuery by viewModel.orModelQuery.collectAsState()
     val orImageResults by viewModel.orImageModelResults.collectAsState()
-    val orLoading by viewModel.orDirectoryLoading.collectAsState()
-    val orError by viewModel.orDirectoryError.collectAsState()
+    val orLoading by viewModel.orImageDirectoryLoading.collectAsState()
+    val orError by viewModel.orImageDirectoryError.collectAsState()
 
     var showDirectory by remember { mutableStateOf(false) }
 
@@ -140,7 +140,7 @@ internal fun ImageGenSection(viewModel: SettingsViewModel) {
         Button(
             onClick = {
                 showDirectory = true
-                viewModel.loadOpenRouterDirectory()
+                viewModel.loadOpenRouterImageDirectory()
             },
             shape = CircleShape,
             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -151,7 +151,7 @@ internal fun ImageGenSection(viewModel: SettingsViewModel) {
         }
         Spacer(Modifier.height(Spacing.s))
         Text(
-            "Only models that can output images appear in this search.",
+            "Live from OpenRouter’s image listing — dedicated generators such as Muse show up here even when they are not in the chat catalog.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -165,7 +165,7 @@ internal fun ImageGenSection(viewModel: SettingsViewModel) {
             error = orError,
             addedIds = imageModels.map { it.id }.toSet() + SettingsRepository.DEFAULT_IMAGE_MODEL_ID,
             onQueryChange = viewModel::updateOrModelQuery,
-            onRetry = viewModel::loadOpenRouterDirectory,
+            onRetry = viewModel::loadOpenRouterImageDirectory,
             onAdd = { info -> viewModel.addImageModel(info.id, info.name.substringAfter(": ")) },
             onRemove = viewModel::deleteImageModel,
             onDismiss = { showDirectory = false },

@@ -227,7 +227,8 @@ data class AgentProfile(
 /**
  * A cloud model the user has whitelisted for image generation. Kept separate from
  * [CustomModel] (chat models) because image output only works on the few directory models
- * whose `output_modalities` include "image", so it has its own add-model flow and search.
+ * whose `output_modalities` include "image" (chat-native or dedicated Image API), so it
+ * has its own add-model flow and search against OpenRouter's image listing.
  */
 @Entity(tableName = "image_models")
 data class ImageModel(

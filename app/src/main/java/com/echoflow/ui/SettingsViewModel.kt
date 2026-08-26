@@ -214,13 +214,22 @@ class SettingsViewModel(
             initialValue = emptyList()
         )
 
-    /** Same directory, restricted to models whose output modalities include images. */
+    // Imagine's directory is a different OpenRouter listing (`output_modalities=image`).
+    // Dedicated Image API models such as meta/muse-image are absent from the chat catalog.
+    private val _orImageModels = MutableStateFlow<List<OpenRouterModelInfo>>(emptyList())
+
+    private val _orImageDirectoryLoading = MutableStateFlow(false)
+    val orImageDirectoryLoading: StateFlow<Boolean> = _orImageDirectoryLoading.asStateFlow()
+
+    private val _orImageDirectoryError = MutableStateFlow<String?>(null)
+    val orImageDirectoryError: StateFlow<String?> = _orImageDirectoryError.asStateFlow()
+
+    /** OpenRouter image-output models, including dedicated Image API entries. */
     val orImageModelResults: StateFlow<List<OpenRouterModelInfo>> =
-        combine(_orAllModels, _orModelQuery) { all, query ->
-            val imageCapable = all.filter { it.outputsImage }
+        combine(_orImageModels, _orModelQuery) { all, query ->
             val q = query.trim()
-            if (q.isEmpty()) imageCapable.take(40)
-            else imageCapable.filter { it.id.contains(q, true) || it.name.contains(q, true) }.take(60)
+            if (q.isEmpty()) all.take(40)
+            else all.filter { it.id.contains(q, true) || it.name.contains(q, true) }.take(60)
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -578,6 +587,22 @@ class SettingsViewModel(
                 _orDirectoryError.value = e.message ?: "Could not load the model directory."
             } finally {
                 _orDirectoryLoading.value = false
+            }
+        }
+    }
+
+    /** Loads OpenRouter's image-output listing (chat catalog + dedicated Image API models). */
+    fun loadOpenRouterImageDirectory() {
+        if (_orImageModels.value.isNotEmpty() || _orImageDirectoryLoading.value) return
+        viewModelScope.launch {
+            _orImageDirectoryLoading.value = true
+            _orImageDirectoryError.value = null
+            try {
+                _orImageModels.value = orDirectory.imageModels()
+            } catch (e: Exception) {
+                _orImageDirectoryError.value = e.message ?: "Could not load the image model directory."
+            } finally {
+                _orImageDirectoryLoading.value = false
             }
         }
     }

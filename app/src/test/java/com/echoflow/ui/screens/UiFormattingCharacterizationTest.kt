@@ -1,5 +1,6 @@
 package com.echoflow.ui.screens
 
+import com.echoflow.data.OpenRouterModelInfo
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -31,5 +32,20 @@ class UiFormattingCharacterizationTest {
         assertEquals("1M ctx", formatContext(1_000_000))
         assertEquals("Off", endpointSubtitle(false, "Connected"))
         assertEquals("Connected", endpointSubtitle(true, "Connected"))
+        assertEquals(
+            "Priced per image",
+            formatPricing(
+                OpenRouterModelInfo(
+                    id = "meta/muse-image",
+                    name = "Meta: Muse Image",
+                    contextLength = null,
+                    promptPricePerM = 0.0,
+                    completionPricePerM = 0.0,
+                    outputsImage = true,
+                    outputsText = false,
+                    hasImageOutputPrice = true,
+                ),
+            ),
+        )
     }
 }
