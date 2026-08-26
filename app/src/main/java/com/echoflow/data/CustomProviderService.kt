@@ -131,6 +131,7 @@ class CustomProviderService(private val context: Context? = null) {
             client = client,
             dynamicAdapter = dynamicAdapter,
             openAiMessages = ::buildOpenAiMessages,
+            openAiResponsesInput = { history, _ -> OpenAiResponses.inputItems(history, ::getBase64FromUri) },
             simpleMessages = ::buildSimpleMessages,
             urlJoiner = ::joinUrl,
             baseUrlValidator = ::validateBaseUrl,
@@ -183,8 +184,35 @@ class CustomProviderService(private val context: Context? = null) {
         history: List<ChatMessage>,
         systemPrompt: String,
         params: InferenceParams,
-    ): Flow<StreamChunk> =
-        streamOpenAiCompatible("https://api.openai.com/v1", apiKey, model, history, systemPrompt, params)
+    ): Flow<StreamChunk> = flow {
+        if (apiKey.isBlank()) throw Exception("OpenAI API key is missing.")
+        if (model.isBlank()) throw Exception("Enter an OpenAI model name.")
+        val payload = OpenAiResponses.request(
+            model = model,
+            input = OpenAiResponses.inputItems(history, ::getBase64FromUri),
+            instructions = systemPrompt,
+            params = params,
+        )
+        val request = Request.Builder()
+            .url(joinUrl(OpenAiResponses.DEFAULT_BASE_URL, OpenAiResponses.PATH))
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw Exception(customError("OpenAI", response.code, response.body?.string().orEmpty()))
+            val body = response.body ?: throw Exception("Empty stream body received.")
+            body.source().use { source ->
+                OpenAiResponses.consumeStream(source) { event ->
+                    when (event) {
+                        is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
+                        is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
+                        else -> Unit
+                    }
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     fun streamClaude(
         apiKey: String,
@@ -389,6 +417,9 @@ class CustomProviderService(private val context: Context? = null) {
 
     fun streamOpenAiTools(baseUrl: String, apiKey: String, model: String, history: List<ChatMessage>, systemPrompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> =
         toolStreamer.streamOpenAiTools(baseUrl, apiKey, model, history, systemPrompt, params, search)
+
+    fun streamOpenAiResponsesTools(apiKey: String, model: String, history: List<ChatMessage>, systemPrompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> =
+        toolStreamer.streamOpenAiResponsesTools(apiKey, model, history, systemPrompt, params, search)
 
     fun streamOllamaTools(baseUrl: String, model: String, history: List<ChatMessage>, systemPrompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> =
         toolStreamer.streamOllamaTools(baseUrl, model, history, systemPrompt, params, search)
