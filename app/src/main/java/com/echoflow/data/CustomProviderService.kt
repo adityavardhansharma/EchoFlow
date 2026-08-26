@@ -104,6 +104,41 @@ object CustomProviderCapabilities {
     }
 
     fun xAiSupportsPdfs(model: String): Boolean = false
+
+    /**
+     * Anthropic rejects `temperature` / `top_p` / `top_k` on Claude Opus 4.7 and later
+     * (including Sonnet 5, Fable 5, Mythos). Sending them returns HTTP 400:
+     * "temperature is deprecated for this model." Older Claude 4.6 / 4.5 / 3.x IDs
+     * still accept temperature, so keep sending it there.
+     */
+    fun claudeSupportsSamplingParams(model: String): Boolean {
+        val id = model.trim().lowercase().substringAfterLast('/')
+        if (id.contains("mythos") || id.contains("glasswing")) return false
+        val version = claudeModelVersion(id) ?: return true
+        return version < ClaudeVersion(4, 7)
+    }
+
+    fun putClaudeSampling(payload: MutableMap<String, Any?>, model: String, params: InferenceParams) {
+        if (claudeSupportsSamplingParams(model)) {
+            payload["temperature"] = params.temperature
+        }
+    }
+
+    private data class ClaudeVersion(val major: Int, val minor: Int) : Comparable<ClaudeVersion> {
+        override fun compareTo(other: ClaudeVersion) = compareValuesBy(this, other, { it.major }, { it.minor })
+    }
+
+    // claude-sonnet-4-6, claude-opus-4.8, claude-sonnet-5, claude-3-7-sonnet-20250219
+    private val CLAUDE_VERSION = Regex(
+        """claude-(?:opus-|sonnet-|haiku-|fable-|mythos-)?(\d+)(?:[.\-](\d+))?""",
+    )
+
+    private fun claudeModelVersion(id: String): ClaudeVersion? {
+        val match = CLAUDE_VERSION.find(id) ?: return null
+        val major = match.groupValues[1].toIntOrNull() ?: return null
+        val minor = match.groupValues[2].toIntOrNull() ?: 0
+        return ClaudeVersion(major, minor)
+    }
 }
 
 data class ProviderValidationResult(
@@ -226,13 +261,13 @@ class CustomProviderService(private val context: Context? = null) {
         val messages = history.filter { it.role != "system" }.map {
             mapOf("role" to if (it.role == "assistant") "assistant" else "user", "content" to it.content)
         }
-        val payload = mutableMapOf<String, Any>(
+        val payload = mutableMapOf<String, Any?>(
             "model" to model.trim(),
             "messages" to messages,
             "stream" to true,
             "max_tokens" to params.maxTokens.coerceAtLeast(256),
-            "temperature" to params.temperature,
         )
+        CustomProviderCapabilities.putClaudeSampling(payload, model, params)
         if (systemPrompt.isNotBlank()) payload["system"] = systemPrompt
         val request = Request.Builder()
             .url("https://api.anthropic.com/v1/messages")
