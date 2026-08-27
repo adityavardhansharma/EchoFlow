@@ -31,19 +31,22 @@ class SettingsRepository(context: Context) {
     val darkMode: StateFlow<String> = _darkMode.asStateFlow() // "system", "dark", "light"
 
     private val _webSearchProvider = MutableStateFlow(getWebSearchProviderDirect())
-    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", "exa", "parallel", "firecrawl"
+    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", plus [ClientSearchProviders]
 
     private val _webSearchScope = MutableStateFlow(getWebSearchScopeDirect())
     val webSearchScope: StateFlow<String> = _webSearchScope.asStateFlow() // "both", "cloud", "local"
 
-    private val _exaApiKey = MutableStateFlow(getSearchApiKeyDirect("exa"))
+    private val _exaApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.EXA))
     val exaApiKey: StateFlow<String> = _exaApiKey.asStateFlow()
 
-    private val _parallelApiKey = MutableStateFlow(getSearchApiKeyDirect("parallel"))
+    private val _parallelApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.PARALLEL))
     val parallelApiKey: StateFlow<String> = _parallelApiKey.asStateFlow()
 
-    private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect("firecrawl"))
+    private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.FIRECRAWL))
     val firecrawlApiKey: StateFlow<String> = _firecrawlApiKey.asStateFlow()
+
+    private val _monidApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.MONID))
+    val monidApiKey: StateFlow<String> = _monidApiKey.asStateFlow()
 
     private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
     val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
@@ -58,7 +61,7 @@ class SettingsRepository(context: Context) {
     val deepResearchModel: StateFlow<String> = _deepResearchModel.asStateFlow()
 
     private val _deepResearchSearchProvider = MutableStateFlow(getDeepResearchSearchProviderDirect())
-    val deepResearchSearchProvider: StateFlow<String> = _deepResearchSearchProvider.asStateFlow() // "auto"|"exa"|"parallel"|"firecrawl"
+    val deepResearchSearchProvider: StateFlow<String> = _deepResearchSearchProvider.asStateFlow() // "auto" or a [ClientSearchProviders] id
 
     private val _deepResearchMaxSearches = MutableStateFlow(getDeepResearchMaxSearchesDirect())
     val deepResearchMaxSearches: StateFlow<Int> = _deepResearchMaxSearches.asStateFlow()
@@ -227,7 +230,7 @@ class SettingsRepository(context: Context) {
         if (!last.isNullOrBlank()) {
             if (last == "openrouter" || getSearchApiKeyDirect(last).isNotBlank()) return last
         }
-        return listOf("exa", "parallel", "firecrawl").firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
+        return ClientSearchProviders.ids.firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
     }
 
     fun getWebSearchScopeDirect(): String {
@@ -240,27 +243,18 @@ class SettingsRepository(context: Context) {
     }
 
     fun getSearchApiKeyDirect(provider: String): String {
-        val key = when (provider) {
-            "exa" -> "exa_api_key"
-            "parallel" -> "parallel_api_key"
-            "firecrawl" -> "firecrawl_api_key"
-            else -> return ""
-        }
+        val key = ClientSearchProviders.prefKey(provider) ?: return ""
         return prefs.getString(key, "").orEmpty()
     }
 
     fun saveSearchApiKey(provider: String, value: String) {
-        val key = when (provider) {
-            "exa" -> "exa_api_key"
-            "parallel" -> "parallel_api_key"
-            "firecrawl" -> "firecrawl_api_key"
-            else -> return
-        }
+        val key = ClientSearchProviders.prefKey(provider) ?: return
         prefs.edit().putString(key, value).apply()
         when (provider) {
-            "exa" -> _exaApiKey.value = value
-            "parallel" -> _parallelApiKey.value = value
-            "firecrawl" -> _firecrawlApiKey.value = value
+            ClientSearchProviders.EXA -> _exaApiKey.value = value
+            ClientSearchProviders.PARALLEL -> _parallelApiKey.value = value
+            ClientSearchProviders.FIRECRAWL -> _firecrawlApiKey.value = value
+            ClientSearchProviders.MONID -> _monidApiKey.value = value
         }
     }
 
