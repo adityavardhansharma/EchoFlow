@@ -364,7 +364,7 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
                     Icon(Icons.Default.Science, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "Nothing available yet.\nAdd an Exa, Parallel, Firecrawl or Monid key in Web search,\nor add a research model below.",
+                        "Nothing available yet.\nAdd an Exa, Parallel or Firecrawl key in Web search,\nor add a research model below.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
