@@ -67,6 +67,20 @@ class SettingsRepositoryCharacterizationTest {
     }
 
     @Test
+    fun monidSearchKeyRoundTripsThroughARecreatedRepository() {
+        SettingsRepository(context).apply {
+            saveWebSearchProvider("monid")
+            saveSearchApiKey("monid", "monid_live_test")
+        }
+
+        val restored = SettingsRepository(context)
+        assertEquals("monid", restored.getWebSearchProviderDirect())
+        assertEquals("monid_live_test", restored.getSearchApiKeyDirect("monid"))
+        assertEquals("monid_live_test", restored.monidApiKey.value)
+        assertEquals("monid", restored.resolveChipSearchProvider())
+    }
+
+    @Test
     fun xAiProviderSettingsRoundTripThroughARecreatedRepository() {
         val repository = SettingsRepository(context)
         repository.saveCustomProviderConfig(
