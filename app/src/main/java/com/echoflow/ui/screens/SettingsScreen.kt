@@ -129,6 +129,7 @@ internal val searchProviders = listOf(
     SearchProviderOption("exa", "Exa", "Semantic search — works with any model, ~\$5 per 1k searches"),
     SearchProviderOption("parallel", "Parallel", "Objective-based dense excerpts — works with any model"),
     SearchProviderOption("firecrawl", "Firecrawl", "Search plus full-page markdown — works with any model"),
+    SearchProviderOption("echocrawl", "EchoCrawl", "Free web search — no key needed"),
 )
 
 internal val accents = listOf(
@@ -209,8 +210,16 @@ internal fun sectionExit(): ExitTransition = shrinkVertically(
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBackClicked: () -> Unit,
+    startPage: String? = null,
+    onStartPageConsumed: () -> Unit = {},
 ) {
-    var page by rememberSaveable { mutableStateOf(PageHome) }
+    var page by rememberSaveable { mutableStateOf(startPage ?: PageHome) }
+    LaunchedEffect(startPage) {
+        if (startPage != null) {
+            page = startPage
+            onStartPageConsumed()
+        }
+    }
     val navigateBack: () -> Unit = {
         settingsParentPage(page)?.let { page = it }
     }

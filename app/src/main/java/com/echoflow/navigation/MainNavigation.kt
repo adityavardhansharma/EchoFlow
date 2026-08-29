@@ -11,12 +11,14 @@ import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.ChatScreen
+import com.echoflow.ui.screens.PageWebSearch
 import com.echoflow.ui.screens.SettingsScreen
 import kotlinx.coroutines.launch
 
 @Composable
 fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel) {
     var activeTab by remember { mutableStateOf("chat") }
+    var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
@@ -27,9 +29,17 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
     Box(Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
             BackHandler { activeTab = "chat" }
-            SettingsScreen(viewModel = settingsViewModel, onBackClicked = { activeTab = "chat" })
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                onBackClicked = { activeTab = "chat" },
+                startPage = settingsStartPage,
+                onStartPageConsumed = { settingsStartPage = null },
+            )
         } else {
-            AdaptiveChatWorkspace(chatViewModel, settingsViewModel) { activeTab = "settings" }
+            AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" }) {
+                settingsStartPage = PageWebSearch
+                activeTab = "settings"
+            }
         }
         activeBrowserSession?.takeIf { browserWorkspaceChatId == null }?.let { session ->
             com.echoflow.ui.components.GlobalBrowserPill(
@@ -81,6 +91,7 @@ fun AdaptiveChatWorkspace(
     chatViewModel: ChatViewModel,
     settingsViewModel: SettingsViewModel,
     onSettingsClicked: () -> Unit,
+    onOpenWebSearchSettings: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val threads by chatViewModel.filteredThreads.collectAsState()
@@ -114,7 +125,7 @@ fun AdaptiveChatWorkspace(
                 }
                 VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
                 Box(Modifier.weight(1f)) {
-                    ChatScreen(chatViewModel, settingsViewModel, {}, onSettingsClicked)
+                    ChatScreen(chatViewModel, settingsViewModel, {}, onSettingsClicked, onOpenWebSearchSettings)
                 }
             }
         } else {
@@ -147,7 +158,7 @@ fun AdaptiveChatWorkspace(
                 }
             }) {
                 ChatScreen(chatViewModel, settingsViewModel,
-                    { scope.launch { drawerState.open() } }, onSettingsClicked)
+                    { scope.launch { drawerState.open() } }, onSettingsClicked, onOpenWebSearchSettings)
             }
         }
     }

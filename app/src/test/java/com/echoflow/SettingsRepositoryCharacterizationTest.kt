@@ -29,6 +29,7 @@ class SettingsRepositoryCharacterizationTest {
 
         assertEquals("system", repository.darkMode.value)
         assertEquals("off", repository.webSearchProvider.value)
+        assertFalse(repository.echoCrawlIntroDismissed.value)
         assertFalse(repository.ggufEnabled.value)
         assertFalse(repository.browserFlowEnabled.value)
         assertTrue(repository.echoAdviserEnabled.value)
@@ -81,6 +82,32 @@ class SettingsRepositoryCharacterizationTest {
         assertEquals("auto", repository.getDeepResearchSearchProviderDirect())
         assertEquals(null, repository.resolveChipSearchProvider())
         assertEquals("", repository.getSearchApiKeyDirect("monid"))
+    }
+
+    @Test
+    fun echoCrawlIsReadyWithoutAKeyAndDoesNotChangeExistingProviders() {
+        SettingsRepository(context).apply {
+            saveWebSearchProvider("exa")
+            saveSearchApiKey("exa", "secret")
+        }
+        val existing = SettingsRepository(context)
+        assertEquals("exa", existing.getWebSearchProviderDirect())
+
+        val fresh = SettingsRepository(context).also { it.saveWebSearchProvider("echocrawl") }
+        assertEquals("echocrawl", fresh.getWebSearchProviderDirect())
+        assertEquals("echocrawl", fresh.resolveChipSearchProvider())
+        assertEquals("", fresh.getSearchApiKeyDirect("echocrawl"))
+        assertTrue(com.echoflow.data.ClientSearchProviders.isReady("echocrawl", ""))
+        assertFalse(com.echoflow.data.ClientSearchProviders.requiresApiKey("echocrawl"))
+    }
+
+    @Test
+    fun echoCrawlIntroDismissSticksAcrossRepositoryRecreation() {
+        assertFalse(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
+        SettingsRepository(context).dismissEchoCrawlIntro()
+        assertTrue(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
+        SettingsRepository(context).dismissEchoCrawlIntro()
+        assertTrue(SettingsRepository(context).echoCrawlIntroDismissed.value)
     }
 
     @Test

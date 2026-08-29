@@ -11,7 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * Client-side web search across providers (Exa, Parallel, Firecrawl), normalized to
+ * Client-side web search across providers (Exa, Parallel, Firecrawl, EchoCrawl), normalized to
  * [SearchSource]. Used as a tool by OpenRouter models (function calling) and local
  * models (prompt protocol).
  */
@@ -36,9 +36,10 @@ class WebSearchService {
         maxResults: Int = 5
     ): List<SearchSource> = withContext(Dispatchers.IO) {
         when (provider) {
-            "exa" -> searchExa(apiKey, query, maxResults)
-            "parallel" -> searchParallel(apiKey, query, maxResults)
-            "firecrawl" -> searchFirecrawl(apiKey, query, maxResults)
+            ClientSearchProviders.EXA -> searchExa(apiKey, query, maxResults)
+            ClientSearchProviders.PARALLEL -> searchParallel(apiKey, query, maxResults)
+            ClientSearchProviders.FIRECRAWL -> searchFirecrawl(apiKey, query, maxResults)
+            ClientSearchProviders.ECHOCRAWL -> searchFirecrawl(apiKey = "", query, maxResults, label = "EchoCrawl")
             else -> throw Exception("Unknown search provider: $provider")
         }
     }
@@ -80,17 +81,23 @@ class WebSearchService {
         return ParallelSearchV1.parseResults(json)
     }
 
-    private fun searchFirecrawl(apiKey: String, query: String, maxResults: Int): List<SearchSource> {
+    private fun searchFirecrawl(
+        apiKey: String,
+        query: String,
+        maxResults: Int,
+        label: String = "Firecrawl",
+    ): List<SearchSource> {
         val body = mapOf(
             "query" to query,
             "limit" to maxResults,
             "scrapeOptions" to mapOf("formats" to listOf("markdown"))
         )
+        val headers = if (apiKey.isBlank()) emptyMap() else mapOf("Authorization" to "Bearer $apiKey")
         val json = executePost(
             url = "https://api.firecrawl.dev/v2/search",
-            headers = mapOf("Authorization" to "Bearer $apiKey"),
+            headers = headers,
             body = body,
-            providerLabel = "Firecrawl"
+            providerLabel = label,
         )
         val data = json["data"] as? Map<*, *> ?: return emptyList()
         val web = data["web"] as? List<*> ?: return emptyList()
@@ -125,9 +132,16 @@ class WebSearchService {
         client.newCall(builder.build()).execute().use { response ->
             val responseString = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val message = when (response.code) {
-                    401, 403 -> "Invalid $providerLabel API key — check Settings."
-                    429 -> "$providerLabel rate limit reached — try again shortly."
+                val message = when {
+                    response.code == 429 && providerLabel == "EchoCrawl" ->
+                        "EchoCrawl's free daily limit was reached for this network. Try again later, or add a Firecrawl API key in Settings."
+                    response.code == 401 || response.code == 403 ->
+                        if (providerLabel == "EchoCrawl") {
+                            "EchoCrawl isn't available on this network right now. Try again later."
+                        } else {
+                            "Invalid $providerLabel API key — check Settings."
+                        }
+                    response.code == 429 -> "$providerLabel rate limit reached — try again shortly."
                     else -> "$providerLabel search failed (HTTP ${response.code})."
                 }
                 throw Exception(message)

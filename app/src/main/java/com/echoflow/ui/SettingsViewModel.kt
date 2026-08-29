@@ -73,6 +73,7 @@ class SettingsViewModel(
     val exaApiKey: StateFlow<String> = repository.exaApiKey
     val parallelApiKey: StateFlow<String> = repository.parallelApiKey
     val firecrawlApiKey: StateFlow<String> = repository.firecrawlApiKey
+    val echoCrawlIntroDismissed: StateFlow<Boolean> = repository.echoCrawlIntroDismissed
 
     // Local models
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
@@ -313,6 +314,10 @@ class SettingsViewModel(
 
     fun saveSearchApiKey(provider: String, key: String) {
         repository.saveSearchApiKey(provider, key.trim())
+    }
+
+    fun dismissEchoCrawlIntro() {
+        repository.dismissEchoCrawlIntro()
     }
 
     fun saveLocalModelsEnabled(enabled: Boolean) {
