@@ -67,6 +67,23 @@ class SettingsRepositoryCharacterizationTest {
     }
 
     @Test
+    fun removedMonidSearchSelectionsMigrateOff() {
+        context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE).edit()
+            .putString("web_search_provider", "monid")
+            .putString("last_search_provider", "monid")
+            .putString("deep_research_search_provider", "monid")
+            .putString("monid_api_key", "mnid-stale")
+            .commit()
+
+        val repository = SettingsRepository(context)
+
+        assertEquals("off", repository.getWebSearchProviderDirect())
+        assertEquals("auto", repository.getDeepResearchSearchProviderDirect())
+        assertEquals(null, repository.resolveChipSearchProvider())
+        assertEquals("", repository.getSearchApiKeyDirect("monid"))
+    }
+
+    @Test
     fun xAiProviderSettingsRoundTripThroughARecreatedRepository() {
         val repository = SettingsRepository(context)
         repository.saveCustomProviderConfig(
