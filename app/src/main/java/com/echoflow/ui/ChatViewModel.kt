@@ -2418,12 +2418,12 @@ class ChatViewModel(
                 }
                 val chosen = settingsRepository.getDeepResearchSearchProviderDirect()
                 searchProvider = if (chosen == "auto") {
-                    ClientSearchProviders.ids.firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
+                    listOf("exa", "parallel", "firecrawl").firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 } else {
                     chosen.takeIf { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 }
                 if (searchProvider == null) {
-                    _errorMessage.value = "Deep Research needs a search provider. Add an Exa, Parallel, Firecrawl or Monid key in Settings → Web search."
+                    _errorMessage.value = "Deep Research needs a search provider. Add an Exa, Parallel or Firecrawl key in Settings → Web search."
                     return@launch
                 }
                 engineLabel = deepResearchModelDao.getAllSync().firstOrNull { it.id == engineId }?.name ?: engineId
@@ -2817,7 +2817,7 @@ class ChatViewModel(
         /** What may be handed forward as a reference or a first frame. */
         private val IMAGE_REFERENCE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
 
-        private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
+        private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L
 

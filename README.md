@@ -56,13 +56,13 @@ No keys are required just to install and look around — on-device models work f
 | OpenAI-compatible (LM Studio, Jan, vLLM, LocalAI…) | Echo Labs → Custom API Endpoint | Per-model toggle |
 | On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
 
-Web search (Exa, Parallel, Firecrawl, Monid) and OpenRouter's own server-side search work across every provider above except where noted.
+Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search work across every provider above except where noted.
 
 ## What you can do with it
 
 **Chat** — streaming responses, markdown, code highlighting, reasoning traces, citations, and model switching mid-conversation. Chat and Imagine keep separate histories; conversations that predate the split stay in Chat.
 
-**Web search** — toggle it per message or set a default. OpenRouter's search only works with OpenRouter models; Exa, Parallel, Firecrawl, and Monid work with anything.
+**Web search** — toggle it per message or set a default. OpenRouter's search only works with OpenRouter models; Exa, Parallel, and Firecrawl work with anything.
 
 **Deep research** — a background mode for questions that need real investigation. Runs notify you of progress, survive interruption, and come back as a cited report with sections and tables.
 
@@ -92,7 +92,7 @@ EchoFlow can run models entirely offline using LiteRT-LM and MediaPipe:
 
 ## Built with
 
-Kotlin and Jetpack Compose (Material 3 Expressive), targeting Android 24+. Networking via OkHttp/Retrofit, persistence via Room, on-device inference via LiteRT-LM and MediaPipe GenAI, search and research via Exa/Parallel/Firecrawl/Monid/OpenRouter, markdown rendering via a custom Compose renderer.
+Kotlin and Jetpack Compose (Material 3 Expressive), targeting Android 24+. Networking via OkHttp/Retrofit, persistence via Room, on-device inference via LiteRT-LM and MediaPipe GenAI, search and research via Exa/Parallel/Firecrawl/OpenRouter, markdown rendering via a custom Compose renderer.
 
 ```text
 app/src/main/java/com/echoflow

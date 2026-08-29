@@ -97,7 +97,6 @@ import com.echoflow.data.CustomProviderConfig
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.DeepResearchCatalog
-import com.echoflow.data.ClientSearchProviders
 import com.echoflow.data.DownloadState
 import com.echoflow.data.InferenceLimits
 import com.echoflow.data.InferenceParams
@@ -123,13 +122,11 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val exaKey by viewModel.exaApiKey.collectAsState()
     val parallelKey by viewModel.parallelApiKey.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
-    val monidKey by viewModel.monidApiKey.collectAsState()
 
     val savedSearchKey = when (webSearchProvider) {
-        ClientSearchProviders.EXA -> exaKey
-        ClientSearchProviders.PARALLEL -> parallelKey
-        ClientSearchProviders.FIRECRAWL -> firecrawlKey
-        ClientSearchProviders.MONID -> monidKey
+        "exa" -> exaKey
+        "parallel" -> parallelKey
+        "firecrawl" -> firecrawlKey
         else -> ""
     }
     // Unsaved edits are kept per provider, so switching providers never loses what you
@@ -164,7 +161,7 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 if (webSearchProvider == "openrouter" && webSearchScope != "cloud") {
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel, Firecrawl or Monid.",
+                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel or Firecrawl.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = Spacing.xs),
@@ -190,7 +187,7 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
 
-        AnimatedVisibility(visible = webSearchProvider in ClientSearchProviders.asSet, enter = sectionEnter(), exit = sectionExit()) {
+        AnimatedVisibility(visible = webSearchProvider in setOf("exa", "parallel", "firecrawl"), enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(Spacing.xl))
                 val providerLabel = searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: ""
@@ -248,7 +245,6 @@ internal fun ProviderRow(
         BrandShapes.heroStart, // Sunny
         BrandShapes.avatarEnd, // Clover4Leaf
         BrandShapes.avatarStart, // Cookie9Sided
-        MaterialShapes.Cookie4Sided,
     )
     Surface(
         onClick = onSelect,
@@ -316,7 +312,6 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
     val exaKey by viewModel.exaApiKey.collectAsState()
     val parallelKey by viewModel.parallelApiKey.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
-    val monidKey by viewModel.monidApiKey.collectAsState()
     val orQuery by viewModel.orModelQuery.collectAsState()
     val orResults by viewModel.orModelResults.collectAsState()
     val orLoading by viewModel.orDirectoryLoading.collectAsState()
@@ -325,10 +320,9 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
     var showDirectory by remember { mutableStateOf(false) }
 
     fun keyFor(provider: String): String = when (provider) {
-        ClientSearchProviders.EXA -> exaKey
-        ClientSearchProviders.PARALLEL -> parallelKey
-        ClientSearchProviders.FIRECRAWL -> firecrawlKey
-        ClientSearchProviders.MONID -> monidKey
+        "exa" -> exaKey
+        "parallel" -> parallelKey
+        "firecrawl" -> firecrawlKey
         else -> ""
     }
     // Provider-native engines appear purely based on which provider keys exist — never tied
@@ -343,7 +337,7 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
                 "1. A provider (Exa, Parallel, Firecrawl) researches on its own — add that " +
                     "provider's key in Web search and its engines show up below.\n" +
                     "2. A chat model orchestrates — it plans searches, runs them through a search " +
-                    "provider (including Monid), and writes a cited report.\n\n" +
+                    "provider, and writes a cited report.\n\n" +
                     "Pick a default engine below. You can also switch it from the “+” menu in chat. " +
                     "Runs happen in the background and can take a few minutes.",
                 style = MaterialTheme.typography.bodySmall,
@@ -418,25 +412,19 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
 
         SectionLabel("Search provider")
         ConnectedToggleRow(
-            options = listOf(
-                "auto" to "Auto",
-                ClientSearchProviders.EXA to "Exa",
-                ClientSearchProviders.PARALLEL to "Parallel",
-                ClientSearchProviders.FIRECRAWL to "Firecrawl",
-                ClientSearchProviders.MONID to "Monid",
-            ),
+            options = listOf("auto" to "Auto", "exa" to "Exa", "parallel" to "Parallel", "firecrawl" to "Firecrawl"),
             selected = searchProvider,
             onSelect = viewModel::saveDeepResearchSearchProvider,
         )
         Spacer(Modifier.height(Spacing.s))
         // Per-selection feedback: show whether the *chosen* provider actually has a key.
-        val autoResolved = ClientSearchProviders.ids.firstOrNull { keyFor(it).isNotBlank() }
+        val autoResolved = listOf("exa", "parallel", "firecrawl").firstOrNull { keyFor(it).isNotBlank() }
         val searchMissing = if (searchProvider == "auto") autoResolved == null else keyFor(searchProvider).isBlank()
         val searchStatus = when {
             searchProvider == "auto" && autoResolved == null -> "No search keys yet — add one in Settings → Web search"
-            searchProvider == "auto" -> "Using ${ClientSearchProviders.displayName(autoResolved!!)} — first key found"
-            searchMissing -> "No ${ClientSearchProviders.displayName(searchProvider)} key — add it in Settings → Web search"
-            else -> "${ClientSearchProviders.displayName(searchProvider)} key found"
+            searchProvider == "auto" -> "Using ${autoResolved!!.replaceFirstChar { it.uppercase() }} — first key found"
+            searchMissing -> "No ${searchProvider.replaceFirstChar { it.uppercase() }} key — add it in Settings → Web search"
+            else -> "${searchProvider.replaceFirstChar { it.uppercase() }} key found"
         }
         Text(
             searchStatus,

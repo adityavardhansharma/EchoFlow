@@ -16,6 +16,7 @@ class SettingsRepository(context: Context) {
         if (!prefs.contains(KEY_SEARCH_PROVIDER) && prefs.getBoolean("web_search_enabled", false)) {
             prefs.edit().putString(KEY_SEARCH_PROVIDER, "openrouter").apply()
         }
+        migrateRemovedMonidSearchSelections()
     }
 
     private val _apiKey = MutableStateFlow(getApiKeyDirect())
@@ -31,22 +32,19 @@ class SettingsRepository(context: Context) {
     val darkMode: StateFlow<String> = _darkMode.asStateFlow() // "system", "dark", "light"
 
     private val _webSearchProvider = MutableStateFlow(getWebSearchProviderDirect())
-    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", plus [ClientSearchProviders]
+    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", "exa", "parallel", "firecrawl"
 
     private val _webSearchScope = MutableStateFlow(getWebSearchScopeDirect())
     val webSearchScope: StateFlow<String> = _webSearchScope.asStateFlow() // "both", "cloud", "local"
 
-    private val _exaApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.EXA))
+    private val _exaApiKey = MutableStateFlow(getSearchApiKeyDirect("exa"))
     val exaApiKey: StateFlow<String> = _exaApiKey.asStateFlow()
 
-    private val _parallelApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.PARALLEL))
+    private val _parallelApiKey = MutableStateFlow(getSearchApiKeyDirect("parallel"))
     val parallelApiKey: StateFlow<String> = _parallelApiKey.asStateFlow()
 
-    private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.FIRECRAWL))
+    private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect("firecrawl"))
     val firecrawlApiKey: StateFlow<String> = _firecrawlApiKey.asStateFlow()
-
-    private val _monidApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.MONID))
-    val monidApiKey: StateFlow<String> = _monidApiKey.asStateFlow()
 
     private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
     val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
@@ -61,7 +59,7 @@ class SettingsRepository(context: Context) {
     val deepResearchModel: StateFlow<String> = _deepResearchModel.asStateFlow()
 
     private val _deepResearchSearchProvider = MutableStateFlow(getDeepResearchSearchProviderDirect())
-    val deepResearchSearchProvider: StateFlow<String> = _deepResearchSearchProvider.asStateFlow() // "auto" or a [ClientSearchProviders] id
+    val deepResearchSearchProvider: StateFlow<String> = _deepResearchSearchProvider.asStateFlow() // "auto"|"exa"|"parallel"|"firecrawl"
 
     private val _deepResearchMaxSearches = MutableStateFlow(getDeepResearchMaxSearchesDirect())
     val deepResearchMaxSearches: StateFlow<Int> = _deepResearchMaxSearches.asStateFlow()
@@ -205,7 +203,8 @@ class SettingsRepository(context: Context) {
     }
 
     fun getWebSearchProviderDirect(): String {
-        return prefs.getString(KEY_SEARCH_PROVIDER, "off").orEmpty()
+        val stored = prefs.getString(KEY_SEARCH_PROVIDER, "off").orEmpty()
+        return if (stored in WEB_SEARCH_PROVIDERS) stored else "off"
     }
 
     fun saveWebSearchProvider(provider: String) {
@@ -227,10 +226,10 @@ class SettingsRepository(context: Context) {
         val active = getWebSearchProviderDirect()
         if (active != "off") return active
         val last = prefs.getString(KEY_LAST_SEARCH_PROVIDER, null)
-        if (!last.isNullOrBlank()) {
+        if (!last.isNullOrBlank() && last in WEB_SEARCH_PROVIDERS) {
             if (last == "openrouter" || getSearchApiKeyDirect(last).isNotBlank()) return last
         }
-        return ClientSearchProviders.ids.firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
+        return listOf("exa", "parallel", "firecrawl").firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
     }
 
     fun getWebSearchScopeDirect(): String {
@@ -243,18 +242,27 @@ class SettingsRepository(context: Context) {
     }
 
     fun getSearchApiKeyDirect(provider: String): String {
-        val key = ClientSearchProviders.prefKey(provider) ?: return ""
+        val key = when (provider) {
+            "exa" -> "exa_api_key"
+            "parallel" -> "parallel_api_key"
+            "firecrawl" -> "firecrawl_api_key"
+            else -> return ""
+        }
         return prefs.getString(key, "").orEmpty()
     }
 
     fun saveSearchApiKey(provider: String, value: String) {
-        val key = ClientSearchProviders.prefKey(provider) ?: return
+        val key = when (provider) {
+            "exa" -> "exa_api_key"
+            "parallel" -> "parallel_api_key"
+            "firecrawl" -> "firecrawl_api_key"
+            else -> return
+        }
         prefs.edit().putString(key, value).apply()
         when (provider) {
-            ClientSearchProviders.EXA -> _exaApiKey.value = value
-            ClientSearchProviders.PARALLEL -> _parallelApiKey.value = value
-            ClientSearchProviders.FIRECRAWL -> _firecrawlApiKey.value = value
-            ClientSearchProviders.MONID -> _monidApiKey.value = value
+            "exa" -> _exaApiKey.value = value
+            "parallel" -> _parallelApiKey.value = value
+            "firecrawl" -> _firecrawlApiKey.value = value
         }
     }
 
@@ -468,11 +476,13 @@ class SettingsRepository(context: Context) {
         _deepResearchModel.value = id
     }
 
-    fun getDeepResearchSearchProviderDirect(): String =
-        prefs.getString("deep_research_search_provider", "auto").orEmpty()
+    fun getDeepResearchSearchProviderDirect(): String {
+        val stored = prefs.getString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, "auto").orEmpty()
+        return if (stored in DEEP_RESEARCH_SEARCH_PROVIDERS) stored else "auto"
+    }
 
     fun saveDeepResearchSearchProvider(provider: String) {
-        prefs.edit().putString("deep_research_search_provider", provider).apply()
+        prefs.edit().putString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, provider).apply()
         _deepResearchSearchProvider.value = provider
     }
 
@@ -735,6 +745,32 @@ class SettingsRepository(context: Context) {
         _browserIdleMinutes.value = value
     }
 
+    /**
+     * PR #147 stored `monid` as a search backend. After that merge is reverted, a leftover
+     * selection would look like search is on while every key lookup returns empty.
+     */
+    private fun migrateRemovedMonidSearchSelections() {
+        val edit = prefs.edit()
+        var changed = false
+        if (prefs.getString(KEY_SEARCH_PROVIDER, null) == "monid") {
+            edit.putString(KEY_SEARCH_PROVIDER, "off")
+            changed = true
+        }
+        if (prefs.getString(KEY_LAST_SEARCH_PROVIDER, null) == "monid") {
+            edit.remove(KEY_LAST_SEARCH_PROVIDER)
+            changed = true
+        }
+        if (prefs.getString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, null) == "monid") {
+            edit.putString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, "auto")
+            changed = true
+        }
+        if (prefs.contains(KEY_MONID_API_KEY)) {
+            edit.remove(KEY_MONID_API_KEY)
+            changed = true
+        }
+        if (changed) edit.apply()
+    }
+
     companion object {
         private const val KEY_APP_MODE = "app_mode"
 
@@ -749,6 +785,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
+        private const val KEY_DEEP_RESEARCH_SEARCH_PROVIDER = "deep_research_search_provider"
+        private const val KEY_MONID_API_KEY = "monid_api_key"
+        private val WEB_SEARCH_PROVIDERS = setOf("off", "openrouter", "exa", "parallel", "firecrawl")
+        private val DEEP_RESEARCH_SEARCH_PROVIDERS = setOf("auto", "exa", "parallel", "firecrawl")
         const val DEFAULT_MODEL_ID = DefaultChatModels.DEFAULT_MODEL_ID
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
 

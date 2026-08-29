@@ -67,17 +67,20 @@ class SettingsRepositoryCharacterizationTest {
     }
 
     @Test
-    fun monidSearchKeyRoundTripsThroughARecreatedRepository() {
-        SettingsRepository(context).apply {
-            saveWebSearchProvider("monid")
-            saveSearchApiKey("monid", "monid_live_test")
-        }
+    fun removedMonidSearchSelectionsMigrateOff() {
+        context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE).edit()
+            .putString("web_search_provider", "monid")
+            .putString("last_search_provider", "monid")
+            .putString("deep_research_search_provider", "monid")
+            .putString("monid_api_key", "mnid-stale")
+            .commit()
 
-        val restored = SettingsRepository(context)
-        assertEquals("monid", restored.getWebSearchProviderDirect())
-        assertEquals("monid_live_test", restored.getSearchApiKeyDirect("monid"))
-        assertEquals("monid_live_test", restored.monidApiKey.value)
-        assertEquals("monid", restored.resolveChipSearchProvider())
+        val repository = SettingsRepository(context)
+
+        assertEquals("off", repository.getWebSearchProviderDirect())
+        assertEquals("auto", repository.getDeepResearchSearchProviderDirect())
+        assertEquals(null, repository.resolveChipSearchProvider())
+        assertEquals("", repository.getSearchApiKeyDirect("monid"))
     }
 
     @Test

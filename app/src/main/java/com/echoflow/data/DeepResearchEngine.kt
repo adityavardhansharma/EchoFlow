@@ -830,7 +830,7 @@ class DeepResearchEngine(
         }
         val searchProvider = config.searchProvider
         if (searchProvider.isNullOrBlank() || searchKey.isBlank()) {
-            emit(ResearchEvent.Failed("No search provider is configured for Deep Research. Add an Exa, Parallel, Firecrawl or Monid key in Settings → Web search."))
+            emit(ResearchEvent.Failed("No search provider is configured for Deep Research. Add an Exa, Parallel or Firecrawl key in Settings → Web search."))
             return
         }
 
