@@ -8,8 +8,7 @@ import java.util.Locale
  * Builds the system prompt for a turn based on where the model runs (on-device vs
  * OpenRouter cloud) and which web search provider is active. Each provider gets
  * tailored guidance because their result shapes differ (Exa: semantic snippets,
- * Parallel: dense objective-driven excerpts, Firecrawl: full-page markdown,
- * Monid: ranked live-web snippets).
+ * Parallel: dense objective-driven excerpts, Firecrawl: full-page markdown).
  */
 object SystemPrompts {
 
@@ -18,8 +17,7 @@ object SystemPrompts {
 
     /**
      * @param isLocalModel true when the selected model runs on-device via MediaPipe.
-     * @param provider effective search provider: "off", "openrouter", or a client id
-     *        (`exa`, `parallel`, `firecrawl`, `monid`).
+     * @param provider effective search provider: "off", "openrouter", "exa", "parallel", "firecrawl".
      *        Callers must pass "off" for unavailable combinations (e.g. local model + openrouter).
      */
     fun build(isLocalModel: Boolean, provider: String, currentDate: String = currentDate()): String {
@@ -30,7 +28,7 @@ object SystemPrompts {
 
         sections += when (provider) {
             "openrouter" -> openRouterServerSearch()
-            in ClientSearchProviders.asSet ->
+            "exa", "parallel", "firecrawl" ->
                 if (isLocalModel) localSearchProtocol(provider) else cloudFunctionSearch(provider)
             else -> noSearch(isLocalModel)
         }
@@ -130,15 +128,14 @@ object SystemPrompts {
      * results in (see ChatViewModel's custom-provider client-search branch); this prompt tells the
      * model exactly that, so it uses the provided results instead of pretending to call a tool.
      *
-     * @param provider effective search provider: "off" or a client id
-     *        (`exa`, `parallel`, `firecrawl`, `monid`).
+     * @param provider effective search provider: "off", "exa", "parallel", or "firecrawl".
      *        ("openrouter" never reaches here — server search can't serve custom providers.)
      */
     fun buildCustomProvider(provider: String, currentDate: String = currentDate()): String {
         val sections = mutableListOf<String>()
         sections += identity(false)
         sections += "Current date: $currentDate."
-        val searchOn = provider in ClientSearchProviders.asSet
+        val searchOn = provider in setOf("exa", "parallel", "firecrawl")
         sections += if (searchOn) injectedSearchGuidance(provider) else noSearch(false)
         sections += formatting(false)
         // Same freshness rule as every other transport — only the remedy differs. With search on
@@ -150,9 +147,8 @@ object SystemPrompts {
 
     private fun injectedSearchGuidance(provider: String): String {
         val providerNote = when (provider) {
-            ClientSearchProviders.EXA -> "They come from Exa (semantic search): relevant text excerpts, not full pages — quote carefully."
-            ClientSearchProviders.PARALLEL -> "They come from Parallel: dense excerpts answering the user's question."
-            ClientSearchProviders.MONID -> "They come from Monid (live web search): ranked pages with titles and snippets — quote carefully."
+            "exa" -> "They come from Exa (semantic search): relevant text excerpts, not full pages — quote carefully."
+            "parallel" -> "They come from Parallel: dense excerpts answering the user's question."
             else -> "They come from Firecrawl: page content as markdown — extract just the facts you need."
         }
         return """
@@ -231,19 +227,15 @@ object SystemPrompts {
 
     private fun cloudFunctionSearch(provider: String): String {
         val providerNotes = when (provider) {
-            ClientSearchProviders.EXA ->
+            "exa" ->
                 "Results come from Exa, a semantic search engine. Snippets are relevant excerpts, not " +
                     "full pages — quote them carefully and do not assume surrounding context. Natural-language " +
                     "queries work well (e.g. \"latest Android 16 release date announcement\")."
-            ClientSearchProviders.PARALLEL ->
+            "parallel" ->
                 "Results come from Parallel, which resolves an objective into dense, high-signal excerpts. " +
                     "Phrase the query as a complete objective (e.g. \"find the current CEO of OpenAI and when " +
                     "they took the role\") rather than keywords. A well-phrased objective often " +
                     "answers the question in one call — but if it comes back thin or stale, refine it and go again."
-            ClientSearchProviders.MONID ->
-                "Results come from Monid, which searches the live web and returns ranked pages with titles " +
-                    "and snippets. Natural-language queries work well; if the first pass is thin, refine and " +
-                    "search again."
             else ->
                 "Results come from Firecrawl, which returns full page content as markdown. Results are long: " +
                     "extract precisely the facts you need and ignore navigation, ads, and boilerplate text."
@@ -272,9 +264,8 @@ object SystemPrompts {
 
     private fun localSearchProtocol(provider: String): String {
         val providerNote = when (provider) {
-            ClientSearchProviders.EXA -> "Search results come from Exa (semantic search): relevant text excerpts from pages."
-            ClientSearchProviders.PARALLEL -> "Search results come from Parallel: dense excerpts answering your query objective."
-            ClientSearchProviders.MONID -> "Search results come from Monid: ranked live-web pages with titles and snippets."
+            "exa" -> "Search results come from Exa (semantic search): relevant text excerpts from pages."
+            "parallel" -> "Search results come from Parallel: dense excerpts answering your query objective."
             else -> "Search results come from Firecrawl: page content as markdown, already truncated."
         }
         // Mechanics only. Whether to search is decided once, by the freshness gate at the end of

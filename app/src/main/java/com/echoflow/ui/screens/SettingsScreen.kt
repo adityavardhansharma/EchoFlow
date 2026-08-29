@@ -129,7 +129,6 @@ internal val searchProviders = listOf(
     SearchProviderOption("exa", "Exa", "Semantic search — works with any model, ~\$5 per 1k searches"),
     SearchProviderOption("parallel", "Parallel", "Objective-based dense excerpts — works with any model"),
     SearchProviderOption("firecrawl", "Firecrawl", "Search plus full-page markdown — works with any model"),
-    SearchProviderOption("monid", "Monid", "Live web search via Monid — works with any model"),
 )
 
 internal val accents = listOf(

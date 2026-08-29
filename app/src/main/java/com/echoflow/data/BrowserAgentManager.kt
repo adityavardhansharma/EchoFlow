@@ -520,6 +520,6 @@ class BrowserAgentManager(
     }
 
     companion object {
-        private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
+        private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
     }
 }

@@ -73,7 +73,6 @@ class SettingsViewModel(
     val exaApiKey: StateFlow<String> = repository.exaApiKey
     val parallelApiKey: StateFlow<String> = repository.parallelApiKey
     val firecrawlApiKey: StateFlow<String> = repository.firecrawlApiKey
-    val monidApiKey: StateFlow<String> = repository.monidApiKey
 
     // Local models
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
