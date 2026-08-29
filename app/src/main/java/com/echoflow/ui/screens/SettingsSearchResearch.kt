@@ -96,6 +96,7 @@ import com.echoflow.data.CustomModelProvider
 import com.echoflow.data.CustomProviderConfig
 import com.echoflow.data.DataAgentCatalog
 import com.echoflow.data.FusionPanel
+import com.echoflow.data.ClientSearchProviders
 import com.echoflow.data.DeepResearchCatalog
 import com.echoflow.data.DownloadState
 import com.echoflow.data.InferenceLimits
@@ -161,7 +162,7 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 if (webSearchProvider == "openrouter" && webSearchScope != "cloud") {
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel or Firecrawl.",
+                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel, Firecrawl or EchoCrawl.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = Spacing.xs),
@@ -187,7 +188,15 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
 
-        AnimatedVisibility(visible = webSearchProvider in setOf("exa", "parallel", "firecrawl"), enter = sectionEnter(), exit = sectionExit()) {
+        AnimatedVisibility(visible = webSearchProvider == ClientSearchProviders.ECHOCRAWL, enter = sectionEnter(), exit = sectionExit()) {
+            Column {
+                Spacer(Modifier.height(Spacing.xl))
+                PageSection("Privacy", "Chat search only — never Data Agent or Browser Flow")
+                EchoCrawlPrivacyCard()
+            }
+        }
+
+        AnimatedVisibility(visible = webSearchProvider in ClientSearchProviders.keyedSet, enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(Spacing.xl))
                 val providerLabel = searchProviders.firstOrNull { it.id == webSearchProvider }?.label ?: ""
@@ -230,6 +239,24 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
+@Composable
+internal fun EchoCrawlPrivacyCard() {
+    FormCard {
+        Text("How EchoCrawl works", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            "EchoFlow does not collect your chats or search history. Only the search query " +
+                "the model sends is forwarded to the search provider. EchoCrawl is powered by " +
+                "Firecrawl's free search API. It is rate-limited per your network's IP address, " +
+                "not by an EchoFlow account. Nothing else leaves the phone for this feature, " +
+                "and it is only used for normal chat web search — not Data Agent, Browser Flow, " +
+                "or Deep Research.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /** Provider choice with a shaped monogram badge; selected state fills with primary. */
 @Composable
 internal fun ProviderRow(
@@ -245,6 +272,7 @@ internal fun ProviderRow(
         BrandShapes.heroStart, // Sunny
         BrandShapes.avatarEnd, // Clover4Leaf
         BrandShapes.avatarStart, // Cookie9Sided
+        MaterialShapes.Cookie4Sided,
     )
     Surface(
         onClick = onSelect,
@@ -418,7 +446,7 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
         )
         Spacer(Modifier.height(Spacing.s))
         // Per-selection feedback: show whether the *chosen* provider actually has a key.
-        val autoResolved = listOf("exa", "parallel", "firecrawl").firstOrNull { keyFor(it).isNotBlank() }
+        val autoResolved = ClientSearchProviders.keyedIds.firstOrNull { keyFor(it).isNotBlank() }
         val searchMissing = if (searchProvider == "auto") autoResolved == null else keyFor(searchProvider).isBlank()
         val searchStatus = when {
             searchProvider == "auto" && autoResolved == null -> "No search keys yet — add one in Settings → Web search"

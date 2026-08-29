@@ -1679,7 +1679,7 @@ class ChatViewModel(
             }
 
             val searchKey = settingsRepository.getSearchApiKeyDirect(provider)
-            val clientSearchReady = provider in CLIENT_SEARCH_PROVIDERS && searchKey.isNotBlank()
+            val clientSearchReady = ClientSearchProviders.isReady(provider, searchKey)
             val searchAllowedForModel = when (searchScope) {
                 "cloud" -> !isLocal
                 "local" -> isLocal
@@ -2418,7 +2418,7 @@ class ChatViewModel(
                 }
                 val chosen = settingsRepository.getDeepResearchSearchProviderDirect()
                 searchProvider = if (chosen == "auto") {
-                    listOf("exa", "parallel", "firecrawl").firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
+                    ClientSearchProviders.keyedIds.firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 } else {
                     chosen.takeIf { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 }
@@ -2817,7 +2817,7 @@ class ChatViewModel(
         /** What may be handed forward as a reference or a first frame. */
         private val IMAGE_REFERENCE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
 
-        private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
+        private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
         private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L
 

@@ -94,6 +94,7 @@ import com.echoflow.ui.components.AdvisorCard
 import com.echoflow.ui.components.AgentDeployingCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ArtifactCard
+import com.echoflow.ui.components.EchoCrawlIntroBanner
 import com.echoflow.ui.components.CapabilityChip
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.EffortPill
@@ -146,6 +147,7 @@ internal fun ChatSurface(
     chatViewModel: ChatViewModel,
     settingsViewModel: SettingsViewModel,
     onSettingsClicked: () -> Unit,
+    onOpenWebSearchSettings: () -> Unit = {},
     topBarInset: Dp,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -181,6 +183,7 @@ internal fun ChatSurface(
     val exaKey by settingsViewModel.exaApiKey.collectAsState()
     val parallelKey by settingsViewModel.parallelApiKey.collectAsState()
     val firecrawlKey by settingsViewModel.firecrawlApiKey.collectAsState()
+    val echoCrawlIntroDismissed by settingsViewModel.echoCrawlIntroDismissed.collectAsState()
     val exaEffort by settingsViewModel.deepResearchExaEffort.collectAsState()
     val dataAgentEnabled by settingsViewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngineId by settingsViewModel.dataAgentEngine.collectAsState()
@@ -475,6 +478,19 @@ internal fun ChatSurface(
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { inputHeightPx = it.height },
         ) {
+            AnimatedVisibility(
+                visible = !echoCrawlIntroDismissed,
+                enter = if (reducedMotion) fadeIn(tween(120)) else fadeIn(tween(160)) + expandVertically(expandFrom = Alignment.Bottom),
+                exit = if (reducedMotion) fadeOut(tween(90)) else fadeOut(tween(120)) + shrinkVertically(shrinkTowards = Alignment.Bottom),
+            ) {
+                EchoCrawlIntroBanner(
+                    onOpenSettings = {
+                        settingsViewModel.dismissEchoCrawlIntro()
+                        onOpenWebSearchSettings()
+                    },
+                    onDismiss = { settingsViewModel.dismissEchoCrawlIntro() },
+                )
+            }
             AnimatedVisibility(
                 visible = editingUserMessageId != null,
                 enter = if (reducedMotion) {

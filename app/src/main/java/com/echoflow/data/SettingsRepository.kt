@@ -32,7 +32,7 @@ class SettingsRepository(context: Context) {
     val darkMode: StateFlow<String> = _darkMode.asStateFlow() // "system", "dark", "light"
 
     private val _webSearchProvider = MutableStateFlow(getWebSearchProviderDirect())
-    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", "exa", "parallel", "firecrawl"
+    val webSearchProvider: StateFlow<String> = _webSearchProvider.asStateFlow() // "off", "openrouter", plus [ClientSearchProviders.chatIds]
 
     private val _webSearchScope = MutableStateFlow(getWebSearchScopeDirect())
     val webSearchScope: StateFlow<String> = _webSearchScope.asStateFlow() // "both", "cloud", "local"
@@ -227,9 +227,14 @@ class SettingsRepository(context: Context) {
         if (active != "off") return active
         val last = prefs.getString(KEY_LAST_SEARCH_PROVIDER, null)
         if (!last.isNullOrBlank() && last in WEB_SEARCH_PROVIDERS) {
-            if (last == "openrouter" || getSearchApiKeyDirect(last).isNotBlank()) return last
+            if (last == "openrouter" ||
+                last == ClientSearchProviders.ECHOCRAWL ||
+                getSearchApiKeyDirect(last).isNotBlank()
+            ) {
+                return last
+            }
         }
-        return listOf("exa", "parallel", "firecrawl").firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
+        return ClientSearchProviders.keyedIds.firstOrNull { getSearchApiKeyDirect(it).isNotBlank() }
     }
 
     fun getWebSearchScopeDirect(): String {
@@ -239,6 +244,18 @@ class SettingsRepository(context: Context) {
     fun saveWebSearchScope(scope: String) {
         prefs.edit().putString(KEY_SEARCH_SCOPE, scope).apply()
         _webSearchScope.value = scope
+    }
+
+    private val _echoCrawlIntroDismissed = MutableStateFlow(getEchoCrawlIntroDismissedDirect())
+    val echoCrawlIntroDismissed: StateFlow<Boolean> = _echoCrawlIntroDismissed.asStateFlow()
+
+    fun getEchoCrawlIntroDismissedDirect(): Boolean =
+        prefs.getBoolean(KEY_ECHOCRAWL_INTRO_DISMISSED, false)
+
+    /** Either intro action (open Settings or Don't show again) calls this — the banner never returns. */
+    fun dismissEchoCrawlIntro() {
+        prefs.edit().putBoolean(KEY_ECHOCRAWL_INTRO_DISMISSED, true).apply()
+        _echoCrawlIntroDismissed.value = true
     }
 
     fun getSearchApiKeyDirect(provider: String): String {
@@ -786,8 +803,16 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
         private const val KEY_DEEP_RESEARCH_SEARCH_PROVIDER = "deep_research_search_provider"
+        private const val KEY_ECHOCRAWL_INTRO_DISMISSED = "echocrawl_intro_dismissed"
         private const val KEY_MONID_API_KEY = "monid_api_key"
-        private val WEB_SEARCH_PROVIDERS = setOf("off", "openrouter", "exa", "parallel", "firecrawl")
+        private val WEB_SEARCH_PROVIDERS = setOf(
+            "off",
+            "openrouter",
+            ClientSearchProviders.EXA,
+            ClientSearchProviders.PARALLEL,
+            ClientSearchProviders.FIRECRAWL,
+            ClientSearchProviders.ECHOCRAWL,
+        )
         private val DEEP_RESEARCH_SEARCH_PROVIDERS = setOf("auto", "exa", "parallel", "firecrawl")
         const val DEFAULT_MODEL_ID = DefaultChatModels.DEFAULT_MODEL_ID
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"

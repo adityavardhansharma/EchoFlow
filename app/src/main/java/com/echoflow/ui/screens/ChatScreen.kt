@@ -47,6 +47,7 @@ fun ChatScreen(
     settingsViewModel: SettingsViewModel,
     onMenuClicked: () -> Unit,
     onSettingsClicked: () -> Unit,
+    onOpenWebSearchSettings: () -> Unit = {},
 ) {
     val mode by chatViewModel.appMode.collectAsState()
     val renderingModes by chatViewModel.renderingModes.collectAsState()
@@ -80,6 +81,7 @@ fun ChatScreen(
                         chatViewModel = chatViewModel,
                         settingsViewModel = settingsViewModel,
                         onSettingsClicked = onSettingsClicked,
+                        onOpenWebSearchSettings = onOpenWebSearchSettings,
                         topBarInset = topBarInset,
                     )
                     AppMode.Imagine -> ImagineSurface(

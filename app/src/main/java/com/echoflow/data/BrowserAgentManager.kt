@@ -233,7 +233,8 @@ class BrowserAgentManager(
             return
         }
 
-        val provider = settings.resolveChipSearchProvider()?.takeIf { it in CLIENT_SEARCH_PROVIDERS }
+        val provider = settings.resolveChipSearchProvider()
+            ?.takeIf { ClientSearchProviders.requiresApiKey(it) }
         val searchKey = provider?.let { settings.getSearchApiKeyDirect(it) }.orEmpty()
         if (provider == null || searchKey.isBlank()) {
             askForUrl(session, "I can't look that up — no web-search key is set. Paste the website URL.")
@@ -517,9 +518,5 @@ class BrowserAgentManager(
 
     private suspend fun touchThread(chatId: String) {
         chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
-    }
-
-    companion object {
-        private val CLIENT_SEARCH_PROVIDERS = setOf("exa", "parallel", "firecrawl")
     }
 }
