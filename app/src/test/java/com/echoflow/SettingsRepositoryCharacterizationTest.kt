@@ -116,6 +116,7 @@ class SettingsRepositoryCharacterizationTest {
             context.getSharedPreferences(name, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("echocrawl_intro_dismissed", true)
+                .putBoolean("echocrawl_intro_dismissed_v2", true)
                 .commit()
         }
         assertFalse(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())

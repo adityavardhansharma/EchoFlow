@@ -803,8 +803,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
         private const val KEY_DEEP_RESEARCH_SEARCH_PROVIDER = "deep_research_search_provider"
-        // v2: redesigned compact banner. Users who dismissed v1 still see this once.
-        private const val KEY_ECHOCRAWL_INTRO_DISMISSED = "echocrawl_intro_dismissed_v2"
+        // v3: stacked copy + labeled buttons. Earlier dismiss keys do not hide this once.
+        private const val KEY_ECHOCRAWL_INTRO_DISMISSED = "echocrawl_intro_dismissed_v3"
         private const val KEY_MONID_API_KEY = "monid_api_key"
         private val WEB_SEARCH_PROVIDERS = setOf(
             "off",
