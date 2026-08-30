@@ -3,18 +3,12 @@ package com.echoflow.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.TravelExplore
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.ui.theme.Spacing
 
 /**
- * One-time chat intro for EchoCrawl. Either action (open Settings or Don't show again)
- * dismisses it permanently.
+ * One-time chat intro for EchoCrawl. Same surface as the "Editing prompt" bar
+ * (large shape, secondaryContainer). Copy wraps fully; actions are labeled
+ * TextButtons — no truncated line and no icon-only arrow. Either action
+ * dismisses the banner permanently.
  */
 @Composable
 fun EchoCrawlIntroBanner(
@@ -35,48 +31,48 @@ fun EchoCrawlIntroBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val onContainer = MaterialTheme.colorScheme.onSecondaryContainer
     Surface(
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.base, vertical = Spacing.xs),
     ) {
-        Row(
-            Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.TravelExplore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(22.dp),
+        Column(Modifier.padding(start = Spacing.base, end = Spacing.s, top = Spacing.m, bottom = Spacing.xs)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+            ) {
+                Icon(
+                    Icons.Outlined.TravelExplore,
+                    contentDescription = null,
+                    tint = onContainer,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    "EchoCrawl",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = onContainer,
+                )
+            }
+            Text(
+                "Free web search for local and cloud models. No API key needed — turn it on in Web search settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = onContainer.copy(alpha = 0.82f),
+                modifier = Modifier.padding(top = Spacing.s, end = Spacing.s),
             )
-            Spacer(Modifier.width(Spacing.m))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                Text(
-                    "Introducing EchoCrawl",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                Text(
-                    "Free web search for local and cloud models. No API key or setup needed. Turn on in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
-                )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 TextButton(onClick = onDismiss) {
                     Text("Don't show again")
                 }
-            }
-            FilledTonalIconButton(
-                onClick = onOpenSettings,
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Open web search settings")
+                TextButton(onClick = onOpenSettings) {
+                    Text("Open settings")
+                }
             }
         }
     }

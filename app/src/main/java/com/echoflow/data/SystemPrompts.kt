@@ -8,7 +8,8 @@ import java.util.Locale
  * Builds the system prompt for a turn based on where the model runs (on-device vs
  * OpenRouter cloud) and which web search provider is active. Each provider gets
  * tailored guidance because their result shapes differ (Exa: semantic snippets,
-     * Parallel: dense objective-driven excerpts, Firecrawl/EchoCrawl: full-page markdown).
+     * Parallel: dense objective-driven excerpts, Firecrawl: full-page markdown,
+     * EchoCrawl: title + snippet, no page scrape).
  */
 object SystemPrompts {
 
@@ -149,7 +150,7 @@ object SystemPrompts {
         val providerNote = when (provider) {
             ClientSearchProviders.EXA -> "They come from Exa (semantic search): relevant text excerpts, not full pages — quote carefully."
             ClientSearchProviders.PARALLEL -> "They come from Parallel: dense excerpts answering the user's question."
-            ClientSearchProviders.ECHOCRAWL -> "They come from EchoCrawl: page content as markdown — extract just the facts you need."
+            ClientSearchProviders.ECHOCRAWL -> "They come from EchoCrawl: titles and short snippets from the live web — extract just the facts you need."
             else -> "They come from Firecrawl: page content as markdown — extract just the facts you need."
         }
         return """
@@ -238,8 +239,8 @@ object SystemPrompts {
                     "they took the role\") rather than keywords. A well-phrased objective often " +
                     "answers the question in one call — but if it comes back thin or stale, refine it and go again."
             ClientSearchProviders.ECHOCRAWL ->
-                "Results come from EchoCrawl, which searches the live web and returns page content as markdown. " +
-                    "Results are long: extract precisely the facts you need and ignore navigation, ads, and boilerplate text."
+                "Results come from EchoCrawl, a free live-web search that returns titles and short snippets " +
+                    "(not full page scrapes). Quote carefully and do not assume surrounding context."
             else ->
                 "Results come from Firecrawl, which returns full page content as markdown. Results are long: " +
                     "extract precisely the facts you need and ignore navigation, ads, and boilerplate text."
@@ -270,7 +271,7 @@ object SystemPrompts {
         val providerNote = when (provider) {
             ClientSearchProviders.EXA -> "Search results come from Exa (semantic search): relevant text excerpts from pages."
             ClientSearchProviders.PARALLEL -> "Search results come from Parallel: dense excerpts answering your query objective."
-            ClientSearchProviders.ECHOCRAWL -> "Search results come from EchoCrawl: page content as markdown, already truncated."
+            ClientSearchProviders.ECHOCRAWL -> "Search results come from EchoCrawl: titles and short snippets from the live web."
             else -> "Search results come from Firecrawl: page content as markdown, already truncated."
         }
         // Mechanics only. Whether to search is decided once, by the freshness gate at the end of
