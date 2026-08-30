@@ -191,7 +191,7 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         AnimatedVisibility(visible = webSearchProvider == ClientSearchProviders.ECHOCRAWL, enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(Spacing.xl))
-                PageSection("Privacy", "Chat search only — never Data Agent or Browser Flow")
+                PageSection("How it works", "Free snippets for chat — keyed APIs are faster and more complete")
                 EchoCrawlPrivacyCard()
             }
         }
@@ -245,12 +245,23 @@ internal fun EchoCrawlPrivacyCard() {
         Text("How EchoCrawl works", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(Spacing.s))
         Text(
-            "EchoFlow does not collect your chats or search history. Only the search query " +
-                "the model sends is forwarded to the search provider. EchoCrawl is powered by " +
-                "Firecrawl's free search API. It is rate-limited per your network's IP address, " +
-                "not by an EchoFlow account. Nothing else leaves the phone for this feature, " +
-                "and it is only used for normal chat web search — not Data Agent, Browser Flow, " +
-                "or Deep Research.",
+            "EchoCrawl is free chat search with no API key. EchoFlow does not collect your chats " +
+                "or search history — only the query the model sends is forwarded. It is powered by " +
+                "Firecrawl's public search endpoint, rate-limited per your network's IP address, " +
+                "and is only used for normal chat (including project chats) — never Data Agent, " +
+                "Browser Flow, or Deep Research.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Text("Compared with a keyed API", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            "Exa, Parallel, Firecrawl, and OpenRouter search with your own API key. Those " +
+                "providers return denser, full-page or semantic results on a private quota, so " +
+                "they are faster and more reliable. EchoCrawl is the no-key fallback: titles and " +
+                "short snippets from a shared public index, with no page scrape. Use EchoCrawl " +
+                "when you have no key; pick a keyed provider above when you want better, quicker search.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
