@@ -65,7 +65,7 @@ fun EchoCrawlIntroBanner(
                     "Free web search for any model — no API key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = onContainer.copy(alpha = 0.82f),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -73,7 +73,7 @@ fun EchoCrawlIntroBanner(
                 onClick = onDismiss,
                 contentPadding = PaddingValues(horizontal = Spacing.s, vertical = Spacing.xs),
             ) {
-                Text("Don't show again", style = MaterialTheme.typography.labelMedium, maxLines = 2)
+                Text("Don't show", style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
             IconButton(
                 onClick = onOpenSettings,
