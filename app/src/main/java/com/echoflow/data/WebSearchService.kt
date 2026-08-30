@@ -38,8 +38,22 @@ class WebSearchService {
         when (provider) {
             ClientSearchProviders.EXA -> searchExa(apiKey, query, maxResults)
             ClientSearchProviders.PARALLEL -> searchParallel(apiKey, query, maxResults)
-            ClientSearchProviders.FIRECRAWL -> searchFirecrawl(apiKey, query, maxResults)
-            ClientSearchProviders.ECHOCRAWL -> searchFirecrawl(apiKey = "", query, maxResults, label = "EchoCrawl")
+            ClientSearchProviders.FIRECRAWL -> searchFirecrawl(
+                apiKey = apiKey,
+                query = query,
+                maxResults = maxResults,
+                scrapeMarkdown = true,
+                snippetChars = 4000,
+                label = "Firecrawl",
+            )
+            ClientSearchProviders.ECHOCRAWL -> searchFirecrawl(
+                apiKey = "",
+                query = query,
+                maxResults = maxResults.coerceAtMost(8),
+                scrapeMarkdown = false,
+                snippetChars = 1500,
+                label = "EchoCrawl",
+            )
             else -> throw Exception("Unknown search provider: $provider")
         }
     }
@@ -85,35 +99,22 @@ class WebSearchService {
         apiKey: String,
         query: String,
         maxResults: Int,
-        label: String = "Firecrawl",
+        scrapeMarkdown: Boolean,
+        snippetChars: Int,
+        label: String,
     ): List<SearchSource> {
-        val body = mapOf(
-            "query" to query,
-            "limit" to maxResults,
-            "scrapeOptions" to mapOf("formats" to listOf("markdown"))
-        )
         val headers = if (apiKey.isBlank()) emptyMap() else mapOf("Authorization" to "Bearer $apiKey")
         val json = executePost(
-            url = "https://api.firecrawl.dev/v2/search",
+            url = FirecrawlSearch.ENDPOINT,
             headers = headers,
-            body = body,
+            body = FirecrawlSearch.requestBody(query, maxResults, scrapeMarkdown),
             providerLabel = label,
         )
-        val data = json["data"] as? Map<*, *> ?: return emptyList()
-        val web = data["web"] as? List<*> ?: return emptyList()
-        return web.mapNotNull { raw ->
-            val r = raw as? Map<*, *> ?: return@mapNotNull null
-            val url = r["url"] as? String ?: return@mapNotNull null
-            // Firecrawl scrapes whole pages; cap markdown hard so it never floods the
-            // context window of a small local model.
-            val snippet = (r["markdown"] as? String)?.take(4000)
-                ?: (r["description"] as? String)
-            SearchSource(
-                title = (r["title"] as? String).orEmpty().ifBlank { url },
-                url = url,
-                snippet = snippet
-            )
-        }
+        return FirecrawlSearch.parseResults(
+            response = json,
+            snippetChars = snippetChars,
+            preferMarkdown = scrapeMarkdown,
+        )
     }
 
     private fun executePost(
@@ -126,28 +127,45 @@ class WebSearchService {
         val builder = Request.Builder()
             .url(url)
             .addHeader("Content-Type", "application/json")
+            .addHeader("User-Agent", "EchoFlow-Android")
             .post(requestBody)
         headers.forEach { (k, v) -> builder.addHeader(k, v) }
 
-        client.newCall(builder.build()).execute().use { response ->
-            val responseString = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
+        val response = try {
+            client.newCall(builder.build()).execute()
+        } catch (e: java.io.IOException) {
+            val detail = e.message?.takeIf { it.isNotBlank() } ?: "network error"
+            throw Exception(
+                if (providerLabel == "EchoCrawl") {
+                    "EchoCrawl could not fetch results ($detail). Check your connection and try again."
+                } else {
+                    "$providerLabel could not fetch results ($detail)."
+                }
+            )
+        }
+        response.use {
+            val responseString = it.body?.string().orEmpty()
+            val parsed = runCatching {
+                dynamicAdapter.fromJson(responseString) as? Map<*, *>
+            }.getOrNull()
+            if (!it.isSuccessful) {
+                val apiError = FirecrawlSearch.apiErrorMessage(parsed)
                 val message = when {
-                    response.code == 429 && providerLabel == "EchoCrawl" ->
+                    it.code == 429 && providerLabel == "EchoCrawl" ->
                         "EchoCrawl's free daily limit was reached for this network. Try again later, or add a Firecrawl API key in Settings."
-                    response.code == 401 || response.code == 403 ->
+                    it.code == 401 || it.code == 403 ->
                         if (providerLabel == "EchoCrawl") {
                             "EchoCrawl isn't available on this network right now. Try again later."
                         } else {
                             "Invalid $providerLabel API key — check Settings."
                         }
-                    response.code == 429 -> "$providerLabel rate limit reached — try again shortly."
-                    else -> "$providerLabel search failed (HTTP ${response.code})."
+                    it.code == 429 -> "$providerLabel rate limit reached — try again shortly."
+                    !apiError.isNullOrBlank() -> "$providerLabel: $apiError"
+                    else -> "$providerLabel search failed (HTTP ${it.code})."
                 }
                 throw Exception(message)
             }
-            return dynamicAdapter.fromJson(responseString) as? Map<*, *>
-                ?: throw Exception("$providerLabel returned an unreadable response.")
+            return parsed ?: throw Exception("$providerLabel returned an unreadable response.")
         }
     }
 }

@@ -111,6 +111,17 @@ class SettingsRepositoryCharacterizationTest {
     }
 
     @Test
+    fun echoCrawlIntroV1DismissDoesNotHideRedesignedBanner() {
+        listOf("settings_prefs", "secure_settings_prefs").forEach { name ->
+            context.getSharedPreferences(name, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("echocrawl_intro_dismissed", true)
+                .commit()
+        }
+        assertFalse(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
+    }
+
+    @Test
     fun xAiProviderSettingsRoundTripThroughARecreatedRepository() {
         val repository = SettingsRepository(context)
         repository.saveCustomProviderConfig(
