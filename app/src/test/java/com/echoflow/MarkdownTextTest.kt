@@ -90,4 +90,22 @@ class MarkdownTextTest {
             plain,
         )
     }
+
+    @Test
+    fun markdownToPlainTextKeepsExclamationBeforeALink() {
+        assertEquals(
+            "Look! docs",
+            markdownToPlainText("Look![docs](https://example.com)"),
+        )
+        assertEquals(
+            "Look! docs",
+            markdownToPlainText("Look! [docs](https://example.com)"),
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextStripsImageBangButKeepsAltText() {
+        assertEquals("diagram", markdownToPlainText("![diagram](https://example.com/a.png)"))
+        assertEquals("See diagram", markdownToPlainText("See ![diagram](https://example.com/a.png)"))
+    }
 }

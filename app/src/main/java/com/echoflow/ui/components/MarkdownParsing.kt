@@ -261,12 +261,18 @@ private fun flattenInline(nodes: List<InlineNode>): String = buildString {
         }
     }
     nodes.forEachIndexed { index, node ->
-        val imageBang = node is InlineNode.Link &&
-            index > 0 &&
-            (nodes[index - 1] as? InlineNode.Text)?.text?.endsWith("!") == true
+        val prefix = (nodes.getOrNull(index - 1) as? InlineNode.Text)?.text
+        val imageBang = node is InlineNode.Link && prefix != null && isMarkdownImageOpener(prefix)
         if (imageBang && isNotEmpty() && this[lastIndex] == '!') deleteCharAt(lastIndex)
         walk(node)
     }
+}
+
+/** True when [text] ends with the `!` of `![alt](url)`, not a sentence `!` jammed against a link. */
+private fun isMarkdownImageOpener(text: String): Boolean {
+    if (!text.endsWith("!")) return false
+    val before = text.getOrNull(text.lastIndex - 1)
+    return before == null || before.isWhitespace()
 }
 
 /** Per CommonMark a single newline inside a paragraph is a soft break (rendered as a space). */
