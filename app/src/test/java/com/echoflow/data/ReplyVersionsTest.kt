@@ -72,6 +72,19 @@ class ReplyVersionsTest {
     }
 
     @Test
+    fun `copyText omits numbered citation hyperlinks`() {
+        val message = ChatMessage(
+            id = "a1",
+            chatId = "c1",
+            role = "assistant",
+            content = "",
+            createdAt = 1L,
+            segmentsJson = """[{"type":"text","text":"The sky is blue [1](https://example.com)."}]""",
+        )
+        assertEquals("The sky is blue.", ReplyVersions.copyText(message, 0))
+    }
+
+    @Test
     fun `copyText falls back to plain content when there are no text segments`() {
         val message = ChatMessage(
             id = "a1",

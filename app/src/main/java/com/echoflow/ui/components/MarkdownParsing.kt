@@ -247,7 +247,8 @@ fun markdownToPlainText(markdown: String): String {
     return out.toString()
 }
 
-internal fun stripInlineMarkdown(text: String): String = flattenInline(InlineParser(text).parse())
+internal fun stripInlineMarkdown(text: String): String =
+    tidyInlinePlainText(flattenInline(InlineParser(text).parse()))
 
 private fun flattenInline(nodes: List<InlineNode>): String = buildString {
     fun walk(node: InlineNode) {
@@ -257,16 +258,48 @@ private fun flattenInline(nodes: List<InlineNode>): String = buildString {
             is InlineNode.Code -> append(node.text)
             is InlineNode.Span -> node.children.forEach(::walk)
             is InlineNode.Link -> node.label.forEach(::walk)
-            is InlineNode.Citation -> append(node.label)
+            is InlineNode.Citation -> Unit
         }
     }
-    nodes.forEachIndexed { index, node ->
-        val prefix = (nodes.getOrNull(index - 1) as? InlineNode.Text)?.text
+    var i = 0
+    while (i < nodes.size) {
+        val skipped = skipCopiedCitation(this, nodes, i)
+        if (skipped != null) {
+            i = skipped
+            continue
+        }
+        val node = nodes[i]
+        val prefix = (nodes.getOrNull(i - 1) as? InlineNode.Text)?.text
         val imageBang = node is InlineNode.Link && prefix != null && isMarkdownImageOpener(prefix)
         if (imageBang && isNotEmpty() && this[lastIndex] == '!') deleteCharAt(lastIndex)
         walk(node)
+        i++
     }
 }
+
+/**
+ * Drops numbered pills (`[1](url)`) and parenthetical source links (`([Reuters](url))`)
+ * so copy matches the prose, not the citation chrome the app already shows separately.
+ * Returns the next index, or null if [i] is not a citation to skip.
+ */
+private fun skipCopiedCitation(out: StringBuilder, nodes: List<InlineNode>, i: Int): Int? {
+    val node = nodes[i]
+    if (node is InlineNode.Citation) return i + 1
+    val prefix = node as? InlineNode.Text ?: return null
+    val cite = nodes.getOrNull(i + 1) ?: return null
+    if (cite !is InlineNode.Link && cite !is InlineNode.Citation) return null
+    val suffix = nodes.getOrNull(i + 2) as? InlineNode.Text ?: return null
+    if (!prefix.text.endsWith("(") || !suffix.text.startsWith(")")) return null
+    out.append(prefix.text.replace(Regex("""[ \t]*\($"""), ""))
+    val rest = suffix.text.substring(1)
+    if (rest.isNotEmpty()) out.append(rest)
+    return i + 3
+}
+
+private fun tidyInlinePlainText(text: String): String =
+    text.replace(Regex("""[ \t]{2,}"""), " ")
+        .replace(Regex(""" +([,.;:!?])"""), "$1")
+        .trim()
 
 /** True when [text] ends with the `!` of `![alt](url)`, not a sentence `!` jammed against a link. */
 private fun isMarkdownImageOpener(text: String): Boolean {

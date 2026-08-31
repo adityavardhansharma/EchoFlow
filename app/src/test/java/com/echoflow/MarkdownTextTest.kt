@@ -108,4 +108,24 @@ class MarkdownTextTest {
         assertEquals("diagram", markdownToPlainText("![diagram](https://example.com/a.png)"))
         assertEquals("See diagram", markdownToPlainText("See ![diagram](https://example.com/a.png)"))
     }
+
+    @Test
+    fun markdownToPlainTextOmitsCitationHyperlinks() {
+        assertEquals(
+            "The sky is blue.",
+            markdownToPlainText("The sky is blue [1](https://example.com)."),
+        )
+        assertEquals(
+            "Revenue grew last quarter.",
+            markdownToPlainText("Revenue grew last quarter. ([Reuters](https://reuters.com))"),
+        )
+        assertEquals(
+            "Two sources agree.",
+            markdownToPlainText("Two sources agree [1](https://a.example) [2](https://b.example)."),
+        )
+        assertEquals(
+            "See the docs for more.",
+            markdownToPlainText("See [the docs](https://example.com/guide) for more."),
+        )
+    }
 }
