@@ -94,7 +94,7 @@ class MarkdownTextTest {
     @Test
     fun markdownToPlainTextKeepsExclamationBeforeALink() {
         assertEquals(
-            "Look! docs",
+            "Look!docs",
             markdownToPlainText("Look![docs](https://example.com)"),
         )
         assertEquals(
