@@ -251,13 +251,17 @@ internal fun stripInlineMarkdown(text: String): String =
     tidyInlinePlainText(flattenInline(InlineParser(text).parse()))
 
 private fun flattenInline(nodes: List<InlineNode>): String = buildString {
+    appendFlattened(nodes)
+}
+
+private fun StringBuilder.appendFlattened(nodes: List<InlineNode>) {
     fun walk(node: InlineNode) {
         when (node) {
             is InlineNode.Text -> append(node.text)
             is InlineNode.Math -> append(node.latex)
             is InlineNode.Code -> append(node.text)
-            is InlineNode.Span -> node.children.forEach(::walk)
-            is InlineNode.Link -> node.label.forEach(::walk)
+            is InlineNode.Span -> appendFlattened(node.children)
+            is InlineNode.Link -> appendFlattened(node.label)
             is InlineNode.Citation -> Unit
         }
     }
@@ -305,8 +309,9 @@ private fun tidyInlinePlainText(text: String): String =
 private fun isMarkdownImageOpener(text: String): Boolean {
     if (!text.endsWith("!")) return false
     val before = text.getOrNull(text.lastIndex - 1)
-    // `Look![docs](url)` keeps the bang; `See:![diagram](url)` and ` ![img]` drop it.
-    return before == null || !before.isLetterOrDigit()
+    // Standalone `![img]`, `see ![img]`, and `See:![img]` drop the bang.
+    // `Look![docs]`, `Wow!![docs]`, and `(see here)![docs]` keep sentence punctuation.
+    return before == null || before.isWhitespace() || before == ':'
 }
 
 /** Per CommonMark a single newline inside a paragraph is a soft break (rendered as a space). */

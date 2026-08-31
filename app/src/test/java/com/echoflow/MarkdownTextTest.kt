@@ -108,6 +108,19 @@ class MarkdownTextTest {
         assertEquals("diagram", markdownToPlainText("![diagram](https://example.com/a.png)"))
         assertEquals("See diagram", markdownToPlainText("See ![diagram](https://example.com/a.png)"))
         assertEquals("See:diagram", markdownToPlainText("See:![diagram](https://example.com/a.png)"))
+        assertEquals("diagram", markdownToPlainText("**![diagram](https://example.com/a.png)**"))
+    }
+
+    @Test
+    fun markdownToPlainTextKeepsBangAfterClosingPunctuation() {
+        assertEquals(
+            "Wow!!docs",
+            markdownToPlainText("Wow!![docs](https://example.com)"),
+        )
+        assertEquals(
+            "(see here)!docs",
+            markdownToPlainText("(see here)![docs](https://example.com)"),
+        )
     }
 
     @Test
