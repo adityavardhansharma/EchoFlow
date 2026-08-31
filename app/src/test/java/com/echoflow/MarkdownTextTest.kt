@@ -107,6 +107,15 @@ class MarkdownTextTest {
     fun markdownToPlainTextStripsImageBangButKeepsAltText() {
         assertEquals("diagram", markdownToPlainText("![diagram](https://example.com/a.png)"))
         assertEquals("See diagram", markdownToPlainText("See ![diagram](https://example.com/a.png)"))
+        assertEquals("See:diagram", markdownToPlainText("See:![diagram](https://example.com/a.png)"))
+    }
+
+    @Test
+    fun markdownToPlainTextHandlesNestedParensInLinkUrls() {
+        assertEquals(
+            "docs",
+            markdownToPlainText("[docs](https://example.com/Foo_(bar))"),
+        )
     }
 
     @Test

@@ -305,7 +305,8 @@ private fun tidyInlinePlainText(text: String): String =
 private fun isMarkdownImageOpener(text: String): Boolean {
     if (!text.endsWith("!")) return false
     val before = text.getOrNull(text.lastIndex - 1)
-    return before == null || before.isWhitespace()
+    // `Look![docs](url)` keeps the bang; `See:![diagram](url)` and ` ![img]` drop it.
+    return before == null || !before.isLetterOrDigit()
 }
 
 /** Per CommonMark a single newline inside a paragraph is a soft break (rendered as a space). */
@@ -408,6 +409,26 @@ internal fun isEscaped(text: String, index: Int): Boolean {
         i--
     }
     return slashCount % 2 == 1
+}
+
+/** Index of the `)` that closes a markdown link destination that starts at [openParen]. */
+internal fun findLinkDestinationClose(source: String, openParen: Int, end: Int): Int? {
+    if (openParen >= end || source[openParen] != '(') return null
+    var depth = 0
+    var i = openParen
+    while (i < end) {
+        if (!isEscaped(source, i)) {
+            when (source[i]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        i++
+    }
+    return null
 }
 
 internal fun looksLikeMath(content: String, before: Char?, after: Char?): Boolean {
@@ -555,7 +576,11 @@ internal class InlineParser(private val source: String) {
                 "link" -> {
                     val labelEnd = source.indexOf("]", nextIdx + 1).takeIf { it in 0 until end }
                     val parenOpen = labelEnd?.let { source.getOrNull(it + 1) }
-                    val parenClose = if (parenOpen == '(') source.indexOf(")", labelEnd + 2).takeIf { it in 0 until end } else null
+                    val parenClose = if (parenOpen == '(') {
+                        findLinkDestinationClose(source, labelEnd + 1, end)
+                    } else {
+                        null
+                    }
                     if (labelEnd != null && parenClose != null) {
                         val labelText = source.substring(nextIdx + 1, labelEnd)
                         val url = source.substring(labelEnd + 2, parenClose)
