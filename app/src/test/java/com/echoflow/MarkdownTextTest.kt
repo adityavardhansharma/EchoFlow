@@ -1,6 +1,7 @@
 package com.echoflow
 
 import com.echoflow.ui.components.MarkdownBlock
+import com.echoflow.ui.components.markdownToPlainText
 import com.echoflow.ui.components.parseMarkdownBlocks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,5 +58,96 @@ class MarkdownTextTest {
         val math = blocks.single() as MarkdownBlock.MathBlock
         assertFalse(math.complete)
         assertEquals("$$\n\\frac{x}{y}", math.raw)
+    }
+
+    @Test
+    fun markdownToPlainTextStripsSyntaxAndKeepsVisibleText() {
+        val plain = markdownToPlainText(
+            """
+            ## Heading
+
+            A **bold** word, *italic*, `code`, and a [label](https://example.com).
+
+            - first
+            - second
+
+            ```kotlin
+            val x = 1
+            ```
+            """.trimIndent()
+        )
+        assertEquals(
+            """
+            Heading
+
+            A bold word, italic, code, and a label.
+
+            • first
+            • second
+
+            val x = 1
+            """.trimIndent(),
+            plain,
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextKeepsExclamationBeforeALink() {
+        assertEquals(
+            "Look!docs",
+            markdownToPlainText("Look![docs](https://example.com)"),
+        )
+        assertEquals(
+            "Look! docs",
+            markdownToPlainText("Look! [docs](https://example.com)"),
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextStripsImageBangButKeepsAltText() {
+        assertEquals("diagram", markdownToPlainText("![diagram](https://example.com/a.png)"))
+        assertEquals("See diagram", markdownToPlainText("See ![diagram](https://example.com/a.png)"))
+        assertEquals("See:diagram", markdownToPlainText("See:![diagram](https://example.com/a.png)"))
+        assertEquals("diagram", markdownToPlainText("**![diagram](https://example.com/a.png)**"))
+    }
+
+    @Test
+    fun markdownToPlainTextKeepsBangAfterClosingPunctuation() {
+        assertEquals(
+            "Wow!!docs",
+            markdownToPlainText("Wow!![docs](https://example.com)"),
+        )
+        assertEquals(
+            "(see here)!docs",
+            markdownToPlainText("(see here)![docs](https://example.com)"),
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextHandlesNestedParensInLinkUrls() {
+        assertEquals(
+            "docs",
+            markdownToPlainText("[docs](https://example.com/Foo_(bar))"),
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextOmitsCitationHyperlinks() {
+        assertEquals(
+            "The sky is blue.",
+            markdownToPlainText("The sky is blue [1](https://example.com)."),
+        )
+        assertEquals(
+            "Revenue grew last quarter.",
+            markdownToPlainText("Revenue grew last quarter. ([Reuters](https://reuters.com))"),
+        )
+        assertEquals(
+            "Two sources agree.",
+            markdownToPlainText("Two sources agree [1](https://a.example) [2](https://b.example)."),
+        )
+        assertEquals(
+            "See the docs for more.",
+            markdownToPlainText("See [the docs](https://example.com/guide) for more."),
+        )
     }
 }

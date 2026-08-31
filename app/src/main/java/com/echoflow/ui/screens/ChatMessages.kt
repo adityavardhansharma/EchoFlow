@@ -589,8 +589,7 @@ private fun AssistantAnswerBody(
     // [message] is already the selected snapshot. Reading its body directly keeps embedded
     // report/data copy actions aligned with the version currently on screen.
     val copyAction: () -> Unit = {
-        val timelineText = ReplyVersions.textFromSegments(message.segmentsJson)
-        onCopy(timelineText.ifBlank { message.content })
+        onCopy(ReplyVersions.copyText(message))
     }
 
     message.attachments.forEach { att ->

@@ -58,6 +58,47 @@ class ReplyVersionsTest {
     }
 
     @Test
+    fun `copyText is plain answer without reasoning or markdown`() {
+        val message = ChatMessage(
+            id = "a1",
+            chatId = "c1",
+            role = "assistant",
+            content = "",
+            createdAt = 1L,
+            reasoning = "should not be copied",
+            segmentsJson = """[{"type":"reasoning","text":"Hidden chain of thought"},{"type":"text","text":"## Title\n\n**Bold** answer with a [link](https://example.com)."}]""",
+        )
+        assertEquals("Title\n\nBold answer with a link.", ReplyVersions.copyText(message, 0))
+    }
+
+    @Test
+    fun `copyText omits numbered citation hyperlinks`() {
+        val message = ChatMessage(
+            id = "a1",
+            chatId = "c1",
+            role = "assistant",
+            content = "",
+            createdAt = 1L,
+            segmentsJson = """[{"type":"text","text":"The sky is blue [1](https://example.com)."}]""",
+        )
+        assertEquals("The sky is blue.", ReplyVersions.copyText(message, 0))
+    }
+
+    @Test
+    fun `copyText falls back to plain content when there are no text segments`() {
+        val message = ChatMessage(
+            id = "a1",
+            chatId = "c1",
+            role = "assistant",
+            content = "Just **markdown** content",
+            createdAt = 1L,
+            reasoning = "think",
+            segmentsJson = """[{"type":"reasoning","text":"only thoughts"}]""",
+        )
+        assertEquals("Just markdown content", ReplyVersions.copyText(message, 0))
+    }
+
+    @Test
     fun `snapshot captures the live assistant fields`() {
         val message = ChatMessage(
             id = "a1",

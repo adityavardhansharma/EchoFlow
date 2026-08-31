@@ -199,6 +199,121 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
     return blocks
 }
 
+/**
+ * Visible text of [markdown] with CommonMark/GFM markers removed, for clipboard paste.
+ * Matches the renderer: headers and emphasis drop their syntax, links keep the label,
+ * fenced code keeps the code, math keeps the LaTeX.
+ */
+fun markdownToPlainText(markdown: String): String {
+    if (markdown.isBlank()) return markdown
+    val blocks = parseMarkdownBlocks(markdown)
+    val out = StringBuilder()
+    var prevList = false
+    fun appendBlock(text: String, list: Boolean = false) {
+        if (text.isBlank()) {
+            prevList = list
+            return
+        }
+        if (out.isNotEmpty()) out.append(if (list && prevList) '\n' else "\n\n")
+        out.append(text)
+        prevList = list
+    }
+    for (block in blocks) {
+        when (block) {
+            is MarkdownBlock.Header -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.Paragraph -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.Quote -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.BulletItem -> {
+                val marker = block.ordinal?.let { "$it." } ?: "•"
+                val indent = "  ".repeat(block.indent)
+                appendBlock("$indent$marker ${stripInlineMarkdown(block.text)}", list = true)
+            }
+            is MarkdownBlock.CodeBlock -> appendBlock(block.code)
+            is MarkdownBlock.MathBlock -> appendBlock(
+                block.latex.ifBlank { stripInlineMarkdown(block.raw) },
+            )
+            is MarkdownBlock.Table -> appendBlock(
+                buildString {
+                    append(block.headers.joinToString("\t") { stripInlineMarkdown(it) })
+                    block.rows.forEach { row ->
+                        append('\n')
+                        append(row.joinToString("\t") { stripInlineMarkdown(it) })
+                    }
+                },
+            )
+            MarkdownBlock.Divider -> prevList = false
+        }
+    }
+    return out.toString()
+}
+
+internal fun stripInlineMarkdown(text: String): String =
+    tidyInlinePlainText(flattenInline(InlineParser(text).parse()))
+
+private fun flattenInline(nodes: List<InlineNode>): String = buildString {
+    appendFlattened(nodes)
+}
+
+private fun StringBuilder.appendFlattened(nodes: List<InlineNode>) {
+    fun walk(node: InlineNode) {
+        when (node) {
+            is InlineNode.Text -> append(node.text)
+            is InlineNode.Math -> append(node.latex)
+            is InlineNode.Code -> append(node.text)
+            is InlineNode.Span -> appendFlattened(node.children)
+            is InlineNode.Link -> appendFlattened(node.label)
+            is InlineNode.Citation -> Unit
+        }
+    }
+    var i = 0
+    while (i < nodes.size) {
+        val skipped = skipCopiedCitation(this, nodes, i)
+        if (skipped != null) {
+            i = skipped
+            continue
+        }
+        val node = nodes[i]
+        val prefix = (nodes.getOrNull(i - 1) as? InlineNode.Text)?.text
+        val imageBang = node is InlineNode.Link && prefix != null && isMarkdownImageOpener(prefix)
+        if (imageBang && isNotEmpty() && this[lastIndex] == '!') deleteCharAt(lastIndex)
+        walk(node)
+        i++
+    }
+}
+
+/**
+ * Drops numbered pills (`[1](url)`) and parenthetical source links (`([Reuters](url))`)
+ * so copy matches the prose, not the citation chrome the app already shows separately.
+ * Returns the next index, or null if [i] is not a citation to skip.
+ */
+private fun skipCopiedCitation(out: StringBuilder, nodes: List<InlineNode>, i: Int): Int? {
+    val node = nodes[i]
+    if (node is InlineNode.Citation) return i + 1
+    val prefix = node as? InlineNode.Text ?: return null
+    val cite = nodes.getOrNull(i + 1) ?: return null
+    if (cite !is InlineNode.Link && cite !is InlineNode.Citation) return null
+    val suffix = nodes.getOrNull(i + 2) as? InlineNode.Text ?: return null
+    if (!prefix.text.endsWith("(") || !suffix.text.startsWith(")")) return null
+    out.append(prefix.text.replace(Regex("""[ \t]*\($"""), ""))
+    val rest = suffix.text.substring(1)
+    if (rest.isNotEmpty()) out.append(rest)
+    return i + 3
+}
+
+private fun tidyInlinePlainText(text: String): String =
+    text.replace(Regex("""[ \t]{2,}"""), " ")
+        .replace(Regex(""" +([,.;:!?])"""), "$1")
+        .trim()
+
+/** True when [text] ends with the `!` of `![alt](url)`, not a sentence `!` jammed against a link. */
+private fun isMarkdownImageOpener(text: String): Boolean {
+    if (!text.endsWith("!")) return false
+    val before = text.getOrNull(text.lastIndex - 1)
+    // Standalone `![img]`, `see ![img]`, and `See:![img]` drop the bang.
+    // `Look![docs]`, `Wow!![docs]`, and `(see here)![docs]` keep sentence punctuation.
+    return before == null || before.isWhitespace() || before == ':'
+}
+
 /** Per CommonMark a single newline inside a paragraph is a soft break (rendered as a space). */
 internal fun appendParagraphLine(sb: StringBuilder, line: String) {
     if (sb.isNotEmpty()) sb.append(' ')
@@ -299,6 +414,26 @@ internal fun isEscaped(text: String, index: Int): Boolean {
         i--
     }
     return slashCount % 2 == 1
+}
+
+/** Index of the `)` that closes a markdown link destination that starts at [openParen]. */
+internal fun findLinkDestinationClose(source: String, openParen: Int, end: Int): Int? {
+    if (openParen >= end || source[openParen] != '(') return null
+    var depth = 0
+    var i = openParen
+    while (i < end) {
+        if (!isEscaped(source, i)) {
+            when (source[i]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        i++
+    }
+    return null
 }
 
 internal fun looksLikeMath(content: String, before: Char?, after: Char?): Boolean {
@@ -446,7 +581,11 @@ internal class InlineParser(private val source: String) {
                 "link" -> {
                     val labelEnd = source.indexOf("]", nextIdx + 1).takeIf { it in 0 until end }
                     val parenOpen = labelEnd?.let { source.getOrNull(it + 1) }
-                    val parenClose = if (parenOpen == '(') source.indexOf(")", labelEnd + 2).takeIf { it in 0 until end } else null
+                    val parenClose = if (parenOpen == '(') {
+                        findLinkDestinationClose(source, labelEnd + 1, end)
+                    } else {
+                        null
+                    }
                     if (labelEnd != null && parenClose != null) {
                         val labelText = source.substring(nextIdx + 1, labelEnd)
                         val url = source.substring(labelEnd + 2, parenClose)
