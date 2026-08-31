@@ -1,6 +1,7 @@
 package com.echoflow
 
 import com.echoflow.ui.components.MarkdownBlock
+import com.echoflow.ui.components.markdownToPlainText
 import com.echoflow.ui.components.parseMarkdownBlocks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,5 +58,36 @@ class MarkdownTextTest {
         val math = blocks.single() as MarkdownBlock.MathBlock
         assertFalse(math.complete)
         assertEquals("$$\n\\frac{x}{y}", math.raw)
+    }
+
+    @Test
+    fun markdownToPlainTextStripsSyntaxAndKeepsVisibleText() {
+        val plain = markdownToPlainText(
+            """
+            ## Heading
+
+            A **bold** word, *italic*, `code`, and a [label](https://example.com).
+
+            - first
+            - second
+
+            ```kotlin
+            val x = 1
+            ```
+            """.trimIndent()
+        )
+        assertEquals(
+            """
+            Heading
+
+            A bold word, italic, code, and a label.
+
+            • first
+            • second
+
+            val x = 1
+            """.trimIndent(),
+            plain,
+        )
     }
 }

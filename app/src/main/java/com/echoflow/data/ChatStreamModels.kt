@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.echoflow.ui.components.markdownToPlainText
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -419,10 +420,12 @@ object ReplyVersions {
         )
     }
 
-    fun copyText(message: ChatMessage, index: Int): String {
-        val shown = display(message, index)
-        val fromSegments = textFromSegments(shown.segmentsJson)
-        return fromSegments.ifBlank { shown.content }
+    fun copyText(message: ChatMessage, index: Int): String = copyText(display(message, index))
+
+    /** Plain-text answer body for the clipboard — no reasoning, no markdown syntax. */
+    fun copyText(message: ChatMessage): String {
+        val fromSegments = textFromSegments(message.segmentsJson)
+        return markdownToPlainText(fromSegments.ifBlank { message.content })
     }
 
     fun textFromSegments(segmentsJson: String?): String {
@@ -431,7 +434,6 @@ object ReplyVersions {
         return segments.mapNotNull { segment ->
             when (segment.type) {
                 "text", "report", "data" -> segment.text
-                "reasoning" -> segment.text?.let { "Reasoning:\n$it" }
                 else -> null
             }
         }.filter { !it.isNullOrBlank() }.joinToString("\n\n")

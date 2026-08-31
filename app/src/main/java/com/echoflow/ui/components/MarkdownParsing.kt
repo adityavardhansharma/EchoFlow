@@ -199,6 +199,76 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
     return blocks
 }
 
+/**
+ * Visible text of [markdown] with CommonMark/GFM markers removed, for clipboard paste.
+ * Matches the renderer: headers and emphasis drop their syntax, links keep the label,
+ * fenced code keeps the code, math keeps the LaTeX.
+ */
+fun markdownToPlainText(markdown: String): String {
+    if (markdown.isBlank()) return markdown
+    val blocks = parseMarkdownBlocks(markdown)
+    val out = StringBuilder()
+    var prevList = false
+    fun appendBlock(text: String, list: Boolean = false) {
+        if (text.isBlank()) {
+            prevList = list
+            return
+        }
+        if (out.isNotEmpty()) out.append(if (list && prevList) '\n' else "\n\n")
+        out.append(text)
+        prevList = list
+    }
+    for (block in blocks) {
+        when (block) {
+            is MarkdownBlock.Header -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.Paragraph -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.Quote -> appendBlock(stripInlineMarkdown(block.text))
+            is MarkdownBlock.BulletItem -> {
+                val marker = block.ordinal?.let { "$it." } ?: "•"
+                val indent = "  ".repeat(block.indent)
+                appendBlock("$indent$marker ${stripInlineMarkdown(block.text)}", list = true)
+            }
+            is MarkdownBlock.CodeBlock -> appendBlock(block.code)
+            is MarkdownBlock.MathBlock -> appendBlock(
+                block.latex.ifBlank { stripInlineMarkdown(block.raw) },
+            )
+            is MarkdownBlock.Table -> appendBlock(
+                buildString {
+                    append(block.headers.joinToString("\t") { stripInlineMarkdown(it) })
+                    block.rows.forEach { row ->
+                        append('\n')
+                        append(row.joinToString("\t") { stripInlineMarkdown(it) })
+                    }
+                },
+            )
+            MarkdownBlock.Divider -> prevList = false
+        }
+    }
+    return out.toString()
+}
+
+internal fun stripInlineMarkdown(text: String): String = flattenInline(InlineParser(text).parse())
+
+private fun flattenInline(nodes: List<InlineNode>): String = buildString {
+    fun walk(node: InlineNode) {
+        when (node) {
+            is InlineNode.Text -> append(node.text)
+            is InlineNode.Math -> append(node.latex)
+            is InlineNode.Code -> append(node.text)
+            is InlineNode.Span -> node.children.forEach(::walk)
+            is InlineNode.Link -> node.label.forEach(::walk)
+            is InlineNode.Citation -> append(node.label)
+        }
+    }
+    nodes.forEachIndexed { index, node ->
+        val imageBang = node is InlineNode.Link &&
+            index > 0 &&
+            (nodes[index - 1] as? InlineNode.Text)?.text?.endsWith("!") == true
+        if (imageBang && isNotEmpty() && this[lastIndex] == '!') deleteCharAt(lastIndex)
+        walk(node)
+    }
+}
+
 /** Per CommonMark a single newline inside a paragraph is a soft break (rendered as a space). */
 internal fun appendParagraphLine(sb: StringBuilder, line: String) {
     if (sb.isNotEmpty()) sb.append(' ')
