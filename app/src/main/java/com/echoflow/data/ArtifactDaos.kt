@@ -37,6 +37,13 @@ interface ArtifactDao {
     @Upsert
     suspend fun upsert(artifact: Artifact)
 
+    /** Bump lineage metadata without touching [Artifact.hiddenFromGallery]. */
+    @Query(
+        "UPDATE artifacts SET title = :title, type = :type, currentVersion = :currentVersion, " +
+            "updatedAt = :updatedAt WHERE id = :id"
+    )
+    suspend fun updateLineage(id: String, title: String, type: String, currentVersion: Int, updatedAt: Long)
+
     @Query("DELETE FROM artifacts WHERE id = :id")
     suspend fun delete(id: String)
 

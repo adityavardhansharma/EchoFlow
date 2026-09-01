@@ -117,6 +117,19 @@ class PersistenceCharacterizationTest {
     }
 
     @Test
+    fun saveVersionDoesNotUnhideWhenHideLandsOnAStaleRead() = runBlocking {
+        db.chatDao().insertThread(thread("chat", 1, 1))
+        val manager = ArtifactManager(db.artifactDao(), db.artifactVersionDao())
+        val first = manager.saveVersion("chat", "Draft", "html", "<p>one</p>", "p1")
+        // Simulate hide committing after saveVersion already read the listed row.
+        db.artifactDao().hideFromGallery(first.artifactId)
+        manager.saveVersion("chat", "Draft", "html", "<p>two</p>", "p2")
+
+        assertTrue(db.artifactDao().observeListed().first().isEmpty())
+        assertEquals(true, manager.getLatestForChat("chat")?.hiddenFromGallery)
+    }
+
+    @Test
     fun deletingOwningThreadRemovesHiddenArtifact() = runBlocking {
         val chat = thread("chat", 1, 1)
         db.chatDao().insertThread(chat)

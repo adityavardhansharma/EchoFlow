@@ -54,18 +54,29 @@ class ArtifactManager(
         val nextVersion = if (existing == null) 1 else artifactVersionDao.maxVersion(artifactId) + 1
         val resolvedTitle = title.ifBlank { existing?.title ?: defaultTitle(normalizedType) }
 
-        artifactDao.upsert(
-            Artifact(
+        if (existing == null) {
+            artifactDao.upsert(
+                Artifact(
+                    id = artifactId,
+                    chatId = chatId,
+                    title = resolvedTitle,
+                    type = normalizedType,
+                    currentVersion = nextVersion,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+        } else {
+            // Do not write hiddenFromGallery: a concurrent "remove from list" must not be undone
+            // by a stale in-memory copy from getLatestForChat.
+            artifactDao.updateLineage(
                 id = artifactId,
-                chatId = chatId,
                 title = resolvedTitle,
                 type = normalizedType,
                 currentVersion = nextVersion,
-                createdAt = existing?.createdAt ?: now,
                 updatedAt = now,
-                hiddenFromGallery = existing?.hiddenFromGallery,
             )
-        )
+        }
         artifactVersionDao.insert(
             ArtifactVersion(
                 id = UUID.randomUUID().toString(),
