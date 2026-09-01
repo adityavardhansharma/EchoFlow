@@ -63,6 +63,7 @@ class ArtifactManager(
                 currentVersion = nextVersion,
                 createdAt = existing?.createdAt ?: now,
                 updatedAt = now,
+                hiddenFromGallery = existing?.hiddenFromGallery,
             )
         )
         artifactVersionDao.insert(
@@ -83,6 +84,9 @@ class ArtifactManager(
             uiVersion = ArtifactRef.UI_VERSION_CURRENT,
         )
     }
+
+    /** Drop a lineage from the Artifacts gallery without touching the chat or the artifact body. */
+    suspend fun hideFromGallery(artifactId: String) = artifactDao.hideFromGallery(artifactId)
 
     private fun defaultTitle(type: String): String = when (type) {
         Artifact.TYPE_MARKDOWN -> "Document"

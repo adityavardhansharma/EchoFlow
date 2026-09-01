@@ -30,18 +30,23 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -111,6 +116,8 @@ fun ArtifactsGalleryScreen(
                             loadContent = { chatViewModel.galleryArtifactContent(artifact.id) },
                             onOpen = { chatViewModel.openArtifactFromGallery(artifact.id) },
                             onOpenVersion = { v -> chatViewModel.openArtifactFromGallery(artifact.id, v) },
+                            onRemoveFromList = { chatViewModel.hideArtifactFromGallery(artifact) },
+                            onDelete = { chatViewModel.deleteArtifactAndOwningChat(artifact) },
                         )
                     }
                 }
@@ -148,16 +155,57 @@ private fun GalleryTopBar(count: Int, onClose: () -> Unit) {
 }
 
 @Composable
-private fun ArtifactBlock(
+internal fun ArtifactBlock(
     artifact: Artifact,
     loadContent: suspend () -> String?,
     onOpen: () -> Unit,
     onOpenVersion: (Int) -> Unit,
+    onRemoveFromList: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val (glyph, typeLabel) = galleryGlyph(artifact.type)
     // Lazily fetch the rendered body for the thumbnail; recycled off-screen, so cost stays bounded.
     val content by produceState<String?>(initialValue = null, artifact.id, artifact.currentVersion) {
         value = loadContent()
+    }
+    val title = artifact.title.ifBlank { typeLabel }
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            icon = { Icon(Icons.Default.VisibilityOff, null) },
+            title = { Text("Remove from list?") },
+            text = {
+                Text("“$title” will leave Artifacts. The conversation and the artifact in chat are kept.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    onRemoveFromList()
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+        )
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            icon = { Icon(Icons.Default.DeleteOutline, null) },
+            title = { Text("Delete artifact?") },
+            text = {
+                Text("“$title” and the conversation it was created in will be permanently removed. This can't be undone.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 
     Surface(
@@ -190,7 +238,7 @@ private fun ArtifactBlock(
 
             // Meta row.
             Row(
-                Modifier.fillMaxWidth().padding(Spacing.m),
+                Modifier.fillMaxWidth().padding(start = Spacing.m, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -202,7 +250,7 @@ private fun ArtifactBlock(
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        artifact.title.ifBlank { typeLabel },
+                        title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -216,13 +264,32 @@ private fun ArtifactBlock(
                 }
                 if (artifact.currentVersion > 1) {
                     VersionChip(artifact.currentVersion, onOpenVersion)
-                    Spacer(Modifier.width(Spacing.xs))
                 }
-                Icon(
-                    Icons.Default.OpenInFull, "Open",
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            "Artifact options",
+                            Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Remove from list") },
+                            leadingIcon = { Icon(Icons.Default.VisibilityOff, null) },
+                            onClick = { menuOpen = false; confirmRemove = true },
+                        )
+                        HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            onClick = { menuOpen = false; confirmDelete = true },
+                        )
+                    }
+                }
             }
         }
     }

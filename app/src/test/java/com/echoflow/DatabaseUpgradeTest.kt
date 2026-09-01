@@ -124,5 +124,10 @@ class DatabaseUpgradeTest {
         database.openHelper.readableDatabase.query(
             "SELECT attachmentsJson FROM chat_messages LIMIT 0"
         ).use { /* queryable => the additive column landed */ }
+
+        // v25: gallery hide flag exists and is nullable.
+        database.openHelper.readableDatabase.query(
+            "SELECT hiddenFromGallery FROM artifacts LIMIT 0"
+        ).use { /* queryable => the additive column landed */ }
     }
 }

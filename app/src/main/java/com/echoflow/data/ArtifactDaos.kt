@@ -11,11 +11,17 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ArtifactDao {
     /**
-     * Every artifact lineage, newest activity first — one row per chat by the one-lineage-per-chat
-     * rule, so this is exactly "the latest artifact of each chat". Backs the Artifacts gallery.
+     * Gallery shelf: every artifact lineage that has not been hidden from the list, newest activity
+     * first. Hidden rows stay on the chat timeline; [observeAllIncludingHidden] is the unfiltered set.
      */
+    @Query(
+        "SELECT * FROM artifacts WHERE hiddenFromGallery IS NULL OR hiddenFromGallery = 0 " +
+            "ORDER BY updatedAt DESC"
+    )
+    fun observeListed(): Flow<List<Artifact>>
+
     @Query("SELECT * FROM artifacts ORDER BY updatedAt DESC")
-    fun observeAll(): Flow<List<Artifact>>
+    fun observeAllIncludingHidden(): Flow<List<Artifact>>
 
     /** The most-recent artifact for one chat — used when iterating the chat's current lineage. */
     @Query("SELECT * FROM artifacts WHERE chatId = :chatId ORDER BY updatedAt DESC LIMIT 1")
@@ -36,6 +42,9 @@ interface ArtifactDao {
 
     @Query("DELETE FROM artifacts WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query("UPDATE artifacts SET hiddenFromGallery = 1 WHERE id = :id")
+    suspend fun hideFromGallery(id: String)
 }
 
 @Dao

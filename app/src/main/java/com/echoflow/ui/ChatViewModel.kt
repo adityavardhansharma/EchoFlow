@@ -602,8 +602,8 @@ class ChatViewModel(
     private val _artifactsGalleryOpen = MutableStateFlow(false)
     val artifactsGalleryOpen: StateFlow<Boolean> = _artifactsGalleryOpen.asStateFlow()
 
-    /** Every artifact lineage, newest first — one per chat by the one-lineage-per-chat rule. */
-    val galleryArtifacts: StateFlow<List<Artifact>> = artifactDao.observeAll()
+    /** Listed artifact lineages, newest first — one per chat by the one-lineage-per-chat rule. */
+    val galleryArtifacts: StateFlow<List<Artifact>> = artifactDao.observeListed()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun openArtifactsGallery() { _artifactsGalleryOpen.value = true }
@@ -622,6 +622,27 @@ class ChatViewModel(
     suspend fun galleryArtifactContent(artifactId: String): String? {
         val artifact = artifactManager.getById(artifactId) ?: return null
         return artifactManager.getVersion(artifactId, artifact.currentVersion)?.content
+    }
+
+    /** Hide from the gallery only — the chat and in-chat artifact card stay. */
+    fun hideArtifactFromGallery(artifact: Artifact) {
+        viewModelScope.launch { artifactManager.hideFromGallery(artifact.id) }
+    }
+
+    /**
+     * Permanently delete the artifact and the conversation it was created in. Cascades through
+     * the existing thread-delete path so media, in-flight work and the artifact rows all go.
+     */
+    fun deleteArtifactAndOwningChat(artifact: Artifact) {
+        if (_workspaceArtifactId.value == artifact.id) closeArtifactWorkspace()
+        viewModelScope.launch {
+            val thread = chatDao.getThreadById(artifact.chatId)
+            if (thread != null) {
+                deleteThreadNow(thread)
+            } else {
+                artifactDao.delete(artifact.id)
+            }
+        }
     }
 
     // ── Projects ─────────────────────────────────────────────────────────────────────────
@@ -1393,18 +1414,20 @@ class ChatViewModel(
     }
 
     fun deleteThread(thread: ChatThread) {
-        viewModelScope.launch {
-            // Stop anything still writing for this chat and WAIT for it. A video render keeps
-            // running for minutes and would otherwise carry on past the cascade — writing rows
-            // against a chat that no longer exists, and landing an MP4 that nothing points at.
-            cancelWorkForChat(thread.id)
-            // Media files live outside Room; remove them while their rows (and paths) still exist.
-            generatedImageStore.deleteFilesForChat(thread.id)
-            generatedVideoStore.deleteFilesForChat(thread.id)
-            chatDao.deleteThread(thread)
-            if (_currentChatThreadId.value == thread.id) {
-                selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
-            }
+        viewModelScope.launch { deleteThreadNow(thread) }
+    }
+
+    private suspend fun deleteThreadNow(thread: ChatThread) {
+        // Stop anything still writing for this chat and WAIT for it. A video render keeps
+        // running for minutes and would otherwise carry on past the cascade — writing rows
+        // against a chat that no longer exists, and landing an MP4 that nothing points at.
+        cancelWorkForChat(thread.id)
+        // Media files live outside Room; remove them while their rows (and paths) still exist.
+        generatedImageStore.deleteFilesForChat(thread.id)
+        generatedVideoStore.deleteFilesForChat(thread.id)
+        chatDao.deleteThread(thread)
+        if (_currentChatThreadId.value == thread.id) {
+            selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
         }
     }
 
