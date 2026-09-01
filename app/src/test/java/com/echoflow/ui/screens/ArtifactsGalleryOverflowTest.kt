@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -107,8 +108,30 @@ class ArtifactsGalleryOverflowTest {
         setBlock()
         composeRule.onNodeWithContentDescription("Artifact options").performClick()
         composeRule.waitForIdle()
-        composeRule.onAllNodes(isRoot()).last().captureRoboImage(
+        composeRule.onAllNodes(isRoot()).onLast().captureRoboImage(
             filePath = "src/test/screenshots/artifacts_gallery_overflow_menu.png",
+        )
+    }
+
+    @Test
+    fun gallery_remove_from_list_dialog() {
+        setBlock()
+        composeRule.onNodeWithContentDescription("Artifact options").performClick()
+        composeRule.onNodeWithText("Remove from list").performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodes(isRoot()).onLast().captureRoboImage(
+            filePath = "src/test/screenshots/artifacts_gallery_remove_dialog.png",
+        )
+    }
+
+    @Test
+    fun gallery_delete_dialog() {
+        setBlock()
+        composeRule.onNodeWithContentDescription("Artifact options").performClick()
+        composeRule.onNodeWithText("Delete").performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodes(isRoot()).onLast().captureRoboImage(
+            filePath = "src/test/screenshots/artifacts_gallery_delete_dialog.png",
         )
     }
 
