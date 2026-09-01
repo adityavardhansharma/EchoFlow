@@ -54,17 +54,29 @@ class ArtifactManager(
         val nextVersion = if (existing == null) 1 else artifactVersionDao.maxVersion(artifactId) + 1
         val resolvedTitle = title.ifBlank { existing?.title ?: defaultTitle(normalizedType) }
 
-        artifactDao.upsert(
-            Artifact(
+        if (existing == null) {
+            artifactDao.upsert(
+                Artifact(
+                    id = artifactId,
+                    chatId = chatId,
+                    title = resolvedTitle,
+                    type = normalizedType,
+                    currentVersion = nextVersion,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+        } else {
+            // Do not write hiddenFromGallery: a concurrent "remove from list" must not be undone
+            // by a stale in-memory copy from getLatestForChat.
+            artifactDao.updateLineage(
                 id = artifactId,
-                chatId = chatId,
                 title = resolvedTitle,
                 type = normalizedType,
                 currentVersion = nextVersion,
-                createdAt = existing?.createdAt ?: now,
                 updatedAt = now,
             )
-        )
+        }
         artifactVersionDao.insert(
             ArtifactVersion(
                 id = UUID.randomUUID().toString(),
@@ -83,6 +95,9 @@ class ArtifactManager(
             uiVersion = ArtifactRef.UI_VERSION_CURRENT,
         )
     }
+
+    /** Drop a lineage from the Artifacts gallery without touching the chat or the artifact body. */
+    suspend fun hideFromGallery(artifactId: String) = artifactDao.hideFromGallery(artifactId)
 
     private fun defaultTitle(type: String): String = when (type) {
         Artifact.TYPE_MARKDOWN -> "Document"

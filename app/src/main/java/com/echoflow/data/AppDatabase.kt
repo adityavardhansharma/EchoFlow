@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class
     ],
-    version = 24, // v24: chat_messages.attachmentsJson (multi-file chat attachments)
+    version = 25, // v25: artifacts.hiddenFromGallery (gallery list vs chat)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -449,6 +449,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Gallery hide flag. Additive, nullable — no DEFAULT (matches the no-defaultValue entity
+         * policy). Existing rows stay listed (NULL reads as visible).
+         */
+        internal val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE artifacts ADD COLUMN hiddenFromGallery INTEGER")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -480,6 +490,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_21_22,
                     MIGRATION_22_23,
                     MIGRATION_23_24,
+                    MIGRATION_24_25,
                 )
                 .build()
                 INSTANCE = instance

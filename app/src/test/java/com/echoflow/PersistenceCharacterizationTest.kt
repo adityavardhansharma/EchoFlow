@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.Artifact
+import com.echoflow.data.ArtifactDao
 import com.echoflow.data.ArtifactManager
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.ChatThread
@@ -85,6 +86,71 @@ class PersistenceCharacterizationTest {
         db.chatDao().deleteThread(chat)
 
         assertNull(manager.getLatestForChat(chat.id))
+    }
+
+    @Test
+    fun hidingFromGalleryLeavesChatAndArtifact() = runBlocking {
+        val chat = thread("chat", 1, 1)
+        db.chatDao().insertThread(chat)
+        val manager = ArtifactManager(db.artifactDao(), db.artifactVersionDao())
+        val ref = manager.saveVersion(chat.id, "Draft", "html", "<p>body</p>", "prompt")
+
+        assertEquals(1, db.artifactDao().observeListed().first().size)
+        manager.hideFromGallery(ref.artifactId)
+
+        assertTrue(db.artifactDao().observeListed().first().isEmpty())
+        assertEquals(ref.artifactId, manager.getLatestForChat(chat.id)?.id)
+        assertEquals("chat", db.chatDao().getThreadById(chat.id)?.id)
+        assertEquals(true, manager.getById(ref.artifactId)?.hiddenFromGallery)
+    }
+
+    @Test
+    fun newVersionKeepsGalleryHide() = runBlocking {
+        db.chatDao().insertThread(thread("chat", 1, 1))
+        val manager = ArtifactManager(db.artifactDao(), db.artifactVersionDao())
+        val first = manager.saveVersion("chat", "Draft", "html", "<p>one</p>", "p1")
+        manager.hideFromGallery(first.artifactId)
+        manager.saveVersion("chat", "Draft", "html", "<p>two</p>", "p2")
+
+        assertTrue(db.artifactDao().observeListed().first().isEmpty())
+        assertEquals(true, manager.getLatestForChat("chat")?.hiddenFromGallery)
+        assertEquals(2, manager.getLatestForChat("chat")?.currentVersion)
+    }
+
+    @Test
+    fun saveVersionDoesNotUnhideWhenHideLandsOnAStaleRead() = runBlocking {
+        db.chatDao().insertThread(thread("chat", 1, 1))
+        val inner = db.artifactDao()
+        val first = ArtifactManager(inner, db.artifactVersionDao())
+            .saveVersion("chat", "Draft", "html", "<p>one</p>", "p1")
+
+        val staleReadDao = object : ArtifactDao by inner {
+            override suspend fun getLatestForChat(chatId: String): Artifact? {
+                val listed = inner.getLatestForChat(chatId)
+                listed?.id?.let { inner.hideFromGallery(it) }
+                return listed
+            }
+        }
+        ArtifactManager(staleReadDao, db.artifactVersionDao())
+            .saveVersion("chat", "Draft", "html", "<p>two</p>", "p2")
+
+        assertTrue(inner.observeListed().first().isEmpty())
+        assertEquals(true, inner.getById(first.artifactId)?.hiddenFromGallery)
+        assertEquals(2, inner.getById(first.artifactId)?.currentVersion)
+    }
+
+    @Test
+    fun deletingOwningThreadRemovesHiddenArtifact() = runBlocking {
+        val chat = thread("chat", 1, 1)
+        db.chatDao().insertThread(chat)
+        val manager = ArtifactManager(db.artifactDao(), db.artifactVersionDao())
+        val ref = manager.saveVersion(chat.id, "Draft", "html", "<p>body</p>", "prompt")
+        manager.hideFromGallery(ref.artifactId)
+
+        db.chatDao().deleteThread(chat)
+
+        assertNull(manager.getById(ref.artifactId))
+        assertNull(db.chatDao().getThreadById(chat.id))
     }
 
     private fun thread(id: String, created: Long, updated: Long) =

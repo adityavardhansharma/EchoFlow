@@ -40,6 +40,11 @@ data class Artifact(
     val currentVersion: Int, // version number of the latest ArtifactVersion
     val createdAt: Long,
     val updatedAt: Long,
+    /**
+     * When true, the lineage stays in its chat but is omitted from the Artifacts gallery.
+     * Nullable so the v24→v25 migration needs no SQL DEFAULT (null reads as listed).
+     */
+    val hiddenFromGallery: Boolean? = null,
 ) {
     val isHtml: Boolean get() = type == TYPE_HTML
     val isMarkdown: Boolean get() = type == TYPE_MARKDOWN
