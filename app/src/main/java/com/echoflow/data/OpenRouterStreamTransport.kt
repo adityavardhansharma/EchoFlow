@@ -82,7 +82,7 @@ internal class OpenRouterStreamTransport(
             if (params.maxTokens > 0) requestMap["max_tokens"] = params.maxTokens
         }
 
-        val jsonPayload = dynamicAdapter.toJson(requestMap)
+        val jsonPayload = dynamicAdapter.toJson(RequestContextBudget.checkedPayload(requestMap, OpenRouterModelDirectory.contextTokens(model)))
         val request = buildHttpRequest(apiKey, jsonPayload)
 
         val contentBuf = StringBuilder()
@@ -109,7 +109,7 @@ internal class OpenRouterStreamTransport(
         val subagentAnnounced = mutableMapOf<Int, Boolean>()
         val subagentResolved = mutableSetOf<String>()
 
-        httpClient.newCall(request).execute().use { response ->
+        httpClient.newCall(request).useCancellable { response ->
             if (!response.isSuccessful) {
                 val errorString = response.body?.string().orEmpty()
                 val parsedErrorMsg = parseErrorMessage(errorString)
@@ -128,12 +128,20 @@ internal class OpenRouterStreamTransport(
 
             while (reader.readLine().also { line = it } != null) {
                 val currentLine = line!!.trim()
-                if (!currentLine.startsWith("data: ")) continue
-                val dataPart = currentLine.substring(6).trim()
+                if (!currentLine.startsWith("data:")) continue
+                val dataPart = currentLine.substring(5).trim()
                 if (dataPart == "[DONE]" || dataPart.startsWith("[DONE]")) break
 
-                try {
-                    val event = streamChunkAdapter.fromJson(dataPart)
+                // Do not catch consumer errors or cancellation as malformed SSE.
+                val event = try {
+                    streamChunkAdapter.fromJson(dataPart)
+                } catch (e: com.squareup.moshi.JsonDataException) {
+                    throw java.io.IOException("OpenRouter returned an invalid stream event.", e)
+                } catch (e: com.squareup.moshi.JsonEncodingException) {
+                    throw java.io.IOException("OpenRouter returned malformed stream JSON.", e)
+                }
+                event?.usage?.let { onChunk(StreamChunk.Usage(it.prompt_tokens, it.completion_tokens, it.cost)) }
+                run {
                     val choice = event?.choices?.firstOrNull()
                     val delta = choice?.delta
 
@@ -287,8 +295,6 @@ internal class OpenRouterStreamTransport(
                     }
 
                     choice?.finish_reason?.let { finishReason = it }
-                } catch (e: Exception) {
-                    // Resilient inline SSE fail ignores
                 }
             }
         }
