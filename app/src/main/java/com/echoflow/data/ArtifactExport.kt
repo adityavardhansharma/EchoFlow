@@ -25,8 +25,8 @@ object ArtifactExport {
     // Keep transient print WebViews alive until the print adapter is done with them.
     private val liveWebViews = mutableListOf<WebView>()
 
-    fun printArtifact(context: Context, title: String, type: String, content: String, offline: Boolean = true) {
-        CoroutineScope(Dispatchers.Main).launch {
+    fun printArtifact(context: Context, scope: CoroutineScope, title: String, type: String, content: String, offline: Boolean = true) {
+        scope.launch(Dispatchers.Main.immediate) {
             val html = withContext(Dispatchers.IO) {
                 when (Artifact.normalizeType(type)) {
                     Artifact.TYPE_HTML -> content

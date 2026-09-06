@@ -64,7 +64,12 @@ class BrowserAgentManager(
     }
 
     private fun command(block: suspend () -> Unit) {
-        if (commandJob?.isActive == true || closingJob?.isActive == true) return
+        if (commandJob?.isActive == true || closingJob?.isActive == true) {
+            scope.launch {
+                activeSession.value?.let { addStep(it.id, "system", "Still working on the previous command.") }
+            }
+            return
+        }
         commandJob = scope.launch(start = CoroutineStart.LAZY) {
             startup.join()
             block()

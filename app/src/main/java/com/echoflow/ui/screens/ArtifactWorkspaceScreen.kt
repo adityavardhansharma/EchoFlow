@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +93,7 @@ fun ArtifactWorkspaceScreen(
     val artifact by chatViewModel.workspaceArtifact.collectAsState()
     val versions by chatViewModel.workspaceArtifactVersions.collectAsState()
     val context = LocalContext.current
+    val exportScope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
     // Leave if the artifact vanishes (e.g. chat deleted) — but NOT on the initial null the
@@ -157,7 +159,7 @@ fun ArtifactWorkspaceScreen(
                 mode = mode,
                 onMode = { mode = it },
                 onClose = onClose,
-                onExport = { ArtifactExport.printArtifact(context, a.title, a.type, content, offline = offline) },
+                onExport = { ArtifactExport.printArtifact(context, exportScope, a.title, a.type, content, offline = offline) },
                 onCopy = { clipboard.setText(AnnotatedString(content)) },
             )
 

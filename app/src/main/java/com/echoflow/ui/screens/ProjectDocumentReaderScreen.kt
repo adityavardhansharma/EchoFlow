@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +70,7 @@ fun ProjectDocumentReaderScreen(
 ) {
     BackHandler { onClose() }
     val context = LocalContext.current
+    val exportScope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val content = document.extractedText.orEmpty()
     val showBrand = document.tier == ExtractionTier.ANYDOC
@@ -98,7 +100,7 @@ fun ProjectDocumentReaderScreen(
                 showBrand = showBrand,
                 onClose = onClose,
                 onCopy = { clipboard.setText(AnnotatedString(content)) },
-                onExport = { ArtifactExport.printArtifact(context, document.name, "markdown", content) },
+                onExport = { ArtifactExport.printArtifact(context, exportScope, document.name, "markdown", content) },
             )
             Box(
                 Modifier

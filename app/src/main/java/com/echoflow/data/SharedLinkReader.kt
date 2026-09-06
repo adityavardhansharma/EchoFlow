@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 /** Read-only page fetch, explicitly selected in the share review. Never executes page scripts. */
@@ -14,7 +15,7 @@ class SharedLinkReader {
         fun link(text: String): String? = Regex("https://[^\\s<>]+", RegexOption.IGNORE_CASE).find(text)?.value
             ?.trimEnd('.', ',', ')', ']')?.takeIf { url -> url.toHttpUrlOrNull()?.let { it.isHttps && it.username.isBlank() && it.password.isBlank() } == true }
     }
-    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+    private val client = OkHttpClient.Builder().proxy(Proxy.NO_PROXY).followRedirects(false).followSslRedirects(false)
         .callTimeout(30, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
         .addNetworkInterceptor { chain ->
             val address = chain.connection()?.socket()?.inetAddress ?: error("Could not verify page address.")
