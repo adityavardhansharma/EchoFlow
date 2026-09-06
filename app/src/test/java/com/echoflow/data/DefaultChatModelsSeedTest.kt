@@ -36,14 +36,14 @@ class DefaultChatModelsSeedTest {
     }
 
     @Test fun `fresh install seeds shipped models and keeps Luna as the implicit default`() = runBlocking {
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
 
         val models = database.customModelDao().getAllCustomModelsSync()
         assertTrue(models.any { it.id == DefaultChatModels.DEFAULT_MODEL_ID })
         assertTrue(models.any { it.id == DefaultChatModels.ECHO_LUMEN_MODEL_ID })
         assertFalse(models.any { it.id == DefaultChatModels.LEGACY_DEFAULT_MODEL_ID })
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals(DefaultChatModels.DEFAULT_MODEL_ID, repository.getSelectedModelDirect())
     }
 
@@ -57,14 +57,14 @@ class DefaultChatModelsSeedTest {
             ),
         )
 
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
 
         val models = database.customModelDao().getAllCustomModelsSync()
         assertTrue(models.any { it.id == DefaultChatModels.LEGACY_DEFAULT_MODEL_ID })
         assertTrue(models.any { it.id == DefaultChatModels.DEFAULT_MODEL_ID })
         assertTrue(models.any { it.id == DefaultChatModels.ECHO_LUMEN_MODEL_ID })
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals(DefaultChatModels.LEGACY_DEFAULT_MODEL_ID, repository.getSelectedModelDirect())
     }
 
@@ -74,12 +74,12 @@ class DefaultChatModelsSeedTest {
             .putString("selected_model", DefaultChatModels.LEGACY_DEFAULT_MODEL_ID)
             .commit()
 
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
 
         val models = database.customModelDao().getAllCustomModelsSync()
         assertTrue(models.any { it.id == DefaultChatModels.LEGACY_DEFAULT_MODEL_ID })
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals(DefaultChatModels.LEGACY_DEFAULT_MODEL_ID, repository.getSelectedModelDirect())
     }
 
@@ -90,7 +90,7 @@ class DefaultChatModelsSeedTest {
             .putString("selected_model", "anthropic/claude-sonnet-4.5")
             .commit()
 
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
 
         val models = database.customModelDao().getAllCustomModelsSync()
         assertTrue(models.any { it.id == "anthropic/claude-sonnet-4.5" })
@@ -98,15 +98,15 @@ class DefaultChatModelsSeedTest {
         assertTrue(models.any { it.id == DefaultChatModels.ECHO_LUMEN_MODEL_ID })
         assertFalse(models.any { it.id == DefaultChatModels.LEGACY_DEFAULT_MODEL_ID })
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals("anthropic/claude-sonnet-4.5", repository.getSelectedModelDirect())
     }
 
     @Test fun `seed runs only once`() = runBlocking {
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
         database.customModelDao().deleteCustomModel(DefaultChatModels.DEFAULT_MODEL_ID)
 
-        DefaultChatModelsSeed.run(context, database)
+        DefaultChatModelsSeed.run(context, database, com.echoflow.testSettings(context))
 
         assertEquals(null, database.customModelDao().getCustomModelById(DefaultChatModels.DEFAULT_MODEL_ID))
     }

@@ -25,7 +25,7 @@ class SettingsRepositoryCharacterizationTest {
 
     @Test
     fun freshInstallDefaultsRemainStable() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
 
         assertEquals("system", repository.darkMode.value)
         assertEquals("off", repository.webSearchProvider.value)
@@ -39,7 +39,7 @@ class SettingsRepositoryCharacterizationTest {
 
     @Test
     fun savedValuesRoundTripThroughARecreatedRepository() {
-        SettingsRepository(context).apply {
+        SettingsRepository(context, com.echoflow.testSettings(context)).apply {
             saveDarkMode("dark")
             saveWebSearchProvider("exa")
             saveSearchApiKey("exa", "secret")
@@ -48,7 +48,7 @@ class SettingsRepositoryCharacterizationTest {
             saveInferenceParams(true, InferenceParams(0.25f, 17, 0.8f, 2048))
         }
 
-        val restored = SettingsRepository(context)
+        val restored = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals("dark", restored.getDarkModeDirect())
         assertEquals("exa", restored.getWebSearchProviderDirect())
         assertEquals("secret", restored.getSearchApiKeyDirect("exa"))
@@ -62,7 +62,7 @@ class SettingsRepositoryCharacterizationTest {
         context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
             .edit().putBoolean("web_search_enabled", true).commit()
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
 
         assertEquals("openrouter", repository.getWebSearchProviderDirect())
     }
@@ -76,7 +76,7 @@ class SettingsRepositoryCharacterizationTest {
             .putString("monid_api_key", "mnid-stale")
             .commit()
 
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
 
         assertEquals("off", repository.getWebSearchProviderDirect())
         assertEquals("auto", repository.getDeepResearchSearchProviderDirect())
@@ -86,14 +86,14 @@ class SettingsRepositoryCharacterizationTest {
 
     @Test
     fun echoCrawlIsReadyWithoutAKeyAndDoesNotChangeExistingProviders() {
-        SettingsRepository(context).apply {
+        SettingsRepository(context, com.echoflow.testSettings(context)).apply {
             saveWebSearchProvider("exa")
             saveSearchApiKey("exa", "secret")
         }
-        val existing = SettingsRepository(context)
+        val existing = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals("exa", existing.getWebSearchProviderDirect())
 
-        val fresh = SettingsRepository(context).also { it.saveWebSearchProvider("echocrawl") }
+        val fresh = SettingsRepository(context, com.echoflow.testSettings(context)).also { it.saveWebSearchProvider("echocrawl") }
         assertEquals("echocrawl", fresh.getWebSearchProviderDirect())
         assertEquals("echocrawl", fresh.resolveChipSearchProvider())
         assertEquals("", fresh.getSearchApiKeyDirect("echocrawl"))
@@ -103,11 +103,11 @@ class SettingsRepositoryCharacterizationTest {
 
     @Test
     fun echoCrawlIntroDismissSticksAcrossRepositoryRecreation() {
-        assertFalse(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
-        SettingsRepository(context).dismissEchoCrawlIntro()
-        assertTrue(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
-        SettingsRepository(context).dismissEchoCrawlIntro()
-        assertTrue(SettingsRepository(context).echoCrawlIntroDismissed.value)
+        assertFalse(SettingsRepository(context, com.echoflow.testSettings(context)).getEchoCrawlIntroDismissedDirect())
+        SettingsRepository(context, com.echoflow.testSettings(context)).dismissEchoCrawlIntro()
+        assertTrue(SettingsRepository(context, com.echoflow.testSettings(context)).getEchoCrawlIntroDismissedDirect())
+        SettingsRepository(context, com.echoflow.testSettings(context)).dismissEchoCrawlIntro()
+        assertTrue(SettingsRepository(context, com.echoflow.testSettings(context)).echoCrawlIntroDismissed.value)
     }
 
     @Test
@@ -119,12 +119,12 @@ class SettingsRepositoryCharacterizationTest {
                 .putBoolean("echocrawl_intro_dismissed_v2", true)
                 .commit()
         }
-        assertFalse(SettingsRepository(context).getEchoCrawlIntroDismissedDirect())
+        assertFalse(SettingsRepository(context, com.echoflow.testSettings(context)).getEchoCrawlIntroDismissedDirect())
     }
 
     @Test
     fun xAiProviderSettingsRoundTripThroughARecreatedRepository() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         repository.saveCustomProviderConfig(
             repository.getCustomProviderConfigDirect().copy(
                 cloudApisEnabled = true,
@@ -136,7 +136,7 @@ class SettingsRepositoryCharacterizationTest {
             )
         )
 
-        val restored = SettingsRepository(context).getCustomProviderConfigDirect()
+        val restored = SettingsRepository(context, com.echoflow.testSettings(context)).getCustomProviderConfigDirect()
         assertTrue(restored.cloudApisEnabled)
         assertTrue(restored.xAiEnabled)
         assertEquals("xai-test-key", restored.xAiApiKey)

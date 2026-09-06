@@ -19,11 +19,11 @@ class ModePositionTest {
     @Before
     fun resetPreferences() {
         SettingsPreferenceStorage.legacy(context).edit().clear().commit()
-        SettingsPreferenceStorage.secureOrNull(context)?.edit()?.clear()?.commit()
+        com.echoflow.testSettings(context)?.edit()?.clear()?.commit()
     }
 
     @Test fun `a mode that has never been visited is unset`() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals(ModePosition.Unset, repository.getLastPositionDirect(AppMode.Chat))
         assertEquals(ModePosition.Unset, repository.getLastPositionDirect(AppMode.Imagine))
     }
@@ -31,25 +31,25 @@ class ModePositionTest {
     @Test fun `a blank composer survives a round trip as blank, not as unset`() {
         // The bug this whole type exists for: park a fresh composer, come back, and the app
         // must not quietly reopen the conversation you had left before it.
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         repository.saveLastPosition(AppMode.Chat, ModePosition.Thread("chat-1"))
         repository.saveLastPosition(AppMode.Chat, ModePosition.Blank)
 
-        assertEquals(ModePosition.Blank, SettingsRepository(context).getLastPositionDirect(AppMode.Chat))
+        assertEquals(ModePosition.Blank, SettingsRepository(context, com.echoflow.testSettings(context)).getLastPositionDirect(AppMode.Chat))
     }
 
     @Test fun `each mode remembers its own position independently`() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         repository.saveLastPosition(AppMode.Chat, ModePosition.Thread("chat-1"))
         repository.saveLastPosition(AppMode.Imagine, ModePosition.Blank)
 
-        val reloaded = SettingsRepository(context)
+        val reloaded = SettingsRepository(context, com.echoflow.testSettings(context))
         assertEquals(ModePosition.Thread("chat-1"), reloaded.getLastPositionDirect(AppMode.Chat))
         assertEquals(ModePosition.Blank, reloaded.getLastPositionDirect(AppMode.Imagine))
     }
 
     @Test fun `a position can be moved from blank back to a conversation`() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         repository.saveLastPosition(AppMode.Imagine, ModePosition.Blank)
         repository.saveLastPosition(AppMode.Imagine, ModePosition.Thread("imagine-7"))
 
@@ -57,7 +57,7 @@ class ModePositionTest {
     }
 
     @Test fun `clearing a position returns it to unset`() {
-        val repository = SettingsRepository(context)
+        val repository = SettingsRepository(context, com.echoflow.testSettings(context))
         repository.saveLastPosition(AppMode.Chat, ModePosition.Thread("chat-1"))
         repository.saveLastPosition(AppMode.Chat, ModePosition.Unset)
 

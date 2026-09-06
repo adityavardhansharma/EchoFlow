@@ -41,19 +41,33 @@ class UpdateCompatibilityContractTest {
         assertEquals("text", KeepAliveService.EXTRA_TEXT)
     }
 
-    @Test fun `backup rules retain database while excluding device-bound secrets and models`() {
+    @Test fun `legacy cloud backup excludes private user data`() {
         val excludes = excludesFrom(R.xml.backup_rules)
-        assertTrue("sharedpref" to "secure_settings_prefs.xml" in excludes)
-        assertTrue("sharedpref" to "settings_prefs.xml" in excludes)
-        assertTrue("file" to "models/" in excludes)
-        assertFalse(excludes.any { it.first == "database" })
+        for (domain in listOf("root", "database", "sharedpref", "file", "external")) {
+            assertTrue(domain to "." in excludes)
+        }
     }
 
-    @Test fun `data extraction rules retain database for cloud and device transfer`() {
-        val excludes = excludesFrom(R.xml.data_extraction_rules)
-        assertFalse(excludes.any { it.first == "database" })
-        assertTrue(excludes.count { it == "sharedpref" to "secure_settings_prefs.xml" } >= 2)
-        assertTrue(excludes.count { it == "file" to "models/" } >= 2)
+    @Test fun `cloud backup excludes data while device transfer excludes keys and models`() {
+        val parser = context.resources.getXml(R.xml.data_extraction_rules)
+        var section = ""
+        val cloud = mutableListOf<Pair<String,String>>()
+        val transfer = mutableListOf<Pair<String,String>>()
+        while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+            if (parser.eventType == XmlPullParser.START_TAG) {
+                if (parser.name == "cloud-backup" || parser.name == "device-transfer") section = parser.name
+                if (parser.name == "exclude") {
+                    val entry = parser.getAttributeValue(null,"domain") to parser.getAttributeValue(null,"path")
+                    if (section == "cloud-backup") cloud.add(entry) else transfer.add(entry)
+                }
+            }
+            parser.next()
+        }
+        assertTrue("database" to "." in cloud)
+        assertTrue("file" to "." in cloud)
+        assertFalse(transfer.any { it.first == "database" })
+        assertTrue("sharedpref" to "secure_settings_prefs.xml" in transfer)
+        assertTrue("file" to "models/" in transfer)
     }
 
     @Test fun `installed builds always have a positive update version`() {
