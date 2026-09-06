@@ -76,6 +76,7 @@ data class BrowserSession(
         const val PENDING_DISAMBIGUATION = "disambiguation" // pick a site (chips + Other)
         const val PENDING_CONFIRM_DOMAIN = "confirm_domain" // sensitive site — confirm before opening
         const val PENDING_HANDOFF = "handoff"               // login/CAPTCHA/payment — drive it yourself
+        const val PENDING_ACTION_CONFIRM = "action_confirm"
         const val PENDING_DRAFT_CONFIRM = "draft_confirm"   // confirm an outgoing message before send
 
         val TERMINAL_STATUSES = setOf(STATUS_COMPLETED, STATUS_FAILED, STATUS_STOPPED, STATUS_EXPIRED)

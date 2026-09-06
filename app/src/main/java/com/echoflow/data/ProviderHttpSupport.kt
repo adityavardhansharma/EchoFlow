@@ -26,12 +26,12 @@ internal object ProviderHttpSupport {
 
     fun validateBaseUrl(raw: String): ProviderValidationResult {
         val url = raw.trim().toHttpUrlOrNull()
-            ?: return ProviderValidationResult(false, "Enter a valid http:// or https:// base URL.")
+            ?: return ProviderValidationResult(false, "Enter a valid http:// or https:// provider base URL.")
         if (url.scheme != "http" && url.scheme != "https") {
             return ProviderValidationResult(false, "Base URL must start with http:// or https://.")
         }
         if (url.scheme == "http" && !isLocalOrPrivateHost(url.host)) {
-            return ProviderValidationResult(false, "Use HTTPS for internet providers. Plain HTTP is allowed only for localhost or private LAN addresses.")
+            return ProviderValidationResult(false, "Use HTTPS for internet providers. Plain HTTP is allowed only for local or private LAN endpoints without credentials.")
         }
         return ProviderValidationResult(true, "URL looks good.")
     }
@@ -74,4 +74,5 @@ internal object ProviderHttpSupport {
                 (bytes.size == 4 && bytes[0] == 169 && bytes[1] == 254)
         }.getOrDefault(false)
     }
+
 }

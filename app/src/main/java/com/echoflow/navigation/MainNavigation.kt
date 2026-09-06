@@ -16,7 +16,7 @@ import com.echoflow.ui.screens.SettingsScreen
 import kotlinx.coroutines.launch
 
 @Composable
-fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel) {
+fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel, shareIntake: com.echoflow.ui.ShareIntakeViewModel? = null) {
     var activeTab by remember { mutableStateOf("chat") }
     var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
@@ -24,6 +24,10 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()
     val researchWorkspace by chatViewModel.researchWorkspace.collectAsState()
     val artifactsGalleryOpen by chatViewModel.artifactsGalleryOpen.collectAsState()
+    val quickOpen by chatViewModel.quickTasks.open.collectAsState()
+    val incoming by (shareIntake?.input ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState()
+    val importing by (shareIntake?.busy ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    val importError by (shareIntake?.error ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState()
     val projectsHubOpen by chatViewModel.projectsHubOpen.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
@@ -83,6 +87,17 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
                 onClose = { chatViewModel.closeArtifactWorkspace() },
             )
         }
+        if (activeTab != "settings" && (quickOpen || incoming != null)) {
+            BackHandler { if (incoming == null || !chatViewModel.quickTasks.busy.value) { if (incoming != null) shareIntake?.consumed(discard = true); chatViewModel.quickTasks.close() } }
+            com.echoflow.ui.screens.QuickToolsScreen(chatViewModel, settingsViewModel, incoming,
+                onConsumed = { shareIntake?.consumed(it) }, onClose = { chatViewModel.quickTasks.close() },
+                onManageModels = { chatViewModel.quickTasks.close(); activeTab = "settings" })
+        }
+        if (importing) AlertDialog(onDismissRequest = {}, title = { Text("Reading shared content") },
+            text = { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { CircularProgressIndicator(Modifier.size(24.dp)); Text("Copying files and extracting document text on this device…") } }, confirmButton = {})
+        importError?.let { message -> AlertDialog(onDismissRequest = { shareIntake?.error?.value = null }, title = { Text("Could not import share") },
+            text = { Text(message) }, confirmButton = { TextButton(onClick = { shareIntake?.error?.value = null }) { Text("OK") } }) }
+
     }
 }
 
@@ -119,6 +134,7 @@ fun AdaptiveChatWorkspace(
                         onSettingsClicked = onSettingsClicked,
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
+                        onCompareClicked = { chatViewModel.quickTasks.show() },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )
@@ -151,6 +167,7 @@ fun AdaptiveChatWorkspace(
                         onSettingsClicked = onSettingsClicked,
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
+                        onCompareClicked = { chatViewModel.quickTasks.show() },
                         onCloseDrawer = { scope.launch { drawerState.close() } },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,

@@ -166,17 +166,12 @@ class SystemPromptsFreshnessTest {
     }
 
     @Test
-    fun `search-capable prompts tell the model to prefer newer sources over memory`() {
-        // The other half of stale confidence: having searched, the model still has to not pick the
-        // familiar-sounding 2022 result over the 2026 one.
-        searchCapablePrompts()
-            .filterKeys { it != "adviser" && it != "agent" }
-            .forEach { (name, prompt) ->
-                assertTrue(
-                    "$name never says a fresh result beats memory",
-                    prompt.contains("the result wins"),
-                )
-            }
+    fun `search results must be assessed as evidence rather than blindly trusted`() {
+        listOf(SystemPrompts.build(false,"openrouter",date),SystemPrompts.buildCustomProvider("exa",date)).forEach {
+            assertTrue(it.contains("authoritative"))
+            assertTrue(it.contains("corroboration"))
+            assertFalse(it.contains("the result wins"))
+        }
     }
 
     @Test

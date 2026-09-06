@@ -63,6 +63,8 @@ class LocalLlmService(private val context: Context) {
     private var mpLoadedMaxTopK = -1
     private var mpSession: LlmInferenceSession? = null
     private var mpSessionChatId: String? = null
+    private var mpHistory: List<ChatMessage> = emptyList()
+    private var mpHistorySystem = ""
     private var mpLastHistorySize = -1
     private var mpParams: InferenceParams? = null
 
@@ -72,6 +74,8 @@ class LocalLlmService(private val context: Context) {
     private var lrtLoadedMaxTokens = -1
     private var lrtConversation: Conversation? = null
     private var lrtChatId: String? = null
+    private var lrtHistory: List<ChatMessage> = emptyList()
+    private var lrtHistorySystem = ""
     private var lrtLastHistorySize = -1
     private var lrtSystemPrompt: String? = null
     private var lrtParams: InferenceParams? = null
@@ -240,6 +244,8 @@ class LocalLlmService(private val context: Context) {
         runCatching { lrtConversation?.close() }
         lrtConversation = null
         lrtChatId = null
+        lrtHistory = emptyList()
+        lrtHistorySystem = ""
         lrtLastHistorySize = -1
         lrtSystemPrompt = null
         lrtPendingContext = null
@@ -268,7 +274,9 @@ class LocalLlmService(private val context: Context) {
                     lrtChatId == chatId &&
                     lrtSystemPrompt == systemPrompt &&
                     lrtParams == params &&
-                    history.size == lrtLastHistorySize + 2
+                    history.size == lrtLastHistorySize + 2 &&
+                    lrtHistorySystem == systemPrompt &&
+                    history.take(lrtLastHistorySize) == lrtHistory
 
                 if (incremental) {
                     text = history.last().content
@@ -299,6 +307,8 @@ class LocalLlmService(private val context: Context) {
                     // current user message separate lets the bundle's own chat template render it.
                     text = history.last().content
                 }
+                lrtHistory = history.map { it.copy() }
+                lrtHistorySystem = systemPrompt
                 lrtLastHistorySize = history.size
             } finally {
                 _modelLoading.value = false
@@ -434,6 +444,8 @@ class LocalLlmService(private val context: Context) {
         runCatching { mpSession?.close() }
         mpSession = null
         mpSessionChatId = null
+        mpHistory = emptyList()
+        mpHistorySystem = ""
         mpLastHistorySize = -1
         mpParams = null
     }
@@ -460,7 +472,9 @@ class LocalLlmService(private val context: Context) {
                 val incremental = mpSession != null &&
                     mpSessionChatId == chatId &&
                     mpParams == params &&
-                    history.size == mpLastHistorySize + 2
+                    history.size == mpLastHistorySize + 2 &&
+                    mpHistorySystem == systemPrompt &&
+                    history.take(mpLastHistorySize) == mpHistory
 
                 // Rebuilding a session with prior turns means a slow prefill, surface it too.
                 if (!incremental && history.size > 1) _modelLoading.value = true
@@ -501,6 +515,8 @@ class LocalLlmService(private val context: Context) {
                     }
                     activeSession.addQueryChunk(userTurnPrompt(history.last().content))
                 }
+                mpHistory = history.map { it.copy() }
+                mpHistorySystem = systemPrompt
                 mpLastHistorySize = history.size
             } finally {
                 _modelLoading.value = false

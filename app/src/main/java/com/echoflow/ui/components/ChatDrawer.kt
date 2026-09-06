@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.foundation.text.BasicTextField
@@ -76,6 +77,7 @@ fun ChatDrawerContent(
     onSettingsClicked: () -> Unit,
     onProjectsClicked: () -> Unit = {},
     onArtifactsClicked: () -> Unit = {},
+    onCompareClicked: () -> Unit = {},
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -161,6 +163,13 @@ fun ChatDrawerContent(
                 onClick = { onArtifactsClicked(); onCloseDrawer?.invoke() },
                 modifier = Modifier.testTag("drawer_artifacts_entry"),
             )
+            DrawerDestinationRow(
+                icon = Icons.Default.CompareArrows,
+                label = "Compare models",
+                onClick = { onCompareClicked(); onCloseDrawer?.invoke() },
+                modifier = Modifier.testTag("drawer_compare_entry"),
+            )
+
         }
 
         Spacer(Modifier.height(Spacing.s))

@@ -6,6 +6,8 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -143,8 +145,8 @@ fun BrowserWorkspaceScreen(
             BrowserPauseBar(
                 session = s,
                 onPick = { chatViewModel.browserResolveCandidate(s.id, it) },
-                onConfirmDomain = { chatViewModel.browserConfirmDomain(s.id) },
-                onConfirmSend = { chatViewModel.browserConfirmSend(s.id) },
+                onConfirmDomain = { chatViewModel.browserConfirmDomain(s.id, s.pendingInstruction) },
+                onConfirmSend = { chatViewModel.browserConfirmSend(s.id, s.pendingInstruction) },
                 onCancel = { chatViewModel.browserCancelPending(s.id) },
                 onOpenExternal = { openExternal() },
             )
@@ -301,7 +303,7 @@ private fun WorkspaceTopBar(
             ) {
                 Box(Modifier.size(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                 Text(
-                    "Temporary · nothing saved · ~${BrowserSession.CREDITS_PER_MINUTE} cr/min while open",
+                    "Temporary remote session · local activity saved · ~${BrowserSession.CREDITS_PER_MINUTE} cr/min while open",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -516,7 +518,7 @@ private fun BrowserPauseBar(
                     }
                 }
                 BrowserSession.PENDING_CONFIRM_DOMAIN -> {
-                    Text("${BrowserResolver.domainOf(session.resolvedUrl)} looks sensitive. Open it?", color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text("Open this URL?\n${session.resolvedUrl}", color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         Button(onClick = onConfirmDomain) { Text("Open it") }
                         OutlinedButton(onClick = onCancel) { Text("Cancel") }
@@ -532,16 +534,16 @@ private fun BrowserPauseBar(
                     }
                     Text("Then type \"continue\" below.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
-                BrowserSession.PENDING_DRAFT_CONFIRM -> {
-                    Text("Review before sending:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                BrowserSession.PENDING_ACTION_CONFIRM -> {
+                    Text("Review this action:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                        Text(session.pendingDraft.orEmpty(), Modifier.padding(Spacing.s), style = MaterialTheme.typography.bodyMedium)
+                        Text(session.pendingDraft.orEmpty(), Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()).padding(Spacing.s), style = MaterialTheme.typography.bodyMedium)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         Button(onClick = onConfirmSend) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Send")
+                            Icon(Icons.AutoMirrored.Filled.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Approve action")
                         }
-                        OutlinedButton(onClick = onCancel) { Text("Don't send") }
+                        OutlinedButton(onClick = onCancel) { Text("Cancel action") }
                     }
                 }
             }

@@ -68,6 +68,7 @@ fun ResearchWorkspaceScreen(
 ) {
     val state by chatViewModel.researchWorkspace.collectAsState()
     val context = LocalContext.current
+    val exportScope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val workspace = state ?: return
 
@@ -116,6 +117,7 @@ fun ResearchWorkspaceScreen(
                 onExport = {
                     ArtifactExport.printArtifact(
                         context,
+                        exportScope,
                         workspace.research.topic,
                         Artifact.TYPE_MARKDOWN,
                         workspace.research.report,

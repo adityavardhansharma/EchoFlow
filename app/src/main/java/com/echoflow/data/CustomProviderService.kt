@@ -148,6 +148,18 @@ data class ProviderValidationResult(
 
 class CustomProviderService(private val context: Context? = null) {
     private val client = OkHttpClient.Builder()
+        .addNetworkInterceptor { chain ->
+            if (!chain.request().url.isHttps) {
+                require(chain.request().header("Authorization").isNullOrBlank()) {
+                    "HTTP provider endpoints cannot send API credentials. Use HTTPS for authenticated providers."
+                }
+                val address = chain.connection()?.route()?.socketAddress?.address
+                require(address != null && (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress)) {
+                    "Plain HTTP is allowed only for localhost or private LAN providers."
+                }
+            }
+            chain.proceed(chain.request())
+        }
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -232,7 +244,7 @@ class CustomProviderService(private val context: Context? = null) {
             .url(joinUrl(OpenAiResponses.DEFAULT_BASE_URL, OpenAiResponses.PATH))
             .addHeader("Content-Type", "application/json")
             .addHeader("Authorization", "Bearer ${apiKey.trim()}")
-            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception(customError("OpenAI", response.code, response.body?.string().orEmpty()))
@@ -274,7 +286,7 @@ class CustomProviderService(private val context: Context? = null) {
             .addHeader("x-api-key", apiKey.trim())
             .addHeader("anthropic-version", "2023-06-01")
             .addHeader("Content-Type", "application/json")
-            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception(customError("Claude", response.code, response.body?.string().orEmpty()))
@@ -323,7 +335,7 @@ class CustomProviderService(private val context: Context? = null) {
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:streamGenerateContent?key=${apiKey.trim()}&alt=sse")
             .addHeader("Content-Type", "application/json")
-            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, response.body?.string().orEmpty()))
@@ -375,7 +387,7 @@ class CustomProviderService(private val context: Context? = null) {
             .url(joinUrl(baseUrl, "chat/completions"))
             .addHeader("Content-Type", "application/json")
             .apply { apiKey.trim().takeIf { it.isNotEmpty() }?.let { addHeader("Authorization", "Bearer $it") } }
-            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -422,7 +434,7 @@ class CustomProviderService(private val context: Context? = null) {
         val request = Request.Builder()
             .url(joinUrl(baseUrl, "api/chat"))
             .addHeader("Content-Type", "application/json")
-            .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -478,7 +490,7 @@ class CustomProviderService(private val context: Context? = null) {
                 .url(joinUrl(baseUrl, "chat/completions"))
                 .addHeader("Content-Type", "application/json")
                 .apply { apiKey.trim().takeIf { it.isNotEmpty() }?.let { addHeader("Authorization", "Bearer $it") } }
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) ProviderValidationResult(false, customError("OpenAI-compatible provider", response.code, response.body?.string().orEmpty()))
@@ -516,7 +528,7 @@ class CustomProviderService(private val context: Context? = null) {
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "api/chat"))
                 .addHeader("Content-Type", "application/json")
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) ProviderValidationResult(false, customError("Ollama", response.code, response.body?.string().orEmpty()))

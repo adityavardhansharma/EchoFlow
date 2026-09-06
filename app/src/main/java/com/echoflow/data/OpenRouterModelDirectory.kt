@@ -16,6 +16,7 @@ data class OpenRouterModelInfo(
     val contextLength: Int?,
     val promptPricePerM: Double?, // USD per 1M prompt tokens
     val completionPricePerM: Double?, // USD per 1M completion tokens
+    val acceptsImages: Boolean? = null,
     val outputsImage: Boolean = false, // architecture.output_modalities contains "image"
     val outputsText: Boolean = true, // architecture.output_modalities contains "text"
     /** True when OpenRouter bills image output separately from prompt/completion tokens. */
@@ -81,12 +82,19 @@ class OpenRouterModelDirectory {
             }
             val body = response.body?.string().orEmpty()
             val models = parseDirectory(body).filter(keep)
+            models.forEach { model -> model.contextLength?.takeIf { it > 0 }?.let { contextLengths[model.id] = it } }
+            models.forEach { model -> model.acceptsImages?.let { imageInputs[model.id] = it } }
             store(models)
             models
         }
     }
 
     companion object {
+        private val imageInputs = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+        fun imageInputSupport(model: String): Boolean? = imageInputs[model]
+        private val contextLengths = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        fun contextTokens(model: String): Int = contextLengths[model] ?: 8192
+
         const val CHAT_DIRECTORY_URL = "https://openrouter.ai/api/v1/models"
         const val IMAGE_DIRECTORY_URL = "https://openrouter.ai/api/v1/models?output_modalities=image"
 
@@ -101,6 +109,7 @@ class OpenRouterModelDirectory {
                     contextLength = raw.contextLength,
                     promptPricePerM = raw.pricing?.prompt?.toDoubleOrNull()?.times(1_000_000),
                     completionPricePerM = raw.pricing?.completion?.toDoubleOrNull()?.times(1_000_000),
+                    acceptsImages = raw.architecture?.inputModalities?.contains("image"),
                     outputsImage = outputs.any { it.equals("image", ignoreCase = true) },
                     outputsText = outputs.any { it.equals("text", ignoreCase = true) } || outputs.isEmpty(),
                     hasImageOutputPrice = raw.pricing?.imageOutput
@@ -142,6 +151,7 @@ internal data class RawModel(
 )
 
 internal data class RawArchitecture(
+    @Json(name = "input_modalities") val inputModalities: List<String>? = null,
     @Json(name = "output_modalities") val outputModalities: List<String>? = null,
 )
 

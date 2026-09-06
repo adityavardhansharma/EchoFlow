@@ -16,6 +16,7 @@ data class SearchSource(
 
 /** A piece of a streamed completion. The UI renders these in arrival order. */
 sealed class StreamChunk {
+    data class Usage(val inputTokens: Int?, val outputTokens: Int?, val costUsd: Double?) : StreamChunk()
     data class Reasoning(val text: String) : StreamChunk()
     data class Content(val text: String) : StreamChunk()
 

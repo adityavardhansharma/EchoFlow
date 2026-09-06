@@ -6,9 +6,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class SettingsRepository(context: Context) {
+class SettingsRepository(
+    context: Context,
+    private val prefs: SharedPreferences = SettingsPreferenceStorage.secure(context),
+) {
     private val legacyPrefs: SharedPreferences = SettingsPreferenceStorage.legacy(context)
-    private val prefs: SharedPreferences = SettingsPreferenceStorage.secureOrNull(context) ?: legacyPrefs
 
     init {
         SettingsPreferenceStorage.migrateLegacyIfNeeded(legacyPrefs, prefs)

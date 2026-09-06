@@ -13,7 +13,7 @@ internal object SettingsPreferenceStorage {
     fun legacy(context: Context): SharedPreferences =
         context.getSharedPreferences(LEGACY_FILE, Context.MODE_PRIVATE)
 
-    fun secureOrNull(context: Context): SharedPreferences? = runCatching {
+    fun secure(context: Context): SharedPreferences = try {
         val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         EncryptedSharedPreferences.create(
             context,
@@ -22,13 +22,16 @@ internal object SettingsPreferenceStorage {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
-    }.getOrNull()
+    } catch (e: Exception) {
+        throw IllegalStateException("Secure settings could not be opened. Unlock your device and retry. Your keys have not been moved or reset.", e)
+    }
 
     fun migrateLegacyIfNeeded(legacy: SharedPreferences, destination: SharedPreferences) {
-        if (destination === legacy || destination.getBoolean(MIGRATED_KEY, false)) return
+        require(destination !== legacy) { "Secret migration requires separate secure storage." }
+        if (legacy.all.isEmpty()) return
         val edit = destination.edit()
         legacy.all.forEach { (key, value) ->
-            if (destination.contains(key)) return@forEach
+            if (destination.getBoolean(MIGRATED_KEY, false) || destination.contains(key)) return@forEach
             when (value) {
                 is String -> edit.putString(key, value)
                 is Boolean -> edit.putBoolean(key, value)
@@ -41,6 +44,7 @@ internal object SettingsPreferenceStorage {
                 }
             }
         }
-        edit.putBoolean(MIGRATED_KEY, true).apply()
+        check(edit.putBoolean(MIGRATED_KEY, true).commit()) { "Could not persist secure settings." }
+        check(legacy.edit().clear().commit()) { "Could not remove legacy settings. Retry migration." }
     }
 }

@@ -1,39 +1,32 @@
 package com.echoflow.data
 
-import com.echoflow.data.BrowserSession.Companion.PENDING_CONFIRM_DOMAIN
 import com.echoflow.data.BrowserSession.Companion.PENDING_DISAMBIGUATION
-import com.echoflow.data.BrowserSession.Companion.PENDING_DRAFT_CONFIRM
+import com.echoflow.data.BrowserSession.Companion.PENDING_CONFIRM_DOMAIN
 import com.echoflow.data.BrowserSession.Companion.PENDING_HANDOFF
-import com.echoflow.data.BrowserSession.Companion.STATUS_AWAITING_INSTRUCTION
-import com.echoflow.data.BrowserSession.Companion.STATUS_AWAITING_USER
-import com.echoflow.data.BrowserSession.Companion.STATUS_COMPLETED
+import com.echoflow.data.BrowserSession.Companion.PENDING_ACTION_CONFIRM
 import com.echoflow.data.BrowserSession.Companion.STATUS_EXPIRED
-import com.echoflow.data.BrowserSession.Companion.STATUS_FAILED
 import com.echoflow.data.BrowserSession.Companion.STATUS_RESOLVING
-import com.echoflow.data.BrowserSession.Companion.STATUS_RUNNING
+import com.echoflow.data.BrowserSession.Companion.STATUS_AWAITING_INSTRUCTION
+import com.echoflow.data.BrowserSession.Companion.STATUS_FAILED
+import com.echoflow.data.BrowserSession.Companion.STATUS_AWAITING_USER
 import com.echoflow.data.BrowserSession.Companion.STATUS_STARTING
+import com.echoflow.data.BrowserSession.Companion.STATUS_RUNNING
 import com.echoflow.data.BrowserSession.Companion.STATUS_STOPPED
+import com.echoflow.data.BrowserSession.Companion.STATUS_COMPLETED
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-/**
- * Orchestrates Browser Flow: the stateful, multi-turn Firecrawl browser session controlled
- * through chat. It is the only writer to [BrowserSession]/[BrowserStep]; the UI observes those
- * rows. Each turn is one request/response `/interact` call (no streaming) — the live browser
- * WebView is the real-time feedback channel.
- *
- * Lifecycle decisions (see design notes): per-turn work runs in the supplied [scope]
- * (viewModelScope) — no foreground service. Firecrawl's TTL caps billing; on relaunch
- * [sweepOrphans] conservatively expires any session left active by a previous process, and an
- * [idleWatcher] auto-closes idle sessions as a cost guard.
- */
+/** Plans one typed action, persists approval, then executes exactly that action once. */
 class BrowserAgentManager(
     private val chatDao: ChatDao,
     private val messageDao: MessageDao,
@@ -42,481 +35,208 @@ class BrowserAgentManager(
     private val settings: SettingsRepository,
     private val webSearch: WebSearchService,
     private val scope: CoroutineScope,
+    private val planner: suspend (String, String) -> String,
+    private val firecrawl: FirecrawlBrowserService = FirecrawlBrowserService(),
 ) {
-    private val firecrawl = FirecrawlBrowserService()
-
-    /** The single app-wide live session (the start-a-session lock + the global pill). */
-    val activeSession: StateFlow<BrowserSession?> =
-        sessionDao.observeAnyActive().stateIn(scope, SharingStarted.Eagerly, null)
-
-    /** Auto-open request: set when a session goes live so the workspace can pop open. */
+    private var commandJob: Job? = null
+    private var closingJob: Job? = null
+    val activeSession = sessionDao.observeAnyActive().stateIn(scope, SharingStarted.Eagerly, null)
     private val _openWorkspaceFor = MutableStateFlow<String?>(null)
-    val openWorkspaceFor: StateFlow<String?> = _openWorkspaceFor.asStateFlow()
-
+    val openWorkspaceFor = _openWorkspaceFor.asStateFlow()
     fun requestOpenWorkspace(chatId: String) { _openWorkspaceFor.value = chatId }
     fun clearWorkspaceRequest() { _openWorkspaceFor.value = null }
-
     fun observeForChat(chatId: String) = sessionDao.observeActiveForChat(chatId)
     fun observeSteps(sessionId: String) = stepDao.observeForSession(sessionId)
 
+    private val startup = scope.launch {
+        sessionDao.getAllActive().forEach { close(it, STATUS_EXPIRED) }
+    }
     init {
-        scope.launch { sweepOrphans() }
-        scope.launch { idleWatcher() }
-    }
-
-    // ── Public entry points ────────────────────────────────────────────────────────────
-
-    /** Ignite a new session in [chatId] from the first [instruction]. */
-    fun startSession(chatId: String, instruction: String) {
         scope.launch {
-            val now = System.currentTimeMillis()
-            val sessionId = UUID.randomUUID().toString()
-            insertUser(chatId, instruction)
-            val session = BrowserSession(
-                id = sessionId,
-                chatId = chatId,
-                goal = instruction,
-                status = STATUS_RESOLVING,
-                phase = "Finding site…",
-                createdAt = now,
-                updatedAt = now,
-                lastActivityAt = now,
-            )
-            save(session)
-            addStep(sessionId, "system", "Browser Flow started.")
-            addStep(sessionId, "user", instruction)
-            if (settings.getSearchApiKeyDirect("firecrawl").isBlank()) {
-                fail(session, "Add your Firecrawl API key in Settings → Web search.")
-                return@launch
-            }
-            resolveAndProceed(session, instruction)
-        }
-    }
-
-    /** A message in the owning chat: continue the same session (or answer a pending question). */
-    fun sendCommand(chatId: String, text: String) {
-        scope.launch {
-            val session = sessionDao.getActiveForChat(chatId) ?: return@launch
-            if (session.status == STATUS_STARTING || session.status == STATUS_RUNNING) {
-                addStep(session.id, "system", "Still working on the previous command.")
-                return@launch
-            }
-            insertUser(chatId, text)
-            addStep(session.id, "user", text)
-            val touched = session.copy(lastActivityAt = System.currentTimeMillis())
-            if (session.status == STATUS_AWAITING_USER &&
-                (session.pendingKind == PENDING_DISAMBIGUATION || session.pendingKind == PENDING_CONFIRM_DOMAIN)
-            ) {
-                // A typed reply during site-resolution is itself a URL/name to resolve.
-                save(touched.copy(status = STATUS_RESOLVING, phase = "Finding site…"))
-                resolveAndProceed(touched, text)
-            } else {
-                runTurn(touched, text)
+            while (true) {
+                delay(30_000)
+                val s = activeSession.value ?: continue
+                val minutes = settings.getBrowserIdleMinutesDirect()
+                if (minutes > 0 && commandJob?.isActive != true &&
+                    System.currentTimeMillis() - s.lastActivityAt > minutes * 60_000L) stop(s.id)
             }
         }
     }
 
-    /** Disambiguation chip tapped. */
-    fun resolveCandidate(sessionId: String, url: String) {
-        scope.launch {
-            val s = sessionDao.getById(sessionId) ?: return@launch
-            addStep(sessionId, "user", "Use ${BrowserResolver.domainOf(url)}")
-            if (BrowserResolver.isSensitive(url)) askConfirmDomain(s, url)
-            else beginScrape(s.copy(resolvedUrl = url), s.goal)
+    private fun command(block: suspend () -> Unit) {
+        if (commandJob?.isActive == true || closingJob?.isActive == true) {
+            scope.launch {
+                activeSession.value?.let { addStep(it.id, "system", "Still working on the previous command.") }
+            }
+            return
+        }
+        commandJob = scope.launch(start = CoroutineStart.LAZY) {
+            startup.join()
+            block()
+        }.also { it.start() }
+    }
+    private fun key() = settings.getSearchApiKeyDirect("firecrawl").also {
+        require(it.isNotBlank()) { "Add your Firecrawl API key in Settings → Web search." }
+    }
+    private suspend fun guarded(s: BrowserSession, block: suspend () -> Unit) {
+        try { block() } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            val current = sessionDao.getById(s.id) ?: return
+            if (!current.isTerminal) {
+                val error = e.message ?: "Browser action failed."
+                save(current.copy(status = if (current.hasLiveBrowser) STATUS_AWAITING_INSTRUCTION else STATUS_FAILED,
+                    phase = "Action did not complete", error = error, pendingKind = null,
+                    pendingDraft = null, pendingInstruction = null))
+                addStep(s.id, "system", error)
+                insertMessage(s.chatId, "assistant", error)
+            }
         }
     }
 
-    /** Sensitive-site confirmation accepted. */
-    fun confirmDomain(sessionId: String) {
-        scope.launch {
-            val s = sessionDao.getById(sessionId) ?: return@launch
-            if (s.resolvedUrl == null) return@launch
-            addStep(sessionId, "user", "Confirmed — open ${BrowserResolver.domainOf(s.resolvedUrl)}")
-            beginScrape(s, s.goal)
+    fun startSession(chatId: String, instruction: String) = command {
+        if (sessionDao.getAllActive().isNotEmpty()) return@command
+        val now = System.currentTimeMillis()
+        val s = BrowserSession(id = UUID.randomUUID().toString(), chatId = chatId, goal = instruction,
+            status = STATUS_RESOLVING, phase = "Finding site…", createdAt = now, updatedAt = now, lastActivityAt = now)
+        save(s)
+        guarded(s) {
+            key()
+            insertMessage(chatId, "user", instruction)
+            resolve(s, instruction)
         }
     }
 
-    /** Draft message approved — actually send it. */
-    fun confirmSend(sessionId: String) {
-        scope.launch {
-            val s = sessionDao.getById(sessionId) ?: return@launch
-            val draft = s.pendingDraft ?: return@launch
-            val scrapeId = s.scrapeId ?: run { softFail(s, "Lost the browser session."); return@launch }
-            addStep(sessionId, "user", "Approved — send it")
-            val cleared = s.copy(status = STATUS_RUNNING, phase = "Sending…", pendingKind = null, pendingDraft = null)
-            save(cleared)
+    fun sendCommand(chatId: String, text: String) = command {
+        val s = sessionDao.getActiveForChat(chatId) ?: return@command
+        guarded(s) {
+            insertMessage(chatId, "user", text)
+            // A new command invalidates any older proposal. Typed 'yes' cannot approve it.
+            val fresh = s.copy(pendingKind = null, pendingDraft = null, pendingInstruction = null,
+                lastActivityAt = System.currentTimeMillis())
+            save(fresh)
+            if (s.hasLiveBrowser) plan(fresh, text)
+            else resolve(fresh, text)
+        }
+    }
+
+    private suspend fun resolve(s: BrowserSession, text: String) {
+        BrowserResolver.extractUrl(text)?.let { askDomain(s, it); return }
+        val provider = settings.resolveChipSearchProvider()
+        val sources = if (provider != null && ClientSearchProviders.isReady(provider, settings.getSearchApiKeyDirect(provider))) {
             try {
-                val r = firecrawl.interact(
-                    settings.getSearchApiKeyDirect("firecrawl"),
-                    scrapeId,
-                    SystemPrompts.browserSendConfirmedPrompt(draft),
-                )
-                val out = r.output.ifBlank { "Sent." }
-                save(
-                    cleared.copy(
-                        status = STATUS_AWAITING_INSTRUCTION,
-                        phase = "Waiting for next instruction",
-                        lastOutput = out,
-                        lastActivityAt = System.currentTimeMillis(),
-                        liveViewUrl = r.liveViewUrl ?: s.liveViewUrl,
-                        interactiveLiveViewUrl = r.interactiveLiveViewUrl ?: s.interactiveLiveViewUrl,
-                    )
-                )
-                addStep(sessionId, "agent", out)
-                insertAssistant(s.chatId, out)
-            } catch (e: Exception) {
-                softFail(cleared, e.message ?: "Sending failed.")
+                webSearch.search(provider, settings.getSearchApiKeyDirect(provider), BrowserResolutionPolicy.websiteQuery(text), 6)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                addStep(s.id, "system", "Site search failed; paste an HTTPS URL to continue.")
+                emptyList()
             }
+        } else emptyList()
+        val candidates = BrowserResolver.rankCandidates(sources, text).filter { BrowserActions.validUrl(it.url) }
+        save(s.copy(status = STATUS_AWAITING_USER, pendingKind = PENDING_DISAMBIGUATION,
+            candidatesJson = BrowserJson.candidatesToJson(candidates), phase = "Choose a site or paste its HTTPS URL"))
+    }
+    private suspend fun askDomain(s: BrowserSession, url: String) {
+        require(BrowserActions.validUrl(url)) { "Use an HTTPS website URL without embedded credentials." }
+        save(s.copy(status = STATUS_AWAITING_USER, pendingKind = PENDING_CONFIRM_DOMAIN,
+            resolvedUrl = url, pendingInstruction = UUID.randomUUID().toString(),
+            lastActivityAt = System.currentTimeMillis(), phase = "Approve opening this URL"))
+        requestOpenWorkspace(s.chatId)
+    }
+    fun resolveCandidate(sessionId: String, url: String) = command {
+        val s = sessionDao.getById(sessionId) ?: return@command
+        if (s.pendingKind != PENDING_DISAMBIGUATION || s.isTerminal) return@command
+        guarded(s) { askDomain(s, url) }
+    }
+    fun confirmDomain(sessionId: String, expectedToken: String?) = command {
+        val s = sessionDao.getById(sessionId) ?: return@command
+        if (expectedToken == null || s.pendingInstruction != expectedToken || s.pendingKind != PENDING_CONFIRM_DOMAIN || s.isTerminal) return@command
+        guarded(s) {
+            require(System.currentTimeMillis() - s.lastActivityAt <= BrowserActions.APPROVAL_LIFETIME_MS) { "Opening approval expired. Choose the URL again." }
+            save(s.copy(status = STATUS_STARTING, pendingInstruction = null, pendingKind = null, phase = "Opening browser…"))
+            val opened = firecrawl.startSession(key(), s.resolvedUrl!!)
+            val current = s.copy(status = STATUS_RUNNING, scrapeId = opened.scrapeId,
+                liveViewUrl = opened.liveViewUrl, interactiveLiveViewUrl = opened.interactiveLiveViewUrl,
+                openedAt = System.currentTimeMillis(), pendingKind = null, pendingInstruction = null)
+            save(current)
+            requestOpenWorkspace(s.chatId)
+            plan(current, s.goal)
         }
     }
 
-    /** Cancel a pending confirmation/handoff. Keeps the browser open if one exists. */
-    fun cancelPending(sessionId: String) {
-        scope.launch {
-            val s = sessionDao.getById(sessionId) ?: return@launch
-            if (!s.hasLiveBrowser) { stopInternal(s, expired = false); return@launch }
-            addStep(sessionId, "user", "Cancelled.")
-            save(
-                s.copy(
-                    status = STATUS_AWAITING_INSTRUCTION,
-                    phase = "Waiting for next instruction",
-                    pendingKind = null,
-                    pendingDraft = null,
-                    lastActivityAt = System.currentTimeMillis(),
-                )
-            )
+    private suspend fun plan(s: BrowserSession, instruction: String) {
+        save(s.copy(status = STATUS_RUNNING, phase = "Reading page and proposing next step…",
+            pendingKind = null, pendingDraft = null, pendingInstruction = null))
+        val (snapshot, live) = firecrawl.snapshot(key(), s.scrapeId!!)
+        val raw = planner(BrowserActions.plannerPrompt,
+            "User instruction:\n$instruction\n\nUntrusted page snapshot:\n${BrowserActions.snapshotJson(snapshot)}")
+        val action = BrowserActions.parseAction(raw, snapshot)
+        val current = s.copy(resolvedUrl = snapshot.url, liveViewUrl = live.liveViewUrl ?: s.liveViewUrl,
+            interactiveLiveViewUrl = live.interactiveLiveViewUrl ?: s.interactiveLiveViewUrl,
+            pendingDraft = null, pendingInstruction = null, error = null, lastActivityAt = System.currentTimeMillis())
+        if (action.type == "answer" || action.type == "handoff") {
+            save(current.copy(status = if (action.type == "handoff") STATUS_AWAITING_USER else STATUS_AWAITING_INSTRUCTION,
+                pendingKind = if (action.type == "handoff") PENDING_HANDOFF else null,
+                lastOutput = action.text, phase = "Waiting for you"))
+            insertMessage(s.chatId, "assistant", action.text)
+            addStep(s.id, "agent", action.text)
+        } else {
+            val proposed = BrowserActions.proposal(action, snapshot, instruction, System.currentTimeMillis())
+            save(current.copy(status = STATUS_AWAITING_USER, pendingKind = PENDING_ACTION_CONFIRM,
+                pendingInstruction = BrowserActions.encode(proposed), pendingDraft = BrowserActions.describe(proposed),
+                phase = "Approve one browser action"))
+            addStep(s.id, "agent", "Proposed ${action.type}; waiting for approval.")
         }
     }
 
-    /** Finish: ask for a closing summary, save it, then close the session. */
-    fun finish(sessionId: String) { scope.launch { finishNow(sessionId) } }
-
-    suspend fun finishNow(sessionId: String) {
-        val s = sessionDao.getById(sessionId) ?: return
-        if (s.isTerminal) return
-        save(s.copy(status = STATUS_RUNNING, phase = "Wrapping up…"))
-        if (s.hasLiveBrowser) {
-            val key = settings.getSearchApiKeyDirect("firecrawl")
-            runCatching {
-                val r = firecrawl.interact(key, s.scrapeId!!, SystemPrompts.browserFinishPrompt())
-                if (r.output.isNotBlank()) {
-                    addStep(sessionId, "agent", r.output)
-                    insertAssistant(s.chatId, r.output)
-                }
-            }
-            firecrawl.stop(key, s.scrapeId!!)
+    fun confirmSend(sessionId: String, expectedToken: String?) = command {
+        val s = sessionDao.getById(sessionId) ?: return@command
+        if (expectedToken == null || s.pendingKind != PENDING_ACTION_CONFIRM || s.pendingInstruction != expectedToken || s.isTerminal) return@command
+        guarded(s) {
+            val pending = BrowserActions.decode(expectedToken)
+            require(System.currentTimeMillis() <= pending.expiresAt) { "Approval expired. Request the action again." }
+            // Persist consumption BEFORE making the external call. No automatic retry after ambiguity.
+            save(s.copy(status = STATUS_RUNNING, pendingKind = null, pendingInstruction = null,
+                pendingDraft = null, phase = "Executing approved action…"))
+            firecrawl.executeApproved(key(), s.scrapeId!!, pending)
+            addStep(s.id, "user", "Approved and executed: ${BrowserActions.describe(pending)}")
+            plan(s.copy(pendingKind = null, pendingInstruction = null, pendingDraft = null), pending.instruction)
         }
-        addStep(sessionId, "system", "Session finished.")
-        save(s.copy(status = STATUS_COMPLETED, phase = "Finished", pendingKind = null, pendingDraft = null))
+    }
+    fun cancelPending(sessionId: String) = command {
+        val s = sessionDao.getById(sessionId) ?: return@command
+        if (s.isTerminal) return@command
+        if (!s.hasLiveBrowser) close(s, STATUS_STOPPED)
+        else save(s.copy(status = STATUS_AWAITING_INSTRUCTION, pendingKind = null, pendingDraft = null,
+            pendingInstruction = null, phase = "Action cancelled", lastActivityAt = System.currentTimeMillis()))
+    }
+    fun finish(sessionId: String) { endSession(sessionId, STATUS_COMPLETED) }
+    suspend fun finishNow(sessionId: String) { endSession(sessionId, STATUS_COMPLETED).join() }
+    fun stop(sessionId: String) { endSession(sessionId, STATUS_STOPPED) }
+    private fun endSession(sessionId: String, status: String): Job {
+        closingJob?.takeIf { it.isActive }?.let { return it }
+        val previous = commandJob
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            previous?.cancelAndJoin()
+            startup.join()
+            sessionDao.getById(sessionId)?.takeUnless { it.isTerminal }?.let { close(it, status) }
+        }
+        closingJob = job
+        job.start()
+        return job
+    }
+    private suspend fun close(s: BrowserSession, status: String) {
+        // Mark terminal even if best-effort remote cleanup fails.
+        save(s.copy(status = status, phase = if (status == STATUS_COMPLETED) "Finished" else "Closed",
+            pendingKind = null, pendingDraft = null, pendingInstruction = null))
+        if (s.hasLiveBrowser) firecrawl.stop(settings.getSearchApiKeyDirect("firecrawl"), s.scrapeId!!)
         if (_openWorkspaceFor.value == s.chatId) _openWorkspaceFor.value = null
     }
-
-    /** Stop now: close immediately, no summary. */
-    fun stop(sessionId: String) {
-        scope.launch {
-            val s = sessionDao.getById(sessionId) ?: return@launch
-            stopInternal(s, expired = false)
-        }
-    }
-
-    // ── Resolution ─────────────────────────────────────────────────────────────────────
-
-    /**
-     * Resolve a website from [searchText] (a URL, the first instruction, or a typed reply during
-     * disambiguation). The *task* to run once a browser opens is always [BrowserSession.goal], so
-     * the original objective survives any number of resolution round-trips.
-     */
-    private suspend fun resolveAndProceed(session: BrowserSession, searchText: String) {
-        BrowserResolver.extractUrl(searchText)?.let { direct ->
-            if (BrowserResolver.isSensitive(direct)) askConfirmDomain(session, direct)
-            else beginScrape(session.copy(resolvedUrl = direct), session.goal)
-            return
-        }
-
-        val provider = settings.resolveChipSearchProvider()
-            ?.takeIf { ClientSearchProviders.requiresApiKey(it) }
-        val searchKey = provider?.let { settings.getSearchApiKeyDirect(it) }.orEmpty()
-        if (provider == null || searchKey.isBlank()) {
-            askForUrl(session, "I can't look that up — no web-search key is set. Paste the website URL.")
-            return
-        }
-
-        val results = runCatching {
-            webSearch.search(provider, searchKey, BrowserResolutionPolicy.websiteQuery(searchText), 6)
-        }
-            .getOrNull().orEmpty()
-        val candidates = BrowserResolver.rankCandidates(results, searchText)
-        val top = candidates.firstOrNull()
-        when {
-            top == null -> askForUrl(session, "I couldn't find that site. Paste the URL or type the exact name.")
-            BrowserResolutionPolicy.isConfident(top, searchText) -> {
-                if (BrowserResolver.isSensitive(top.url)) askConfirmDomain(session, top.url)
-                else beginScrape(session.copy(resolvedUrl = top.url), session.goal)
-            }
-            else -> askDisambiguation(session, candidates)
-        }
-    }
-
-    private suspend fun askForUrl(session: BrowserSession, message: String) {
-        addStep(session.id, "system", message)
-        save(
-            session.copy(
-                status = STATUS_AWAITING_USER,
-                pendingKind = PENDING_DISAMBIGUATION,
-                candidatesJson = null,
-                phase = "Which site?",
-            )
-        )
-    }
-
-    private suspend fun askDisambiguation(session: BrowserSession, candidates: List<BrowserCandidate>) {
-        addStep(session.id, "system", "Found a few sites — choose which one to open.")
-        save(
-            session.copy(
-                status = STATUS_AWAITING_USER,
-                pendingKind = PENDING_DISAMBIGUATION,
-                candidatesJson = BrowserJson.candidatesToJson(candidates),
-                phase = "Which site?",
-            )
-        )
-    }
-
-    private suspend fun askConfirmDomain(session: BrowserSession, url: String) {
-        addStep(session.id, "system", "${BrowserResolver.domainOf(url)} looks sensitive — confirm before I open it.")
-        save(
-            session.copy(
-                status = STATUS_AWAITING_USER,
-                pendingKind = PENDING_CONFIRM_DOMAIN,
-                resolvedUrl = url,
-                candidatesJson = null,
-                phase = "Confirm sensitive site",
-            )
-        )
-    }
-
-    // ── Browser open + interact ─────────────────────────────────────────────────────────
-
-    private suspend fun beginScrape(session: BrowserSession, instruction: String) {
-        val url = session.resolvedUrl ?: return
-        save(
-            session.copy(
-                status = STATUS_STARTING,
-                phase = "Opening browser…",
-                pendingKind = null,
-                pendingInstruction = null,
-                candidatesJson = null,
-            )
-        )
-        addStep(session.id, "system", "Opening ${BrowserResolver.domainOf(url)}…")
-        try {
-            val start = firecrawl.startSession(settings.getSearchApiKeyDirect("firecrawl"), url)
-            val now = System.currentTimeMillis()
-            val opened = session.copy(
-                status = STATUS_RUNNING,
-                phase = "Running instruction…",
-                scrapeId = start.scrapeId,
-                liveViewUrl = start.liveViewUrl,
-                interactiveLiveViewUrl = start.interactiveLiveViewUrl,
-                resolvedUrl = url,
-                openedAt = now,
-                pendingKind = null,
-                pendingInstruction = null,
-                candidatesJson = null,
-                lastActivityAt = now,
-            )
-            save(opened)
-            requestOpenWorkspace(session.chatId) // auto-open on first start
-            runInteract(opened, instruction, isFirst = true)
-        } catch (e: Exception) {
-            fail(session, e.message ?: "Couldn't open the browser.")
-        }
-    }
-
-    private suspend fun runTurn(session: BrowserSession, text: String) {
-        if (!session.hasLiveBrowser) {
-            softFail(session, "The browser session is no longer available. Start a new one.")
-            return
-        }
-        when (BrowserResolver.classifyInstruction(text)) {
-            BrowserResolver.RiskKind.HARD -> handoff(
-                session,
-                "This step looks like a payment or an irreversible action. Open the live browser and " +
-                    "complete it yourself — I won't automate payments, checkout or account changes.",
-            )
-            BrowserResolver.RiskKind.SEND -> runInteract(session, text, isFirst = false, draftMode = true)
-            null -> runInteract(session, text, isFirst = false)
-        }
-    }
-
-    private suspend fun runInteract(session: BrowserSession, instruction: String, isFirst: Boolean, draftMode: Boolean = false) {
-        val scrapeId = session.scrapeId ?: run { softFail(session, "Lost the browser session."); return }
-        save(
-            session.copy(
-                status = STATUS_RUNNING,
-                phase = if (draftMode) "Composing…" else if (isFirst) "Running instruction…" else "Running…",
-                lastActivityAt = System.currentTimeMillis(),
-            )
-        )
-        try {
-            val r = firecrawl.interact(
-                settings.getSearchApiKeyDirect("firecrawl"),
-                scrapeId,
-                SystemPrompts.browserInteractPrompt(instruction, draftMode),
-            )
-            val out = r.output.ifBlank { "Done." }
-            val withUrls = session.copy(
-                liveViewUrl = r.liveViewUrl ?: session.liveViewUrl,
-                interactiveLiveViewUrl = r.interactiveLiveViewUrl ?: session.interactiveLiveViewUrl,
-                lastActivityAt = System.currentTimeMillis(),
-            )
-            val blocker = BrowserResolver.detectBlocker(out)
-            when {
-                draftMode -> {
-                    save(
-                        withUrls.copy(
-                            status = STATUS_AWAITING_USER,
-                            pendingKind = PENDING_DRAFT_CONFIRM,
-                            pendingDraft = out,
-                            phase = "Confirm before sending",
-                            lastOutput = out,
-                        )
-                    )
-                    addStep(session.id, "agent", "Drafted a message — awaiting your confirmation.")
-                }
-                blocker != null -> handoff(withUrls.copy(lastOutput = out), blocker)
-                else -> {
-                    save(
-                        withUrls.copy(
-                            status = STATUS_AWAITING_INSTRUCTION,
-                            phase = "Waiting for next instruction",
-                            pendingKind = null,
-                            pendingDraft = null,
-                            lastOutput = out,
-                            error = null,
-                        )
-                    )
-                    addStep(session.id, "agent", out)
-                    insertAssistant(session.chatId, out)
-                }
-            }
-        } catch (e: Exception) {
-            softFail(session, e.message ?: "The browser action failed.")
-        }
-    }
-
-    private suspend fun handoff(session: BrowserSession, message: String) {
-        save(
-            session.copy(
-                status = STATUS_AWAITING_USER,
-                pendingKind = PENDING_HANDOFF,
-                phase = "Needs you",
-                lastOutput = message,
-                lastActivityAt = System.currentTimeMillis(),
-            )
-        )
-        addStep(session.id, "system", message)
-        insertAssistant(session.chatId, message)
-    }
-
-    // ── Termination + housekeeping ──────────────────────────────────────────────────────
-
-    private suspend fun stopInternal(session: BrowserSession, expired: Boolean) {
-        if (session.hasLiveBrowser) {
-            val key = settings.getSearchApiKeyDirect("firecrawl")
-            if (key.isNotBlank()) firecrawl.stop(key, session.scrapeId!!)
-        }
-        addStep(session.id, "system", if (expired) "Session expired or was interrupted." else "Session stopped.")
-        save(
-            session.copy(
-                status = if (expired) STATUS_EXPIRED else STATUS_STOPPED,
-                phase = if (expired) "Expired" else "Stopped",
-                pendingKind = null,
-                pendingDraft = null,
-            )
-        )
-        if (_openWorkspaceFor.value == session.chatId) _openWorkspaceFor.value = null
-    }
-
-    /** Terminal failure (no browser, or session gone): close and mark failed. */
-    private suspend fun fail(session: BrowserSession, message: String) {
-        if (session.hasLiveBrowser) {
-            val key = settings.getSearchApiKeyDirect("firecrawl")
-            if (key.isNotBlank()) runCatching { firecrawl.stop(key, session.scrapeId!!) }
-        }
-        addStep(session.id, "system", "Error: $message")
-        save(session.copy(status = STATUS_FAILED, phase = "Failed", error = message, pendingKind = null, pendingDraft = null))
-        if (_openWorkspaceFor.value == session.chatId) _openWorkspaceFor.value = null
-    }
-
-    /** Transient action failure: keep the live browser open unless the session is gone. */
-    private suspend fun softFail(session: BrowserSession, message: String) {
-        val sessionGone = message.contains("expired", ignoreCase = true) ||
-            message.contains("start a new", ignoreCase = true)
-        if (sessionGone || !session.hasLiveBrowser) {
-            fail(session, message)
-            return
-        }
-        addStep(session.id, "system", "Action failed: $message")
-        insertAssistant(session.chatId, "That action failed: $message. Try again, or open the live browser to do it yourself.")
-        save(
-            session.copy(
-                status = STATUS_AWAITING_INSTRUCTION,
-                phase = "Waiting for next instruction",
-                error = message,
-                pendingKind = null,
-                pendingDraft = null,
-                lastActivityAt = System.currentTimeMillis(),
-            )
-        )
-    }
-
-    /** On relaunch: never auto-resume — best-effort close + mark any leftover session expired. */
-    private suspend fun sweepOrphans() {
-        val key = settings.getSearchApiKeyDirect("firecrawl")
-        sessionDao.getAllActive().forEach { s ->
-            if (s.hasLiveBrowser && key.isNotBlank()) runCatching { firecrawl.stop(key, s.scrapeId!!) }
-            addStep(s.id, "system", "Previous browser session expired or was interrupted.")
-            save(s.copy(status = STATUS_EXPIRED, phase = "Expired", pendingKind = null, pendingDraft = null))
-        }
-    }
-
-    /** Cost guard: auto-stop a session idling at awaiting_instruction past the configured timeout. */
-    private suspend fun idleWatcher() {
-        while (true) {
-            delay(30_000)
-            val s = activeSession.value ?: continue
-            val minutes = settings.getBrowserIdleMinutesDirect()
-            if (minutes <= 0 || s.status != STATUS_AWAITING_INSTRUCTION) continue
-            if (System.currentTimeMillis() - s.lastActivityAt > minutes * 60_000L) {
-                addStep(s.id, "system", "Closed after $minutes min of inactivity.")
-                stopInternal(s, expired = false)
-            }
-        }
-    }
-
-    // ── small helpers ───────────────────────────────────────────────────────────────────
-
-    private suspend fun save(session: BrowserSession) {
-        sessionDao.upsert(session.copy(updatedAt = System.currentTimeMillis()))
-    }
-
-    private suspend fun addStep(sessionId: String, role: String, text: String) {
-        if (text.isBlank()) return
-        stepDao.insert(BrowserStep(UUID.randomUUID().toString(), sessionId, role, text.trim(), System.currentTimeMillis()))
-    }
-
-    private suspend fun insertUser(chatId: String, text: String) {
-        messageDao.insertMessage(ChatMessage(UUID.randomUUID().toString(), chatId, "user", text, System.currentTimeMillis()))
-        touchThread(chatId)
-    }
-
-    private suspend fun insertAssistant(chatId: String, text: String) {
-        if (text.isBlank()) return
-        messageDao.insertMessage(ChatMessage(UUID.randomUUID().toString(), chatId, "assistant", text, System.currentTimeMillis()))
-        touchThread(chatId)
-    }
-
-    private suspend fun touchThread(chatId: String) {
+    private suspend fun save(s: BrowserSession) = sessionDao.upsert(s.copy(updatedAt = System.currentTimeMillis()))
+    private suspend fun addStep(id: String, role: String, text: String) =
+        stepDao.insert(BrowserStep(UUID.randomUUID().toString(), id, role, text, System.currentTimeMillis()))
+    private suspend fun insertMessage(chatId: String, role: String, text: String) {
+        messageDao.insertMessage(ChatMessage(UUID.randomUUID().toString(), chatId, role, text, System.currentTimeMillis()))
         chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
     }
 }
