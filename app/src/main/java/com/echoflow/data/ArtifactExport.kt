@@ -37,7 +37,10 @@ object ArtifactExport {
                     else -> reportHtml(appContext, title, content)
                 }
             }
-            withContext(NonCancellable) { printHtml(appContext, title, html, offline) }
+            // PrintManager.print must be invoked with the foreground Activity context. The caller
+            // owns this context; preparation above remains independent so closing the workspace
+            // does not cancel the handoff before it reaches Android's print UI.
+            withContext(NonCancellable) { printHtml(context, title, html, offline) }
         }
     }
 
