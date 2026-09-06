@@ -99,8 +99,9 @@ object BrowserResolver {
     /** Classify an instruction's risk, or null if it's ordinary navigation/reading. */
     fun classifyInstruction(text: String): RiskKind? {
         val t = text.lowercase()
-        if (SEND_KEYWORDS.any { t.contains(it) }) return RiskKind.SEND
-        if (HARD_KEYWORDS.any { t.contains(it) }) return RiskKind.HARD
+        fun matches(word: String) = Regex("(?<![\\p{L}\\p{N}_])" + Regex.escape(word) + "(?![\\p{L}\\p{N}_])").containsMatchIn(t)
+        if (HARD_KEYWORDS.any(::matches)) return RiskKind.HARD
+        if (SEND_KEYWORDS.any(::matches)) return RiskKind.SEND
         return null
     }
 
