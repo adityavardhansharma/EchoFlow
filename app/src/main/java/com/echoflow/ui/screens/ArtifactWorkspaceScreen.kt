@@ -88,6 +88,7 @@ fun ArtifactWorkspaceScreen(
     chatViewModel: ChatViewModel,
     onClose: () -> Unit,
 ) {
+    val offline by chatViewModel.artifactsOffline.collectAsState()
     val artifact by chatViewModel.workspaceArtifact.collectAsState()
     val versions by chatViewModel.workspaceArtifactVersions.collectAsState()
     val context = LocalContext.current
@@ -156,7 +157,7 @@ fun ArtifactWorkspaceScreen(
                 mode = mode,
                 onMode = { mode = it },
                 onClose = onClose,
-                onExport = { ArtifactExport.printArtifact(context, a.title, a.type, content) },
+                onExport = { ArtifactExport.printArtifact(context, a.title, a.type, content, offline = offline) },
                 onCopy = { clipboard.setText(AnnotatedString(content)) },
             )
 
@@ -173,7 +174,7 @@ fun ArtifactWorkspaceScreen(
                     a.isHtml -> {
                         // Keep the WebView mounted across Preview/Code so toggling modes doesn't
                         // destroy and reload it (which flashes black). The Code view overlays it.
-                        ArtifactWebView(html = content, modifier = Modifier.fillMaxSize())
+                        ArtifactWebView(html = content, offline = offline, modifier = Modifier.fillMaxSize())
                         if (mode == ArtifactViewMode.CODE) {
                             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                                 CodeView(content)
@@ -336,7 +337,7 @@ private fun CodeView(code: String) {
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun ArtifactWebView(html: String, modifier: Modifier = Modifier) {
+private fun ArtifactWebView(html: String, offline: Boolean, modifier: Modifier = Modifier) {
     var lastHtml by remember { mutableStateOf<String?>(null) }
     AndroidView(
         modifier = modifier,
@@ -357,13 +358,18 @@ private fun ArtifactWebView(html: String, modifier: Modifier = Modifier) {
                 settings.loadWithOverviewMode = true
                 // Opaque white base so the view never paints a black frame while (re)loading.
                 setBackgroundColor(android.graphics.Color.WHITE)
-                webViewClient = WebViewClient()
+                com.echoflow.data.ArtifactWebSecurity.configure(this, offline)
+                webViewClient = com.echoflow.data.ArtifactWebSecurity.Client(offline)
                 loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                 lastHtml = html
             }
         },
         update = { web ->
-            if (lastHtml != html) {
+            val policyChanged = web.settings.blockNetworkLoads != offline
+            if (policyChanged) web.stopLoading()
+            com.echoflow.data.ArtifactWebSecurity.configure(web, offline)
+            web.webViewClient = com.echoflow.data.ArtifactWebSecurity.Client(offline)
+            if (lastHtml != html || policyChanged) {
                 web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                 lastHtml = html
             }

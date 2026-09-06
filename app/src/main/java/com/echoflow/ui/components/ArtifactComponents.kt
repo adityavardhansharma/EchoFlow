@@ -708,7 +708,7 @@ private fun ArtifactPreviewWebView(
                     isHorizontalScrollBarEnabled = false
                     isClickable = interactive
                     isLongClickable = interactive
-                    settings.javaScriptEnabled = true
+                    com.echoflow.data.ArtifactWebSecurity.configure(this, offline = true)
                     settings.domStorageEnabled = true
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
@@ -724,7 +724,7 @@ private fun ArtifactPreviewWebView(
                         setOnTouchListener { _, _ -> true }
                     }
                     setBackgroundColor(backgroundArgb)
-                    webViewClient = object : WebViewClient() {
+                    webViewClient = object : com.echoflow.data.ArtifactWebSecurity.Client(offline = true) {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             if (!readyFired) {
                                 readyFired = true

@@ -47,53 +47,8 @@ class ArtifactManager(
         content: String,
         sourcePrompt: String,
     ): ArtifactRef {
-        val now = System.currentTimeMillis()
         val normalizedType = Artifact.normalizeType(type)
-        val existing = artifactDao.getLatestForChat(chatId)
-        val artifactId = existing?.id ?: UUID.randomUUID().toString()
-        val nextVersion = if (existing == null) 1 else artifactVersionDao.maxVersion(artifactId) + 1
-        val resolvedTitle = title.ifBlank { existing?.title ?: defaultTitle(normalizedType) }
-
-        if (existing == null) {
-            artifactDao.upsert(
-                Artifact(
-                    id = artifactId,
-                    chatId = chatId,
-                    title = resolvedTitle,
-                    type = normalizedType,
-                    currentVersion = nextVersion,
-                    createdAt = now,
-                    updatedAt = now,
-                )
-            )
-        } else {
-            // Do not write hiddenFromGallery: a concurrent "remove from list" must not be undone
-            // by a stale in-memory copy from getLatestForChat.
-            artifactDao.updateLineage(
-                id = artifactId,
-                title = resolvedTitle,
-                type = normalizedType,
-                currentVersion = nextVersion,
-                updatedAt = now,
-            )
-        }
-        artifactVersionDao.insert(
-            ArtifactVersion(
-                id = UUID.randomUUID().toString(),
-                artifactId = artifactId,
-                versionNumber = nextVersion,
-                content = content,
-                sourcePrompt = sourcePrompt,
-                createdAt = now,
-            )
-        )
-        return ArtifactRef(
-            artifactId = artifactId,
-            title = resolvedTitle,
-            type = normalizedType,
-            version = nextVersion,
-            uiVersion = ArtifactRef.UI_VERSION_CURRENT,
-        )
+        return artifactDao.appendVersion(chatId, title, normalizedType, content, sourcePrompt)
     }
 
     /** Drop a lineage from the Artifacts gallery without touching the chat or the artifact body. */

@@ -4,12 +4,37 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ArtifactDao {
+    @Query("SELECT COALESCE(MAX(versionNumber), 0) FROM artifact_versions WHERE artifactId = :id")
+    suspend fun latestVersionNumber(id: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertVersion(version: ArtifactVersion)
+
+    /** Metadata and body commit together, including allocation of the next version number. */
+    @Transaction
+    suspend fun appendVersion(chatId: String, title: String, type: String, content: String, sourcePrompt: String): ArtifactRef {
+        val now = System.currentTimeMillis()
+        val existing = getLatestForChat(chatId)
+        val id = existing?.id ?: java.util.UUID.randomUUID().toString()
+        val number = latestVersionNumber(id) + 1
+        val name = title.ifBlank { existing?.title ?: when (type) {
+            Artifact.TYPE_MARKDOWN -> "Document"
+            Artifact.TYPE_LATEX -> "Report"
+            else -> "Artifact"
+        } }
+        if (existing == null) upsert(Artifact(id, chatId, name, type, number, now, now))
+        else updateLineage(id, name, type, number, now)
+        insertVersion(ArtifactVersion(java.util.UUID.randomUUID().toString(), id, number, content, sourcePrompt, now))
+        return ArtifactRef(id, name, type, number, uiVersion = ArtifactRef.UI_VERSION_CURRENT)
+    }
+
     /**
      * Gallery shelf: every artifact lineage that has not been hidden from the list, newest activity
      * first. Hidden rows stay on the chat timeline.
