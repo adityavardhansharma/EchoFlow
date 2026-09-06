@@ -134,7 +134,8 @@ class ChatViewModel(
             localGateway, customProviderFlowRouter, localInferenceGate)
     }
     internal val quickTasks by lazy {
-        QuickTaskController(AppDatabase.getDatabase(getApplication()).quickTaskDao(), viewModelScope, quickTaskRunner::prepare)
+        val sharedInputs = SharedInputStore(getApplication())
+        QuickTaskController(AppDatabase.getDatabase(getApplication()).quickTaskDao(), viewModelScope, quickTaskRunner::prepare, sharedInputs::discard)
     }
     suspend fun sharedModelIssue(model: String, input: SharedInput): String? = quickTaskRunner.issue(model, input)
 

@@ -118,7 +118,14 @@ class BrowserAgentManager(
         BrowserResolver.extractUrl(text)?.let { askDomain(s, it); return }
         val provider = settings.resolveChipSearchProvider()
         val sources = if (provider != null && ClientSearchProviders.isReady(provider, settings.getSearchApiKeyDirect(provider))) {
-            webSearch.search(provider, settings.getSearchApiKeyDirect(provider), BrowserResolutionPolicy.websiteQuery(text), 6)
+            try {
+                webSearch.search(provider, settings.getSearchApiKeyDirect(provider), BrowserResolutionPolicy.websiteQuery(text), 6)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                addStep(s.id, "system", "Site search failed; paste an HTTPS URL to continue.")
+                emptyList()
+            }
         } else emptyList()
         val candidates = BrowserResolver.rankCandidates(sources, text).filter { BrowserActions.validUrl(it.url) }
         save(s.copy(status = STATUS_AWAITING_USER, pendingKind = PENDING_DISAMBIGUATION,

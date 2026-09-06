@@ -48,6 +48,17 @@ class HardeningPoliciesTest {
         assertThrows(IllegalArgumentException::class.java) { RequestContextBudget.checkedPayload(payload) }
         assertEquals(payload, RequestContextBudget.checkedPayload(payload, 32000))
     }
+    @Test fun `inline image cost follows encoded size and rejects oversized data`() {
+        val small = "data:image/png;base64," + "A".repeat(8_000)
+        assertEquals(
+            mapOf("messages" to listOf(mapOf("content" to mapOf("type" to "image_url", "image_url" to mapOf("url" to small))))),
+            RequestContextBudget.checkedPayload(mapOf("messages" to listOf(mapOf("content" to mapOf("type" to "image_url", "image_url" to mapOf("url" to small))))), 32_000),
+        )
+        val large = "data:image/png;base64," + "A".repeat(15_000_000)
+        assertThrows(IllegalArgumentException::class.java) {
+            RequestContextBudget.checkedPayload(mapOf("image" to large), 32_000)
+        }
+    }
 
     private fun message(id: Int, role: String, text: String) = ChatMessage(id.toString(), "chat", role, text, id.toLong())
     @Test fun `budget preserves latest question and drops old whole turns`() {

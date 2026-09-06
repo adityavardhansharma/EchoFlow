@@ -2,6 +2,7 @@ package com.echoflow.data
 
 /** Conservative text estimate; provider tokenizers and multimodal costs can still differ. */
 internal object RequestContextBudget {
+    private const val MAX_INLINE_IMAGE_BYTES = 10L * 1024 * 1024
     data class Prepared(val systemPrompt: String, val history: List<ChatMessage>, val omitted: Boolean)
     fun estimate(text: String): Int = (text.toByteArray(Charsets.UTF_8).size + 1) / 2
 
@@ -43,12 +44,19 @@ internal object RequestContextBudget {
     /** Check the final wire payload on every tool round, including newly added results. */
     fun <T : Map<String, *>> checkedPayload(payload: T, contextTokens: Int = 8192): T {
         fun cost(value: Any?): Long = when (value) {
-            is String -> if (value.startsWith("data:")) 1024L else estimate(value).toLong()
-            is Map<*, *> -> when {
-                value["type"] == "image_url" || value["type"] == "image" || value.containsKey("inline_data") -> 1024L
-                value["type"] == "file" || value["type"] == "document" -> 4096L
-                else -> 8L + value.values.sumOf { cost(it) }
-            }
+            is String -> if (value.startsWith("data:", ignoreCase = true)) {
+                val comma = value.indexOf(',')
+                require(comma > 5) { "Inline image data is malformed." }
+                val encoded = value.substring(comma + 1)
+                val bytes = if (value.substring(0, comma).contains(";base64", ignoreCase = true)) {
+                    (encoded.length * 3L / 4L) - encoded.takeLastWhile { it == '=' }.length
+                } else encoded.toByteArray(Charsets.UTF_8).size.toLong()
+                require(bytes in 1..MAX_INLINE_IMAGE_BYTES) {
+                    "Inline images must be smaller than 10 MB. Choose a smaller image or remove it."
+                }
+                ((bytes + 1) / 2).coerceAtLeast(1024L)
+            } else estimate(value).toLong()
+            is Map<*, *> -> 8L + value.values.sumOf { cost(it) }
             is Iterable<*> -> value.sumOf { cost(it) }
             else -> 0L
         }

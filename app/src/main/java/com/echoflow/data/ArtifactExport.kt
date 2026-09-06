@@ -119,7 +119,27 @@ object ArtifactExport {
                 try {
                   var bytes = Uint8Array.from(atob(document.getElementById('src').textContent), function(c) { return c.charCodeAt(0); });
                   var md = new TextDecoder().decode(bytes);
-                  document.getElementById('content').innerHTML = marked.parse(md);
+                  // Treat model-authored Markdown as data. marked's HTML option is disabled and
+                  // the rendered DOM is passed through an allowlist before it reaches the document.
+                  var rendered = marked.parse(md, { html: false });
+                  var template = document.createElement('template');
+                  template.innerHTML = rendered;
+                  var blocked = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'FORM', 'BASE', 'META', 'LINK', 'STYLE', 'SVG', 'MATH'];
+                  var nodes = template.content.querySelectorAll('*');
+                  for (var i = nodes.length - 1; i >= 0; i--) {
+                    var node = nodes[i];
+                    if (blocked.indexOf(node.tagName) >= 0) { node.remove(); continue; }
+                    for (var j = node.attributes.length - 1; j >= 0; j--) {
+                      var attr = node.attributes[j];
+                      var name = attr.name.toLowerCase();
+                      var value = attr.value.trim().toLowerCase();
+                      if (name.indexOf('on') === 0 || name === 'style' || name === 'srcdoc' ||
+                          ((name === 'href' || name === 'src' || name === 'xlink:href') &&
+                           !(value.startsWith('https://') || value.startsWith('mailto:') ||
+                             (name === 'src' && value.startsWith('data:image/'))))) node.removeAttribute(attr.name);
+                    }
+                  }
+                  document.getElementById('content').replaceChildren(template.content.cloneNode(true));
                   if (window.renderMathInElement) {
                     renderMathInElement(document.body, {
                       delimiters: [

@@ -118,6 +118,8 @@ internal fun QuickToolsScreen(
                         SelectionContainer { Text(task.prompt) }
                         TextButton(onClick = { fullSource = true }) { Text("Review the input sent to both models") }
                         if (task.status == "interrupted") Text("This task was interrupted when the app closed. Partial answers are preserved. Run a new comparison to try again.")
+                        if (task.status == "partial") Text("One model answered and another failed. Review the error below or retry with a different model.", color = MaterialTheme.colorScheme.error)
+                        if (task.status == "failed") Text("Both model requests failed. Review the errors below and retry with a different model.", color = MaterialTheme.colorScheme.error)
                         Text("Answers use the same supplied input. Links and factual claims in model answers are not independently verified.", style = MaterialTheme.typography.bodySmall)
                         if (answers.size == 2) Text("Swipe sideways to compare both answers.", style = MaterialTheme.typography.labelMedium)
                         BoxWithConstraints(Modifier.fillMaxWidth()) {

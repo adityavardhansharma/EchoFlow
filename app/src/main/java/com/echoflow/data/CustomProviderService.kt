@@ -152,7 +152,7 @@ class CustomProviderService(private val context: Context? = null) {
             if (!chain.request().url.isHttps) {
                 val address = chain.connection()?.route()?.socketAddress?.address
                 require(address != null && (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress)) {
-                    "Plain HTTP is allowed only for localhost or private LAN addresses."
+                    "Provider endpoints must use HTTPS."
                 }
             }
             chain.proceed(chain.request())

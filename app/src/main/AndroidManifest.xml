@@ -15,10 +15,10 @@
     <!-- Speech to text: record the composer dictation. Runtime-prompted the first time. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- LAN custom endpoints use HTTP; their transport validates both URL and connected address. -->
+    <!-- Provider traffic is TLS-only; credentials and prompts must never cross cleartext links. -->
     <application
         android:allowBackup="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

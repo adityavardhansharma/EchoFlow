@@ -11,7 +11,13 @@ internal class QuickTaskController(
     private val dao: QuickTaskDao,
     private val scope: CoroutineScope,
     private val prepare: suspend (String, String, SharedInput) -> Flow<StreamChunk>,
+    private val cleanupInput: suspend (SharedInput) -> Unit = {},
 ) {
+    constructor(
+        dao: QuickTaskDao,
+        scope: CoroutineScope,
+        prepare: suspend (String, String, SharedInput) -> Flow<StreamChunk>,
+    ) : this(dao, scope, prepare, {})
     val open = MutableStateFlow(false)
     val current = MutableStateFlow<QuickTask?>(null)
     val error = MutableStateFlow<String?>(null)
@@ -33,6 +39,7 @@ internal class QuickTaskController(
         busy.value = true; error.value = null
         job = scope.launch {
             var taskId: String? = null
+            var acceptedInput: SharedInput? = null
             try {
                 startup.join()
                 require(prompt.isNotBlank()) { "Enter a task." }
@@ -43,14 +50,22 @@ internal class QuickTaskController(
                 val flows = models.map { prepare(it.id, prompt, actualInput) }
                 val task = QuickTask(UUID.randomUUID().toString(), prompt.trim(), QuickTaskJson.input(actualInput),
                     QuickTaskJson.answers(models.map { TaskAnswer(it) }), System.currentTimeMillis())
-                dao.save(task); taskId = task.id; current.value = task; open.value = true; onAccepted()
+                dao.save(task); taskId = task.id; acceptedInput = actualInput; current.value = task; open.value = true; onAccepted()
                 supervisorScope {
                     models.indices.map { index -> launch {
                         val execute: suspend () -> Unit = { collectAnswer(task.id, index, flows[index]) }
                         if (models[index].id.startsWith("local/")) localRuns.withLock { execute() } else execute()
                     } }.joinAll()
                 }
-                mutate(task.id) { it.copy(status = "finished") }
+                mutate(task.id) { task ->
+                    val answers = QuickTaskJson.answers(task.answersJson)
+                    val status = when {
+                        answers.isNotEmpty() && answers.all { it.status == "finished" } -> "finished"
+                        answers.any { it.status == "finished" } -> "partial"
+                        else -> "failed"
+                    }
+                    task.copy(status = status)
+                }
             } catch (e: CancellationException) {
                 withContext(NonCancellable) { taskId?.let { id -> mutate(id) { task ->
                     task.copy(status = "cancelled", answersJson = QuickTaskJson.answers(QuickTaskJson.answers(task.answersJson).map {
@@ -61,7 +76,10 @@ internal class QuickTaskController(
             } catch (e: Exception) {
                 error.value = e.message ?: "Could not start this task."
                 taskId?.let { id -> mutate(id) { it.copy(status = "interrupted") } }
-            } finally { busy.value = false }
+            } finally {
+                acceptedInput?.let { input -> withContext(NonCancellable) { runCatching { cleanupInput(input) } } }
+                busy.value = false
+            }
         }
     }
 
@@ -133,7 +151,11 @@ internal class QuickTaskController(
 
     fun delete(task: QuickTask) {
         if (busy.value) return
-        scope.launch { dao.delete(task.id); if (current.value?.id == task.id) current.value = null }
+        scope.launch {
+            runCatching { cleanupInput(QuickTaskJson.input(task.inputJson)) }
+            dao.delete(task.id)
+            if (current.value?.id == task.id) current.value = null
+        }
     }
 
     private suspend fun mutate(id: String, update: (QuickTask) -> QuickTask) = writes.withLock {

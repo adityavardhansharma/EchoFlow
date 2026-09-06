@@ -38,8 +38,23 @@ class QuickTaskControllerTest {
             assertEquals("answer A", answers[0].text)
             assertEquals(0.01, answers[0].costUsd!!, 0.00001)
             assertEquals("failed", answers[1].status)
+            assertEquals("partial", controller.current.value!!.status)
             controller.prefer(models[0].id)
             assertEquals(models[0].id, dao.get(controller.current.value!!.id)!!.preferredModelId)
+        } finally { scope.cancel() }
+    }
+    @Test fun `accepted input is cleaned after all model streams finish`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val dao = Dao()
+            val cleaned = mutableListOf<String>()
+            val controller = QuickTaskController(dao, scope, { _, _, _ -> flow { emit(StreamChunk.Content("answer")) } }, {
+                cleaned += it.id
+            })
+            val input = SharedInput("share-cleanup")
+            controller.start(input, "explain", listOf(TaskModel("provider/a", "A")))
+            withTimeout(2000) { controller.busy.first { !it } }
+            assertEquals(listOf(input.id), cleaned)
         } finally { scope.cancel() }
     }
     @Test fun `invalid second selection prevents any model request`() = runBlocking {

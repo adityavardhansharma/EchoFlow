@@ -353,7 +353,7 @@ internal fun EndpointConnectionCard(
         }
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "Plain HTTP is allowed for localhost and private LAN addresses only. Use HTTPS for internet-facing servers.",
+            "Provider endpoints must use HTTPS. EchoFlow does not send prompts or credentials over cleartext HTTP.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -30,6 +30,8 @@ class ArtifactSecurityTest {
         assertFalse(Regex("<script[^>]+src=", RegexOption.IGNORE_CASE).containsMatchIn(html))
         assertFalse(Regex("<link[^>]+href=", RegexOption.IGNORE_CASE).containsMatchIn(html))
         assertTrue(html.contains("data:font/woff2;base64,"))
+        assertTrue(html.contains("marked.parse(md, { html: false })"))
+        assertTrue(html.contains("replaceChildren(template.content.cloneNode(true))"))
     }
 
     @Test fun `offline policy precedes generated active content and survives export`() {
