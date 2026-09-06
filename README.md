@@ -20,7 +20,7 @@ Two surfaces — Chat for conversation, Imagine for images and video. Local mode
 
 ## What it is
 
-EchoFlow is a native Android app for talking to AI models — your way. There's no EchoFlow server sitting in the middle: you bring your own API keys, point it at your own Ollama box, or skip the network entirely and run a model on your phone. Nothing you type gets logged anywhere except your own device.
+EchoFlow is a native Android app for talking to AI models — your way. There's no EchoFlow server sitting in the middle: you bring your own API keys, point it at your own Ollama box, or skip the network entirely and run a model on your phone. Chats are stored on your device. When you choose a cloud model, search, speech, or browser provider, the content needed for that request is sent to that provider under its own data policies.
 
 It started as a chat app and grew into a small workspace: web search, background research, structured data extraction, a controllable browser, generated documents, and a few ways to make multiple models work together.
 
@@ -68,7 +68,7 @@ Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search wo
 
 **Data Agent** — point it at a page or task and get structured output (prices, specs, contacts) instead of prose, with a visible credit budget.
 
-**Browser Flow** — a live browser session that chat can drive across multiple turns, with confirmation prompts before it visits a new domain or sends anything.
+**Browser Flow** — a live Firecrawl browser with your selected chat model planning one structured action at a time. Review the URL, target, and exact text before each navigation, click, field edit, or scroll. The app executes fixed operations, never model-generated browser code. Changed pages and expired approvals require a fresh proposal; logins, payments, and sensitive actions should be completed manually. Page snapshots are sent to your selected model for planning.
 
 **Artifacts** — generate and revise self-contained pages, reports, and documents, versioned as you iterate.
 
@@ -114,3 +114,12 @@ No keys are needed to build — everything is configured at runtime in Settings.
 ## License
 
 MIT — see [LICENSE.txt](LICENSE.txt).
+
+## Privacy and backup
+
+Android cloud backup excludes app data, including conversations, documents, generated media and keys.
+Android 12+ device-to-device transfer may move chats and files when you migrate phones; API keys and
+re-downloadable models are excluded. Cloud AI/search/browser providers still receive the content
+needed for features you invoke. Browser history and action approvals remain in the local chat.
+If Android Keystore cannot open encrypted settings, EchoFlow shows a retry screen rather than
+silently storing credentials in plaintext or resetting them.

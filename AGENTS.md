@@ -27,15 +27,9 @@ See [README.md](README.md) for product context. Standard Gradle tasks:
 | Build debug APK | `./gradlew :app:assembleDebug` |
 | Unit tests (no device) | `./gradlew :app:testDebugUnitTest` |
 | Lint | `./gradlew :app:lintDebug` |
-| Instrumented tests (device/emulator) | `./gradlew :app:connectedDebugAndroidTest` |
+| Instrumented tests | `./gradlew :app:connectedDebugAndroidTest` |
 
 `./gradlew` must be executable (`chmod +x ./gradlew`).
-
-### Emulator / on-device run caveats
-
-- Release and default debug APKs package **arm64-v8a only** (on-device AI native libs). They install on physical arm64 phones, not on x86_64 emulators.
-- Cloud VMs are typically **x86_64 without `/dev/kvm`**, so the Android Emulator cannot run arm64 system images here. Use **Robolectric unit tests** for UI/logic validation in cloud agents.
-- To run the full app interactively: use an **arm64 Android device** or an **arm64 host with KVM**, then `./gradlew :app:installDebug`.
 
 ### Secrets
 
