@@ -252,7 +252,7 @@ internal fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit
                     title = "Server",
                     baseUrl = draft.ollamaBaseUrl,
                     apiKey = null,
-                    placeholder = "https://192.168.1.50:11434",
+                    placeholder = "http://192.168.1.50:11434",
                     onBaseUrl = { draft = draft.copy(ollamaBaseUrl = it) },
                     onApiKey = {},
                 )
@@ -347,7 +347,7 @@ internal fun OpenAiCompatibleEndpointPage(viewModel: SettingsViewModel, onBack: 
                     title = "Endpoint",
                     baseUrl = draft.openAiBaseUrl,
                     apiKey = draft.openAiCompatibleApiKey,
-                    placeholder = "https://192.168.1.50:1234/v1",
+                    placeholder = "http://192.168.1.50:1234/v1",
                     onBaseUrl = { draft = draft.copy(openAiBaseUrl = it) },
                     onApiKey = { draft = draft.copy(openAiCompatibleApiKey = it) },
                 )

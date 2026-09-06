@@ -12,9 +12,10 @@ class ProviderHttpSupportTest {
         assertEquals("http://localhost:11434/api/chat", ProviderHttpSupport.joinApiUrl("http://localhost:11434", "api/chat"))
     }
 
-    @Test fun `requires HTTPS for every provider endpoint`() {
-        assertFalse(ProviderHttpSupport.validateBaseUrl("http://127.0.0.1:11434").ok)
-        assertFalse(ProviderHttpSupport.validateBaseUrl("http://192.168.1.9:8080").ok)
+    @Test fun `allows local HTTP but requires HTTPS for public hosts`() {
+        assertTrue(ProviderHttpSupport.validateBaseUrl("http://127.0.0.1:11434").ok)
+        assertTrue(ProviderHttpSupport.validateBaseUrl("http://192.168.1.9:8080").ok)
+        assertFalse(ProviderHttpSupport.validateBaseUrl("http://example.com").ok)
         assertTrue(ProviderHttpSupport.validateBaseUrl("https://example.com").ok)
     }
 

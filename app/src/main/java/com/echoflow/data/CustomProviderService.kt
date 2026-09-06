@@ -150,9 +150,12 @@ class CustomProviderService(private val context: Context? = null) {
     private val client = OkHttpClient.Builder()
         .addNetworkInterceptor { chain ->
             if (!chain.request().url.isHttps) {
+                require(chain.request().header("Authorization").isNullOrBlank()) {
+                    "HTTP provider endpoints cannot send API credentials. Use HTTPS for authenticated providers."
+                }
                 val address = chain.connection()?.route()?.socketAddress?.address
                 require(address != null && (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress)) {
-                    "Provider endpoints must use HTTPS."
+                    "Plain HTTP is allowed only for localhost or private LAN providers."
                 }
             }
             chain.proceed(chain.request())

@@ -353,7 +353,7 @@ internal fun EndpointConnectionCard(
         }
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "Provider endpoints must use HTTPS. EchoFlow does not send prompts or credentials over cleartext HTTP.",
+            "HTTP is supported only for local/private endpoints without API credentials. Use HTTPS for internet or authenticated providers.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

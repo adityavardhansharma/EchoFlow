@@ -15,10 +15,11 @@
     <!-- Speech to text: record the composer dictation. Runtime-prompted the first time. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Provider traffic is TLS-only; credentials and prompts must never cross cleartext links. -->
+    <!-- Cleartext is additionally restricted in the provider interceptor to local/LAN endpoints
+         without credentials; public and authenticated provider traffic must use HTTPS. -->
     <application
         android:allowBackup="true"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
