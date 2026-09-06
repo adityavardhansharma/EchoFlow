@@ -9,6 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -27,13 +28,16 @@ object ArtifactExport {
 
     fun printArtifact(context: Context, scope: CoroutineScope, title: String, type: String, content: String, offline: Boolean = true) {
         scope.launch(Dispatchers.Main.immediate) {
-            val html = withContext(Dispatchers.IO) {
+            // Once the user taps Export, finish preparation even if the workspace is dismissed;
+            // otherwise the requested Android print dialog can disappear with the screen.
+            val appContext = context.applicationContext
+            val html = withContext(NonCancellable + Dispatchers.IO) {
                 when (Artifact.normalizeType(type)) {
                     Artifact.TYPE_HTML -> content
-                    else -> reportHtml(context, title, content)
+                    else -> reportHtml(appContext, title, content)
                 }
             }
-            printHtml(context, title, html, offline)
+            withContext(NonCancellable) { printHtml(appContext, title, html, offline) }
         }
     }
 
