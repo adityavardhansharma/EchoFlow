@@ -117,7 +117,7 @@ internal class CustomProviderToolStreamer(
                 .url(joinUrl(baseUrl, "chat/completions"))
                 .addHeader("Content-Type", "application/json")
                 .apply { apiKey.trim().takeIf { it.isNotEmpty() }?.let { addHeader("Authorization", "Bearer $it") } }
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
 
             val pending = sortedMapOf<Int, OpenAiPendingCall>()
@@ -226,7 +226,7 @@ internal class CustomProviderToolStreamer(
                 .url(joinUrl(OpenAiResponses.DEFAULT_BASE_URL, OpenAiResponses.PATH))
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Authorization", "Bearer ${apiKey.trim()}")
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
 
             val pending = linkedMapOf<String, OpenAiPendingCall>()
@@ -330,7 +330,7 @@ internal class CustomProviderToolStreamer(
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "api/chat"))
                 .addHeader("Content-Type", "application/json")
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
 
             val collected = StringBuilder()
@@ -441,7 +441,7 @@ internal class CustomProviderToolStreamer(
                 .addHeader("x-api-key", apiKey.trim())
                 .addHeader("anthropic-version", "2023-06-01")
                 .addHeader("Content-Type", "application/json")
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
 
             val blocks = sortedMapOf<Int, ClaudePendingBlock>()
@@ -568,7 +568,7 @@ internal class CustomProviderToolStreamer(
             val request = Request.Builder()
                 .url("https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:streamGenerateContent?key=${apiKey.trim()}&alt=sse")
                 .addHeader("Content-Type", "application/json")
-                .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
+                .post(dynamicAdapter.toJson(RequestContextBudget.checkedPayload(payload)).toRequestBody("application/json".toMediaType()))
                 .build()
 
             val functionCalls = mutableListOf<Pair<String, Map<*, *>>>() // name, args

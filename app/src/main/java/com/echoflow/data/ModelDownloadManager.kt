@@ -6,6 +6,9 @@ import android.provider.OpenableColumns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.update
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,8 +46,8 @@ class ModelDownloadManager(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val jobs = mutableMapOf<String, Job>()
-    private val activeDownloads = mutableMapOf<String, CatalogEntry>()
+    private val jobs = ConcurrentHashMap<String, Job>()
+    private val activeDownloads = ConcurrentHashMap<String, CatalogEntry>()
 
     private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
     val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
@@ -55,19 +58,20 @@ class ModelDownloadManager(
     fun fileFor(model: LocalModel): File = File(modelsDir, model.fileName)
 
     private fun setState(id: String, state: DownloadState?) {
-        _states.value = _states.value.toMutableMap().apply {
+        _states.update { current -> current.toMutableMap().apply {
             if (state == null) remove(id) else put(id, state)
-        }
+        } }
     }
 
+    @Synchronized
     fun download(entry: CatalogEntry, hfToken: String?) {
-        if (jobs[entry.id]?.isActive == true) return
+        if (jobs.containsKey(entry.id)) return
         activeDownloads[entry.id] = entry
         setState(entry.id, DownloadState.Downloading(0, entry.approxSizeBytes))
 
         // Keep the process alive while the multi-GB transfer streams, even minimized.
         KeepAliveService.acquire(context, "Downloading ${entry.name}…")
-        jobs[entry.id] = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             val partFile = File(modelsDir, entry.fileName + ".part")
             val finalFile = File(modelsDir, entry.fileName)
             try {
@@ -75,7 +79,7 @@ class ModelDownloadManager(
                 if (!hfToken.isNullOrBlank()) {
                     builder.addHeader("Authorization", "Bearer ${hfToken.trim()}")
                 }
-                client.newCall(builder.build()).execute().use { response ->
+                client.newCall(builder.build()).useCancellable { response ->
                     if (!response.isSuccessful) {
                         val message = when (response.code) {
                             401, 403 ->
@@ -111,6 +115,7 @@ class ModelDownloadManager(
                             }
                         }
                     }
+                    ensureActive()
                     if (!partFile.renameTo(finalFile)) {
                         partFile.copyTo(finalFile, overwrite = true)
                         partFile.delete()
@@ -146,16 +151,18 @@ class ModelDownloadManager(
                 setState(entry.id, DownloadState.Failed(e.message ?: "Download failed."))
             }
         }
-        jobs[entry.id]?.invokeOnCompletion { KeepAliveService.release(context) }
+        jobs[entry.id] = job
+        job.invokeOnCompletion {
+            jobs.remove(entry.id, job)
+            KeepAliveService.release(context)
+        }
+        job.start()
     }
 
     fun cancel(entryId: String) {
-        jobs.remove(entryId)?.cancel()
-        (activeDownloads[entryId] ?: LocalModelCatalog.entryById(entryId))?.let {
-            File(modelsDir, it.fileName + ".part").delete()
-        }
-        activeDownloads.remove(entryId)
-        setState(entryId, null)
+        // The worker owns its partial file and state until cancellation has unwound.
+        // Keeping its reservation prevents a new transfer racing cleanup of the same path.
+        jobs[entryId]?.cancel()
     }
 
     /** Display name + declared byte size for a picked document (size 0 when unknown). */
