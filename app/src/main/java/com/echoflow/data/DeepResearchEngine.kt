@@ -834,31 +834,22 @@ class DeepResearchEngine(
             return
         }
 
-        // Resume: if we already gathered sources for a plan, jump straight to synthesis.
         val resumedSources = ResearchJson.sourcesFromJson(existing?.sourcesJson)
-        if (existing != null && resumedSources.isNotEmpty() && existing.report.isNullOrBlank()) {
-            emit(ResearchEvent.Phase(ResearchRun.STATUS_SYNTHESIZING, "Writing the report…"))
-            step(
-                STEP_SYNTHESIZE, "Writing the report", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_SYNTHESIZE,
-                detail = "${resumedSources.size} sources",
-            )
-            emit(ResearchEvent.Report(synthesize(config.provider, openRouterKey, topic, resumedSources, attachment)))
-            return
-        }
-
+        val savedPlan = ResearchJson.stepsFromJson(existing?.planJson)
+        val completedSearches = ResearchResumePolicy.completed(savedPlan, ResearchJson.timelineFromJson(existing?.stepsJson))
         emit(ResearchEvent.Phase(ResearchRun.STATUS_PLANNING, "Planning the research…"))
         step(STEP_PLAN, "Planning the research", ResearchStep.STATE_ACTIVE, ResearchStep.KIND_PLAN)
         val planningPrompt = if (attachment != null) {
             "User research request: $topic\n\nUse the attached PDF as primary context while planning the research."
         } else topic
-        val planRaw = openRouterService.complete(
+        val planRaw = if (savedPlan.isNotEmpty()) "" else openRouterService.complete(
             apiKey = openRouterKey,
             model = config.provider,
             systemPrompt = SystemPrompts.deepResearchPlanner(topic, config.maxSearches),
             userPrompt = planningPrompt,
             attachment = attachment,
         )
-        val steps = parsePlan(planRaw, config.maxSearches)
+        val steps = savedPlan.ifEmpty { parsePlan(planRaw, config.maxSearches) }
         if (steps.isEmpty()) {
             step(STEP_PLAN, "Planning the research", ResearchStep.STATE_FAILED, ResearchStep.KIND_PLAN, detail = "no plan")
             emit(ResearchEvent.Failed("The model did not produce a research plan. Try rephrasing your question."))
@@ -884,7 +875,7 @@ class DeepResearchEngine(
                         id = searchStepId(i),
                         kind = ResearchStep.KIND_SEARCH,
                         label = question,
-                        state = ResearchStep.STATE_PENDING,
+                        state = if (searchStepId(i) in completedSearches) ResearchStep.STATE_DONE else ResearchStep.STATE_PENDING,
                     )
                 },
                 replaceKinds = setOf(ResearchStep.KIND_SEARCH),
@@ -893,7 +884,9 @@ class DeepResearchEngine(
 
         val perSearch = (config.maxSources / steps.size).coerceIn(3, 10)
         val gathered = LinkedHashMap<String, SearchSource>()
+        resumedSources.forEach { gathered[it.url] = it }
         steps.forEachIndexed { i, question ->
+            if (searchStepId(i) in completedSearches) return@forEachIndexed
             emit(ResearchEvent.Phase(ResearchRun.STATUS_RESEARCHING, "Searching ${i + 1} of ${steps.size}", i, steps.size))
             step(searchStepId(i), question, ResearchStep.STATE_ACTIVE)
             val found = try {
