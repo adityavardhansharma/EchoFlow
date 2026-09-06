@@ -1,5 +1,6 @@
 package com.echoflow
 
+import androidx.activity.viewModels
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -39,6 +40,7 @@ import com.echoflow.ui.theme.EchoFlowTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val shareIntake: com.echoflow.ui.ShareIntakeViewModel by viewModels()
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
 
@@ -48,12 +50,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        shareIntake.receive(intent)
         intent.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        shareIntake.receive(intent, initial = true)
         openChatRequest.value = intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
@@ -64,7 +68,39 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val appGraph = EchoFlowAppGraph(application)
+        showStartup()
+    }
+
+    private fun showStartup() {
+        setContent {
+            var attempt by remember { mutableIntStateOf(0) }
+            var failure by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(attempt) {
+                failure = null
+                try {
+                    showWorkspace(EchoFlowAppGraph.get(application))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failure = e.message ?: "Could not open EchoFlow. Retry to keep your data intact."
+                }
+            }
+            EchoFlowTheme {
+                Surface(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (failure == null) CircularProgressIndicator()
+                        else {
+                            Text(failure.orEmpty())
+                            Button(onClick = { attempt++ }) { Text("Retry") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showWorkspace(appGraph: EchoFlowAppGraph) {
 
         // Resume any Deep Research run that was interrupted by an app kill — but only spin
         // up the service when there is actually something to resume (no idle notification).
@@ -124,7 +160,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainNavigationHub(chatVm, settingsVm)
+                    MainNavigationHub(chatVm, settingsVm, shareIntake)
                 }
             }
         }

@@ -7,4 +7,5 @@
 -->
 <paths>
     <cache-path name="shared_docs" path="shared_docs/" />
+    <files-path name="shared_inputs" path="shared_inputs/" />
 </paths>
