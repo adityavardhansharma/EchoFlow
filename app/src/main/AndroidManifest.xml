@@ -68,6 +68,21 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".OpenRouterReturnActivity"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <!-- Only returns focus after the loopback callback. Credentials and authorization
+                 codes are never accepted through this exported link. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.echoflow.openrouter" android:host="return" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".data.KeepAliveService"
             android:exported="false"
