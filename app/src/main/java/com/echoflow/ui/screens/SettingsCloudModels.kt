@@ -118,7 +118,9 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, embedded: Boolean = false) {
-    val apiKey by viewModel.apiKey.collectAsState()
+    val connection by viewModel.openRouterConnection.collectAsState()
+    val auth by viewModel.openRouterAuth.collectAsState()
+    val context = LocalContext.current
     val customModels by viewModel.customModels.collectAsState()
     val cloudParams by viewModel.cloudInferenceParams.collectAsState()
     val orQuery by viewModel.orModelQuery.collectAsState()
@@ -126,37 +128,23 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
     val orLoading by viewModel.orDirectoryLoading.collectAsState()
     val orError by viewModel.orDirectoryError.collectAsState()
 
-    var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
-    var keyVisible by remember { mutableStateOf(false) }
     var showModelDirectory by remember { mutableStateOf(false) }
 
-    SettingsPageBody(embedded, title = "OpenRouter models", subtitle = "API key & model list", onBack = onBack) {
-        PageSection("API key", "One key from openrouter.ai unlocks every cloud model")
-        FormCard {
-            OutlinedTextField(
-                value = keyInput,
-                onValueChange = { keyInput = it },
-                placeholder = { Text("sk-or-v1-…") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                leadingIcon = { Icon(Icons.Default.Key, null) },
-                trailingIcon = {
-                    IconButton(onClick = { keyVisible = !keyVisible }) {
-                        Icon(if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (keyVisible) "Hide" else "Show")
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (apiKey.isNotBlank()) {
-                Spacer(Modifier.height(Spacing.s))
-                SavedKeyBadge("A key is saved on this device")
-            }
-            Spacer(Modifier.height(Spacing.m))
-            Button(onClick = { viewModel.saveApiKey(keyInput.trim()) }, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
-                Text("Save key")
-            }
-        }
+    SettingsPageBody(embedded, title = "OpenRouter models", subtitle = "Connection & model list", onBack = onBack) {
+        PageSection("Connection", "Your OpenRouter account, models and credits")
+        OpenRouterConnectionCard(
+            connection = connection,
+            auth = auth,
+            onSignIn = {
+                viewModel.signInOpenRouter { url ->
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                }
+            },
+            onCancel = viewModel::cancelOpenRouterSignIn,
+            onSaveKey = { key, onSaved -> viewModel.saveApiKey(key, onSaved) },
+            onRestoreKey = viewModel::restoreOpenRouterManualKey,
+            onDisconnect = { viewModel.saveApiKey("") },
+        )
 
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Your models", "Live pricing and context windows from the directory")

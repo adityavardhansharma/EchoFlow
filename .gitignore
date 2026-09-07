@@ -53,3 +53,6 @@ desktop.ini
 # Local assistant/tooling state
 .claude/
 assets/.aistudio/
+
+# Local RFC conformance fixture (public high-entropy vector; kept off GitHub).
+/app/src/test/java/com/echoflow/data/OpenRouterPkceVectorLocalTest.kt
