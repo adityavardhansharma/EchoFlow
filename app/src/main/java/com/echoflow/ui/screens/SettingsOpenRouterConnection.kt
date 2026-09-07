@@ -40,7 +40,7 @@ internal fun OpenRouterConnectionCard(
     var showManual by rememberSaveable { mutableStateOf(false) }
     var confirmation by rememberSaveable { mutableStateOf<String?>(null) }
     val compactTextPadding = PaddingValues(horizontal = Spacing.s, vertical = Spacing.xs)
-    FormCard(contentPadding = Spacing.base) {
+    FormCard(contentPadding = Spacing.m) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
@@ -69,7 +69,7 @@ internal fun OpenRouterConnectionCard(
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(Spacing.m))
+        Spacer(Modifier.height(Spacing.s))
         Button(
             onClick = { if (connection.connected) confirmation = "switch" else onSignIn() },
             enabled = !auth.busy,
@@ -97,33 +97,35 @@ internal fun OpenRouterConnectionCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (auth.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         }
-        FlowRow(
-            Modifier.fillMaxWidth().padding(top = Spacing.xs),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            if (auth.waitingForBrowser) {
-                TextButton(onClick = onCancel, contentPadding = compactTextPadding) { Text("Cancel sign-in") }
-            } else {
-                TextButton(onClick = { showManual = true }, enabled = !auth.busy, contentPadding = compactTextPadding) {
-                    Text(if (connection.connected) "Use a different API key" else "Or add API key manually")
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                if (auth.waitingForBrowser) {
+                    TextButton(onClick = onCancel, contentPadding = compactTextPadding) { Text("Cancel sign-in") }
+                } else {
+                    TextButton(onClick = { showManual = true }, enabled = !auth.busy, contentPadding = compactTextPadding) {
+                        Text(if (connection.connected) "Use a different API key" else "Or add API key manually")
+                    }
+                }
+                if (connection.connected) {
+                    TextButton(
+                        onClick = { confirmation = "disconnect" },
+                        enabled = !auth.busy,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        contentPadding = compactTextPadding,
+                    ) { Text("Disconnect") }
                 }
             }
-            if (connection.connected) {
+            if (connection.connected && connection.hasSavedManualKey) {
                 TextButton(
-                    onClick = { confirmation = "disconnect" },
+                    onClick = { confirmation = "restore" },
                     enabled = !auth.busy,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     contentPadding = compactTextPadding,
-                ) { Text("Disconnect") }
+                ) { Text("Use saved manual key") }
             }
-        }
-        if (connection.connected && connection.hasSavedManualKey) {
-            TextButton(
-                onClick = { confirmation = "restore" },
-                enabled = !auth.busy,
-                contentPadding = compactTextPadding,
-            ) { Text("Use saved manual key") }
         }
     }
     if (showManual) {
