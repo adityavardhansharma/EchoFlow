@@ -146,7 +146,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
             onDisconnect = { viewModel.saveApiKey("") },
         )
 
-        Spacer(Modifier.height(Spacing.xl))
+        Spacer(Modifier.height(Spacing.l))
         PageSection("Your models", "Live pricing and context windows from the directory")
         Button(
             onClick = {

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.echoflow.ui.screens
 
 import androidx.compose.foundation.layout.*
@@ -37,48 +39,46 @@ internal fun OpenRouterConnectionCard(
 ) {
     var showManual by rememberSaveable { mutableStateOf(false) }
     var confirmation by rememberSaveable { mutableStateOf<String?>(null) }
-    FormCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
-                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                    Icon(painterResource(R.drawable.logo_openrouter), null, Modifier.size(width = 28.dp, height = 20.dp),
+    val compactTextPadding = PaddingValues(horizontal = Spacing.s, vertical = Spacing.xs)
+    FormCard(contentPadding = Spacing.base) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.logo_openrouter), null, Modifier.size(width = 24.dp, height = 16.dp),
                         tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                Text("OpenRouter", style = MaterialTheme.typography.titleMedium)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("OpenRouter", style = MaterialTheme.typography.titleSmall)
                 if (connection.connected) {
                     SavedKeyBadge(if (connection.signedIn) "Connected through sign-in" else "Connected with API key")
+                    if (connection.keyEnding.isNotEmpty()) {
+                        Text("Key ending in •••• ${connection.keyEnding}", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 } else {
                     Text("One account. Your choice of models.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
-        Spacer(Modifier.height(Spacing.base))
-        Text(
-            when {
-                connection.signedIn -> "Usage is billed to your OpenRouter account. Your connection is stored securely on this device."
-                connection.connected -> "Your saved API key is ready to use. You can keep using it or connect through OpenRouter sign-in."
-                else -> "Sign in to use your OpenRouter models and credits. Usage is billed to your OpenRouter account."
-            },
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (connection.connected && connection.keyEnding.isNotEmpty()) {
+        if (!connection.connected) {
             Spacer(Modifier.height(Spacing.s))
-            Text("Key ending in •••• ${connection.keyEnding}", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Sign in to use your OpenRouter models and credits. Usage is billed to your OpenRouter account.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Spacer(Modifier.height(Spacing.l))
+        Spacer(Modifier.height(Spacing.m))
         Button(
             onClick = { if (connection.connected) confirmation = "switch" else onSignIn() },
             enabled = !auth.busy,
             shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            contentPadding = PaddingValues(horizontal = Spacing.base, vertical = Spacing.m),
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = Spacing.base, vertical = Spacing.s),
         ) {
-            if (auth.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            else Icon(painterResource(R.drawable.logo_openrouter), null, Modifier.size(width = 25.dp, height = 18.dp))
+            if (auth.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Icon(painterResource(R.drawable.logo_openrouter), null, Modifier.size(width = 22.dp, height = 16.dp))
             Spacer(Modifier.width(Spacing.s))
             Text(when {
                 auth.waitingForBrowser -> "Waiting for OpenRouter…"
@@ -89,31 +89,41 @@ internal fun OpenRouterConnectionCard(
         }
         if (auth.waitingForBrowser) {
             Text("Finish signing in in your browser, then return here. If the app restarts, start sign-in again.",
-                modifier = Modifier.padding(top = Spacing.m), style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = Spacing.s), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel sign-in") }
-        } else {
-            TextButton(onClick = { showManual = true }, enabled = !auth.busy,
-                modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(if (connection.connected) "Use a different API key" else "Or add API key manually")
-            }
         }
         if (auth.message != null) {
             Text(auth.message, modifier = Modifier.padding(top = Spacing.s).semantics { liveRegion = LiveRegionMode.Polite },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (auth.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         }
-        if (connection.connected) {
-            HorizontalDivider(Modifier.padding(vertical = Spacing.m), color = MaterialTheme.colorScheme.outlineVariant)
-            if (connection.hasSavedManualKey) {
-                Text("Your previous manual key is saved on this device.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { confirmation = "restore" }, enabled = !auth.busy) { Text("Use saved manual key") }
+        FlowRow(
+            Modifier.fillMaxWidth().padding(top = Spacing.xs),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            if (auth.waitingForBrowser) {
+                TextButton(onClick = onCancel, contentPadding = compactTextPadding) { Text("Cancel sign-in") }
+            } else {
+                TextButton(onClick = { showManual = true }, enabled = !auth.busy, contentPadding = compactTextPadding) {
+                    Text(if (connection.connected) "Use a different API key" else "Or add API key manually")
+                }
             }
-            TextButton(onClick = { confirmation = "disconnect" }, enabled = !auth.busy,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Text("Disconnect")
+            if (connection.connected) {
+                TextButton(
+                    onClick = { confirmation = "disconnect" },
+                    enabled = !auth.busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    contentPadding = compactTextPadding,
+                ) { Text("Disconnect") }
             }
+        }
+        if (connection.connected && connection.hasSavedManualKey) {
+            TextButton(
+                onClick = { confirmation = "restore" },
+                enabled = !auth.busy,
+                contentPadding = compactTextPadding,
+            ) { Text("Use saved manual key") }
         }
     }
     if (showManual) {
