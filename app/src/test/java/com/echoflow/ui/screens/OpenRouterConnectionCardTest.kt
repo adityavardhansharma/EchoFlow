@@ -39,7 +39,7 @@ class OpenRouterConnectionCardTest {
                 Surface {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(Spacing.base)) {
                         PageSection("Connection", "Your OpenRouter account, models and credits")
-                        OpenRouterConnectionCard(connection, auth, onSignIn, {}, onSave, {}, {})
+                        OpenRouterConnectionCard(connection, auth, onSignIn, {}, { key, done -> onSave(key); done() }, {}, {})
                     }
                 }
             }

@@ -18,6 +18,12 @@ import java.net.Socket
 
 @RunWith(RobolectricTestRunner::class)
 class OpenRouterAuthServiceTest {
+    @Test fun `browser return is restricted to EchoFlow package`() {
+        val intent = android.content.Intent.parseUri(OpenRouterAuthService.RETURN_TO_APP_URI, android.content.Intent.URI_INTENT_SCHEME)
+        assertEquals(com.echoflow.BuildConfig.APPLICATION_ID, intent.`package`)
+        assertEquals("com.echoflow.openrouter://return", intent.dataString)
+        assertNull(intent.selector)
+    }
     @Test fun `PKCE uses fresh verifiers and unpadded base64url challenges`() {
         val verifier = OpenRouterAuthService.randomToken()
         assertEquals(64, verifier.length)
@@ -68,6 +74,8 @@ class OpenRouterAuthServiceTest {
             socket.getOutputStream().write("GET ${requestUrl.encodedPath}?${requestUrl.encodedQuery} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
             val page = socket.getInputStream().bufferedReader().readText()
             assertTrue(page.contains("Return to EchoFlow"))
+            assertTrue(page.contains(OpenRouterAuthService.RETURN_TO_APP_URI))
+            assertFalse(page.contains("href=\"com.echoflow.openrouter:"))
             assertFalse(page.contains("authorization-code"))
             assertFalse(page.contains("sk-or-"))
         }

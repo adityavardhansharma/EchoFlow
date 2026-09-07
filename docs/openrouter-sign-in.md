@@ -27,8 +27,10 @@ documented authorization URL. The local callback accepts a single code only for
 the expected path and exchanges it directly with OpenRouter over HTTPS. The
 exchange client has no credential/logging interceptors and follows no redirects.
 
-The callback response includes a **Return to EchoFlow** link that brings the app
-to the foreground. This Android link carries no code or credential and only
+The callback response includes a **Return to EchoFlow** Android intent URI bound
+to the installed EchoFlow application ID. Registering the same custom scheme in
+another app cannot capture this return. Browsers without intent-URI support show
+instructions to return manually. This link carries no code or credential and only
 returns focus; the local listener handles authorization. The response never echoes
 the authorization code and disables caching/referrer transmission.
 
@@ -49,10 +51,17 @@ Reference: https://openrouter.ai/docs/guides/overview/auth/oauth
 
 Repository tests cover both existing-key migration paths, restart, account
 switching, restoring a saved manual key, manual replacement and disconnect.
-Authentication tests cover the RFC 7636 challenge vector, callback rejection,
+Authentication tests cover PKCE format and randomness, callback rejection,
 a real local socket callback with a mocked HTTPS exchange, and cancellation.
 Compose tests cover the primary sign-in action, replacement confirmation, manual
 entry and connection states, with light/dark and narrow-screen render captures.
+Manual-entry behavioral coverage is separate from native screenshot tests and
+checks input validation, duplicate-submit prevention, retaining the transient
+draft after a failed write, retry, and dismissal only after persistence succeeds.
+
+The public RFC 7636 vector test is retained only in the locally ignored
+`OpenRouterPkceVectorLocalTest.kt`, per the maintainer's preference. No secret
+detectors are disabled.
 
 A real OpenRouter account/browser authorization still needs a device smoke test:
 sign in, return to EchoFlow, run a request, restore a manual key, then cancel and

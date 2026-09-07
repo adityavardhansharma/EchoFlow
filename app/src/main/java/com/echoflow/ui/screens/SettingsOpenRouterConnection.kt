@@ -31,7 +31,7 @@ internal fun OpenRouterConnectionCard(
     auth: OpenRouterAuthState,
     onSignIn: () -> Unit,
     onCancel: () -> Unit,
-    onSaveKey: (String) -> Unit,
+    onSaveKey: (String, () -> Unit) -> Unit,
     onRestoreKey: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -119,8 +119,10 @@ internal fun OpenRouterConnectionCard(
     if (showManual) {
         OpenRouterManualKeyDialog(
             replacing = connection.connected,
+            saving = auth.busy,
+            error = auth.message.takeIf { auth.error },
             onDismiss = { showManual = false },
-            onSave = { showManual = false; onSaveKey(it) },
+            onSave = { key -> onSaveKey(key) { showManual = false } },
         )
     }
     if (confirmation != null) {
@@ -148,14 +150,21 @@ internal fun OpenRouterConnectionCard(
 }
 
 @Composable
-private fun OpenRouterManualKeyDialog(replacing: Boolean, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+internal fun OpenRouterManualKeyDialog(
+    replacing: Boolean,
+    saving: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
     // Do not save credentials in Compose saved-instance state or prefill an existing secret.
     var key by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
+    var attempted by remember { mutableStateOf(false) }
     val trimmed = key.trim()
     val valid = trimmed.startsWith("sk-or-") && trimmed.length > 16 && trimmed.none { it.isWhitespace() }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         icon = { Icon(Icons.Default.Key, null) },
         title = { Text(if (replacing) "Replace API key" else "Add API key") },
         text = {
@@ -164,20 +173,27 @@ private fun OpenRouterManualKeyDialog(replacing: Boolean, onDismiss: () -> Unit,
                     else "Paste a key from openrouter.ai/keys. It will be stored securely on this device.")
                 OutlinedTextField(
                     value = key, onValueChange = { key = it }, label = { Text("OpenRouter API key") },
+                    enabled = !saving,
                     placeholder = { Text("sk-or-v1-…") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                     isError = trimmed.isNotEmpty() && !valid,
                     supportingText = { if (trimmed.isNotEmpty() && !valid) Text("Enter a complete OpenRouter API key.") },
-                    trailingIcon = { IconButton(onClick = { visible = !visible }) {
+                    trailingIcon = { IconButton(onClick = { visible = !visible }, enabled = !saving) {
                         Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                             if (visible) "Hide API key" else "Show API key")
                     } },
                 )
+                if (attempted && error != null) {
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(trimmed) }, enabled = valid) { Text("Save key") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { attempted = true; onSave(trimmed) }, enabled = valid && !saving) {
+            Text(if (saving) "Saving…" else "Save key")
+        } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
     )
 }

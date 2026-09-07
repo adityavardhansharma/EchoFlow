@@ -101,7 +101,7 @@ internal class OpenRouterAuthService(
         val message = if (declined) "Sign-in was cancelled. Your saved connection has not changed."
             else "Your authorization was received. Return to EchoFlow to finish connecting."
         val body = if (accepted) {
-            """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Return to EchoFlow</title><body style="font:18px system-ui;padding:32px;max-width:440px;margin:auto"><h1>Continue in EchoFlow</h1><p>$message</p><a href="com.echoflow.openrouter://return" style="display:inline-block;padding:16px 24px;background:#222;color:white;border-radius:32px;text-decoration:none">Return to EchoFlow</a></body></html>"""
+            """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Return to EchoFlow</title><body style="font:18px system-ui;padding:32px;max-width:440px;margin:auto"><h1>Continue in EchoFlow</h1><p>$message</p><a href="$RETURN_TO_APP_URI" style="display:inline-block;padding:16px 24px;background:#222;color:white;border-radius:32px;text-decoration:none">Return to EchoFlow</a><p>If your browser cannot open this button, switch back to EchoFlow manually.</p></body></html>"""
         } else "Invalid callback. Continue sign-in from EchoFlow."
         val bytes = body.toByteArray(Charsets.UTF_8)
         val status = if (accepted) "200 OK" else "400 Bad Request"
@@ -116,6 +116,9 @@ internal class OpenRouterAuthService(
     }
 
     companion object {
+        // Package binding prevents another app that registered our scheme from claiming the return.
+        internal val RETURN_TO_APP_URI = "intent://return#Intent;scheme=com.echoflow.openrouter;" +
+            "package=${com.echoflow.BuildConfig.APPLICATION_ID};end"
         // Hex is within RFC 7636's verifier alphabet and carries 256 bits of entropy.
         internal fun randomToken(): String = ByteArray(32).also(SecureRandom()::nextBytes)
             .joinToString("") { "%02x".format(it) }

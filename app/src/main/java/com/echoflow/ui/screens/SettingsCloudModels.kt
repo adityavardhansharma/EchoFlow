@@ -141,7 +141,7 @@ internal fun CloudModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                 }
             },
             onCancel = viewModel::cancelOpenRouterSignIn,
-            onSaveKey = viewModel::saveApiKey,
+            onSaveKey = { key, onSaved -> viewModel.saveApiKey(key, onSaved) },
             onRestoreKey = viewModel::restoreOpenRouterManualKey,
             onDisconnect = { viewModel.saveApiKey("") },
         )

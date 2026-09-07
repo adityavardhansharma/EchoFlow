@@ -103,13 +103,14 @@ class SettingsViewModel(
 
     fun restoreOpenRouterManualKey() = updateOpenRouterConnection { repository.restoreOpenRouterManualKey() }
 
-    private fun updateOpenRouterConnection(update: () -> Unit) {
+    private fun updateOpenRouterConnection(onSaved: () -> Unit = {}, update: () -> Unit) {
         cancelOpenRouterSignIn()
         _openRouterAuth.value = OpenRouterAuthState(busy = true)
         openRouterAuthJob = viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { update() }
                 _openRouterAuth.value = OpenRouterAuthState()
+                onSaved()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -342,8 +343,8 @@ class SettingsViewModel(
         viewModelScope.launch { downloadManager.pruneOrphans() }
     }
 
-    fun saveApiKey(key: String) {
-        updateOpenRouterConnection { repository.saveApiKey(key) }
+    fun saveApiKey(key: String, onSaved: () -> Unit = {}) {
+        updateOpenRouterConnection(onSaved) { repository.saveApiKey(key) }
     }
 
     fun saveSelectedModel(modelId: String) {
