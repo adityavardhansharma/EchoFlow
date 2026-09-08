@@ -98,17 +98,16 @@ internal class OpenRouterAuthService(
     }
 
     private fun respond(socket: Socket, accepted: Boolean, declined: Boolean) {
-        val message = if (declined) "Sign-in was cancelled. Your saved connection has not changed."
-            else "Your authorization was received. Return to EchoFlow to finish connecting."
-        val body = if (accepted) {
-            """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Return to EchoFlow</title><body style="font:18px system-ui;padding:32px;max-width:440px;margin:auto"><h1>Continue in EchoFlow</h1><p>$message</p><a href="$RETURN_TO_APP_URI" style="display:inline-block;padding:16px 24px;background:#222;color:white;border-radius:32px;text-decoration:none">Return to EchoFlow</a><p>If your browser cannot open this button, switch back to EchoFlow manually.</p></body></html>"""
-        } else "Invalid callback. Continue sign-in from EchoFlow."
+        val body = callbackHtml(accepted, declined)
         val bytes = body.toByteArray(Charsets.UTF_8)
         val status = if (accepted) "200 OK" else "400 Bad Request"
+        val csp = "default-src 'none'; style-src 'unsafe-inline'; " +
+            (if (accepted && !declined) "script-src 'unsafe-inline'; " else "") +
+            "frame-ancestors 'none'"
         socket.getOutputStream().apply {
             write(("HTTP/1.1 $status\r\nContent-Type: text/html; charset=utf-8\r\n" +
                 "Cache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n" +
-                "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\n" +
+                "Content-Security-Policy: $csp\r\n" +
                 "Connection: close\r\nContent-Length: ${bytes.size}\r\n\r\n").toByteArray(Charsets.US_ASCII))
             write(bytes)
             flush()
@@ -127,6 +126,67 @@ internal class OpenRouterAuthService(
             MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
             android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
         )
+
+        internal fun callbackHtml(accepted: Boolean, declined: Boolean): String = when {
+            !accepted -> page(
+                heading = "Couldn’t finish sign-in",
+                status = "Try again in the app",
+                message = "This return link isn’t valid. Continue sign-in from EchoFlow.",
+                autoOpen = false,
+            )
+            declined -> page(
+                heading = "Sign-in cancelled",
+                status = "Nothing was changed",
+                message = "OpenRouter authorization was declined. Your saved connection has not changed.",
+                autoOpen = false,
+            )
+            else -> page(
+                heading = "Continue in EchoFlow",
+                status = "OpenRouter approved",
+                message = "Your authorization was received. Return to EchoFlow to finish connecting.",
+                autoOpen = true,
+            )
+        }
+
+        private fun page(heading: String, status: String, message: String, autoOpen: Boolean): String {
+            val href = RETURN_TO_APP_URI
+            val script = if (autoOpen) {
+                """<script>setTimeout(function(){location.href=${JSONObject.quote(href)};},400);</script>"""
+            } else ""
+            return """
+                <!doctype html><html lang="en"><head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width,initial-scale=1">
+                <meta name="color-scheme" content="light dark">
+                <title>Return to EchoFlow</title>
+                <style>
+                :root{--bg:#f4f4f5;--card:#fff;--text:#18181b;--muted:#52525b;--btn:#18181b;--on-btn:#fafafa;--ring:#e4e4e7;--accent:#3f3f46}
+                @media (prefers-color-scheme:dark){:root{--bg:#09090b;--card:#18181b;--text:#fafafa;--muted:#a1a1aa;--btn:#fafafa;--on-btn:#18181b;--ring:#3f3f46;--accent:#d4d4d8}}
+                *{box-sizing:border-box}html,body{height:100%;margin:0}
+                body{font:16px/1.45 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;align-items:center;justify-content:center;padding:24px}
+                main{width:min(100%,400px);background:var(--card);border:1px solid var(--ring);border-radius:28px;padding:28px 24px 24px;text-align:center}
+                .mark{width:56px;height:56px;margin:0 auto 18px;border-radius:16px;background:var(--bg);color:var(--text);display:grid;place-items:center}
+                .status{margin:0 0 8px;color:var(--accent);font-size:.75rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+                h1{margin:0 0 10px;font-size:1.35rem;letter-spacing:-.02em;font-weight:650}
+                p{margin:0;color:var(--muted)}
+                a.btn{display:flex;align-items:center;justify-content:center;min-height:52px;margin:22px 0 14px;padding:14px 24px;border-radius:999px;background:var(--btn);color:var(--on-btn);text-decoration:none;font-weight:650}
+                a.btn:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+                .hint{font-size:.875rem}
+                .local{margin-top:16px;font-size:.75rem}
+                </style></head><body><main>
+                <div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" width="36" height="36">
+                <path d="M16 31c6.2-7.4 9.8-7.4 16 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M12 25c9-11.5 15-11.5 24 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+                <circle cx="24" cy="35.5" r="2.3" fill="currentColor"/></svg></div>
+                <p class="status">$status</p>
+                <h1>$heading</h1>
+                <p>$message</p>
+                <a class="btn" href="$href">Return to EchoFlow</a>
+                <p class="hint">If the button doesn’t open the app, switch to EchoFlow from Recents.</p>
+                <p class="local">This page is from EchoFlow on this phone. It never shows your key.</p>
+                </main>$script</body></html>
+            """.trimIndent()
+        }
 
         internal fun authorizationUrl(callback: String, verifier: String): String =
             "https://openrouter.ai/auth".toHttpUrl().newBuilder()
