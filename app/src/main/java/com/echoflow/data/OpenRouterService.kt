@@ -60,12 +60,8 @@ class OpenRouterService(private val context: Context) {
 
     @JsonClass(generateAdapter = true)
     data class OpenRouterStreamEvent(
-        val usage: OpenRouterUsage? = null,
         val choices: List<OpenRouterStreamChoice>? = null,
     )
-
-    @JsonClass(generateAdapter = true)
-    data class OpenRouterUsage(val prompt_tokens: Int? = null, val completion_tokens: Int? = null, val cost: Double? = null)
 
     @JsonClass(generateAdapter = true)
     data class OpenRouterStreamChoice(

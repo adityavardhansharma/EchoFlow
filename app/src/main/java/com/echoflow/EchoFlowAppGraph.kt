@@ -12,9 +12,7 @@ import com.echoflow.ui.SettingsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.runBlocking
 
 /**
  * Application-scoped composition root.
@@ -22,21 +20,14 @@ import kotlinx.coroutines.sync.withLock
  * Keeping construction here prevents Activities and composables from knowing the complete data
  * graph while retaining the existing factories and object lifetimes.
  */
-class EchoFlowAppGraph private constructor(application: Application) {
-    companion object {
-        private val initialization = Mutex()
-        @Volatile private var instance: EchoFlowAppGraph? = null
-
-        suspend fun get(application: Application): EchoFlowAppGraph = initialization.withLock {
-            instance ?: withContext(Dispatchers.IO) {
-                DefaultChatModelsSeed.run(application, AppDatabase.getDatabase(application))
-                EchoFlowAppGraph(application).also { instance = it }
-            }
-        }
-    }
+class EchoFlowAppGraph(application: Application) {
     val database: AppDatabase = AppDatabase.getDatabase(application)
 
-    val settingsRepository = SettingsRepository(application.applicationContext)
+    val settingsRepository: SettingsRepository = run {
+        // Must run before SettingsRepository reads selected_model so upgrades preserve legacy picks.
+        runBlocking { DefaultChatModelsSeed.run(application.applicationContext, database) }
+        SettingsRepository(application.applicationContext)
+    }
 
     private val modelDownloadManager =
         ModelDownloadManager(application.applicationContext, database.localModelDao())

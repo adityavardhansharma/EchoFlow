@@ -29,7 +29,6 @@ import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelDao
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.OpenRouterModelDirectory
-import com.echoflow.data.OpenRouterAuthService
 import com.echoflow.data.OpenRouterModelInfo
 import com.echoflow.data.OpenRouterVideoModelDirectory
 import com.echoflow.data.OpenRouterVideoModelInfo
@@ -46,10 +45,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.withContext
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
@@ -68,56 +63,6 @@ class SettingsViewModel(
     private val profileManager = SettingsProfileManager(repository, advisorProfileDao, fusionPanelDao, agentProfileDao)
 
     val apiKey: StateFlow<String> = repository.apiKey
-    val openRouterConnection = repository.openRouterConnection
-    private val _openRouterAuth = MutableStateFlow(OpenRouterAuthState())
-    val openRouterAuth = _openRouterAuth.asStateFlow()
-    private var openRouterAuthJob: Job? = null
-
-    fun signInOpenRouter(openBrowser: (String) -> Unit) {
-        if (_openRouterAuth.value.busy) return
-        _openRouterAuth.value = OpenRouterAuthState(busy = true, waitingForBrowser = true)
-        openRouterAuthJob = viewModelScope.launch {
-            try {
-                val key = OpenRouterAuthService().signIn(
-                    openBrowser = { url -> withContext(Dispatchers.Main) { openBrowser(url) } },
-                    onExchanging = { _openRouterAuth.value = OpenRouterAuthState(busy = true) },
-                )
-                withContext(Dispatchers.IO) { repository.saveOpenRouterSignIn(key) }
-                _openRouterAuth.value = OpenRouterAuthState(message = "Connected to OpenRouter.")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _openRouterAuth.value = OpenRouterAuthState(
-                    message = "Couldn’t finish sign-in. Check your connection and try again. Your saved connection hasn’t changed.",
-                    error = true,
-                )
-            }
-        }
-    }
-
-    fun cancelOpenRouterSignIn() {
-        openRouterAuthJob?.cancel()
-        openRouterAuthJob = null
-        _openRouterAuth.value = OpenRouterAuthState()
-    }
-
-    fun restoreOpenRouterManualKey() = updateOpenRouterConnection { repository.restoreOpenRouterManualKey() }
-
-    private fun updateOpenRouterConnection(onSaved: () -> Unit = {}, update: () -> Unit) {
-        cancelOpenRouterSignIn()
-        _openRouterAuth.value = OpenRouterAuthState(busy = true)
-        openRouterAuthJob = viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) { update() }
-                _openRouterAuth.value = OpenRouterAuthState()
-                onSaved()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _openRouterAuth.value = OpenRouterAuthState(message = "Couldn’t save your connection. Please try again.", error = true)
-            }
-        }
-    }
     val selectedModel: StateFlow<String> = repository.selectedModel
     val themeColor: StateFlow<String> = repository.themeColor
     val darkMode: StateFlow<String> = repository.darkMode
@@ -343,8 +288,8 @@ class SettingsViewModel(
         viewModelScope.launch { downloadManager.pruneOrphans() }
     }
 
-    fun saveApiKey(key: String, onSaved: () -> Unit = {}) {
-        updateOpenRouterConnection(onSaved) { repository.saveApiKey(key) }
+    fun saveApiKey(key: String) {
+        repository.saveApiKey(key)
     }
 
     fun saveSelectedModel(modelId: String) {

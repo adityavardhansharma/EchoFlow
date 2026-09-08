@@ -160,10 +160,6 @@ object ReplyNotifications {
             .setAutoCancel(true)
             .setContentIntent(openIntent(context, null))
             .build()
-        try {
-            NotificationManagerCompat.from(context).notify(SUMMARY_ID, summary)
-        } catch (_: SecurityException) {
-            // Permission can be revoked between the child notification and its summary.
-        }
+        runCatching { NotificationManagerCompat.from(context).notify(SUMMARY_ID, summary) }
     }
 }

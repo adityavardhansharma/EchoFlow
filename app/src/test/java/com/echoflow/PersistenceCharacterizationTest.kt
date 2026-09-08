@@ -77,24 +77,6 @@ class PersistenceCharacterizationTest {
     }
 
     @Test
-    fun artifactVersionFailureRollsBackLineageUpdate() = runBlocking {
-        db.chatDao().insertThread(thread("chat", 1, 1))
-        val manager = ArtifactManager(db.artifactDao(), db.artifactVersionDao())
-        val first = manager.saveVersion("chat", "Original", "html", "one", "first")
-        db.openHelper.writableDatabase.execSQL("""
-            CREATE TRIGGER reject_artifact_version BEFORE INSERT ON artifact_versions
-            BEGIN SELECT RAISE(ABORT, 'injected failure'); END
-        """.trimIndent())
-        var failed = false
-        try { manager.saveVersion("chat", "Changed", "html", "two", "second") }
-        catch (_: android.database.sqlite.SQLiteException) { failed = true }
-        assertTrue(failed)
-        assertEquals("Original", manager.getById(first.artifactId)?.title)
-        assertEquals("one", manager.getLatestVersionContent("chat"))
-        assertEquals(1, manager.observeVersions(first.artifactId).first().size)
-    }
-
-    @Test
     fun artifactRowsCascadeWhenOwningThreadIsDeleted() = runBlocking {
         val chat = thread("chat", 1, 1)
         db.chatDao().insertThread(chat)
@@ -136,16 +118,17 @@ class PersistenceCharacterizationTest {
     }
 
     @Test
-    fun transactionalAppendPreservesHideCommittedBeforeIt() = runBlocking {
+    fun saveVersionDoesNotUnhideWhenHideLandsOnAStaleRead() = runBlocking {
         db.chatDao().insertThread(thread("chat", 1, 1))
         val inner = db.artifactDao()
         val first = ArtifactManager(inner, db.artifactVersionDao())
             .saveVersion("chat", "Draft", "html", "<p>one</p>", "p1")
 
         val staleReadDao = object : ArtifactDao by inner {
-            override suspend fun appendVersion(chatId: String, title: String, type: String, content: String, sourcePrompt: String): com.echoflow.data.ArtifactRef {
-                inner.getLatestForChat(chatId)?.id?.let { inner.hideFromGallery(it) }
-                return inner.appendVersion(chatId, title, type, content, sourcePrompt)
+            override suspend fun getLatestForChat(chatId: String): Artifact? {
+                val listed = inner.getLatestForChat(chatId)
+                listed?.id?.let { inner.hideFromGallery(it) }
+                return listed
             }
         }
         ArtifactManager(staleReadDao, db.artifactVersionDao())

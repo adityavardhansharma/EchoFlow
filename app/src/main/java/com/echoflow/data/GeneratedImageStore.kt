@@ -28,13 +28,12 @@ class GeneratedImageStore(
         dataUrl: String,
         parentId: String?,
     ): GeneratedImage = withContext(Dispatchers.IO) {
-        require(dataUrl.length <= 32 * 1024 * 1024) { "Generated image exceeds the 24 MB limit." }
         val base64 = dataUrl.substringAfter("base64,", dataUrl)
         val bytes = Base64.decode(base64, Base64.DEFAULT)
         imagesDir.mkdirs()
         val id = UUID.randomUUID().toString()
         val file = File(imagesDir, "$id.png")
-        val temp = File(imagesDir, "$id.png.tmp")
+        file.writeBytes(bytes)
         val image = GeneratedImage(
             id = id,
             chatId = chatId,
@@ -43,17 +42,8 @@ class GeneratedImageStore(
             parentId = parentId,
             createdAt = System.currentTimeMillis(),
         )
-        try {
-            require(bytes.isNotEmpty()) { "The generated image was empty." }
-            temp.writeBytes(bytes)
-            check(temp.renameTo(file)) { "Could not save the generated image." }
-            dao.insert(image)
-            image
-        } catch (e: Exception) {
-            temp.delete()
-            file.delete()
-            throw e
-        }
+        dao.insert(image)
+        image
     }
 
     /**
@@ -94,13 +84,8 @@ class GeneratedImageStore(
             parentId = parentId,
             createdAt = System.currentTimeMillis(),
         )
-        try {
-            dao.insert(image)
-            image
-        } catch (e: Exception) {
-            finalFile.delete()
-            throw e
-        }
+        dao.insert(image)
+        image
     }
 
     /**

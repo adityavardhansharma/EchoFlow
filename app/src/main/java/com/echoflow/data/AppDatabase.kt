@@ -15,13 +15,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Artifact::class, ArtifactVersion::class,
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class,
-        Project::class, ProjectDocument::class, QuickTask::class
+        Project::class, ProjectDocument::class
     ],
-    version = 26, // v26: saved shared-input tasks and model comparisons
+    version = 25, // v25: artifacts.hiddenFromGallery (gallery list vs chat)
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun quickTaskDao(): QuickTaskDao
     abstract fun chatDao(): ChatDao
     abstract fun messageDao(): MessageDao
     abstract fun customModelDao(): CustomModelDao
@@ -460,12 +459,6 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        internal val MIGRATION_25_26 = object : Migration(25, 26) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS quick_tasks (id TEXT NOT NULL PRIMARY KEY, prompt TEXT NOT NULL, inputJson TEXT NOT NULL, answersJson TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL, preferredModelId TEXT, analysis TEXT, analysisModel TEXT)")
-            }
-        }
-
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -498,7 +491,6 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_22_23,
                     MIGRATION_23_24,
                     MIGRATION_24_25,
-                    MIGRATION_25_26,
                 )
                 .build()
                 INSTANCE = instance
