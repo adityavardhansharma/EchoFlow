@@ -27,12 +27,15 @@ documented authorization URL. The local callback accepts a single code only for
 the expected path and exchanges it directly with OpenRouter over HTTPS. The
 exchange client has no credential/logging interceptors and follows no redirects.
 
-The callback response includes a **Return to EchoFlow** Android intent URI bound
-to the installed EchoFlow application ID. Registering the same custom scheme in
-another app cannot capture this return. Browsers without intent-URI support show
-instructions to return manually. This link carries no code or credential and only
-returns focus; the local listener handles authorization. The response never echoes
-the authorization code and disables caching/referrer transmission.
+The callback response is a self-contained success, cancel, or invalid page with a
+**Return to EchoFlow** Android intent URI bound to the installed EchoFlow
+application ID. Registering the same custom scheme in another app cannot capture
+this return. The success page also tries to reopen EchoFlow after a short delay;
+browsers that block that still show the button and a Recents fallback. This link
+carries no code or credential and only returns focus; the local listener handles
+authorization. The HTML uses inline CSS only (including a dark-mode palette) and
+never loads remote assets. The response never echoes the authorization code and
+disables caching/referrer transmission.
 
 The Settings ViewModel owns sign-in through rotation. Cancelling or clearing the
 ViewModel closes the listener; it otherwise expires after ten minutes. A process
@@ -52,7 +55,8 @@ Reference: https://openrouter.ai/docs/guides/overview/auth/oauth
 Repository tests cover both existing-key migration paths, restart, account
 switching, restoring a saved manual key, manual replacement and disconnect.
 Authentication tests cover PKCE format and randomness, callback rejection,
-a real local socket callback with a mocked HTTPS exchange, and cancellation.
+success/cancel/invalid return pages, a real local socket callback with a mocked
+HTTPS exchange, and cancellation.
 Compose tests cover the primary sign-in action, replacement confirmation, manual
 entry and connection states, with light/dark and narrow-screen render captures.
 Manual-entry behavioral coverage is separate from native screenshot tests and

@@ -74,6 +74,10 @@ class OpenRouterAuthServiceTest {
             socket.getOutputStream().write("GET ${requestUrl.encodedPath}?${requestUrl.encodedQuery} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
             val page = socket.getInputStream().bufferedReader().readText()
             assertTrue(page.contains("Return to EchoFlow"))
+            assertTrue(page.contains("OpenRouter approved"))
+            assertTrue(page.contains("prefers-color-scheme:dark"))
+            assertTrue(page.contains("This page is from EchoFlow on this phone"))
+            assertTrue(page.contains("location.href="))
             assertTrue(page.contains(OpenRouterAuthService.RETURN_TO_APP_URI))
             assertFalse(page.contains("href=\"com.echoflow.openrouter:"))
             assertFalse(page.contains("authorization-code"))
@@ -81,6 +85,23 @@ class OpenRouterAuthServiceTest {
         }
         assertEquals("sk-or-v1-returned-user-key", signIn.await())
         assertTrue(exchanged)
+    }
+
+    @Test fun `callback pages cover success cancel and invalid without leaking secrets`() {
+        val success = OpenRouterAuthService.callbackHtml(accepted = true, declined = false)
+        val cancelled = OpenRouterAuthService.callbackHtml(accepted = true, declined = true)
+        val invalid = OpenRouterAuthService.callbackHtml(accepted = false, declined = false)
+        assertTrue(success.contains("Return to EchoFlow"))
+        assertTrue(success.contains("location.href="))
+        assertFalse(cancelled.contains("<script>"))
+        assertTrue(cancelled.contains("Sign-in cancelled"))
+        assertFalse(invalid.contains("<script>"))
+        assertTrue(invalid.contains("Couldn’t finish sign-in"))
+        listOf(success, cancelled, invalid).forEach { page ->
+            assertTrue(page.contains(OpenRouterAuthService.RETURN_TO_APP_URI))
+            assertTrue(page.contains("color-scheme"))
+            assertFalse(page.contains("sk-or-"))
+        }
     }
 
     @Test fun `cancel closes listener without exchanging a key`() = runBlocking {
