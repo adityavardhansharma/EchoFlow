@@ -6,11 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class SettingsRepository(
-    context: Context,
-    private val prefs: SharedPreferences = SettingsPreferenceStorage.secure(context),
-) {
+class SettingsRepository(context: Context) {
     private val legacyPrefs: SharedPreferences = SettingsPreferenceStorage.legacy(context)
+    private val prefs: SharedPreferences = SettingsPreferenceStorage.secureOrNull(context) ?: legacyPrefs
 
     init {
         SettingsPreferenceStorage.migrateLegacyIfNeeded(legacyPrefs, prefs)
@@ -23,8 +21,6 @@ class SettingsRepository(
 
     private val _apiKey = MutableStateFlow(getApiKeyDirect())
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
-    private val _openRouterConnection = MutableStateFlow(readOpenRouterConnection())
-    val openRouterConnection: StateFlow<OpenRouterConnection> = _openRouterConnection.asStateFlow()
 
     private val _selectedModel = MutableStateFlow(getSelectedModelDirect())
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
@@ -173,60 +169,8 @@ class SettingsRepository(
     }
 
     fun saveApiKey(key: String) {
-        writeOpenRouterConnection(key.trim(), signedIn = false)
-    }
-
-    private fun readOpenRouterConnection(): OpenRouterConnection {
-        val key = getApiKeyDirect()
-        return OpenRouterConnection(
-            connected = key.isNotBlank(),
-            signedIn = key.isNotBlank() && prefs.getBoolean("openrouter_signed_in", false),
-            keyEnding = if (key.length > 8) key.takeLast(4) else "",
-            hasSavedManualKey = !prefs.getString("openrouter_manual_key", null).isNullOrBlank(),
-        )
-    }
-
-    fun saveOpenRouterSignIn(key: String) {
-        require(key.isNotBlank())
-        writeOpenRouterConnection(key, signedIn = true)
-    }
-
-    fun restoreOpenRouterManualKey() {
-        val key = prefs.getString("openrouter_manual_key", null)
-        check(!key.isNullOrBlank()) { "No saved manual key is available." }
-        writeOpenRouterConnection(key, signedIn = false)
-    }
-
-    /** Active key, connection origin and optional manual backup change in one durable edit.
-     * Missing origin metadata on older installs deliberately means a manual connection.
-     */
-    @Synchronized
-    private fun writeOpenRouterConnection(key: String, signedIn: Boolean) {
-        val credentialNames = listOf("openrouter_api_key", "openrouter_signed_in", "openrouter_manual_key")
-        val previous = prefs.all.filterKeys { it in credentialNames }
-        val edit = prefs.edit().putString("openrouter_api_key", key)
-            .putBoolean("openrouter_signed_in", signedIn)
-        if (signedIn && !prefs.getBoolean("openrouter_signed_in", false) && getApiKeyDirect().isNotBlank()) {
-            edit.putString("openrouter_manual_key", getApiKeyDirect())
-        } else if (!signedIn) {
-            edit.remove("openrouter_manual_key")
-        }
-        if (!edit.commit()) {
-            // SharedPreferences updates memory before its disk write. Restore that view too,
-            // so direct readers cannot pick up an uncommitted key after a failed save.
-            val rollback = prefs.edit()
-            credentialNames.forEach { name ->
-                when (val value = previous[name]) {
-                    is String -> rollback.putString(name, value)
-                    is Boolean -> rollback.putBoolean(name, value)
-                    else -> rollback.remove(name)
-                }
-            }
-            rollback.commit()
-            error("Could not save your OpenRouter connection. Please try again.")
-        }
+        prefs.edit().putString("openrouter_api_key", key).apply()
         _apiKey.value = key
-        _openRouterConnection.value = readOpenRouterConnection()
     }
 
     fun getSelectedModelDirect(): String {

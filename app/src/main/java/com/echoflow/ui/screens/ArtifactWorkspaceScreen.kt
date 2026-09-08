@@ -51,7 +51,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,11 +88,9 @@ fun ArtifactWorkspaceScreen(
     chatViewModel: ChatViewModel,
     onClose: () -> Unit,
 ) {
-    val offline by chatViewModel.artifactsOffline.collectAsState()
     val artifact by chatViewModel.workspaceArtifact.collectAsState()
     val versions by chatViewModel.workspaceArtifactVersions.collectAsState()
     val context = LocalContext.current
-    val exportScope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
     // Leave if the artifact vanishes (e.g. chat deleted) — but NOT on the initial null the
@@ -159,7 +156,7 @@ fun ArtifactWorkspaceScreen(
                 mode = mode,
                 onMode = { mode = it },
                 onClose = onClose,
-                onExport = { ArtifactExport.printArtifact(context, exportScope, a.title, a.type, content, offline = offline) },
+                onExport = { ArtifactExport.printArtifact(context, a.title, a.type, content) },
                 onCopy = { clipboard.setText(AnnotatedString(content)) },
             )
 
@@ -176,7 +173,7 @@ fun ArtifactWorkspaceScreen(
                     a.isHtml -> {
                         // Keep the WebView mounted across Preview/Code so toggling modes doesn't
                         // destroy and reload it (which flashes black). The Code view overlays it.
-                        ArtifactWebView(html = content, offline = offline, modifier = Modifier.fillMaxSize())
+                        ArtifactWebView(html = content, modifier = Modifier.fillMaxSize())
                         if (mode == ArtifactViewMode.CODE) {
                             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                                 CodeView(content)
@@ -339,7 +336,7 @@ private fun CodeView(code: String) {
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun ArtifactWebView(html: String, offline: Boolean, modifier: Modifier = Modifier) {
+private fun ArtifactWebView(html: String, modifier: Modifier = Modifier) {
     var lastHtml by remember { mutableStateOf<String?>(null) }
     AndroidView(
         modifier = modifier,
@@ -360,18 +357,13 @@ private fun ArtifactWebView(html: String, offline: Boolean, modifier: Modifier =
                 settings.loadWithOverviewMode = true
                 // Opaque white base so the view never paints a black frame while (re)loading.
                 setBackgroundColor(android.graphics.Color.WHITE)
-                com.echoflow.data.ArtifactWebSecurity.configure(this, offline)
-                webViewClient = com.echoflow.data.ArtifactWebSecurity.Client(offline)
+                webViewClient = WebViewClient()
                 loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                 lastHtml = html
             }
         },
         update = { web ->
-            val policyChanged = web.settings.blockNetworkLoads != offline
-            if (policyChanged) web.stopLoading()
-            com.echoflow.data.ArtifactWebSecurity.configure(web, offline)
-            web.webViewClient = com.echoflow.data.ArtifactWebSecurity.Client(offline)
-            if (lastHtml != html || policyChanged) {
+            if (lastHtml != html) {
                 web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                 lastHtml = html
             }

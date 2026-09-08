@@ -12,7 +12,6 @@ internal object ChatSegmentReducer {
             segments.removeAll { it is StreamSegment.AgentRun }
         }
         when (chunk) {
-            is StreamChunk.Usage -> Unit
             is StreamChunk.AgentRunStarted -> {
                 if (segments.none { it is StreamSegment.AgentRun }) segments.add(StreamSegment.AgentRun)
             }

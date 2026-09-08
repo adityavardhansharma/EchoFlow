@@ -13,14 +13,14 @@ import java.util.concurrent.TimeUnit
 /**
  * Thin client for Firecrawl Interact (the stateful browser session behind Browser Flow):
  *  - [startSession]  POST /v2/scrape                      → opens a browser, returns scrapeId + live URLs
- *  - [snapshot] / [executeApproved] use app-owned code; model text is never executed.
+ *  - [interact]      POST /v2/scrape/{scrapeId}/interact  → drives the same browser with a prompt
  *  - [stop]          DELETE /v2/scrape/{scrapeId}/interact → closes the session (billing/cleanup)
  *
  * Sessions are deliberately ephemeral: no `profile` is ever sent, so Firecrawl keeps no cookies
  * or login state. Interact is request/response (no token streaming); a prompt call can take up to
  * Firecrawl's 300s timeout, hence the long read/call timeouts.
  */
-open class FirecrawlBrowserService {
+class FirecrawlBrowserService {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -48,7 +48,7 @@ open class FirecrawlBrowserService {
     )
 
     /** Open a browser on [url]. Temporary session (no profile is sent). */
-    open suspend fun startSession(apiKey: String, url: String): StartResult = withContext(Dispatchers.IO) {
+    suspend fun startSession(apiKey: String, url: String): StartResult = withContext(Dispatchers.IO) {
         val json = post(
             url = "https://api.firecrawl.dev/v2/scrape",
             apiKey = apiKey,
@@ -70,42 +70,30 @@ open class FirecrawlBrowserService {
         )
     }
 
-    /** No free-form AI prompt ever reaches the browser executor. */
-    open suspend fun snapshot(apiKey: String, scrapeId: String): Pair<BrowserSnapshot, InteractResult> {
-        val result = executeCode(apiKey, scrapeId, BrowserActions.snapshotCode())
-        return BrowserActions.parseSnapshot(result.output) to result
-    }
-
-    open suspend fun executeApproved(apiKey: String, scrapeId: String, action: PendingBrowserAction): InteractResult {
-        require(System.currentTimeMillis() <= action.expiresAt) { "Approval expired. Request the action again." }
-        return executeCode(apiKey, scrapeId, BrowserActions.executionCode(action))
-    }
-
-    private suspend fun executeCode(apiKey: String, scrapeId: String, code: String): InteractResult =
+    /** Drive the same browser with a natural-language [prompt]. */
+    suspend fun interact(apiKey: String, scrapeId: String, prompt: String): InteractResult =
         withContext(Dispatchers.IO) {
-            require(code.length <= 100_000) { "This page is too large to review safely. Use the live browser." }
             val json = post(
                 url = "https://api.firecrawl.dev/v2/scrape/$scrapeId/interact",
                 apiKey = apiKey,
-                body = mapOf("code" to code, "language" to "node", "timeout" to 45),
+                body = mapOf(
+                    "prompt" to prompt,
+                    "timeout" to 280,
+                ),
             )
             val data = json["data"] as? Map<*, *>
             val metadata = data?.get("metadata") as? Map<*, *>
-            val success = (json["success"] as? Boolean) ?: (data?.get("success") as? Boolean) ?: false
-            val exit = (json["exitCode"] as? Number) ?: (data?.get("exitCode") as? Number)
-            require(success && (exit == null || exit.toInt() == 0) && json["killed"] != true && data?.get("killed") != true) {
-                "The browser action did not complete. Inspect the page before trying again."
-            }
+            val output = firstString(json, data, metadata, listOf("output", "result", "stdout"))?.trim().orEmpty()
             InteractResult(
-                success = true,
-                output = firstString(json, data, metadata, listOf("stdout", "output", "result")).orEmpty().trim(),
+                success = (json["success"] as? Boolean) ?: output.isNotBlank(),
+                output = output,
                 liveViewUrl = firstString(json, data, metadata, listOf("liveViewUrl")),
                 interactiveLiveViewUrl = firstString(json, data, metadata, listOf("interactiveLiveViewUrl")),
             )
         }
 
     /** Close the session. Best-effort — failures are swallowed; Firecrawl's TTL is the backstop. */
-    open suspend fun stop(apiKey: String, scrapeId: String) = withContext(Dispatchers.IO) {
+    suspend fun stop(apiKey: String, scrapeId: String) = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
                 .url("https://api.firecrawl.dev/v2/scrape/$scrapeId/interact")
@@ -117,7 +105,7 @@ open class FirecrawlBrowserService {
         Unit
     }
 
-    private suspend fun post(url: String, apiKey: String, body: Map<String, Any?>): Map<*, *> {
+    private fun post(url: String, apiKey: String, body: Map<String, Any?>): Map<*, *> {
         val reqBody = anyAdapter.toJson(body).toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url(url)
@@ -125,7 +113,7 @@ open class FirecrawlBrowserService {
             .addHeader("Authorization", "Bearer $apiKey")
             .post(reqBody)
             .build()
-        return client.newCall(request).useCancellable { response ->
+        client.newCall(request).execute().use { response ->
             val str = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val message = when (response.code) {
@@ -137,7 +125,7 @@ open class FirecrawlBrowserService {
                 }
                 throw Exception(message)
             }
-            anyAdapter.fromJson(str) as? Map<*, *>
+            return anyAdapter.fromJson(str) as? Map<*, *>
                 ?: throw Exception("Firecrawl returned an unreadable response.")
         }
     }

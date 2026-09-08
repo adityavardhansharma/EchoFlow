@@ -436,16 +436,13 @@ internal fun ParamValueDialog(
 }
 
 @Composable
-internal fun FormCard(
-    contentPadding: Dp = Spacing.l,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+internal fun FormCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(contentPadding), content = content)
+        Column(Modifier.padding(Spacing.l), content = content)
     }
 }
 

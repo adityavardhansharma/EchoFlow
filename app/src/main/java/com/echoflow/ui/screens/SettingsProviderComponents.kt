@@ -353,7 +353,7 @@ internal fun EndpointConnectionCard(
         }
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "HTTP is supported only for local/private endpoints without API credentials. Use HTTPS for internet or authenticated providers.",
+            "Plain HTTP is allowed for localhost and private LAN addresses only. Use HTTPS for internet-facing servers.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

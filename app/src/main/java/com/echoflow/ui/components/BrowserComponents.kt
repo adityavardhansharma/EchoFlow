@@ -1,8 +1,5 @@
 package com.echoflow.ui.components
 
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -59,7 +56,7 @@ fun browserStatusLabel(session: BrowserSession): String = when (session.status) 
     BrowserSession.STATUS_RESOLVING -> "Finding site"
     BrowserSession.STATUS_STARTING -> "Opening"
     BrowserSession.STATUS_RUNNING -> "Running"
-    BrowserSession.STATUS_AWAITING_USER -> if (session.pendingKind == BrowserSession.PENDING_ACTION_CONFIRM) "Confirm" else "Needs you"
+    BrowserSession.STATUS_AWAITING_USER -> if (session.pendingKind == BrowserSession.PENDING_DRAFT_CONFIRM) "Confirm" else "Needs you"
     BrowserSession.STATUS_AWAITING_INSTRUCTION -> "Live"
     BrowserSession.STATUS_COMPLETED -> "Done"
     BrowserSession.STATUS_STOPPED -> "Stopped"
@@ -245,7 +242,7 @@ fun BrowserSessionCard(
                 session.status == BrowserSession.STATUS_AWAITING_USER &&
                     session.pendingKind == BrowserSession.PENDING_CONFIRM_DOMAIN -> {
                     Text(
-                        "Open this URL?\n${session.resolvedUrl}",
+                        "${BrowserResolver.domainOf(session.resolvedUrl)} looks sensitive (banking/payments/account). Open it?",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
@@ -271,8 +268,8 @@ fun BrowserSessionCard(
                 }
 
                 session.status == BrowserSession.STATUS_AWAITING_USER &&
-                    session.pendingKind == BrowserSession.PENDING_ACTION_CONFIRM -> {
-                    Text("Review this action:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    session.pendingKind == BrowserSession.PENDING_DRAFT_CONFIRM -> {
+                    Text("Review before sending:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -280,15 +277,15 @@ fun BrowserSessionCard(
                     ) {
                         Text(
                             session.pendingDraft.orEmpty(),
-                            Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()).padding(Spacing.s),
+                            Modifier.padding(Spacing.s),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                         Button(onClick = onConfirmSend) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Approve action")
+                            Icon(Icons.AutoMirrored.Filled.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Send")
                         }
-                        OutlinedButton(onClick = onCancel) { Text("Cancel action") }
+                        OutlinedButton(onClick = onCancel) { Text("Don't send") }
                     }
                 }
 
