@@ -32,14 +32,14 @@ class OpenRouterConnectionCardTest {
 
     private fun show(connection: OpenRouterConnection = OpenRouterConnection(), dark: Boolean = false,
         auth: OpenRouterAuthState = OpenRouterAuthState(), onSignIn: () -> Unit = {}, onSave: (String) -> Unit = {},
-        fontScale: Float = 1f) {
+        onDisconnect: () -> Unit = {}, fontScale: Float = 1f) {
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
             EchoFlowTheme(darkTheme = dark) {
                 Surface {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(Spacing.base)) {
                         PageSection("Connection", "Your OpenRouter account, models and credits")
-                        OpenRouterConnectionCard(connection, auth, onSignIn, {}, { key, done -> onSave(key); done() }, {}, {})
+                        OpenRouterConnectionCard(connection, auth, onSignIn, {}, { key, done -> onSave(key); done() }, {}, onDisconnect)
                     }
                 }
             }
@@ -69,7 +69,19 @@ class OpenRouterConnectionCardTest {
     @Test fun signed_in_with_restore_option() {
         show(OpenRouterConnection(true, true, "c3d4", true))
         composeRule.onNodeWithText("Use saved manual key").assertIsDisplayed()
+        composeRule.onNodeWithText("Use a different API key").assertIsDisplayed()
+        composeRule.onNodeWithText("Disconnect").assertIsDisplayed()
         composeRule.onRoot().captureRoboImage("build/outputs/openrouter/signed-in-light.png")
+    }
+
+    @Test fun disconnect_confirms_before_removing_connection() {
+        var disconnects = 0
+        show(OpenRouterConnection(true, true, "c3d4"), onDisconnect = { disconnects++ })
+        composeRule.onNodeWithText("Disconnect").performClick()
+        composeRule.onNodeWithText("Disconnect OpenRouter?").assertIsDisplayed()
+        assertEquals(0, disconnects)
+        composeRule.onAllNodesWithText("Disconnect")[1].performClick()
+        assertEquals(1, disconnects)
     }
 
     @Test fun manual_entry_is_secondary() {
