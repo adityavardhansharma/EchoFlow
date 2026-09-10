@@ -1577,6 +1577,7 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> "sarvam"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
@@ -1588,6 +1589,7 @@ class ChatViewModel(
                 "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
                 "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
                 "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
+                "sarvam" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_SARVAM)
                 "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)

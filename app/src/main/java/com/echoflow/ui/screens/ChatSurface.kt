@@ -287,6 +287,7 @@ internal fun ChatSurface(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->

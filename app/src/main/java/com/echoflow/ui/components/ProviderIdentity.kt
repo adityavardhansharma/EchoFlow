@@ -64,6 +64,7 @@ enum class ProviderIdentity(
     Kling("Kling", MaterialShapes.Flower, Tone.Tertiary),
     ByteDance("ByteDance", MaterialShapes.Burst, Tone.Secondary),
     OnDevice("On device", MaterialShapes.Cookie9Sided, Tone.Tertiary),
+    Sarvam("Sarvam", MaterialShapes.Flower, Tone.Tertiary),
     Other("Cloud", MaterialShapes.Circle, Tone.Secondary);
 
     private enum class Tone { Primary, Secondary, Tertiary }
@@ -92,6 +93,7 @@ enum class ProviderIdentity(
         fun of(modelId: String): ProviderIdentity {
             val id = modelId.lowercase()
             return when {
+                id.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> Sarvam
                 id.startsWith("local/") -> OnDevice
                 id.startsWith(CustomProviderConfig.PREFIX_OPENAI) || id.contains("openai") || id.contains("gpt-") -> OpenAi
                 id.startsWith(CustomProviderConfig.PREFIX_CLAUDE) || id.contains("anthropic") || id.contains("claude") -> Anthropic
