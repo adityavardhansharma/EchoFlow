@@ -165,6 +165,7 @@ internal const val PageCustomProviderOpenAi = "custom_provider_openai"
 internal const val PageCustomProviderClaude = "custom_provider_claude"
 internal const val PageCustomProviderGemini = "custom_provider_gemini"
 internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
+internal const val PageCustomProviderSarvam = "custom_provider_sarvam"
 internal const val PageCustomProviderXAi = "custom_provider_xai"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
@@ -182,7 +183,7 @@ internal fun settingsParentPage(page: String): String? = when (page) {
     -> PageEchoLabs
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
-    PageCustomProviderCerebras, PageCustomProviderXAi,
+    PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi,
     -> PageCustomProviderCloud
     else -> PageHome
 }
@@ -266,6 +267,7 @@ fun SettingsScreen(
             PageCustomProviderClaude -> DirectCloudBrandPage(viewModel, CustomModelProvider.Claude, onBack = navigateBack)
             PageCustomProviderGemini -> DirectCloudBrandPage(viewModel, CustomModelProvider.Gemini, onBack = navigateBack)
             PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = navigateBack)
+            PageCustomProviderSarvam -> DirectCloudBrandPage(viewModel, CustomModelProvider.Sarvam, onBack = navigateBack)
             PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
@@ -441,7 +443,7 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
                 title = "Custom",
-                subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI",
+                subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = 8,

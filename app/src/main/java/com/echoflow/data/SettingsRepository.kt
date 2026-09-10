@@ -395,6 +395,11 @@ class SettingsRepository(context: Context) {
             cerebrasModel = prefs.getString("direct_cerebras_model", "").orEmpty(),
             cerebrasModels = prefs.getString("direct_cerebras_models", "").orEmpty(),
             cerebrasSelectedModels = prefs.getString("direct_cerebras_selected_models", "").orEmpty(),
+            sarvamEnabled = prefs.getBoolean("direct_sarvam_enabled", false),
+            sarvamApiKey = prefs.getString("direct_sarvam_api_key", "").orEmpty(),
+            sarvamModel = prefs.getString("direct_sarvam_model", "").orEmpty(),
+            sarvamModels = prefs.getString("direct_sarvam_models", "sarvam-105b\nsarvam-105b-conversations").orEmpty(),
+            sarvamSelectedModels = prefs.getString("direct_sarvam_selected_models", "sarvam-105b").orEmpty(),
             xAiEnabled = prefs.getBoolean("direct_xai_enabled", false),
             xAiApiKey = prefs.getString("direct_xai_api_key", "").orEmpty(),
             xAiModel = prefs.getString("direct_xai_model", "").orEmpty(),
@@ -427,6 +432,8 @@ class SettingsRepository(context: Context) {
             geminiModel = config.geminiModel.trim(),
             cerebrasApiKey = config.cerebrasApiKey.trim(),
             cerebrasModel = config.cerebrasModel.trim(),
+            sarvamApiKey = config.sarvamApiKey.trim(),
+            sarvamModel = config.sarvamModel.trim(),
             xAiApiKey = config.xAiApiKey.trim(),
             xAiModel = config.xAiModel.trim(),
             ollamaBaseUrl = config.ollamaBaseUrl.trim(),
@@ -459,6 +466,11 @@ class SettingsRepository(context: Context) {
             .putString("direct_cerebras_model", clean.cerebrasModel)
             .putString("direct_cerebras_models", clean.cerebrasModels)
             .putString("direct_cerebras_selected_models", clean.cerebrasSelectedModels)
+            .putBoolean("direct_sarvam_enabled", clean.sarvamEnabled)
+            .putString("direct_sarvam_api_key", clean.sarvamApiKey)
+            .putString("direct_sarvam_model", clean.sarvamModel)
+            .putString("direct_sarvam_models", clean.sarvamModels)
+            .putString("direct_sarvam_selected_models", clean.sarvamSelectedModels)
             .putBoolean("direct_xai_enabled", clean.xAiEnabled)
             .putString("direct_xai_api_key", clean.xAiApiKey)
             .putString("direct_xai_model", clean.xAiModel)
