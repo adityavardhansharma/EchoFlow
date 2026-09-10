@@ -1653,11 +1653,31 @@ class ChatViewModel(
                 _errorMessage.value = "Wait for files to finish reading, or remove ones that couldn't be read."
                 return@launch
             }
-            if (ModelFileCapability.extractsDocsLocally(selectedModel) &&
+            if ((ModelFileCapability.extractsDocsLocally(selectedModel) || customProvider == "sarvam") &&
                 stagedAttachments.any { !it.isImage && it.extractedText.isNullOrBlank() }
             ) {
                 _errorMessage.value = "That file has no readable text for this model. Wait for it to finish, or remove it."
                 return@launch
+            }
+            // Sarvam is text-only: images ride as on-device OCR text, so an unreadable
+            // image must block send (re-attach/remove) rather than silently answering
+            // without it. Read once here, reuse the text when building the prompt below.
+            var sarvamImageOcr: Map<String, String> = emptyMap()
+            if (customProvider == "sarvam" && !imageGenMode && !videoGenMode) {
+                val images = stagedAttachments.filter { it.isImage }
+                if (images.isNotEmpty()) {
+                    val read = images.associate { att ->
+                        att.id to runCatching {
+                            ocrExtractor.ocrUri(getApplication<Application>().contentResolver, Uri.parse(att.uri))
+                        }.getOrNull()?.takeIf { !it.isBlank() }
+                    }
+                    val unreadable = images.firstOrNull { read[it.id] == null }
+                    if (unreadable != null) {
+                        _errorMessage.value = "Couldn't read \"${unreadable.name}\" on this device. Re-attach it or remove it to send."
+                        return@launch
+                    }
+                    sarvamImageOcr = read.mapValues { it.value!! }
+                }
             }
 
             if (!isLocal && !customProviderActive && apiKey.isBlank()) {
@@ -1685,7 +1705,9 @@ class ChatViewModel(
                 else -> false
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
+            // Sarvam never sends raw files (docs ride as anydoc Markdown, images as OCR
+            // text), so the raw-attachment gates below don't apply to it.
+            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
                 val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
                     "Settings → Echo Labs → Custom API Endpoint"
                 } else {
@@ -1694,7 +1716,7 @@ class ChatViewModel(
                 _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in $where."
                 return@launch
             }
-            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
+            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = if (customProvider == "xai") {
                     "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
                 } else {
@@ -1963,20 +1985,21 @@ class ChatViewModel(
             val localHistory = if (isLocal) {
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
-            // Sarvam chat models are text-only and reject image parts: staged images ride as
-            // on-device OCR text folded into the latest user turn (request-only — the stored
-            // message keeps its typed text). An OCR miss degrades to the typed prompt rather
-            // than blocking send. Every other custom provider uses fullHistory unchanged.
+            // Sarvam chat models are text-only and reject file parts: staged docs ride as
+            // on-device anydoc Markdown and staged images as the on-device OCR text read
+            // above, both folded into a request-only history copy (the stored messages keep
+            // their typed text). Every other custom provider uses fullHistory unchanged.
             val sarvamOcrBlocks: List<String> = if (customProvider == "sarvam" && !imageGenMode && !videoGenMode) {
                 stagedAttachments.filter { it.isImage }.mapNotNull { att ->
-                    runCatching {
-                        ocrExtractor.ocrUri(getApplication<Application>().contentResolver, Uri.parse(att.uri))
-                    }.getOrNull()?.takeIf { !it.isBlank() }?.let { SarvamVisionBridge.ocrBlock(att.name, it) }
+                    sarvamImageOcr[att.id]?.let { SarvamVisionBridge.ocrBlock(att.name, it) }
                 }
             } else emptyList()
-            val customHistory =
-                if (sarvamOcrBlocks.isNotEmpty()) SarvamVisionBridge.historyWithOcr(fullHistory, sarvamOcrBlocks)
-                else fullHistory
+            val customHistory = if (customProvider == "sarvam") {
+                SarvamVisionBridge.historyWithOcr(
+                    LocalLlmPrompting.historyWithInjectedDocs(fullHistory),
+                    sarvamOcrBlocks,
+                )
+            } else fullHistory
             val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
                 LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
             } else {
