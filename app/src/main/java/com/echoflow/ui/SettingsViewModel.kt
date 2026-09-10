@@ -128,7 +128,7 @@ class SettingsViewModel(
     // Artifacts
     val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
 
-    // Speech to text (composer dictation; always OpenRouter + the Cloud-models key)
+    // Dictation (uses the selected transcription provider’s key)
     val sttMode: StateFlow<SttMode> = repository.sttMode
     val sttCloudModel: StateFlow<String> = repository.sttCloudModel
     fun saveSttMode(mode: SttMode) = repository.saveSttMode(mode)
@@ -376,6 +376,7 @@ class SettingsViewModel(
                     CustomModelProvider.Claude -> customProviderService.fetchModels(provider, apiKey = config.claudeApiKey)
                     CustomModelProvider.Gemini -> customProviderService.fetchModels(provider, apiKey = config.geminiApiKey)
                     CustomModelProvider.Cerebras -> customProviderService.fetchModels(provider, apiKey = config.cerebrasApiKey)
+                    CustomModelProvider.Sarvam -> customProviderService.fetchModels(provider, apiKey = config.sarvamApiKey)
                     CustomModelProvider.XAi -> customProviderService.fetchModels(provider, apiKey = config.xAiApiKey)
                     CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
                     CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
@@ -390,12 +391,15 @@ class SettingsViewModel(
                         CustomModelProvider.Claude -> config.copy(claudeModels = result.message)
                         CustomModelProvider.Gemini -> config.copy(geminiModels = result.message)
                         CustomModelProvider.Cerebras -> config.copy(cerebrasModels = result.message)
+                        CustomModelProvider.Sarvam -> config.copy(sarvamModels = result.message)
                         CustomModelProvider.XAi -> config.copy(xAiModels = result.message)
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
                         CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
                     }
                     saveCustomProviderConfig(updated)
-                    _customProviderFetchMessage.value = "Fetched ${result.message.lineSequence().filter { it.isNotBlank() }.count()} models."
+                    _customProviderFetchMessage.value = if (provider == CustomModelProvider.Sarvam)
+                        "Loaded the built-in Sarvam model list. This does not validate your API key."
+                    else "Fetched ${result.message.lineSequence().filter { it.isNotBlank() }.count()} models."
                 } else {
                     _customProviderFetchMessage.value = result.message
                 }

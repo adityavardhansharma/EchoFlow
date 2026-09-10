@@ -61,12 +61,27 @@ data class CustomProviderConfig(
     val openAiCompatibleImagesEnabled: Boolean,
     val openAiCompatiblePdfsEnabled: Boolean,
     val openAiCompatibleToolCallingEnabled: Boolean,
+    val sarvamEnabled: Boolean = false,
+    val sarvamApiKey: String = "",
+    val sarvamModel: String = "",
+    val sarvamModels: String = "sarvam-105b\nsarvam-105b-conversations",
+    val sarvamSelectedModels: String = "sarvam-105b",
 ) {
+    val sarvamAvailable: Boolean
+        get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
+
+    fun sarvamConfigurationError(): String? = when {
+        !cloudApisEnabled || !sarvamEnabled -> "Sarvam is disabled. Enable it under Settings → Custom or choose another model."
+        sarvamApiKey.isBlank() -> "Sarvam API key is missing. Add it under Settings → Custom → Sarvam."
+        else -> null
+    }
+
     companion object {
         const val PREFIX_OPENAI = "custom/openai/"
         const val PREFIX_CLAUDE = "custom/claude/"
         const val PREFIX_GEMINI = "custom/gemini/"
         const val PREFIX_CEREBRAS = "custom/cerebras/"
+        const val PREFIX_SARVAM = "custom/sarvam/"
         const val PREFIX_XAI = "custom/xai/"
         const val PREFIX_OLLAMA = "custom/ollama/"
         const val PREFIX_OPENAI_COMPATIBLE = "custom/openai-compatible/"
@@ -80,7 +95,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, XAi, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     fun cerebrasSupportsImages(model: String): Boolean {
@@ -146,13 +161,14 @@ data class ProviderValidationResult(
     val message: String,
 )
 
-class CustomProviderService(private val context: Context? = null) {
-    private val client = OkHttpClient.Builder()
+class CustomProviderService(
+    private val context: Context? = null,
+    private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
-
+        .build(),
+) {
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
@@ -494,6 +510,7 @@ class CustomProviderService(private val context: Context? = null) {
                 CustomModelProvider.Claude -> fetchClaudeModels(apiKey)
                 CustomModelProvider.Gemini -> fetchGeminiModels(apiKey)
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
+                CustomModelProvider.Sarvam -> listOf("sarvam-105b", "sarvam-105b-conversations")
                 CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)

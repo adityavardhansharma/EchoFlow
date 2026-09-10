@@ -7,11 +7,19 @@ import android.media.MediaRecorder
 import android.util.Base64
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -149,22 +157,33 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
     }
 }
 
-/**
- * Sends recorded audio to OpenRouter for transcription. STT is always billed to the OpenRouter
- * (Cloud models) key, regardless of the chat model.
- *
- * Wire shape matches OpenRouter's STT docs: JSON body with base64 `input_audio` posted to
- * `/api/v1/audio/transcriptions`. Response is `{ "text": ... }` (with a chat-completions content
- * fallback parse for defensive compatibility).
- */
-class SpeechToTextTranscriber {
-    private val client = OkHttpClient.Builder()
+/** Sends composer WAV recordings to the selected dictation provider. */
+class SpeechToTextTranscriber(
+    private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .build()
-
+        .build(),
+    private val sarvamBaseUrl: String = "https://api.sarvam.ai",
+) {
     suspend fun transcribe(apiKey: String, modelId: String, wav: ByteArray): Result<String> =
         withContext(Dispatchers.IO) {
+            if (modelId == SttCatalog.SARVAM_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No Sarvam key" }
+                    val transcripts = SarvamDictation.wavChunks(wav, overlapBytes = 32_000).map { chunk ->
+                        currentCoroutineContext().ensureActive()
+                        val request = SarvamDictation.request(sarvamBaseUrl, apiKey, chunk)
+                        val (code, body) = executeCancellable(request)
+                        check(code in 200..299) {
+                            ProviderHttpSupport.errorMessage("Sarvam dictation", code, body)
+                        }
+                        SttPayloads.parseSarvamTranscript(body)
+                    }
+                    SarvamDictation.stitch(transcripts).ifBlank {
+                        error("Couldn't hear that — try again.")
+                    }
+                }.onFailure { if (it is CancellationException) throw it }
+            }
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(IllegalStateException("No OpenRouter key"))
             }
@@ -181,14 +200,31 @@ class SpeechToTextTranscriber {
                 .post(body)
                 .build()
             runCatching {
-                client.newCall(request).execute().use { resp ->
-                    val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) {
-                        error(ProviderHttpSupport.errorMessage("Speech to text", resp.code, text))
-                    }
-                    SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
+                val (code, text) = executeCancellable(request)
+                if (code !in 200..299) {
+                    error(ProviderHttpSupport.errorMessage("Dictation", code, text))
                 }
-            }
+                SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
+            }.onFailure { if (it is CancellationException) throw it }
+        }
+
+    // Keep cancellation registered through body consumption, not just response headers.
+    private suspend fun executeCancellable(request: Request): Pair<Int, String> =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWith(Result.failure(e))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching {
+                        response.use { it.code to it.body?.string().orEmpty() }
+                    }
+                    continuation.resumeWith(result)
+                }
+            })
         }
 }
 
@@ -210,8 +246,15 @@ internal object SttPayloads {
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
 
+    fun parseSarvamTranscript(body: String): String {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull()
+        return (map?.get("transcript") as? String)?.trim()
+            ?: error("Invalid Sarvam transcription response")
+    }
+
     fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
+        (map["transcript"] as? String)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         (map["text"] as? String)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         val choice = (map["choices"] as? List<*>)?.firstOrNull() as? Map<*, *>
         val content = (choice?.get("message") as? Map<*, *>)?.get("content") as? String

@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -122,13 +123,16 @@ internal data class DirectProviderBrand(
     val modelPlaceholder: String,
     val logoRes: Int,
     val color: Color,
+    val onColor: Color? = null,
 )
 
+@Composable
 internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderBrand = when (provider) {
     CustomModelProvider.OpenAi -> DirectProviderBrand("OpenAI", "Direct OpenAI API", "sk-...", "gpt-4.1-mini", R.drawable.logo_openai, Color(0xFF10A37F))
     CustomModelProvider.Claude -> DirectProviderBrand("Claude", "Direct Anthropic API", "sk-ant-...", "claude-sonnet-4-5", R.drawable.logo_claude, Color(0xFFD97757))
     CustomModelProvider.Gemini -> DirectProviderBrand("Gemini", "Direct Google API", "AIza...", "gemini-2.5-flash", R.drawable.logo_gemini, Color(0xFF4285F4))
     CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFF15A29))
+    CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.XAi -> DirectProviderBrand("xAI", "Direct xAI API", "xai-...", "grok-4.5", R.drawable.logo_xai, Color(0xFF151515))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
@@ -244,6 +248,7 @@ internal fun BrandChip(brand: DirectProviderBrand, size: Dp, shape: Shape, scale
             Image(
                 painter = painterResource(brand.logoRes),
                 contentDescription = brand.title,
+                colorFilter = brand.onColor?.let { ColorFilter.tint(it) },
                 modifier = Modifier.size(size * 0.5f),
             )
         }
@@ -257,6 +262,7 @@ internal fun DirectBrandActions(
     hasManual: Boolean,
     onFetch: () -> Unit,
     onManual: () -> Unit,
+    fetchLabel: String = "Fetch",
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
         Button(
@@ -270,7 +276,7 @@ internal fun DirectBrandActions(
             } else {
                 Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(Spacing.s))
-                Text("Fetch", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(fetchLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         FilledTonalButton(
@@ -594,6 +600,7 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Claude -> config.claudeEnabled
     CustomModelProvider.Gemini -> config.geminiEnabled
     CustomModelProvider.Cerebras -> config.cerebrasEnabled
+    CustomModelProvider.Sarvam -> config.sarvamEnabled
     CustomModelProvider.XAi -> config.xAiEnabled
     else -> false
 }
@@ -603,6 +610,7 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Claude -> config.copy(claudeEnabled = enabled)
     CustomModelProvider.Gemini -> config.copy(geminiEnabled = enabled)
     CustomModelProvider.Cerebras -> config.copy(cerebrasEnabled = enabled)
+    CustomModelProvider.Sarvam -> config.copy(sarvamEnabled = enabled)
     CustomModelProvider.XAi -> config.copy(xAiEnabled = enabled)
     else -> config
 }
@@ -612,6 +620,7 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Claude -> config.claudeApiKey
     CustomModelProvider.Gemini -> config.geminiApiKey
     CustomModelProvider.Cerebras -> config.cerebrasApiKey
+    CustomModelProvider.Sarvam -> config.sarvamApiKey
     CustomModelProvider.XAi -> config.xAiApiKey
     else -> ""
 }
@@ -621,6 +630,7 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Claude -> config.copy(claudeApiKey = value)
     CustomModelProvider.Gemini -> config.copy(geminiApiKey = value)
     CustomModelProvider.Cerebras -> config.copy(cerebrasApiKey = value)
+    CustomModelProvider.Sarvam -> config.copy(sarvamApiKey = value)
     CustomModelProvider.XAi -> config.copy(xAiApiKey = value)
     else -> config
 }
@@ -630,6 +640,7 @@ internal fun directProviderManualModel(config: CustomProviderConfig, provider: C
     CustomModelProvider.Claude -> config.claudeModel
     CustomModelProvider.Gemini -> config.geminiModel
     CustomModelProvider.Cerebras -> config.cerebrasModel
+    CustomModelProvider.Sarvam -> config.sarvamModel
     CustomModelProvider.XAi -> config.xAiModel
     else -> ""
 }
@@ -639,6 +650,7 @@ internal fun setDirectProviderManualModel(config: CustomProviderConfig, provider
     CustomModelProvider.Claude -> config.copy(claudeModel = value)
     CustomModelProvider.Gemini -> config.copy(geminiModel = value)
     CustomModelProvider.Cerebras -> config.copy(cerebrasModel = value)
+    CustomModelProvider.Sarvam -> config.copy(sarvamModel = value)
     CustomModelProvider.XAi -> config.copy(xAiModel = value)
     else -> config
 }
@@ -648,6 +660,7 @@ internal fun directProviderAvailableModels(config: CustomProviderConfig, provide
     CustomModelProvider.Claude -> config.claudeModels
     CustomModelProvider.Gemini -> config.geminiModels
     CustomModelProvider.Cerebras -> config.cerebrasModels
+    CustomModelProvider.Sarvam -> config.sarvamModels
     CustomModelProvider.XAi -> config.xAiModels
     else -> ""
 }
@@ -657,6 +670,7 @@ internal fun directProviderSelectedModels(config: CustomProviderConfig, provider
     CustomModelProvider.Claude -> config.claudeSelectedModels
     CustomModelProvider.Gemini -> config.geminiSelectedModels
     CustomModelProvider.Cerebras -> config.cerebrasSelectedModels
+    CustomModelProvider.Sarvam -> config.sarvamSelectedModels
     CustomModelProvider.XAi -> config.xAiSelectedModels
     else -> ""
 }
@@ -666,6 +680,7 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
     CustomModelProvider.Claude -> config.copy(claudeSelectedModels = value)
     CustomModelProvider.Gemini -> config.copy(geminiSelectedModels = value)
     CustomModelProvider.Cerebras -> config.copy(cerebrasSelectedModels = value)
+    CustomModelProvider.Sarvam -> config.copy(sarvamSelectedModels = value)
     CustomModelProvider.XAi -> config.copy(xAiSelectedModels = value)
     else -> config
 }
@@ -681,6 +696,7 @@ internal fun directProviderSummary(config: CustomProviderConfig, provider: Custo
 
 internal fun directProviderAttachmentText(provider: CustomModelProvider): String = when (provider) {
     CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
+    CustomModelProvider.Sarvam -> "Sarvam 105B is text-only. Your key also enables Saaras v4 in Dictation."
     CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
 }
@@ -690,6 +706,7 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Claude -> "Claude"
     CustomModelProvider.Gemini -> "Gemini"
     CustomModelProvider.Cerebras -> "Cerebras"
+    CustomModelProvider.Sarvam -> "Sarvam"
     CustomModelProvider.XAi -> "xAI"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"

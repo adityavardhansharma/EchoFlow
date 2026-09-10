@@ -176,6 +176,7 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
                 Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("Models", "Choose what appears in the chat model picker")
                 DirectBrandActions(
+                    fetchLabel = if (provider == CustomModelProvider.Sarvam) "Load models" else "Fetch",
                     fetchLoading = fetchLoading == provider,
                     fetchBlocked = fetchLoading != null && fetchLoading != provider,
                     hasManual = manualModel.isNotBlank(),

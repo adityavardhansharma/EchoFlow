@@ -29,7 +29,7 @@ It started as a chat app and grew into a small workspace: web search, background
 | | |
 |---|---|
 | **Nothing leaves your control** | No EchoFlow backend, no account, no analytics. Conversations, keys, and settings live on your device. |
-| **Any model you want** | OpenRouter, OpenAI, Claude, Gemini, Cerebras, a local Ollama server, any OpenAI-compatible endpoint, or fully offline on-device models. |
+| **Any model you want** | OpenRouter, OpenAI, Claude, Gemini, Cerebras, Sarvam, a local Ollama server, any OpenAI-compatible endpoint, or fully offline on-device models. |
 | **More than chat** | Web search, deep research with citations, structured data extraction, browser automation, and document generation, built around whichever model you're using. |
 | **Models working together** | Have one model consult a stronger one mid-answer, run several models in parallel and let a judge synthesize the results, or hand a model its own tools and a worker to delegate to. |
 
@@ -39,7 +39,7 @@ It started as a chat app and grew into a small workspace: web search, background
 1. Install the APK from Releases.
 2. Open Settings and connect a model:
      - Models           -> OpenRouter & on-device
-     - Custom           -> OpenAI, Claude, Gemini, Cerebras, xAI
+     - Custom           -> OpenAI, Claude, Gemini, Cerebras, Sarvam, xAI
      - Anything else    -> Echo Labs -> Custom API Endpoint
 3. Start chatting.
 ```
@@ -52,9 +52,12 @@ No keys are required just to install and look around — on-device models work f
 |---|---|---|
 | OpenRouter | Settings → Models | Images/PDFs, depending on the model |
 | OpenAI · Claude · Gemini · Cerebras · xAI | Settings → Custom | Images and PDFs (Cerebras: Gemma-family images only) |
+| Sarvam | Settings → Custom → Sarvam | Text chat with Sarvam 105B; Saaras v4 dictation |
 | Ollama (local/LAN) | Echo Labs → Custom API Endpoint → Ollama API | Per-model toggle |
 | OpenAI-compatible (LM Studio, Jan, vLLM, LocalAI…) | Echo Labs → Custom API Endpoint | Per-model toggle |
 | On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
+
+Enable Sarvam and save your API key under **Settings → Custom → Sarvam**. `sarvam-105b` is preselected for the chat model picker. To use its speech recognition, choose **Saaras v4** under **Settings → Dictation**. Dictation uses the selected provider’s key independently of the chat model; longer recordings are split to fit Sarvam’s 30-second request limit.
 
 Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search work across every provider above except where noted.
 

@@ -327,10 +327,11 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Claude to PageCustomProviderClaude,
         CustomModelProvider.Gemini to PageCustomProviderGemini,
         CustomModelProvider.Cerebras to PageCustomProviderCerebras,
+        CustomModelProvider.Sarvam to PageCustomProviderSarvam,
         CustomModelProvider.XAi to PageCustomProviderXAi,
     )
 
-    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · xAI", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI", onBack = onBack) {
         EndpointMasterToggle(
             title = "Direct Cloud APIs",
             subtitle = "Use brand APIs without OpenRouter",
@@ -360,7 +361,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
                     Text("Attachments", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "Images and PDFs stay on for direct cloud models. Keep only models you trust selected in each brand page.",
+                        "Attachment support depends on the provider and model. Check each brand page for details.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

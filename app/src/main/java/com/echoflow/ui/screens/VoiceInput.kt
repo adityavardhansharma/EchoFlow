@@ -40,7 +40,7 @@ enum class VoicePhase { Idle, Recording, Transcribing }
 
 /**
  * Drives composer dictation: record → stop → transcribe, as one small state machine the composer
- * observes. Owns the recorder and the OpenRouter transcriber; the composer only ever taps the mic
+ * observes. Owns the recorder and the dictation transcriber; the composer only ever taps the mic
  * and receives the finished text.
  */
 class VoiceInputController(
