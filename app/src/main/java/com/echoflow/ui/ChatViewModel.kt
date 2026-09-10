@@ -431,11 +431,6 @@ class ChatViewModel(
     private val chatAttachmentExtractor by lazy {
         com.echoflow.data.extract.ChatAttachmentExtractor(getApplication<Application>().contentResolver)
     }
-    // On-device OCR for Sarvam chat images (Sarvam 105B is text-only). Lazy like the
-    // doc extractor — ML Kit is unbundled and a miss is a normal null, never a crash.
-    private val ocrExtractor by lazy {
-        com.echoflow.data.extract.OcrExtractor(getApplication())
-    }
 
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
@@ -1659,26 +1654,6 @@ class ChatViewModel(
                 _errorMessage.value = "That file has no readable text for this model. Wait for it to finish, or remove it."
                 return@launch
             }
-            // Sarvam is text-only: images ride as on-device OCR text, so an unreadable
-            // image must block send (re-attach/remove) rather than silently answering
-            // without it. Read once here, reuse the text when building the prompt below.
-            var sarvamImageOcr: Map<String, String> = emptyMap()
-            if (customProvider == "sarvam" && !imageGenMode && !videoGenMode) {
-                val images = stagedAttachments.filter { it.isImage }
-                if (images.isNotEmpty()) {
-                    val read = images.associate { att ->
-                        att.id to runCatching {
-                            ocrExtractor.ocrUri(getApplication<Application>().contentResolver, Uri.parse(att.uri))
-                        }.getOrNull()?.takeIf { !it.isBlank() }
-                    }
-                    val unreadable = images.firstOrNull { read[it.id] == null }
-                    if (unreadable != null) {
-                        _errorMessage.value = "Couldn't read \"${unreadable.name}\" on this device. Re-attach it or remove it to send."
-                        return@launch
-                    }
-                    sarvamImageOcr = read.mapValues { it.value!! }
-                }
-            }
 
             if (!isLocal && !customProviderActive && apiKey.isBlank()) {
                 _errorMessage.value = "OpenRouter API Key is missing! Go to Settings to configure it."
@@ -1687,9 +1662,6 @@ class ChatViewModel(
 
             val customImageAllowed = when (customProvider) {
                 "openai", "claude", "gemini" -> true
-                // Text-only, but images still attach: they ride as on-device OCR text
-                // folded into the prompt (see sarvamHistory below), never as pixels.
-                "sarvam" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
@@ -1986,19 +1958,11 @@ class ChatViewModel(
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
             // Sarvam chat models are text-only and reject file parts: staged docs ride as
-            // on-device anydoc Markdown and staged images as the on-device OCR text read
-            // above, both folded into a request-only history copy (the stored messages keep
-            // their typed text). Every other custom provider uses fullHistory unchanged.
-            val sarvamOcrBlocks: List<String> = if (customProvider == "sarvam" && !imageGenMode && !videoGenMode) {
-                stagedAttachments.filter { it.isImage }.mapNotNull { att ->
-                    sarvamImageOcr[att.id]?.let { SarvamVisionBridge.ocrBlock(att.name, it) }
-                }
-            } else emptyList()
+            // on-device anydoc Markdown folded into a request-only history copy (the stored
+            // messages keep their typed text). Every other custom provider uses fullHistory
+            // unchanged.
             val customHistory = if (customProvider == "sarvam") {
-                SarvamVisionBridge.historyWithOcr(
-                    LocalLlmPrompting.historyWithInjectedDocs(fullHistory),
-                    sarvamOcrBlocks,
-                )
+                LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
             } else fullHistory
             val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
                 LocalLlmPrompting.historyWithInjectedDocs(fullHistory)

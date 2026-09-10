@@ -290,7 +290,7 @@ internal fun ChatSurface(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> true // text-only: images ride as on-device OCR text
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false // text-only: docs ride as on-device anydoc text, no images
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
@@ -347,7 +347,10 @@ internal fun ChatSurface(
     }
     // On-device models and Echo Lumen parse doc files locally (anydoc → Markdown). Fusion/Adviser/
     // Agent/Browser do not consume that Markdown, so they stay on the single raw-PDF path (or none).
-    val filesAttachAllowed = selectedModelUsesAnydocExtraction &&
+    // Sarvam joins the local-parse path: 105B is text-only, so docs ride as anydoc Markdown
+    // (images ride as OCR text) folded into the prompt — never as raw files.
+    val isSarvamChat = selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM)
+    val filesAttachAllowed = (selectedModelUsesAnydocExtraction || isSarvamChat) &&
         !deepResearchActive &&
         !dataAgentActive &&
         !echoFusionActive &&
