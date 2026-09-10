@@ -4,9 +4,7 @@ package com.echoflow.data
  * Speech-to-text for the chat composer (dictation — talk, it lands as text you can edit and
  * send; not a live voice conversation).
  *
- * STT is deliberately independent of whichever chat model is selected: it *always* runs on
- * OpenRouter using the same key entered under Cloud models, whether the chat is on OpenAI, a
- * local model, Ollama or anything else. There is no second key.
+ * Dictation uses the selected provider’s key, independently of the chat model.
  */
 enum class SttMode(val storageKey: String) {
     Cloud("cloud"),
@@ -62,11 +60,34 @@ data class SttModel(
     val blurb: String,
     val usdPerMinute: Double,
     val isBest: Boolean = false,
+    val showCostTier: Boolean = true,
 ) {
     val costTier: SttCostTier get() = SttCostTier.fromUsdPerMinute(usdPerMinute)
 }
 
 object SttCatalog {
+    const val SARVAM_MODEL_ID = "saaras:v4"
+    val SARVAM_MODEL = SttModel(
+        id = SARVAM_MODEL_ID,
+        name = "Saaras v4",
+        provider = "Sarvam",
+        pricing = "Billed by Sarvam",
+        blurb = "22 Indian languages and English, with automatic language detection.",
+        usdPerMinute = 0.0,
+        showCostTier = false,
+    )
+
+    fun sarvamAvailable(config: CustomProviderConfig): Boolean =
+        config.cloudApisEnabled && config.sarvamEnabled && config.sarvamApiKey.isNotBlank()
+
+    fun availableModels(config: CustomProviderConfig): List<SttModel> =
+        if (sarvamAvailable(config)) CLOUD_MODELS + SARVAM_MODEL else CLOUD_MODELS
+
+    fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String =
+        if (modelId == SARVAM_MODEL_ID) {
+            if (sarvamAvailable(config)) config.sarvamApiKey else ""
+        } else openRouterKey
+
     /** Cloud options offered on the STT settings page, in display order. */
     val CLOUD_MODELS = listOf(
         SttModel(
@@ -110,7 +131,7 @@ object SttCatalog {
 
     const val DEFAULT_MODEL_ID = "openai/gpt-transcribe"
 
-    fun byId(id: String): SttModel? = CLOUD_MODELS.firstOrNull { it.id == id }
+    fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
 
     /** The stored id, falling back to the default when blank or pointing at a removed model. */
     fun resolve(id: String): SttModel = byId(id) ?: CLOUD_MODELS.first()

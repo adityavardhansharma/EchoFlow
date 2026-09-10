@@ -7,6 +7,9 @@ import android.media.MediaRecorder
 import android.util.Base64
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -149,22 +152,34 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
     }
 }
 
-/**
- * Sends recorded audio to OpenRouter for transcription. STT is always billed to the OpenRouter
- * (Cloud models) key, regardless of the chat model.
- *
- * Wire shape matches OpenRouter's STT docs: JSON body with base64 `input_audio` posted to
- * `/api/v1/audio/transcriptions`. Response is `{ "text": ... }` (with a chat-completions content
- * fallback parse for defensive compatibility).
- */
-class SpeechToTextTranscriber {
-    private val client = OkHttpClient.Builder()
+/** Sends composer WAV recordings to the selected dictation provider. */
+class SpeechToTextTranscriber(
+    private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .build()
-
+        .build(),
+    private val sarvamBaseUrl: String = "https://api.sarvam.ai",
+) {
     suspend fun transcribe(apiKey: String, modelId: String, wav: ByteArray): Result<String> =
         withContext(Dispatchers.IO) {
+            if (modelId == SttCatalog.SARVAM_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No Sarvam key" }
+                    SarvamDictation.wavChunks(wav).map { chunk ->
+                        currentCoroutineContext().ensureActive()
+                        val request = SarvamDictation.request(sarvamBaseUrl, apiKey, chunk)
+                        client.newCall(request).execute().use { response ->
+                            val body = response.body?.string().orEmpty()
+                            check(response.isSuccessful) {
+                                ProviderHttpSupport.errorMessage("Sarvam dictation", response.code, body)
+                            }
+                            SttPayloads.parseSarvamTranscript(body)
+                        }
+                    }.filter(String::isNotBlank).joinToString(" ").ifBlank {
+                        error("Couldn't hear that — try again.")
+                    }
+                }.onFailure { if (it is CancellationException) throw it }
+            }
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(IllegalStateException("No OpenRouter key"))
             }
@@ -184,7 +199,7 @@ class SpeechToTextTranscriber {
                 client.newCall(request).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
                     if (!resp.isSuccessful) {
-                        error(ProviderHttpSupport.errorMessage("Speech to text", resp.code, text))
+                        error(ProviderHttpSupport.errorMessage("Dictation", resp.code, text))
                     }
                     SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
                 }
@@ -210,8 +225,15 @@ internal object SttPayloads {
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
 
+    fun parseSarvamTranscript(body: String): String {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull()
+        return (map?.get("transcript") as? String)?.trim()
+            ?: error("Invalid Sarvam transcription response")
+    }
+
     fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
+        (map["transcript"] as? String)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         (map["text"] as? String)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         val choice = (map["choices"] as? List<*>)?.firstOrNull() as? Map<*, *>
         val content = (choice?.get("message") as? Map<*, *>)?.get("content") as? String
