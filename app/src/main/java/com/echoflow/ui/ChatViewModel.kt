@@ -431,6 +431,11 @@ class ChatViewModel(
     private val chatAttachmentExtractor by lazy {
         com.echoflow.data.extract.ChatAttachmentExtractor(getApplication<Application>().contentResolver)
     }
+    // On-device OCR for Sarvam chat images (Sarvam 105B is text-only). Lazy like the
+    // doc extractor — ML Kit is unbundled and a miss is a normal null, never a crash.
+    private val ocrExtractor by lazy {
+        com.echoflow.data.extract.OcrExtractor(getApplication())
+    }
 
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
@@ -1662,6 +1667,9 @@ class ChatViewModel(
 
             val customImageAllowed = when (customProvider) {
                 "openai", "claude", "gemini" -> true
+                // Text-only, but images still attach: they ride as on-device OCR text
+                // folded into the prompt (see sarvamHistory below), never as pixels.
+                "sarvam" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
@@ -1955,6 +1963,20 @@ class ChatViewModel(
             val localHistory = if (isLocal) {
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
+            // Sarvam chat models are text-only and reject image parts: staged images ride as
+            // on-device OCR text folded into the latest user turn (request-only — the stored
+            // message keeps its typed text). An OCR miss degrades to the typed prompt rather
+            // than blocking send. Every other custom provider uses fullHistory unchanged.
+            val sarvamOcrBlocks: List<String> = if (customProvider == "sarvam" && !imageGenMode && !videoGenMode) {
+                stagedAttachments.filter { it.isImage }.mapNotNull { att ->
+                    runCatching {
+                        ocrExtractor.ocrUri(getApplication<Application>().contentResolver, Uri.parse(att.uri))
+                    }.getOrNull()?.takeIf { !it.isBlank() }?.let { SarvamVisionBridge.ocrBlock(att.name, it) }
+                }
+            } else emptyList()
+            val customHistory =
+                if (sarvamOcrBlocks.isNotEmpty()) SarvamVisionBridge.historyWithOcr(fullHistory, sarvamOcrBlocks)
+                else fullHistory
             val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
                 LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
             } else {
@@ -2083,7 +2105,7 @@ class ChatViewModel(
                         )
                     ).withLocalInferenceGate("a chat reply")
                 artifactMode && customProviderActive ->
-                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams)
                 artifactMode ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
@@ -2121,7 +2143,7 @@ class ChatViewModel(
                         )
                     ).withLocalInferenceGate("a chat reply")
                 customToolCallingActive ->
-                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
                 customProviderActive && clientSearchReady ->
@@ -2134,10 +2156,10 @@ class ChatViewModel(
                             "[${source.title}](${source.url})\n${source.snippet.orEmpty()}"
                         }
                         val withSearch = systemPrompt + "\n\nUse these web search results when relevant:\n$searchContext"
-                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, withSearch, inferenceParams))
+                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, withSearch, inferenceParams))
                     }
                 customProviderActive ->
-                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams)
                 provider == "openrouter" ->
                     openRouterGateway.stream(
                         LlmStreamRequest(

@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -127,6 +128,10 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
             selectedId = selectedId,
             onSelect = viewModel::saveSttCloudModel,
         )
+        if (SttCatalog.sarvamAvailable(config)) {
+            Spacer(Modifier.height(Spacing.m))
+            SttHinglishRow(viewModel)
+        }
         Spacer(Modifier.height(Spacing.m))
         Text(
             "OpenRouter prices are per minute of audio; Saaras is billed directly to your Sarvam key. " +
@@ -135,6 +140,29 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun SttHinglishRow(viewModel: SettingsViewModel) {
+    val enabled by viewModel.sarvamHinglishEnabled.collectAsState()
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Hinglish", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Hindi dictation arrives in English letters. Other languages stay in native script.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, onCheckedChange = viewModel::saveSarvamHinglishEnabled)
+        }
     }
 }
 

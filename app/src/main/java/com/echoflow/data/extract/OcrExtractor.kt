@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -18,6 +19,8 @@ import kotlin.coroutines.resume
 interface ImageTextRecognizer {
     suspend fun ocrImage(file: File): String?
     suspend fun ocrPdf(file: File, maxPages: Int = 30): String?
+    /** OCR an image behind a `content://` URI (chat attachment). Null on any miss. */
+    suspend fun ocrUri(resolver: android.content.ContentResolver, uri: Uri): String? = null
 }
 
 /**
@@ -37,6 +40,16 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
             if (!bmp.isRecycled) bmp.recycle()
         }
     }
+
+    override suspend fun ocrUri(resolver: android.content.ContentResolver, uri: Uri): String? =
+        withContext(Dispatchers.IO) {
+            val bmp = decodeBoundedUri(resolver, uri) ?: return@withContext null
+            try {
+                recognizeBlocking(InputImage.fromBitmap(bmp, 0)).takeIf { it.isNotBlank() }
+            } finally {
+                if (!bmp.isRecycled) bmp.recycle()
+            }
+        }
 
     override suspend fun ocrPdf(file: File, maxPages: Int): String? = withContext(Dispatchers.IO) {
         runCatching {
@@ -76,6 +89,27 @@ class OcrExtractor(@Suppress("unused") context: Context) : ImageTextRecognizer {
         val sample = OcrBitmapBudget.sampleSize(bounds.outWidth, bounds.outHeight) ?: return null
         val opts = BitmapFactory.Options().apply { inSampleSize = sample }
         val bmp = BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
+        if (!OcrBitmapBudget.fits(bmp.width, bmp.height)) {
+            if (!bmp.isRecycled) bmp.recycle()
+            return null
+        }
+        return bmp
+    }
+
+    /**
+     * Same pixel budget as [decodeBounded], but for a `content://` image URI: two
+     * passes over the stream (bounds, then sampled decode) so a huge camera photo
+     * cannot allocate width×height×4 bytes.
+     */
+    private fun decodeBoundedUri(resolver: android.content.ContentResolver, uri: Uri): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val sample = OcrBitmapBudget.sampleSize(bounds.outWidth, bounds.outHeight) ?: return null
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = runCatching {
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        }.getOrNull() ?: return null
         if (!OcrBitmapBudget.fits(bmp.width, bmp.height)) {
             if (!bmp.isRecycled) bmp.recycle()
             return null

@@ -131,8 +131,10 @@ class SettingsViewModel(
     // Dictation (uses the selected transcription provider’s key)
     val sttMode: StateFlow<SttMode> = repository.sttMode
     val sttCloudModel: StateFlow<String> = repository.sttCloudModel
+    val sarvamHinglishEnabled: StateFlow<Boolean> = repository.sarvamHinglishEnabled
     fun saveSttMode(mode: SttMode) = repository.saveSttMode(mode)
     fun saveSttCloudModel(id: String) = repository.saveSttCloudModel(id)
+    fun saveSarvamHinglishEnabled(enabled: Boolean) = repository.saveSarvamHinglishEnabled(enabled)
 
     // Image generation
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
