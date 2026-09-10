@@ -1648,7 +1648,7 @@ class ChatViewModel(
                 _errorMessage.value = "Wait for files to finish reading, or remove ones that couldn't be read."
                 return@launch
             }
-            if (ModelFileCapability.extractsDocsLocally(selectedModel) &&
+            if ((ModelFileCapability.extractsDocsLocally(selectedModel) || customProvider == "sarvam") &&
                 stagedAttachments.any { !it.isImage && it.extractedText.isNullOrBlank() }
             ) {
                 _errorMessage.value = "That file has no readable text for this model. Wait for it to finish, or remove it."
@@ -1677,7 +1677,9 @@ class ChatViewModel(
                 else -> false
             }
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
+            // Sarvam never sends raw files (docs ride as anydoc Markdown, images as OCR
+            // text), so the raw-attachment gates below don't apply to it.
+            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
                 val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
                     "Settings → Echo Labs → Custom API Endpoint"
                 } else {
@@ -1686,7 +1688,7 @@ class ChatViewModel(
                 _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in $where."
                 return@launch
             }
-            if (customProviderActive && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
+            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = if (customProvider == "xai") {
                     "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
                 } else {
@@ -1955,6 +1957,13 @@ class ChatViewModel(
             val localHistory = if (isLocal) {
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
+            // Sarvam chat models are text-only and reject file parts: staged docs ride as
+            // on-device anydoc Markdown folded into a request-only history copy (the stored
+            // messages keep their typed text). Every other custom provider uses fullHistory
+            // unchanged.
+            val customHistory = if (customProvider == "sarvam") {
+                LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
+            } else fullHistory
             val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
                 LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
             } else {
@@ -2083,7 +2092,7 @@ class ChatViewModel(
                         )
                     ).withLocalInferenceGate("a chat reply")
                 artifactMode && customProviderActive ->
-                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams)
                 artifactMode ->
                     openRouterGateway.stream(
                         LlmStreamRequest(
@@ -2121,7 +2130,7 @@ class ChatViewModel(
                         )
                     ).withLocalInferenceGate("a chat reply")
                 customToolCallingActive ->
-                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams) { query ->
+                    customProviderToolFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams) { query ->
                         webSearchService.search(provider, searchKey, query)
                     }
                 customProviderActive && clientSearchReady ->
@@ -2134,10 +2143,10 @@ class ChatViewModel(
                             "[${source.title}](${source.url})\n${source.snippet.orEmpty()}"
                         }
                         val withSearch = systemPrompt + "\n\nUse these web search results when relevant:\n$searchContext"
-                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, withSearch, inferenceParams))
+                        emitAll(customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, withSearch, inferenceParams))
                     }
                 customProviderActive ->
-                    customProviderFlow(customProvider, customProviderConfig, requestModel, fullHistory, systemPrompt, inferenceParams)
+                    customProviderFlow(customProvider, customProviderConfig, requestModel, customHistory, systemPrompt, inferenceParams)
                 provider == "openrouter" ->
                     openRouterGateway.stream(
                         LlmStreamRequest(

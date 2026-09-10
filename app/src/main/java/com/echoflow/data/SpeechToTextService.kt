@@ -165,19 +165,40 @@ class SpeechToTextTranscriber(
         .build(),
     private val sarvamBaseUrl: String = "https://api.sarvam.ai",
 ) {
-    suspend fun transcribe(apiKey: String, modelId: String, wav: ByteArray): Result<String> =
+    suspend fun transcribe(
+        apiKey: String,
+        modelId: String,
+        wav: ByteArray,
+        romanizeHindi: Boolean = false,
+    ): Result<String> =
         withContext(Dispatchers.IO) {
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
                 return@withContext runCatching {
                     check(apiKey.isNotBlank()) { "No Sarvam key" }
-                    val transcripts = SarvamDictation.wavChunks(wav, overlapBytes = 32_000).map { chunk ->
+                    val results = SarvamDictation.wavChunks(wav, overlapBytes = 32_000).map { chunk ->
                         currentCoroutineContext().ensureActive()
                         val request = SarvamDictation.request(sarvamBaseUrl, apiKey, chunk)
                         val (code, body) = executeCancellable(request)
                         check(code in 200..299) {
                             ProviderHttpSupport.errorMessage("Sarvam dictation", code, body)
                         }
-                        SttPayloads.parseSarvamTranscript(body)
+                        SttPayloads.parseSarvamResult(body)
+                    }
+                    // Hinglish: auto-detect stays on the STT call; only chunks Sarvam itself
+                    // tagged as Hindi are romanized. Every other language passes through in
+                    // native script, and a transliteration miss falls back to the original
+                    // Devanagari rather than failing the dictation.
+                    val transcripts = if (romanizeHindi) {
+                        results.map { result ->
+                            currentCoroutineContext().ensureActive()
+                            if (result.text.isNotBlank() && SttPayloads.shouldRomanizeHindi(result.languageCode)) {
+                                transliterateHindi(apiKey, result.text).getOrElse { result.text }
+                            } else {
+                                result.text
+                            }
+                        }
+                    } else {
+                        results.map { it.text }
                     }
                     SarvamDictation.stitch(transcripts).ifBlank {
                         error("Couldn't hear that — try again.")
@@ -206,6 +227,35 @@ class SpeechToTextTranscriber(
                 }
                 SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
             }.onFailure { if (it is CancellationException) throw it }
+        }
+
+    /**
+     * Romanize one Hindi transcript via Sarvam's text `/transliterate` endpoint. Long
+     * transcripts are split at sentence boundaries to respect the per-request limit.
+     * Never throws — callers fall back to the original script on any failure.
+     */
+    private suspend fun transliterateHindi(apiKey: String, text: String): Result<String> =
+        runCatching {
+            val pieces = SttPayloads.splitForTransliteration(text)
+            val out = StringBuilder()
+            for (piece in pieces) {
+                currentCoroutineContext().ensureActive()
+                val payload = SttPayloads.encode(SttPayloads.transliterateRequestBody(piece))
+                val request = Request.Builder()
+                    .url("${sarvamBaseUrl.trimEnd('/')}/transliterate")
+                    .header("api-subscription-key", apiKey.trim())
+                    .post(payload.toRequestBody("application/json".toMediaType()))
+                    .build()
+                val (code, body) = executeCancellable(request)
+                check(code in 200..299) {
+                    ProviderHttpSupport.errorMessage("Sarvam transliteration", code, body)
+                }
+                val romanized = SttPayloads.parseTransliteratedText(body)
+                    ?: error("Invalid Sarvam transliteration response")
+                if (out.isNotEmpty()) out.append(' ')
+                out.append(romanized)
+            }
+            out.toString().ifBlank { error("Empty transliteration response") }
         }
 
     // Keep cancellation registered through body consumption, not just response headers.
@@ -246,11 +296,56 @@ internal object SttPayloads {
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
 
-    fun parseSarvamTranscript(body: String): String {
+    fun parseSarvamTranscript(body: String): String = parseSarvamResult(body).text
+
+    /** Sarvam STT transcript plus the BCP-47 language it detected (null when absent). */
+    data class SarvamResult(val text: String, val languageCode: String?)
+
+    fun parseSarvamResult(body: String): SarvamResult {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull()
-        return (map?.get("transcript") as? String)?.trim()
+        val text = (map?.get("transcript") as? String)?.trim()
             ?: error("Invalid Sarvam transcription response")
+        return SarvamResult(text, (map["language_code"] as? String)?.trim()?.takeIf { it.isNotEmpty() })
     }
+
+    /** True only for Hindi detections — the one language the Hinglish toggle romanizes. */
+    fun shouldRomanizeHindi(languageCode: String?): Boolean =
+        languageCode?.lowercase()?.let { it == "hi" || it.startsWith("hi-") } == true
+
+    fun transliterateRequestBody(text: String): Map<String, Any> = mapOf(
+        "input" to text,
+        "source_language_code" to "hi-IN",
+        "target_language_code" to "en-IN",
+    )
+
+    fun parseTransliteratedText(body: String): String? {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
+        return (map["transliterated_text"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Split a transcript into ≤[TRANSLITERATE_MAX_CHARS] pieces at sentence/word
+     * boundaries for the `/transliterate` per-request limit.
+     */
+    fun splitForTransliteration(text: String): List<String> {
+        val clean = text.trim()
+        if (clean.isEmpty()) return emptyList()
+        if (clean.length <= TRANSLITERATE_MAX_CHARS) return listOf(clean)
+        val out = mutableListOf<String>()
+        var rest = clean
+        while (rest.length > TRANSLITERATE_MAX_CHARS) {
+            val window = rest.substring(0, TRANSLITERATE_MAX_CHARS + 1)
+            val cut = listOf(window.lastIndexOf("।"), window.lastIndexOf('.'), window.lastIndexOf('?'),
+                window.lastIndexOf('!'), window.lastIndexOf('\n'), window.lastIndexOf(' '))
+                .maxOrNull()?.takeIf { it > TRANSLITERATE_MAX_CHARS / 2 } ?: TRANSLITERATE_MAX_CHARS
+            out.add(rest.substring(0, cut).trim())
+            rest = rest.substring(cut).trim()
+        }
+        if (rest.isNotEmpty()) out.add(rest)
+        return out.filter { it.isNotEmpty() }
+    }
+
+    const val TRANSLITERATE_MAX_CHARS = 1000
 
     fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null

@@ -40,4 +40,12 @@ class SttSettingsTest {
         assertEquals(id, repository.getSttCloudModelDirect())
         assertEquals(id, repository.sttCloudModel.value)
     }
+
+    @Test fun `hinglish defaults on and round-trips`() {
+        val repository = SettingsRepository(context)
+        assertEquals(true, repository.getSarvamHinglishEnabledDirect())
+        assertEquals(true, repository.sarvamHinglishEnabled.value)
+        repository.saveSarvamHinglishEnabled(false)
+        assertEquals(false, SettingsRepository(context).getSarvamHinglishEnabledDirect())
+    }
 }

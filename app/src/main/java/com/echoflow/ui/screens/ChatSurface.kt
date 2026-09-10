@@ -233,6 +233,9 @@ internal fun ChatSurface(
     val voiceAmplitude by voice.amplitude.collectAsState()
     val dictationKey = com.echoflow.data.SttCatalog.apiKey(sttCloudModelId, openRouterKey, customProviderConfig)
     val sttAvailable = dictationKey.isNotBlank() && sttMode == com.echoflow.data.SttMode.Cloud
+    // Hinglish lives on the Sarvam STT path only; OpenRouter models are untouched.
+    val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
+    val romanizeHindi = hinglishEnabled && sttCloudModelId == com.echoflow.data.SttCatalog.SARVAM_MODEL_ID
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -287,7 +290,7 @@ internal fun ChatSurface(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false // text-only: docs ride as on-device anydoc text, no images
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
@@ -344,7 +347,10 @@ internal fun ChatSurface(
     }
     // On-device models and Echo Lumen parse doc files locally (anydoc → Markdown). Fusion/Adviser/
     // Agent/Browser do not consume that Markdown, so they stay on the single raw-PDF path (or none).
-    val filesAttachAllowed = selectedModelUsesAnydocExtraction &&
+    // Sarvam joins the local-parse path: 105B is text-only, so docs ride as anydoc Markdown
+    // (images ride as OCR text) folded into the prompt — never as raw files.
+    val isSarvamChat = selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM)
+    val filesAttachAllowed = (selectedModelUsesAnydocExtraction || isSarvamChat) &&
         !deepResearchActive &&
         !dataAgentActive &&
         !echoFusionActive &&
@@ -612,7 +618,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

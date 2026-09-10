@@ -89,8 +89,95 @@ class SarvamIntegrationTest {
         assertEquals("शब्द1 शब्द2 शब्द3 शब्द4 शब्द5", transcript.getOrThrow())
     }
 
-    @Test fun `dictation propagates failure instead of returning a partial transcript`() = runTest {
+    @Test fun `hinglish romanizes Hindi chunks and leaves other languages in native script`() = runTest {
+        var transliterateCalls = 0
+        val client = client { request ->
+            when {
+                request.url.toString().endsWith("/transliterate") -> {
+                    transliterateCalls++
+                    assertEquals("sarvam-test-key", request.header("api-subscription-key"))
+                    val body = Buffer().also { request.body!!.writeTo(it) }.readUtf8()
+                    assertTrue(body.contains("\"source_language_code\":\"hi-IN\""))
+                    assertTrue(body.contains("\"target_language_code\":\"en-IN\""))
+                    response(request, """{"transliterated_text":"main office ja raha hun"}""")
+                }
+                else -> response(request, """{"transcript":"मैं ऑफिस जा रहा हूँ","language_code":"hi-IN"}""")
+            }
+        }
+        val transcript = SpeechToTextTranscriber(client)
+            .transcribe("sarvam-test-key", SttCatalog.SARVAM_MODEL_ID, wav(10), romanizeHindi = true)
+        assertEquals("main office ja raha hun", transcript.getOrThrow())
+        assertEquals(1, transliterateCalls)
+    }
+
+    @Test fun `hinglish leaves Tamil and English detections untouched without extra calls`() = runTest {
+        var transliterateCalls = 0
+        val bodies = listOf(
+            """{"transcript":"வணக்கம்","language_code":"ta-IN"}""",
+            """{"transcript":"hello there","language_code":"en-IN"}""",
+        )
         var count = 0
+        val client = client { request ->
+            if (request.url.toString().endsWith("/transliterate")) {
+                transliterateCalls++
+                response(request, """{"transliterated_text":"should not happen"}""")
+            } else {
+                response(request, bodies[count++ % bodies.size])
+            }
+        }
+        val transcript = SpeechToTextTranscriber(client)
+            .transcribe("sarvam-test-key", SttCatalog.SARVAM_MODEL_ID, wav(10), romanizeHindi = true)
+        assertEquals("வணக்கம்", transcript.getOrThrow())
+        assertEquals(0, transliterateCalls)
+    }
+
+    @Test fun `hinglish off keeps Hindi in Devanagari with no transliteration call`() = runTest {
+        var transliterateCalls = 0
+        val client = client { request ->
+            if (request.url.toString().endsWith("/transliterate")) {
+                transliterateCalls++
+                response(request, """{"transliterated_text":"should not happen"}""")
+            } else {
+                response(request, """{"transcript":"नमस्ते","language_code":"hi-IN"}""")
+            }
+        }
+        val transcript = SpeechToTextTranscriber(client)
+            .transcribe("sarvam-test-key", SttCatalog.SARVAM_MODEL_ID, wav(10), romanizeHindi = false)
+        assertEquals("नमस्ते", transcript.getOrThrow())
+        assertEquals(0, transliterateCalls)
+    }
+
+    @Test fun `a transliteration miss falls back to the original Hindi script`() = runTest {
+        val client = client { request ->
+            if (request.url.toString().endsWith("/transliterate")) {
+                response(request, """{"error":{"message":"bad input"}}""", 400)
+            } else {
+                response(request, """{"transcript":"नमस्ते","language_code":"hi-IN"}""")
+            }
+        }
+        val transcript = SpeechToTextTranscriber(client)
+            .transcribe("sarvam-test-key", SttCatalog.SARVAM_MODEL_ID, wav(10), romanizeHindi = true)
+        assertEquals("नमस्ते", transcript.getOrThrow())
+    }
+
+    @Test fun `sarvam result parsing keeps language codes and flags Hindi only`() {
+        assertEquals("hi-IN", SttPayloads.parseSarvamResult("""{"transcript":"a","language_code":"hi-IN"}""").languageCode)
+        assertEquals("ta-IN", SttPayloads.parseSarvamResult("""{"transcript":"a","language_code":"ta-IN"}""").languageCode)
+        assertEquals(null, SttPayloads.parseSarvamResult("""{"transcript":"a"}""").languageCode)
+        assertEquals("a", SttPayloads.parseSarvamTranscript("""{"transcript":"a","language_code":"hi-IN"}"""))
+        assertTrue(SttPayloads.shouldRomanizeHindi("hi-IN"))
+        assertTrue(SttPayloads.shouldRomanizeHindi("hi"))
+        assertFalse(SttPayloads.shouldRomanizeHindi("ta-IN"))
+        assertFalse(SttPayloads.shouldRomanizeHindi("en-IN"))
+        assertFalse(SttPayloads.shouldRomanizeHindi(null))
+        assertFalse(SttPayloads.shouldRomanizeHindi(""))
+        assertEquals("main office", SttPayloads.parseTransliteratedText("""{"transliterated_text":"main office"}"""))
+        assertEquals(null, SttPayloads.parseTransliteratedText("""{"transcript":"x"}"""))
+        assertEquals(listOf("short"), SttPayloads.splitForTransliteration("short"))
+        assertTrue(SttPayloads.splitForTransliteration("x".repeat(2500)).all { it.length <= SttPayloads.TRANSLITERATE_MAX_CHARS })
+    }
+
+    @Test fun `dictation propagates failure instead of returning a partial transcript`() = runTest {        var count = 0
         val client = client { request ->
             count++
             if (count == 1) response(request, """{"transcript":"first"}""")

@@ -102,6 +102,11 @@ class SettingsRepository(context: Context) {
     private val _sttCloudModel = MutableStateFlow(getSttCloudModelDirect())
     val sttCloudModel: StateFlow<String> = _sttCloudModel.asStateFlow()
 
+    // Hinglish: when on, Sarvam dictation chunks detected as Hindi are romanized to Latin
+    // script via `/transliterate`. Auto-detect stays; every other language is untouched.
+    private val _sarvamHinglishEnabled = MutableStateFlow(getSarvamHinglishEnabledDirect())
+    val sarvamHinglishEnabled: StateFlow<Boolean> = _sarvamHinglishEnabled.asStateFlow()
+
     // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
     private val _appMode = MutableStateFlow(getAppModeDirect())
     val appMode: StateFlow<AppMode> = _appMode.asStateFlow()
@@ -627,6 +632,14 @@ class SettingsRepository(context: Context) {
         val resolvedId = SttCatalog.resolveAvailable(id, getCustomProviderConfigDirect()).id
         prefs.edit().putString("stt_cloud_model", resolvedId).apply()
         _sttCloudModel.value = resolvedId
+    }
+
+    fun getSarvamHinglishEnabledDirect(): Boolean =
+        prefs.getBoolean("sarvam_hinglish_enabled", true)
+
+    fun saveSarvamHinglishEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("sarvam_hinglish_enabled", enabled).apply()
+        _sarvamHinglishEnabled.value = enabled
     }
 
     // ── App mode ───────────────────────────────────────────────────────────────────────
