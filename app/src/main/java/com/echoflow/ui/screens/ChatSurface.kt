@@ -225,14 +225,14 @@ internal fun ChatSurface(
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
-    // Speech to text: always OpenRouter with the Cloud-models key, independent of the chat model.
-    // Mic only appears when Cloud mode is selected and that key is present (On-device is coming soon).
+    // Dictation uses the selected transcription provider, independently of the chat model.
     val openRouterKey by settingsViewModel.apiKey.collectAsState()
     val sttCloudModelId by settingsViewModel.sttCloudModel.collectAsState()
     val sttMode by settingsViewModel.sttMode.collectAsState()
     val voice = rememberVoiceInputController()
     val voiceAmplitude by voice.amplitude.collectAsState()
-    val sttAvailable = openRouterKey.isNotBlank() && sttMode == com.echoflow.data.SttMode.Cloud
+    val dictationKey = com.echoflow.data.SttCatalog.apiKey(sttCloudModelId, openRouterKey, customProviderConfig)
+    val sttAvailable = dictationKey.isNotBlank() && sttMode == com.echoflow.data.SttMode.Cloud
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -612,7 +612,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(openRouterKey, sttCloudModelId) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

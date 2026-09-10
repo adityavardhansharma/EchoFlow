@@ -55,27 +55,18 @@ import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.diffAdded
 
-/**
- * Speech-to-text settings — shaped like Imagine: a Cloud | On-device selector on top, then
- * whatever applies to the chosen side.
- *
- * Cloud is the default and the only one that does anything today: it lists curated
- * OpenRouter STT models with their pricing, a $ / $$ / $$$ cost mark, and a Best badge on
- * the lowest Artificial Analysis word-error rate. STT always runs on OpenRouter with the
- * *Cloud models* key, no matter which chat model is selected — so the page also surfaces
- * whether that key is present, and points at Cloud models when it isn't. On-device is a
- * "coming soon" placeholder; local STT is not built yet.
- */
+/** Cloud dictation settings and the on-device placeholder. */
 @Composable
 internal fun SpeechToTextPage(
     viewModel: SettingsViewModel,
     onOpenCloudModels: () -> Unit,
+    onOpenSarvam: () -> Unit,
     onBack: () -> Unit,
 ) {
     val mode by viewModel.sttMode.collectAsState()
 
     SettingsPageScaffold(
-        title = "Speech to text",
+        title = "Dictation",
         subtitle = "Talk into the chat box",
         onBack = onBack,
     ) {
@@ -97,7 +88,7 @@ internal fun SpeechToTextPage(
             label = "sttSections",
         ) { current ->
             when (current) {
-                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels)
+                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam)
                 SttMode.OnDevice -> SttOnDeviceSection()
             }
         }
@@ -105,34 +96,40 @@ internal fun SpeechToTextPage(
 }
 
 @Composable
-private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () -> Unit) {
+private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () -> Unit, onOpenSarvam: () -> Unit) {
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedId by viewModel.sttCloudModel.collectAsState()
-    val hasKey = apiKey.isNotBlank()
+    val config by viewModel.customProviderConfig.collectAsState()
+    val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
+    val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
     Column {
         PageSection("How it works", null)
         Text(
             "Tap the mic by the model on the chat bar, speak, and your words drop into the box " +
-                "to fix and send. Transcription always runs on OpenRouter using your Cloud-models " +
-                "key — separate from whichever model answers the chat.",
+                "to fix and send. Transcription uses the selected provider’s API key, " +
+                "separate from whichever model answers the chat. Add a Sarvam key in Custom models to enable Saaras v4.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Spacer(Modifier.height(Spacing.xl))
-        SttKeyStatusCard(hasKey = hasKey, onOpenCloudModels = onOpenCloudModels)
+        SttKeyStatusCard(
+            hasKey = hasKey,
+            provider = if (isSarvam) "Sarvam" else "OpenRouter",
+            onOpenCloudModels = if (isSarvam) onOpenSarvam else onOpenCloudModels,
+        )
 
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Model", "Which model transcribes your voice")
         SttCloudModelList(
-            models = SttCatalog.CLOUD_MODELS,
+            models = SttCatalog.availableModels(config),
             selectedId = selectedId,
             onSelect = viewModel::saveSttCloudModel,
         )
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "Prices are per minute of audio, billed by OpenRouter to your key. " +
+            "OpenRouter prices are per minute of audio; Saaras is billed directly to your Sarvam key. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
                 "Best is the lowest word-error rate on Artificial Analysis evals.",
             style = MaterialTheme.typography.bodySmall,
@@ -193,7 +190,7 @@ internal fun SttCloudModelList(
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (model.isBest) SttBestBadge()
-                            SttCostMark(model.costTier)
+                            if (model.showCostTier) SttCostMark(model.costTier)
                         }
                         Text(
                             "${model.provider} · ${model.pricing}",
@@ -252,9 +249,9 @@ private fun SttCostMark(tier: SttCostTier) {
     )
 }
 
-/** Present-or-missing OpenRouter key, with a jump to Cloud models when it's missing. */
+/** Selected provider key status and a shortcut to its settings. */
 @Composable
-private fun SttKeyStatusCard(hasKey: Boolean, onOpenCloudModels: () -> Unit) {
+private fun SttKeyStatusCard(hasKey: Boolean, provider: String, onOpenCloudModels: () -> Unit) {
     if (hasKey) {
         Surface(
             shape = MaterialTheme.shapes.large,
@@ -265,7 +262,7 @@ private fun SttKeyStatusCard(hasKey: Boolean, onOpenCloudModels: () -> Unit) {
                 Icon(Icons.Default.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
-                    Text("OpenRouter key connected", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("$provider key connected", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text(
                         "The mic is available in chat.",
                         style = MaterialTheme.typography.bodySmall,
@@ -285,15 +282,16 @@ private fun SttKeyStatusCard(hasKey: Boolean, onOpenCloudModels: () -> Unit) {
                 Icon(Icons.Default.Key, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
-                    Text("OpenRouter key needed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text("$provider key needed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text(
-                        "Add it under OpenRouter in Models to turn on the chat mic.",
+                        if (provider == "Sarvam") "Enable Sarvam and save its key under Custom models to turn on the chat mic."
+                        else "Add it under OpenRouter in Models to turn on the chat mic.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
                 Spacer(Modifier.width(Spacing.s))
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open OpenRouter in Models", tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open $provider settings", tint = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
     }

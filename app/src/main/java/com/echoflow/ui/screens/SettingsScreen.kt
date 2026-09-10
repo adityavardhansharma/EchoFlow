@@ -253,6 +253,7 @@ fun SettingsScreen(
             PageSpeechToText -> SpeechToTextPage(
                 viewModel,
                 onOpenCloudModels = { page = PageCloudModels },
+                onOpenSarvam = { page = PageCustomProviderSarvam },
                 onBack = navigateBack,
             )
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
@@ -482,7 +483,7 @@ internal fun SettingsHomePage(
             SettingsNavRow(
                 icon = Icons.Default.Mic,
                 polygon = MaterialShapes.Cookie6Sided,
-                title = "Speech to text",
+                title = "Dictation",
                 subtitle = sttSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
