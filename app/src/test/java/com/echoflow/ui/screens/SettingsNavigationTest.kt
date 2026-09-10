@@ -21,6 +21,7 @@ class SettingsNavigationTest {
             PageLocalModels,
             PageDeepResearch,
             PageImagine,
+            PageSpeechToText,
             PageEchoLabs,
             PageCustomProviderCloud,
         ).forEach { page ->
@@ -51,5 +52,6 @@ class SettingsNavigationTest {
         assertEquals(PageCustomProvider, settingsParentPage(PageCustomProviderCompatible))
         assertEquals(PageCustomProviderCloud, settingsParentPage(PageCustomProviderOpenAi))
         assertEquals(PageCustomProviderCloud, settingsParentPage(PageCustomProviderClaude))
+        assertEquals(PageCustomProviderCloud, settingsParentPage(PageCustomProviderSarvam))
     }
 }
