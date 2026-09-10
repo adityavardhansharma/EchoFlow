@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -122,14 +123,16 @@ internal data class DirectProviderBrand(
     val modelPlaceholder: String,
     val logoRes: Int,
     val color: Color,
+    val onColor: Color? = null,
 )
 
+@Composable
 internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderBrand = when (provider) {
     CustomModelProvider.OpenAi -> DirectProviderBrand("OpenAI", "Direct OpenAI API", "sk-...", "gpt-4.1-mini", R.drawable.logo_openai, Color(0xFF10A37F))
     CustomModelProvider.Claude -> DirectProviderBrand("Claude", "Direct Anthropic API", "sk-ant-...", "claude-sonnet-4-5", R.drawable.logo_claude, Color(0xFFD97757))
     CustomModelProvider.Gemini -> DirectProviderBrand("Gemini", "Direct Google API", "AIza...", "gemini-2.5-flash", R.drawable.logo_gemini, Color(0xFF4285F4))
     CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFF15A29))
-    CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, Color(0xFF635BCE))
+    CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.XAi -> DirectProviderBrand("xAI", "Direct xAI API", "xai-...", "grok-4.5", R.drawable.logo_xai, Color(0xFF151515))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
@@ -245,6 +248,7 @@ internal fun BrandChip(brand: DirectProviderBrand, size: Dp, shape: Shape, scale
             Image(
                 painter = painterResource(brand.logoRes),
                 contentDescription = brand.title,
+                colorFilter = brand.onColor?.let { ColorFilter.tint(it) },
                 modifier = Modifier.size(size * 0.5f),
             )
         }

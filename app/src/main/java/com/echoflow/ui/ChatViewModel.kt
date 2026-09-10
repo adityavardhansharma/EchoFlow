@@ -1583,6 +1583,12 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
                 else -> null
             }
+            if (customProvider == "sarvam") {
+                customProviderConfig.sarvamConfigurationError()?.let {
+                    _errorMessage.value = it
+                    return@launch
+                }
+            }
             val customProviderActive = customProvider != null
             val requestModel = when (customProvider) {
                 "openai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI)

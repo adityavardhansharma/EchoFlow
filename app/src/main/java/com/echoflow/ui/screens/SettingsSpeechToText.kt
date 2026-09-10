@@ -262,7 +262,7 @@ private fun SttKeyStatusCard(hasKey: Boolean, provider: String, onOpenCloudModel
                 Icon(Icons.Default.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
-                    Text("$provider key connected", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("$provider key saved", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text(
                         "The mic is available in chat.",
                         style = MaterialTheme.typography.bodySmall,

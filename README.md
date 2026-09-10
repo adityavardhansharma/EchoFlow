@@ -55,9 +55,9 @@ No keys are required just to install and look around — on-device models work f
 | Sarvam | Settings → Custom → Sarvam | Text chat with Sarvam 105B; Saaras v4 dictation |
 | Ollama (local/LAN) | Echo Labs → Custom API Endpoint → Ollama API | Per-model toggle |
 | OpenAI-compatible (LM Studio, Jan, vLLM, LocalAI…) | Echo Labs → Custom API Endpoint | Per-model toggle |
+| On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
 
 Enable Sarvam and save your API key under **Settings → Custom → Sarvam**. `sarvam-105b` is preselected for the chat model picker. To use its speech recognition, choose **Saaras v4** under **Settings → Dictation**. Dictation uses the selected provider’s key independently of the chat model; longer recordings are split to fit Sarvam’s 30-second request limit.
-| On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
 
 Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search work across every provider above except where noted.
 

@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -165,17 +170,16 @@ class SpeechToTextTranscriber(
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
                 return@withContext runCatching {
                     check(apiKey.isNotBlank()) { "No Sarvam key" }
-                    SarvamDictation.wavChunks(wav).map { chunk ->
+                    val transcripts = SarvamDictation.wavChunks(wav, overlapBytes = 32_000).map { chunk ->
                         currentCoroutineContext().ensureActive()
                         val request = SarvamDictation.request(sarvamBaseUrl, apiKey, chunk)
-                        client.newCall(request).execute().use { response ->
-                            val body = response.body?.string().orEmpty()
-                            check(response.isSuccessful) {
-                                ProviderHttpSupport.errorMessage("Sarvam dictation", response.code, body)
-                            }
-                            SttPayloads.parseSarvamTranscript(body)
+                        val (code, body) = executeCancellable(request)
+                        check(code in 200..299) {
+                            ProviderHttpSupport.errorMessage("Sarvam dictation", code, body)
                         }
-                    }.filter(String::isNotBlank).joinToString(" ").ifBlank {
+                        SttPayloads.parseSarvamTranscript(body)
+                    }
+                    SarvamDictation.stitch(transcripts).ifBlank {
                         error("Couldn't hear that — try again.")
                     }
                 }.onFailure { if (it is CancellationException) throw it }
@@ -196,14 +200,31 @@ class SpeechToTextTranscriber(
                 .post(body)
                 .build()
             runCatching {
-                client.newCall(request).execute().use { resp ->
-                    val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) {
-                        error(ProviderHttpSupport.errorMessage("Dictation", resp.code, text))
-                    }
-                    SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
+                val (code, text) = executeCancellable(request)
+                if (code !in 200..299) {
+                    error(ProviderHttpSupport.errorMessage("Dictation", code, text))
                 }
-            }
+                SttPayloads.parseTranscript(text) ?: error("Couldn't hear that — try again.")
+            }.onFailure { if (it is CancellationException) throw it }
+        }
+
+    // Keep cancellation registered through body consumption, not just response headers.
+    private suspend fun executeCancellable(request: Request): Pair<Int, String> =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWith(Result.failure(e))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching {
+                        response.use { it.code to it.body?.string().orEmpty() }
+                    }
+                    continuation.resumeWith(result)
+                }
+            })
         }
 }
 

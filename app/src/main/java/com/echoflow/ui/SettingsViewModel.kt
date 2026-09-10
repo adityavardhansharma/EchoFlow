@@ -398,7 +398,7 @@ class SettingsViewModel(
                     }
                     saveCustomProviderConfig(updated)
                     _customProviderFetchMessage.value = if (provider == CustomModelProvider.Sarvam)
-                        "Loaded Sarvam chat models. Your key also enables Saaras v4 in Dictation."
+                        "Loaded the built-in Sarvam model list. This does not validate your API key."
                     else "Fetched ${result.message.lineSequence().filter { it.isNotBlank() }.count()} models."
                 } else {
                     _customProviderFetchMessage.value = result.message

@@ -78,7 +78,7 @@ object SttCatalog {
     )
 
     fun sarvamAvailable(config: CustomProviderConfig): Boolean =
-        config.cloudApisEnabled && config.sarvamEnabled && config.sarvamApiKey.isNotBlank()
+        config.sarvamAvailable
 
     fun availableModels(config: CustomProviderConfig): List<SttModel> =
         if (sarvamAvailable(config)) CLOUD_MODELS + SARVAM_MODEL else CLOUD_MODELS
@@ -132,6 +132,9 @@ object SttCatalog {
     const val DEFAULT_MODEL_ID = "openai/gpt-transcribe"
 
     fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
+
+    fun resolveAvailable(id: String, config: CustomProviderConfig): SttModel =
+        availableModels(config).firstOrNull { it.id == id } ?: CLOUD_MODELS.first()
 
     /** The stored id, falling back to the default when blank or pointing at a removed model. */
     fun resolve(id: String): SttModel = byId(id) ?: CLOUD_MODELS.first()

@@ -492,6 +492,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("openai_compatible_pdfs_enabled", clean.openAiCompatiblePdfsEnabled)
             .putBoolean("openai_compatible_tool_calling_enabled", clean.openAiCompatibleToolCallingEnabled)
             .apply()
+        saveSttCloudModel(_sttCloudModel.value)
         _customProviderConfig.value = clean
     }
 
@@ -615,13 +616,15 @@ class SettingsRepository(context: Context) {
         _sttMode.value = mode
     }
 
-    fun getSttCloudModelDirect(): String =
-        SttCatalog.resolve(
-            prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty(),
-        ).id
+    fun getSttCloudModelDirect(): String {
+        val stored = prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
+        val resolved = SttCatalog.resolveAvailable(stored, getCustomProviderConfigDirect()).id
+        if (stored != resolved) prefs.edit().putString("stt_cloud_model", resolved).apply()
+        return resolved
+    }
 
     fun saveSttCloudModel(id: String) {
-        val resolvedId = SttCatalog.resolve(id).id
+        val resolvedId = SttCatalog.resolveAvailable(id, getCustomProviderConfigDirect()).id
         prefs.edit().putString("stt_cloud_model", resolvedId).apply()
         _sttCloudModel.value = resolvedId
     }

@@ -67,6 +67,15 @@ data class CustomProviderConfig(
     val sarvamModels: String = "sarvam-105b\nsarvam-105b-conversations",
     val sarvamSelectedModels: String = "sarvam-105b",
 ) {
+    val sarvamAvailable: Boolean
+        get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
+
+    fun sarvamConfigurationError(): String? = when {
+        !cloudApisEnabled || !sarvamEnabled -> "Sarvam is disabled. Enable it under Settings → Custom or choose another model."
+        sarvamApiKey.isBlank() -> "Sarvam API key is missing. Add it under Settings → Custom → Sarvam."
+        else -> null
+    }
+
     companion object {
         const val PREFIX_OPENAI = "custom/openai/"
         const val PREFIX_CLAUDE = "custom/claude/"
