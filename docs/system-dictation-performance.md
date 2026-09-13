@@ -30,12 +30,17 @@ avoidable work; it does not establish the number of dropped frames on a phone.
 - Launcher lookup is cached for the service connection, preserving home exclusion.
 - Each recording owns its recorder instance. Starting, stopping and cancellation
   run on IO; finite cleanup survives cancellation without affecting a later
-  recorder. Leaving the editor, including entering EchoFlow, hides the bubble and
+  recorder. The service tracks cleanup, and a quick retry suspends until the old
+  recorder releases the microphone, including after cancelling transcription.
+  Leaving the editor, including entering EchoFlow, hides the bubble and
   releases capture before transcription. Session generations prevent stale results
   from completing a newer session.
 - Overlay placement uses current metrics, insets and density, but sends a layout
   update only when final pixel bounds change. Idle does not animate. A phase update
   cannot reattach a bubble hidden after focus loss.
+- The floating button uses the existing monochrome EchoFlow mark on a translucent
+  background (24% opacity at rest). Recording retains a stop indicator and processing
+  retains its progress arc.
 
 ## Review decisions for PR #164
 
@@ -64,6 +69,10 @@ Those internals cannot responsibly be claimed as copied or verified here.
 - [AppOps change observation](https://developer.android.com/reference/android/app/AppOpsManager#startWatchingMode(java.lang.String,java.lang.String,android.app.AppOpsManager.OnOpChangedListener))
 
 ## Validation and remaining measurement
+
+The follow-up for Greptile's cleanup/retry finding and the translucent logo button
+was reviewed in source only. Tests and compilation were intentionally not rerun,
+as requested; the results below describe the preceding revision.
 
 Local validation used the Gradle JDK 21 daemon and Android SDK 37. The targeted
 suite contains 38 tests across dictation, STT settings/catalog and request handling.

@@ -11,6 +11,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
+import com.echoflow.R
 import kotlin.math.hypot
 import kotlin.math.sin
 
@@ -55,6 +57,13 @@ internal class DictationBubble(
     private val button = object : View(context) {
         var phase = DictationPhase.Idle
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val logo = ContextCompat.getDrawable(context, R.drawable.ic_launcher_monochrome)
+            ?.mutate()?.apply {
+                // The adaptive-icon asset includes safe-zone padding. Its centered mark occupies
+                // half its width, so these bounds render a 30px mark on the 48px canvas.
+                setBounds(-6, -6, 54, 54)
+                alpha = 230
+            }
         private val accent = android.util.TypedValue().also {
             context.theme.resolveAttribute(android.R.attr.colorAccent, it, true)
         }.data
@@ -70,9 +79,9 @@ internal class DictationBubble(
             paint.color = accent
             paint.style = Paint.Style.FILL
             paint.alpha = when (phase) {
-                DictationPhase.Idle -> if (isPressed) 255 else 225
-                DictationPhase.Recording -> (215 + 40 * sin(seconds * 5)).toInt()
-                DictationPhase.Transcribing -> 240
+                DictationPhase.Idle -> if (isPressed) 110 else 60
+                DictationPhase.Recording -> (90 + 20 * sin(seconds * 5)).toInt()
+                DictationPhase.Transcribing -> 80
             }
             canvas.drawRoundRect(1f, 1f, 47f, 47f, 12f, 12f, paint)
             paint.color = android.graphics.Color.WHITE
@@ -80,14 +89,7 @@ internal class DictationBubble(
             if (phase == DictationPhase.Recording) {
                 canvas.drawRoundRect(17f, 17f, 31f, 31f, 3f, 3f, paint)
             } else {
-                // Symmetric microphone geometry stays centered without bitmap padding.
-                canvas.drawRoundRect(20f, 12f, 28f, 27f, 4f, 4f, paint)
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 2f
-                paint.strokeCap = Paint.Cap.ROUND
-                canvas.drawArc(16f, 18f, 32f, 32f, 0f, 180f, false, paint)
-                canvas.drawLine(24f, 32f, 24f, 36f, paint)
-                canvas.drawLine(20f, 36f, 28f, 36f, paint)
+                logo?.draw(canvas)
             }
             if (phase == DictationPhase.Transcribing) {
                 paint.style = Paint.Style.STROKE

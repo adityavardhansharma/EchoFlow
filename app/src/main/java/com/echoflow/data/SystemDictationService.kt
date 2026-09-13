@@ -28,6 +28,7 @@ class SystemDictationService : AccessibilityService() {
     private lateinit var settings: SettingsRepository
     private lateinit var bubble: DictationBubble
     private var recorder: AudioWavRecorder? = null
+    private var captureCleanup: Job? = null
     private val transcriber = SpeechToTextTranscriber()
     private var phase = DictationPhase.Idle
     private var target: AccessibilityNodeInfo? = null
@@ -230,6 +231,10 @@ class SystemDictationService : AccessibilityService() {
         val beforeStart = generation
         scope.launch {
             try {
+                // Idle can become visible before AudioRecord finishes joining its reader thread.
+                // Suspend a retry until that capture releases the process-wide microphone owner.
+                captureCleanup?.join()
+                if (!systemWideEnabled || beforeStart != generation) return@launch
                 if (!refreshPrerequisites()) return@launch
                 val config = withContext(Dispatchers.IO) { settings.getDictationConfiguration() }
                 if (!config.ready) { disable(); return@launch }
@@ -282,14 +287,19 @@ class SystemDictationService : AccessibilityService() {
         bubble.updatePhase(phase)
         val capture = recorder
         recorder = null
+        // Keep microphone release independent of the cancellable transcription request, but
+        // tracked by this service so off/on followed by a tap waits for it to finish.
+        val release = scope.async(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable + Dispatchers.IO) { capture?.stop() }
+        }
+        trackCaptureCleanup(release)
         val thisGeneration = generation
         val sessionKey = key
         val sessionModel = model
         val sessionHinglish = hinglish
         session = scope.launch {
             try {
-                val wav = withContext(NonCancellable + Dispatchers.IO) { capture?.stop() }
-                    ?: return@launch
+                val wav = release.await() ?: return@launch
                 ensureActive()
                 if (!refreshPrerequisites()) return@launch
                 if (runCatching { foreground("Transcribing dictation") }.isFailure) { disable(); return@launch }
@@ -379,9 +389,26 @@ class SystemDictationService : AccessibilityService() {
         if (::settings.isInitialized) settings.saveSystemWideDictation(false)
         abort()
     }
-    // Finite cleanup survives service cancellation and cannot cancel a later capture instance.
+    // Begin cleanup even during teardown; only the finite IO release is non-cancellable.
+    // Track and serialize releases instead of launching detached cleanup scopes.
     private fun cancelCapture(capture: AudioWavRecorder) {
-        CoroutineScope(Dispatchers.IO).launch { capture.cancel() }
+        val previous = captureCleanup
+        trackCaptureCleanup(scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                previous?.join()
+                capture.cancel()
+            }
+        })
+    }
+
+    private fun trackCaptureCleanup(job: Job) {
+        captureCleanup = job
+        job.invokeOnCompletion {
+            scope.launch {
+                // Do not retain a completed Deferred's WAV buffer or clear a newer release.
+                if (captureCleanup === job) captureCleanup = null
+            }
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
