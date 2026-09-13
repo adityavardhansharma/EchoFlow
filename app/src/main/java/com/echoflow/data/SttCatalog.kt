@@ -19,8 +19,8 @@ enum class SttMode(val storageKey: String) {
  * OpenRouter per-minute price mapped onto the $ / $$ / $$$ tags on the STT picker.
  *
  * Cheap is one red dollar; moderate is two green dollars; expensive is three green dollars.
- * Cutoffs sit in the gaps of the current catalog (Grok ~$0.0017, GPT Transcribe $0.0045,
- * Chirp $0.016) so a listing can move without retuning the UI by hand.
+ * Cutoffs sit in the gaps of the current catalog (Grok ~$0.0017, Muse Transcribe $0.003,
+ * GPT Transcribe $0.0045, Chirp $0.016) so a listing can move without retuning the UI by hand.
  */
 enum class SttCostTier(val dollars: Int) {
     Cheap(1),
@@ -47,10 +47,8 @@ enum class SttCostTier(val dollars: Int) {
  * [usdPerMinute] is the same OpenRouter rate, normalized to dollars per minute of audio so the
  * dollar-tag cutoffs can compare models billed per second, minute, or hour.
  *
- * [isBest] is true for exactly one model: the lowest Artificial Analysis word-error rate
- * (AA-WER, non-streaming) among catalog entries that have a published score. As of 2026-08:
- * GPT Transcribe 3.3%, Grok STT 4.0%. Chirp 3 is charted on the streaming leaderboard only;
- * Nemotron 3.5 ASR has no AA-WER yet.
+ * [isBest] is true for exactly one model: the recommended dictation pick. Muse Transcribe
+ * is first in the list. GPT Transcribe remains available below it.
  */
 data class SttModel(
     val id: String,
@@ -91,6 +89,16 @@ object SttCatalog {
     /** Cloud options offered on the STT settings page, in display order. */
     val CLOUD_MODELS = listOf(
         SttModel(
+            id = "meta/muse-voice-transcribe-1.0",
+            name = "Muse Transcribe",
+            provider = "Meta",
+            // OpenRouter lists $0.18/hour → $0.003/min.
+            pricing = "~\$0.003 / min",
+            blurb = "Push-to-talk dictation with speaker awareness and keyword biasing.",
+            usdPerMinute = 0.18 / 60.0,
+            isBest = true,
+        ),
+        SttModel(
             id = "openai/gpt-transcribe",
             name = "GPT Transcribe",
             provider = "OpenAI",
@@ -98,7 +106,6 @@ object SttCatalog {
             pricing = "~\$0.0045 / min",
             blurb = "High-accuracy dictation, strong on mixed or quiet speech.",
             usdPerMinute = 0.0045,
-            isBest = true,
         ),
         SttModel(
             id = "x-ai/grok-stt-1.0",
@@ -129,7 +136,7 @@ object SttCatalog {
         ),
     )
 
-    const val DEFAULT_MODEL_ID = "openai/gpt-transcribe"
+    const val DEFAULT_MODEL_ID = "meta/muse-voice-transcribe-1.0"
 
     fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
 
