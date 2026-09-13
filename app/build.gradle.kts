@@ -14,6 +14,11 @@ android {
     applicationId = "com.echoflow"
     minSdk = 24
     targetSdk = 36
+    // versionCode is the OS upgrade/downgrade authority (not versionName).
+    // Release CI sets VERSION_CODE=1000+GITHUB_RUN_NUMBER (monotonic). Local
+    // builds default to 1. Plain installs of an older code over a newer one are
+    // rejected by PackageManager; see docs/sideload-updates.md and
+    // scripts/install-apk.sh for the supported downgrade path.
     versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
     versionName = System.getenv("VERSION_NAME") ?: "1.0"
 
