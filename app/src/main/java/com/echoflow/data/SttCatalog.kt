@@ -41,10 +41,10 @@ enum class SttCostTier(val dollars: Int) {
  *
  * [pricing] is a short human-readable line shown on the picker. These models are curated
  * by us rather than searched, so the price is carried here alongside the id instead of being
- * fetched live — the settings page shows exactly what the user will be billed per the OpenRouter
- * listing.
+ * fetched live — the settings page shows a per-minute rate in the same `$ / min` form for
+ * every listing.
  *
- * [usdPerMinute] is the same OpenRouter rate, normalized to dollars per minute of audio so the
+ * [usdPerMinute] is that rate, normalized to dollars per minute of audio so the
  * dollar-tag cutoffs can compare models billed per second, minute, or hour.
  *
  * [isBest] is true for exactly one model: the recommended dictation pick. Muse Transcribe
@@ -69,10 +69,10 @@ object SttCatalog {
         id = SARVAM_MODEL_ID,
         name = "Saaras v4",
         provider = "Sarvam",
-        pricing = "Billed by Sarvam",
+        // Sarvam lists ₹30/hour → ₹0.50/min ≈ $0.006/min.
+        pricing = "~\$0.006 / min",
         blurb = "22 Indian languages and English, with automatic language detection.",
-        usdPerMinute = 0.0,
-        showCostTier = false,
+        usdPerMinute = 0.006,
     )
 
     fun sarvamAvailable(config: CustomProviderConfig): Boolean =

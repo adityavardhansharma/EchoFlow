@@ -16,6 +16,7 @@ import org.junit.Test
  * - x-ai/grok-stt-1.0 = $0.10/hour ≈ $0.0017/min
  * - nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b = $0.000003/sec = $0.00018/min
  * - google/chirp-3 = $0.016/min
+ * - saaras:v4 = ₹30/hour ≈ $0.006/min
  */
 class SttCatalogTest {
 
@@ -41,6 +42,7 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.pricing,
         )
         assertEquals("~\$0.016 / min", SttCatalog.byId("google/chirp-3")!!.pricing)
+        assertEquals("~\$0.006 / min", SttCatalog.SARVAM_MODEL.pricing)
     }
 
     @Test fun `dollar tags follow OpenRouter per-minute price`() {
@@ -52,6 +54,8 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.costTier,
         )
         assertEquals(SttCostTier.Expensive, SttCatalog.byId("google/chirp-3")!!.costTier)
+        assertEquals(SttCostTier.Moderate, SttCatalog.SARVAM_MODEL.costTier)
+        assertTrue(SttCatalog.SARVAM_MODEL.showCostTier)
         assertEquals(1, SttCostTier.Cheap.dollars)
         assertEquals(2, SttCostTier.Moderate.dollars)
         assertEquals(3, SttCostTier.Expensive.dollars)
@@ -71,6 +75,7 @@ class SttCatalogTest {
         assertEquals(SttCostTier.Moderate, SttCostTier.fromUsdPerMinute(0.003))
         assertEquals(SttCostTier.Moderate, SttCostTier.fromUsdPerMinute(0.0045))
         assertEquals(SttCostTier.Expensive, SttCostTier.fromUsdPerMinute(0.016))
+        assertEquals(SttCostTier.Moderate, SttCostTier.fromUsdPerMinute(0.006))
     }
 
     @Test fun `default is Muse Transcribe and sits first so unknown ids fall through to it`() {
