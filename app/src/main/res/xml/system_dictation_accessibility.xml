@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Structural content changes detect removed editors; window changes detect split-screen and IME
+     handoffs. The service filters metadata and coalesces these before querying any nodes. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/system_dictation_description"
     android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"

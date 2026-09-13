@@ -11,6 +11,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
+import com.echoflow.R
 import kotlin.math.hypot
 import kotlin.math.sin
 
@@ -18,16 +20,18 @@ internal enum class DictationPhase { Idle, Recording, Transcribing }
 
 /** Exactly one 48dp non-focusable window. WindowManager never gets a fullscreen touch surface. */
 internal class DictationBubble(
-    context: Context,
+    private val context: Context,
     private val settings: SettingsRepository,
     private val onTap: () -> Unit,
     private val onFailure: () -> Unit,
 ) {
     private val manager = context.getSystemService(WindowManager::class.java)
-    private val density = context.resources.displayMetrics.density
-    private val size = (48 * density).toInt()
-    private val edgeGap = (8 * density).toInt()
+    private val density get() = context.resources.displayMetrics.density
+    private val size get() = (48 * density).toInt()
+    private val edgeGap get() = (8 * density).toInt()
     private var keyboardTop: Int? = null
+    private var shownPhase = DictationPhase.Idle
+    private val layoutUpdates = DictationBubbleLayoutUpdates()
     private var fullMaxY = 0
     private var attached = false
     private var dockRight = settings.getDictationBubbleRight()
@@ -53,9 +57,20 @@ internal class DictationBubble(
     private val button = object : View(context) {
         var phase = DictationPhase.Idle
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val logo = ContextCompat.getDrawable(context, R.drawable.ic_launcher_monochrome)
+            ?.mutate()?.apply {
+                // The adaptive-icon asset includes safe-zone padding. Its centered mark occupies
+                // half its width, so these bounds render a 30px mark on the 48px canvas.
+                setBounds(-6, -6, 54, 54)
+                alpha = 230
+            }
         private val accent = android.util.TypedValue().also {
             context.theme.resolveAttribute(android.R.attr.colorAccent, it, true)
         }.data
+        override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+            post { if (attached) invalidatePosition() }
+            return super.onApplyWindowInsets(insets)
+        }
         override fun onDraw(canvas: Canvas) {
             val seconds = (android.os.SystemClock.uptimeMillis() % 10_000L) / 1000f
             val unit = width / 48f
@@ -64,9 +79,9 @@ internal class DictationBubble(
             paint.color = accent
             paint.style = Paint.Style.FILL
             paint.alpha = when (phase) {
-                DictationPhase.Idle -> if (isPressed) 255 else 225
-                DictationPhase.Recording -> (215 + 40 * sin(seconds * 5)).toInt()
-                DictationPhase.Transcribing -> 240
+                DictationPhase.Idle -> if (isPressed) 110 else 60
+                DictationPhase.Recording -> (90 + 20 * sin(seconds * 5)).toInt()
+                DictationPhase.Transcribing -> 80
             }
             canvas.drawRoundRect(1f, 1f, 47f, 47f, 12f, 12f, paint)
             paint.color = android.graphics.Color.WHITE
@@ -74,14 +89,7 @@ internal class DictationBubble(
             if (phase == DictationPhase.Recording) {
                 canvas.drawRoundRect(17f, 17f, 31f, 31f, 3f, 3f, paint)
             } else {
-                // Symmetric microphone geometry stays centered without bitmap padding.
-                canvas.drawRoundRect(20f, 12f, 28f, 27f, 4f, 4f, paint)
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 2f
-                paint.strokeCap = Paint.Cap.ROUND
-                canvas.drawArc(16f, 18f, 32f, 32f, 0f, 180f, false, paint)
-                canvas.drawLine(24f, 32f, 24f, 36f, paint)
-                canvas.drawLine(20f, 36f, 28f, 36f, paint)
+                logo?.draw(canvas)
             }
             if (phase == DictationPhase.Transcribing) {
                 paint.style = Paint.Style.STROKE
@@ -123,9 +131,15 @@ internal class DictationBubble(
         }
     }.apply { contentDescription = "Dictate"; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES }
 
-    fun setKeyboardTop(top: Int?) { keyboardTop = top }
+    fun setKeyboardTop(top: Int?) {
+        keyboardTop = top
+    }
+
+    fun invalidatePosition() { if (attached && !dragging) show(shownPhase) }
 
     private fun position() {
+        params.width = size
+        params.height = size
         if (Build.VERSION.SDK_INT >= 30) {
             val metrics = manager.maximumWindowMetrics
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -160,27 +174,56 @@ internal class DictationBubble(
         // Keyboard avoidance is temporary; restore the saved height when it closes.
         params.y = (minY + ((fullMaxY - minY) * yFraction).toInt()).coerceIn(minY, maxY)
     }
-    fun show(phase: DictationPhase) {
-        button.phase = phase
-        button.contentDescription = when (phase) {
-            DictationPhase.Idle -> "Dictate"
-            DictationPhase.Recording -> "Stop dictation"
-            DictationPhase.Transcribing -> "Transcribing"
+    fun updatePhase(phase: DictationPhase) {
+        val phaseChanged = shownPhase != phase
+        shownPhase = phase
+        if (phaseChanged) {
+            button.phase = phase
+            button.contentDescription = when (phase) {
+                DictationPhase.Idle -> "Dictate"
+                DictationPhase.Recording -> "Stop dictation"
+                DictationPhase.Transcribing -> "Transcribing"
+            }
+            button.invalidate()
         }
-        button.invalidate()
-        if (!dragging) position()
+    }
+
+    fun show(phase: DictationPhase) {
+        updatePhase(phase)
         try {
-            if (!attached) { manager.addView(button, params); attached = true }
-            else if (!dragging) manager.updateViewLayout(button, params)
+            // Read metrics on coalesced reconciliations, including rotation/inset changes with an
+            // unchanged keyboard top. Only changed final bounds go back to WindowManager.
+            if (!dragging) position()
+            if (!attached) {
+                manager.addView(button, params)
+                attached = true
+                layoutUpdates.changed(params.x, params.y, params.width, params.height)
+            } else if (!dragging) update()
         } catch (_: Exception) { hide(); onFailure() }
     }
     private fun update() {
-        try { if (attached) manager.updateViewLayout(button, params) }
+        try {
+            if (attached && layoutUpdates.changed(params.x, params.y, params.width, params.height))
+                manager.updateViewLayout(button, params)
+        }
         catch (_: Exception) { hide(); onFailure() }
     }
     fun hide() {
         if (attached) runCatching { manager.removeViewImmediate(button) }
         attached = false
+        layoutUpdates.reset()
         dragging = false
     }
+}
+
+/** Deduplicates final pixel bounds, including density changes and drag/dock operations. */
+internal class DictationBubbleLayoutUpdates {
+    private var previous: List<Int>? = null
+    fun changed(x: Int, y: Int, width: Int, height: Int): Boolean {
+        val bounds = listOf(x, y, width, height)
+        if (bounds == previous) return false
+        previous = bounds
+        return true
+    }
+    fun reset() { previous = null }
 }
