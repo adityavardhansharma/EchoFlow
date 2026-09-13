@@ -2,6 +2,28 @@
 
 package com.echoflow.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.echoflow.data.SystemDictationPermissions
+import com.echoflow.data.SystemDictationSetup
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -68,7 +90,7 @@ internal fun SpeechToTextPage(
 
     SettingsPageScaffold(
         title = "Dictation",
-        subtitle = "Talk into the chat box",
+        subtitle = "Dictate in chat and other apps",
         onBack = onBack,
     ) {
         ConnectedToggleRow(
@@ -80,6 +102,9 @@ internal fun SpeechToTextPage(
             onSelect = { viewModel.saveSttMode(SttMode.fromStorage(it)) },
             icons = listOf(Icons.Default.CloudQueue, Icons.Default.PhoneAndroid),
         )
+        Spacer(Modifier.height(Spacing.xl))
+
+        SystemDictationRow(viewModel)
         Spacer(Modifier.height(Spacing.xl))
 
         val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -105,16 +130,6 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
     Column {
-        PageSection("How it works", null)
-        Text(
-            "Tap the mic by the model on the chat bar, speak, and your words drop into the box " +
-                "to fix and send. Transcription uses the selected provider’s API key, " +
-                "separate from whichever model answers the chat. Add a Sarvam key in Custom models to enable Saaras v4.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(Spacing.xl))
         SttKeyStatusCard(
             hasKey = hasKey,
             provider = if (isSarvam) "Sarvam" else "OpenRouter",
@@ -351,6 +366,96 @@ private fun SttOnDeviceSection() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+/** Only the permission walk belongs to composition. The OS service owns everything after setup. */
+@Composable
+private fun SystemDictationRow(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val enabled by viewModel.systemWideDictation.collectAsState()
+    val mode by viewModel.sttMode.collectAsState()
+    val model by viewModel.sttCloudModel.collectAsState()
+    val key by viewModel.apiKey.collectAsState()
+    val config by viewModel.customProviderConfig.collectAsState()
+    val ready = mode == SttMode.Cloud && SttCatalog.apiKey(model, key, config).isNotBlank()
+    var step by rememberSaveable { mutableIntStateOf(0) }
+    var launchedStep by rememberSaveable { mutableIntStateOf(0) }
+    val setup = remember(viewModel) { SystemDictationSetup(viewModel::saveSystemWideDictation) }
+    fun finish(granted: Boolean) { setup.finish(granted && ready); step = 0; launchedStep = 0 }
+    val audio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (step == 1) { if (it) step = 2 else finish(false) }
+    }
+    val overlay = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (step == 2) { if (Settings.canDrawOverlays(context)) step = 3 else finish(false) }
+    }
+    val accessibility = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (step == 3) { if (SystemDictationPermissions.accessibility(context)) step = 4 else finish(false) }
+    }
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (step == 4) { if (it) step = 5 else finish(false) }
+    }
+    val notificationSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (step == 5) finish(SystemDictationPermissions.granted(context))
+    }
+    LaunchedEffect(step) {
+        if (step == 0 || launchedStep == step) return@LaunchedEffect
+        launchedStep = step
+        try {
+            when (step) {
+                1 -> if (SystemDictationPermissions.microphone(context)) step = 2
+                    else audio.launch(Manifest.permission.RECORD_AUDIO)
+                2 -> if (Settings.canDrawOverlays(context)) step = 3
+                    else overlay.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                3 -> if (SystemDictationPermissions.accessibility(context)) step = 4
+                    else accessibility.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                4 -> if (SystemDictationPermissions.notifications(context)) finish(SystemDictationPermissions.granted(context))
+                    else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    else step = 5
+                5 -> if (SystemDictationPermissions.notifications(context)) finish(SystemDictationPermissions.granted(context))
+                    else notificationSettings.launch(
+                        if (Build.VERSION.SDK_INT >= 26) {
+                            val action = if (NotificationManagerCompat.from(context).areNotificationsEnabled())
+                                Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS else Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                            Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                .putExtra(Settings.EXTRA_CHANNEL_ID, SystemDictationPermissions.CHANNEL)
+                        }
+                        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+            }
+        } catch (_: Exception) { finish(false) }
+    }
+    LaunchedEffect(ready) { if (!ready) finish(false) }
+    DisposableEffect(lifecycle, setup) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && !SystemDictationPermissions.granted(context)) setup.cancel()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+        }
+    }
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("System-wide dictation", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Turn on to use dictation across your device, outside EchoFlow too.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!ready) Text("Requires Cloud mode and the selected provider’s API key.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (step != 0) Text("Complete permission setup to enable.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, enabled = ready && step == 0,
+                onCheckedChange = { if (it) { setup.begin(); step = 1 } else setup.cancel() },
+                modifier = Modifier.semantics { contentDescription = "System-wide dictation" })
         }
     }
 }

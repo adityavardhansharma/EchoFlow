@@ -53,8 +53,22 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
     private val pcm = ByteArrayOutputStream()
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun start(): Boolean {
         if (active) return true
+        if (!microphoneOwner.compareAndSet(null, this)) return false
+        return try {
+            startCapture().also { if (!it) microphoneOwner.compareAndSet(this, null) }
+        } catch (_: Exception) {
+            active = false
+            recording = false
+            microphoneOwner.compareAndSet(this, null)
+            false
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startCapture(): Boolean {
         val minBuf = AudioRecord.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
         )
@@ -72,7 +86,12 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
         pcm.reset()
         recording = true
         active = true
-        rec.startRecording()
+        try {
+            rec.startRecording()
+        } catch (error: Exception) {
+            rec.release()
+            throw error
+        }
         val maxBytes = sampleRate * 2 * MAX_SECONDS
         recordThread = thread(name = "stt-record") {
             try {
@@ -114,6 +133,7 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
     }
 
     /** Stops recording and returns a complete WAV, or null if nothing usable was captured. */
+    @Synchronized
     fun stop(): ByteArray? {
         if (!active) return null
         active = false
@@ -121,17 +141,20 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
         // Join without a timeout so the recorder thread can finish its last read and own teardown.
         recordThread?.join()
         recordThread = null
+        microphoneOwner.compareAndSet(this, null)
         val data = pcm.toByteArray()
         pcm.reset()
         if (data.size < sampleRate) return null // under ~0.5s of audio — treat as a mis-tap
         return wavHeader(data.size) + data
     }
 
+    @Synchronized
     fun cancel() {
         active = false
         recording = false
         recordThread?.join()
         recordThread = null
+        microphoneOwner.compareAndSet(this, null)
         pcm.reset()
         _amplitude.value = 0f
     }
@@ -152,6 +175,7 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
     }
 
     companion object {
+        private val microphoneOwner = java.util.concurrent.atomic.AtomicReference<AudioWavRecorder?>(null)
         /** Hard cap on a single dictation capture (16 kHz mono PCM ≈ 32 KB/s → ~3.8 MB). */
         const val MAX_SECONDS = 120
     }
