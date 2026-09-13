@@ -45,6 +45,19 @@ class SttCatalogTest {
         assertEquals("~\$0.36 / hr", SttCatalog.SARVAM_MODEL.pricing)
     }
 
+    @Test fun `displayed hourly price matches the numeric rate behind the dollar tier`() {
+        // `pricing` is rendered directly while `costTier` derives from `usdPerMinute`;
+        // keep them equivalent so a manual update cannot show one price and tag another.
+        for (model in SttCatalog.CLOUD_MODELS + SttCatalog.SARVAM_MODEL) {
+            val displayed =
+                model.pricing
+                    .removePrefix("~\$")
+                    .removeSuffix(" / hr")
+                    .toDouble()
+            assertEquals(model.usdPerMinute * 60.0, displayed, 0.0051)
+        }
+    }
+
     @Test fun `dollar tags follow OpenRouter per-minute price`() {
         assertEquals(SttCostTier.Moderate, SttCatalog.byId("meta/muse-voice-transcribe-1.0")!!.costTier)
         assertEquals(SttCostTier.Moderate, SttCatalog.byId("openai/gpt-transcribe")!!.costTier)

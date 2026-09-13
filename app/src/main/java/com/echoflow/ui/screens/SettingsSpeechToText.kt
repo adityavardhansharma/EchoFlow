@@ -134,7 +134,8 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
         }
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "Prices are per hour of audio. " +
+            "Prices are per hour of audio. Saaras is billed directly to your Sarvam key; " +
+                "the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
                 "Best is the recommended dictation model.",
             style = MaterialTheme.typography.bodySmall,
