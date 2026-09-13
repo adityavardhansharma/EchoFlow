@@ -136,7 +136,7 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
         Text(
             "OpenRouter prices are per minute of audio; Saaras is billed directly to your Sarvam key. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
-                "Best is the lowest word-error rate on Artificial Analysis evals.",
+                "Best is the recommended dictation model.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -18,19 +18,19 @@ class SttSettingsTest {
         SettingsPreferenceStorage.secureOrNull(context)?.edit()?.clear()?.commit()
     }
 
-    @Test fun `a fresh install dictates with GPT Transcribe`() {
+    @Test fun `a fresh install dictates with Muse Transcribe`() {
         val repository = SettingsRepository(context)
-        assertEquals("openai/gpt-transcribe", repository.getSttCloudModelDirect())
+        assertEquals("meta/muse-voice-transcribe-1.0", repository.getSttCloudModelDirect())
         assertEquals(SttCatalog.DEFAULT_MODEL_ID, repository.sttCloudModel.value)
     }
 
-    @Test fun `a leftover Fish id is resolved to GPT Transcribe before it can be sent`() {
+    @Test fun `a leftover Fish id is resolved to Muse Transcribe before it can be sent`() {
         val stored = SettingsPreferenceStorage.secureOrNull(context)
             ?: SettingsPreferenceStorage.legacy(context)
         stored.edit().putString("stt_cloud_model", "fish-audio/transcribe-1").commit()
 
         val repository = SettingsRepository(context)
-        assertEquals("openai/gpt-transcribe", repository.getSttCloudModelDirect())
+        assertEquals("meta/muse-voice-transcribe-1.0", repository.getSttCloudModelDirect())
     }
 
     @Test fun `Nemotron ASR is a selectable cloud model`() {
