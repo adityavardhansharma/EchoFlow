@@ -18,18 +18,18 @@ internal enum class DictationPhase { Idle, Recording, Transcribing }
 
 /** Exactly one 48dp non-focusable window. WindowManager never gets a fullscreen touch surface. */
 internal class DictationBubble(
-    context: Context,
+    private val context: Context,
     private val settings: SettingsRepository,
     private val onTap: () -> Unit,
     private val onFailure: () -> Unit,
 ) {
     private val manager = context.getSystemService(WindowManager::class.java)
-    private val density = context.resources.displayMetrics.density
-    private val size = (48 * density).toInt()
-    private val edgeGap = (8 * density).toInt()
+    private val density get() = context.resources.displayMetrics.density
+    private val size get() = (48 * density).toInt()
+    private val edgeGap get() = (8 * density).toInt()
     private var keyboardTop: Int? = null
-    private var positionDirty = true
     private var shownPhase = DictationPhase.Idle
+    private val layoutUpdates = DictationBubbleLayoutUpdates()
     private var fullMaxY = 0
     private var attached = false
     private var dockRight = settings.getDictationBubbleRight()
@@ -58,6 +58,10 @@ internal class DictationBubble(
         private val accent = android.util.TypedValue().also {
             context.theme.resolveAttribute(android.R.attr.colorAccent, it, true)
         }.data
+        override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+            post { if (attached) invalidatePosition() }
+            return super.onApplyWindowInsets(insets)
+        }
         override fun onDraw(canvas: Canvas) {
             val seconds = (android.os.SystemClock.uptimeMillis() % 10_000L) / 1000f
             val unit = width / 48f
@@ -126,13 +130,14 @@ internal class DictationBubble(
     }.apply { contentDescription = "Dictate"; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES }
 
     fun setKeyboardTop(top: Int?) {
-        if (keyboardTop != top) {
-            keyboardTop = top
-            positionDirty = true
-        }
+        keyboardTop = top
     }
 
+    fun invalidatePosition() { if (attached && !dragging) show(shownPhase) }
+
     private fun position() {
+        params.width = size
+        params.height = size
         if (Build.VERSION.SDK_INT >= 30) {
             val metrics = manager.maximumWindowMetrics
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -166,9 +171,8 @@ internal class DictationBubble(
         params.x = if (dockRight) rightX else leftX
         // Keyboard avoidance is temporary; restore the saved height when it closes.
         params.y = (minY + ((fullMaxY - minY) * yFraction).toInt()).coerceIn(minY, maxY)
-        positionDirty = false
     }
-    fun show(phase: DictationPhase) {
+    fun updatePhase(phase: DictationPhase) {
         val phaseChanged = shownPhase != phase
         shownPhase = phase
         if (phaseChanged) {
@@ -180,20 +184,44 @@ internal class DictationBubble(
             }
             button.invalidate()
         }
-        val needsLayout = !dragging && (positionDirty || !attached)
-        if (needsLayout) position()
+    }
+
+    fun show(phase: DictationPhase) {
+        updatePhase(phase)
         try {
-            if (!attached) { manager.addView(button, params); attached = true }
-            else if (needsLayout) manager.updateViewLayout(button, params)
+            // Read metrics on coalesced reconciliations, including rotation/inset changes with an
+            // unchanged keyboard top. Only changed final bounds go back to WindowManager.
+            if (!dragging) position()
+            if (!attached) {
+                manager.addView(button, params)
+                attached = true
+                layoutUpdates.changed(params.x, params.y, params.width, params.height)
+            } else if (!dragging) update()
         } catch (_: Exception) { hide(); onFailure() }
     }
     private fun update() {
-        try { if (attached) manager.updateViewLayout(button, params) }
+        try {
+            if (attached && layoutUpdates.changed(params.x, params.y, params.width, params.height))
+                manager.updateViewLayout(button, params)
+        }
         catch (_: Exception) { hide(); onFailure() }
     }
     fun hide() {
         if (attached) runCatching { manager.removeViewImmediate(button) }
         attached = false
+        layoutUpdates.reset()
         dragging = false
     }
+}
+
+/** Deduplicates final pixel bounds, including density changes and drag/dock operations. */
+internal class DictationBubbleLayoutUpdates {
+    private var previous: List<Int>? = null
+    fun changed(x: Int, y: Int, width: Int, height: Int): Boolean {
+        val bounds = listOf(x, y, width, height)
+        if (bounds == previous) return false
+        previous = bounds
+        return true
+    }
+    fun reset() { previous = null }
 }

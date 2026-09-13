@@ -6,8 +6,10 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.buffer
 
 class SettingsRepository(context: Context) {
+    private val appContext = context.applicationContext
     private val legacyPrefs: SharedPreferences = SettingsPreferenceStorage.legacy(context)
     private val prefs: SharedPreferences = SettingsPreferenceStorage.secureOrNull(context) ?: legacyPrefs
 
@@ -37,6 +39,32 @@ class SettingsRepository(context: Context) {
     fun getSystemWideDictationDirect() = dictationPrefs.getBoolean("system_wide_dictation", false)
     fun saveSystemWideDictation(enabled: Boolean) {
         dictationPrefs.edit().putBoolean("system_wide_dictation", enabled).apply()
+    }
+
+    // Observe the backing stores, not an EncryptedSharedPreferences wrapper: the UI and service
+    // own different wrappers. Their encrypted-key notifications are invalidations, never key names
+    // to decrypt on the UI thread. Consumers read only the small STT snapshot on Dispatchers.IO.
+    internal val dictationConfigurationChanges = kotlinx.coroutines.flow.callbackFlow {
+        val stores = listOf(legacyPrefs, appContext.getSharedPreferences(
+            SettingsPreferenceStorage.SECURE_FILE, Context.MODE_PRIVATE))
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
+        stores.forEach { it.registerOnSharedPreferenceChangeListener(listener) }
+        trySend(Unit)
+        awaitClose { stores.forEach { it.unregisterOnSharedPreferenceChangeListener(listener) } }
+    }.buffer(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** A read-only snapshot: no full provider catalog, unrelated keys, or migration writes. */
+    internal fun getDictationConfiguration(): DictationConfiguration {
+        val sarvam = prefs.getBoolean("labs_cloud_apis_enabled", false) &&
+            prefs.getBoolean("sarvam_enabled", false)
+        val stored = prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
+        val sarvamKey = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvam)
+            prefs.getString("sarvam_api_key", "").orEmpty() else ""
+        val model = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvamKey.isBlank())
+            SttCatalog.DEFAULT_MODEL_ID else SttCatalog.resolve(stored).id
+        val key = if (model == SttCatalog.SARVAM_MODEL_ID) sarvamKey else getApiKeyDirect()
+        return DictationConfiguration(model, key, getSttModeDirect() == SttMode.Cloud,
+            model == SttCatalog.SARVAM_MODEL_ID && getSarvamHinglishEnabledDirect())
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
     fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
