@@ -36,6 +36,11 @@ class SystemDictationService : AccessibilityService() {
     private var model = ""
     private var key = ""
     private var hinglish = false
+    private var prerequisitesReady = false
+    private var systemWideEnabled = false
+    private var reconcileQueued = false
+    /** Package owning the last application window transition; IME events follow this owner. */
+    private var activeApplicationPackage: String? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -60,8 +65,10 @@ class SystemDictationService : AccessibilityService() {
         scope.launch {
             settings.systemWideDictation.collect { enabled ->
                 monitor?.cancel()
+                systemWideEnabled = enabled
+                prerequisitesReady = enabled && SystemDictationPermissions.granted(this@SystemDictationService) && cloudReady()
                 if (!enabled) abort() else {
-                    reconcile()
+                    queueReconcile(immediate = true)
                     monitor = launch {
                         while (isActive) {
                             // Focus comes from accessibility events; polling only checks prerequisites.
@@ -70,6 +77,7 @@ class SystemDictationService : AccessibilityService() {
                                 disable()
                                 break
                             }
+                            prerequisitesReady = true
                         }
                     }
                 }
@@ -78,7 +86,24 @@ class SystemDictationService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (!::settings.isInitialized || !settings.getSystemWideDictationDirect()) return
+        if (!::settings.isInitialized || !systemWideEnabled) return
+        val eventPackage = event?.packageName?.toString()
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            !eventPackage.isNullOrBlank() &&
+            (eventPackage == packageName || isApplicationWindow(event.windowId))) {
+            // Keyboard/window events often arrive after the host application's transition. Keep
+            // the host package separately so IME content events cannot make us inspect EchoFlow's
+            // accessibility tree while its keyboard is opening or receiving text.
+            activeApplicationPackage = eventPackage
+        }
+        // EchoFlow produces a large stream of Compose accessibility events while its drawer,
+        // keyboard, and text field are active. The service never needs to inspect its own window:
+        // the in-app composer already owns dictation. Filtering before any node/window work keeps
+        // this opt-in service effectively free while EchoFlow is in the foreground.
+        if (eventPackage == packageName || activeApplicationPackage == packageName) {
+            if (phase == DictationPhase.Idle && ::bubble.isInitialized) bubble.hide()
+            return
+        }
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.windowId == target?.windowId) {
             uninterrupted = false
         }
@@ -87,7 +112,27 @@ class SystemDictationService : AccessibilityService() {
             if (source != target) uninterrupted = false
             source?.recycle()
         }
-        reconcile()
+        queueReconcile()
+    }
+
+    private fun isApplicationWindow(windowId: Int): Boolean {
+        val visible = windows
+        return try {
+            visible.firstOrNull { it.id == windowId }?.type == AccessibilityWindowInfo.TYPE_APPLICATION
+        } finally {
+            visible.forEach { it.recycle() }
+        }
+    }
+
+    /** Coalesce focus transitions; accessibility can report several during one keyboard animation. */
+    private fun queueReconcile(immediate: Boolean = false) {
+        if (reconcileQueued) return
+        reconcileQueued = true
+        scope.launch {
+            if (!immediate) delay(50L)
+            reconcileQueued = false
+            reconcile()
+        }
     }
 
     private fun cloudReady(): Boolean = settings.getSttModeDirect() == SttMode.Cloud &&
@@ -95,8 +140,12 @@ class SystemDictationService : AccessibilityService() {
             settings.getCustomProviderConfigDirect()).isNotBlank()
 
     private fun reconcile() {
-        if (!settings.getSystemWideDictationDirect()) { abort(); return }
-        if (!SystemDictationPermissions.granted(this) || !cloudReady()) { disable(); return }
+        if (!systemWideEnabled || !settings.getSystemWideDictationDirect()) { abort(); return }
+        if (activeApplicationPackage == packageName) {
+            if (phase == DictationPhase.Idle) bubble.hide()
+            return
+        }
+        if (!prerequisitesReady) { disable(); return }
         val node = focusedField()
         if (target != null && node != target) uninterrupted = false
         if (node == null) bubble.hide() else bubble.show(phase)
@@ -124,9 +173,8 @@ class SystemDictationService : AccessibilityService() {
             val root = window.root ?: return null
             try {
                 val pkg = root.packageName?.toString() ?: return null
-                val home = packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
-                    ?.activityInfo?.packageName
-                if (pkg == packageName || pkg == home) return null
+                activeApplicationPackage = pkg
+                if (pkg == packageName) return null
                 val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
                 if (eligible(node)) return node
                 node.recycle()

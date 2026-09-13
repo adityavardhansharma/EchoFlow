@@ -28,6 +28,8 @@ internal class DictationBubble(
     private val size = (48 * density).toInt()
     private val edgeGap = (8 * density).toInt()
     private var keyboardTop: Int? = null
+    private var positionDirty = true
+    private var shownPhase = DictationPhase.Idle
     private var fullMaxY = 0
     private var attached = false
     private var dockRight = settings.getDictationBubbleRight()
@@ -123,7 +125,12 @@ internal class DictationBubble(
         }
     }.apply { contentDescription = "Dictate"; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES }
 
-    fun setKeyboardTop(top: Int?) { keyboardTop = top }
+    fun setKeyboardTop(top: Int?) {
+        if (keyboardTop != top) {
+            keyboardTop = top
+            positionDirty = true
+        }
+    }
 
     private fun position() {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -159,19 +166,25 @@ internal class DictationBubble(
         params.x = if (dockRight) rightX else leftX
         // Keyboard avoidance is temporary; restore the saved height when it closes.
         params.y = (minY + ((fullMaxY - minY) * yFraction).toInt()).coerceIn(minY, maxY)
+        positionDirty = false
     }
     fun show(phase: DictationPhase) {
-        button.phase = phase
-        button.contentDescription = when (phase) {
-            DictationPhase.Idle -> "Dictate"
-            DictationPhase.Recording -> "Stop dictation"
-            DictationPhase.Transcribing -> "Transcribing"
+        val phaseChanged = shownPhase != phase
+        shownPhase = phase
+        if (phaseChanged) {
+            button.phase = phase
+            button.contentDescription = when (phase) {
+                DictationPhase.Idle -> "Dictate"
+                DictationPhase.Recording -> "Stop dictation"
+                DictationPhase.Transcribing -> "Transcribing"
+            }
+            button.invalidate()
         }
-        button.invalidate()
-        if (!dragging) position()
+        val needsLayout = !dragging && (positionDirty || !attached)
+        if (needsLayout) position()
         try {
             if (!attached) { manager.addView(button, params); attached = true }
-            else if (!dragging) manager.updateViewLayout(button, params)
+            else if (needsLayout) manager.updateViewLayout(button, params)
         } catch (_: Exception) { hide(); onFailure() }
     }
     private fun update() {
