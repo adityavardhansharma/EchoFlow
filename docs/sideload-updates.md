@@ -5,8 +5,9 @@ Android decides upgrade vs downgrade by **`versionCode`** (an integer), not by
 
 ## How EchoFlow versions APKs
 
-* `app/build.gradle.kts`: `versionCode = System.getenv("VERSION_CODE") ?: 1`.
-  Local builds without the env var are `versionCode=1`.
+* `app/build.gradle.kts`: `versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1`.
+  Local builds without a numeric env var are `versionCode=1` (an unset *or*
+  non-numeric `VERSION_CODE` both fall back to `1`).
 * `.github/workflows/release-apk.yml`: `VERSION_CODE = 1000 + GITHUB_RUN_NUMBER`,
   strictly increasing per workflow run.
 
@@ -44,6 +45,13 @@ set a privileged allow-downgrade flag third-party apps cannot set.)
    adb uninstall com.echoflow
    adb install EchoFlow-5.2.4.apk
    ```
+
+> **Database downgrade warning:** keeping app data across a downgrade is only
+> safe when both builds use the same Room schema (currently v25 with
+> forward-only migrations in `AppDatabase.kt`). Opening a newer database with
+> an older build crashes at startup, so downgrade across releases that bumped
+> the schema with `--clean` instead — and note Android backup can restore the
+> newer DB after a clean reinstall, hitting the same crash.
 
 If signatures ever differ (debug vs release keys), even upgrades fail with
 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`; compare with
