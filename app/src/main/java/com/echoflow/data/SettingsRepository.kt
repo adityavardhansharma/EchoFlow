@@ -2,6 +2,7 @@ package com.echoflow.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +18,33 @@ class SettingsRepository(context: Context) {
             prefs.edit().putString(KEY_SEARCH_PROVIDER, "openrouter").apply()
         }
         migrateRemovedMonidSearchSelections()
+    }
+
+    // Non-secret, shared across repository instances: service auto-off reaches Settings immediately.
+    private val dictationPrefs = context.getSharedPreferences("system_dictation", Context.MODE_PRIVATE).also {
+        if (it.getBoolean("system_wide_dictation", false) && !SystemDictationPermissions.granted(context)) {
+            it.edit().putBoolean("system_wide_dictation", false).apply()
+        }
+    }
+    val systemWideDictation = kotlinx.coroutines.flow.callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "system_wide_dictation") trySend(getSystemWideDictationDirect())
+        }
+        dictationPrefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(getSystemWideDictationDirect())
+        awaitClose { dictationPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    fun getSystemWideDictationDirect() = dictationPrefs.getBoolean("system_wide_dictation", false)
+    fun saveSystemWideDictation(enabled: Boolean) {
+        dictationPrefs.edit().putBoolean("system_wide_dictation", enabled).apply()
+    }
+    fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
+    fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
+        if (it.isFinite()) it.coerceIn(0f, 1f) else 0.5f
+    }
+    fun saveDictationBubblePosition(right: Boolean, y: Float) {
+        dictationPrefs.edit().putBoolean("bubble_right", right)
+            .putFloat("bubble_y", if (y.isFinite()) y.coerceIn(0f, 1f) else 0.5f).apply()
     }
 
     private val _apiKey = MutableStateFlow(getApiKeyDirect())

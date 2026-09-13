@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">EchoFlow</string>
+    <string name="system_dictation_label">EchoFlow dictation</string>
+    <string name="system_dictation_description">Detect focused text fields and insert dictated text only. No other window content is used. Nothing is recorded until you tap the EchoFlow button. Transcription uses your selected cloud provider and overwrites the clipboard.</string>
 </resources>

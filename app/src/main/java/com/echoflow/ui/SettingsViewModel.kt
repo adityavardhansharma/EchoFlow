@@ -129,6 +129,10 @@ class SettingsViewModel(
     val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
 
     // Dictation (uses the selected transcription provider’s key)
+    val systemWideDictation: StateFlow<Boolean> = repository.systemWideDictation
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repository.getSystemWideDictationDirect())
+    fun saveSystemWideDictation(enabled: Boolean) = repository.saveSystemWideDictation(enabled)
+
     val sttMode: StateFlow<SttMode> = repository.sttMode
     val sttCloudModel: StateFlow<String> = repository.sttCloudModel
     val sarvamHinglishEnabled: StateFlow<Boolean> = repository.sarvamHinglishEnabled
