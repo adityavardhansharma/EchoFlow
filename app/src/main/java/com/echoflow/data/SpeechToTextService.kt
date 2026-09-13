@@ -310,13 +310,26 @@ class SpeechToTextTranscriber(
 internal object SttPayloads {
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
-    fun requestBody(modelId: String, wavBase64: String): Map<String, Any> = mapOf(
-        "model" to modelId,
-        "input_audio" to mapOf(
+    fun requestBody(modelId: String, wavBase64: String): Map<String, Any> = buildMap {
+        put("model", modelId)
+        put("input_audio", mapOf(
             "data" to wavBase64,
             "format" to "wav",
-        ),
-    )
+        ))
+        // Dictation is intended to produce text that can be edited and sent immediately.
+        // MAI exposes this through Azure's provider-specific enhanced-mode options.
+        if (modelId == SttCatalog.MAI_MODEL_ID) {
+            put("provider", mapOf(
+                "options" to mapOf(
+                    "azure" to mapOf(
+                        "enhancedMode" to mapOf(
+                            "modelOptions" to mapOf("transcribeStyle" to "clean"),
+                        ),
+                    ),
+                ),
+            ))
+        }
+    }
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
 

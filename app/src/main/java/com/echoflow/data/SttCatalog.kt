@@ -47,8 +47,8 @@ enum class SttCostTier(val dollars: Int) {
  * [usdPerMinute] is that rate, normalized to dollars per minute of audio so the
  * dollar-tag cutoffs can compare models billed per second, minute, or hour.
  *
- * [isBest] is true for exactly one model: the recommended dictation pick. Muse Transcribe
- * is first in the list. GPT Transcribe remains available below it.
+ * [isBest] is true for exactly one model: the recommended dictation pick. MAI-Transcribe-2
+ * is first in the list. The other cloud models remain available below it.
  */
 data class SttModel(
     val id: String,
@@ -64,6 +64,7 @@ data class SttModel(
 }
 
 object SttCatalog {
+    const val MAI_MODEL_ID = "microsoft/mai-transcribe-2"
     const val SARVAM_MODEL_ID = "saaras:v4"
     val SARVAM_MODEL = SttModel(
         id = SARVAM_MODEL_ID,
@@ -89,6 +90,16 @@ object SttCatalog {
     /** Cloud options offered on the STT settings page, in display order. */
     val CLOUD_MODELS = listOf(
         SttModel(
+            id = MAI_MODEL_ID,
+            name = "MAI Transcribe 2",
+            provider = "Microsoft AI",
+            // OpenRouter lists $0.10/hour.
+            pricing = "~\$0.10 / hr",
+            blurb = "Clean multilingual dictation with automatic language detection and code switching.",
+            usdPerMinute = 0.10 / 60.0,
+            isBest = true,
+        ),
+        SttModel(
             id = "meta/muse-voice-transcribe-1.0",
             name = "Muse Transcribe",
             provider = "Meta",
@@ -96,7 +107,6 @@ object SttCatalog {
             pricing = "~\$0.18 / hr",
             blurb = "Push-to-talk dictation with speaker awareness and keyword biasing.",
             usdPerMinute = 0.18 / 60.0,
-            isBest = true,
         ),
         SttModel(
             id = "openai/gpt-transcribe",
@@ -136,7 +146,7 @@ object SttCatalog {
         ),
     )
 
-    const val DEFAULT_MODEL_ID = "meta/muse-voice-transcribe-1.0"
+    const val DEFAULT_MODEL_ID = MAI_MODEL_ID
 
     fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
 
