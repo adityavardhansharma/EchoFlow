@@ -16,11 +16,11 @@ enum class SttMode(val storageKey: String) {
 }
 
 /**
- * OpenRouter per-minute price mapped onto the $ / $$ / $$$ tags on the STT picker.
+ * OpenRouter hourly price mapped onto the $ / $$ / $$$ tags on the STT picker.
  *
  * Cheap is one red dollar; moderate is two green dollars; expensive is three green dollars.
- * Cutoffs sit in the gaps of the current catalog (Grok ~$0.0017, Muse Transcribe $0.003,
- * GPT Transcribe $0.0045, Chirp $0.016) so a listing can move without retuning the UI by hand.
+ * Cutoffs sit in the gaps of the current catalog (Grok ~$0.10, Muse Transcribe $0.18,
+ * GPT Transcribe $0.27, Chirp $0.96 per hour) so a listing can move without retuning the UI by hand.
  */
 enum class SttCostTier(val dollars: Int) {
     Cheap(1),
@@ -41,7 +41,7 @@ enum class SttCostTier(val dollars: Int) {
  *
  * [pricing] is a short human-readable line shown on the picker. These models are curated
  * by us rather than searched, so the price is carried here alongside the id instead of being
- * fetched live — the settings page shows a per-minute rate in the same `$ / min` form for
+ * fetched live — the settings page shows a per-hour rate in the same `$ / hr` form for
  * every listing.
  *
  * [usdPerMinute] is that rate, normalized to dollars per minute of audio so the
@@ -69,8 +69,8 @@ object SttCatalog {
         id = SARVAM_MODEL_ID,
         name = "Saaras v4",
         provider = "Sarvam",
-        // Sarvam lists ₹30/hour → ₹0.50/min ≈ $0.006/min.
-        pricing = "~\$0.006 / min",
+        // Sarvam lists ₹30/hour ≈ $0.36/hour.
+        pricing = "~\$0.36 / hr",
         blurb = "22 Indian languages and English, with automatic language detection.",
         usdPerMinute = 0.006,
     )
@@ -92,8 +92,8 @@ object SttCatalog {
             id = "meta/muse-voice-transcribe-1.0",
             name = "Muse Transcribe",
             provider = "Meta",
-            // OpenRouter lists $0.18/hour → $0.003/min.
-            pricing = "~\$0.003 / min",
+            // OpenRouter lists $0.18/hour.
+            pricing = "~\$0.18 / hr",
             blurb = "Push-to-talk dictation with speaker awareness and keyword biasing.",
             usdPerMinute = 0.18 / 60.0,
             isBest = true,
@@ -102,8 +102,8 @@ object SttCatalog {
             id = "openai/gpt-transcribe",
             name = "GPT Transcribe",
             provider = "OpenAI",
-            // OpenRouter lists $0.0045/min.
-            pricing = "~\$0.0045 / min",
+            // OpenRouter lists $0.0045/min → $0.27/hour.
+            pricing = "~\$0.27 / hr",
             blurb = "High-accuracy dictation, strong on mixed or quiet speech.",
             usdPerMinute = 0.0045,
         ),
@@ -111,8 +111,8 @@ object SttCatalog {
             id = "x-ai/grok-stt-1.0",
             name = "Grok STT 1.0",
             provider = "xAI",
-            // OpenRouter lists $0.10/hour → ≈ $0.0017/min.
-            pricing = "~\$0.0017 / min",
+            // OpenRouter lists $0.10/hour.
+            pricing = "~\$0.10 / hr",
             blurb = "Strong on noisy, conversational speech.",
             usdPerMinute = 0.10 / 60.0,
         ),
@@ -120,8 +120,8 @@ object SttCatalog {
             id = "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
             name = "Nemotron 3.5 ASR",
             provider = "NVIDIA",
-            // OpenRouter lists $0.000003/second → $0.00018/min.
-            pricing = "~\$0.00018 / min",
+            // OpenRouter lists $0.000003/second → $0.0108/hour.
+            pricing = "~\$0.0108 / hr",
             blurb = "Low-latency multilingual dictation across 40+ languages.",
             usdPerMinute = 0.000003 * 60.0,
         ),
@@ -129,8 +129,8 @@ object SttCatalog {
             id = "google/chirp-3",
             name = "Chirp 3",
             provider = "Google",
-            // OpenRouter lists $0.016/min.
-            pricing = "~\$0.016 / min",
+            // OpenRouter lists $0.016/min → $0.96/hour.
+            pricing = "~\$0.96 / hr",
             blurb = "Broad language coverage, robust punctuation.",
             usdPerMinute = 0.016,
         ),

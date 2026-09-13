@@ -10,13 +10,13 @@ import org.junit.Test
  * Curated STT catalog prices are user-facing and must stay in sync with OpenRouter listings.
  * Update both the catalog strings and these expectations when OpenRouter changes STT pricing.
  *
- * Reference (as of 2026-09):
- * - meta/muse-voice-transcribe-1.0 = $0.18/hour = $0.003/min
- * - openai/gpt-transcribe = $0.0045/min
- * - x-ai/grok-stt-1.0 = $0.10/hour ≈ $0.0017/min
- * - nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b = $0.000003/sec = $0.00018/min
- * - google/chirp-3 = $0.016/min
- * - saaras:v4 = ₹30/hour ≈ $0.006/min
+ * Reference (as of 2026-09, shown per hour):
+ * - meta/muse-voice-transcribe-1.0 = $0.18/hour
+ * - openai/gpt-transcribe = $0.0045/min = $0.27/hour
+ * - x-ai/grok-stt-1.0 = $0.10/hour
+ * - nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b = $0.000003/sec = $0.0108/hour
+ * - google/chirp-3 = $0.016/min = $0.96/hour
+ * - saaras:v4 = ₹30/hour ≈ $0.36/hour
  */
 class SttCatalogTest {
 
@@ -34,15 +34,15 @@ class SttCatalogTest {
     }
 
     @Test fun `user-facing prices match current OpenRouter STT listings`() {
-        assertEquals("~\$0.003 / min", SttCatalog.byId("meta/muse-voice-transcribe-1.0")!!.pricing)
-        assertEquals("~\$0.0045 / min", SttCatalog.byId("openai/gpt-transcribe")!!.pricing)
-        assertEquals("~\$0.0017 / min", SttCatalog.byId("x-ai/grok-stt-1.0")!!.pricing)
+        assertEquals("~\$0.18 / hr", SttCatalog.byId("meta/muse-voice-transcribe-1.0")!!.pricing)
+        assertEquals("~\$0.27 / hr", SttCatalog.byId("openai/gpt-transcribe")!!.pricing)
+        assertEquals("~\$0.10 / hr", SttCatalog.byId("x-ai/grok-stt-1.0")!!.pricing)
         assertEquals(
-            "~\$0.00018 / min",
+            "~\$0.0108 / hr",
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.pricing,
         )
-        assertEquals("~\$0.016 / min", SttCatalog.byId("google/chirp-3")!!.pricing)
-        assertEquals("~\$0.006 / min", SttCatalog.SARVAM_MODEL.pricing)
+        assertEquals("~\$0.96 / hr", SttCatalog.byId("google/chirp-3")!!.pricing)
+        assertEquals("~\$0.36 / hr", SttCatalog.SARVAM_MODEL.pricing)
     }
 
     @Test fun `dollar tags follow OpenRouter per-minute price`() {
