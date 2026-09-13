@@ -1,6 +1,8 @@
 package com.echoflow.data
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
@@ -10,6 +12,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 /** Setup is a transaction: pending permission requests never persist an enabled feature. */
@@ -21,8 +24,25 @@ internal class SystemDictationSetup(private val save: (Boolean) -> Unit) {
 
 internal object SystemDictationPermissions {
     fun microphone(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-    fun notifications(context: Context) = Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    const val CHANNEL = "system_dictation"
+
+    fun ensureNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            if (manager.getNotificationChannel(CHANNEL) == null) {
+                manager.createNotificationChannel(NotificationChannel(CHANNEL, "Dictation", NotificationManager.IMPORTANCE_LOW))
+            }
+        }
+    }
+
+    fun notifications(context: Context): Boolean {
+        ensureNotificationChannel(context)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+        return Build.VERSION.SDK_INT < 26 || context.getSystemService(NotificationManager::class.java)
+            .getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+    }
     fun accessibility(context: Context): Boolean {
         val expected = ComponentName(context, SystemDictationService::class.java)
         return context.getSystemService(AccessibilityManager::class.java)

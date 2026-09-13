@@ -4,15 +4,19 @@ package com.echoflow.ui.screens
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -126,16 +130,6 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
     Column {
-        PageSection("How it works", null)
-        Text(
-            "Tap the mic by the model on the chat bar, speak, and your words drop into the box " +
-                "to fix and send. Transcription uses the selected provider’s API key, " +
-                "separate from whichever model answers the chat. Add a Sarvam key in Custom models to enable Saaras v4.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(Spacing.xl))
         SttKeyStatusCard(
             hasKey = hasKey,
             provider = if (isSarvam) "Sarvam" else "OpenRouter",
@@ -387,9 +381,10 @@ private fun SystemDictationRow(viewModel: SettingsViewModel) {
     val key by viewModel.apiKey.collectAsState()
     val config by viewModel.customProviderConfig.collectAsState()
     val ready = mode == SttMode.Cloud && SttCatalog.apiKey(model, key, config).isNotBlank()
-    var step by remember { mutableIntStateOf(0) }
+    var step by rememberSaveable { mutableIntStateOf(0) }
+    var launchedStep by rememberSaveable { mutableIntStateOf(0) }
     val setup = remember(viewModel) { SystemDictationSetup(viewModel::saveSystemWideDictation) }
-    fun finish(granted: Boolean) { setup.finish(granted && ready); step = 0 }
+    fun finish(granted: Boolean) { setup.finish(granted && ready); step = 0; launchedStep = 0 }
     val audio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         if (step == 1) { if (it) step = 2 else finish(false) }
     }
@@ -400,9 +395,14 @@ private fun SystemDictationRow(viewModel: SettingsViewModel) {
         if (step == 3) { if (SystemDictationPermissions.accessibility(context)) step = 4 else finish(false) }
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (step == 4) finish(it && SystemDictationPermissions.granted(context))
+        if (step == 4) { if (it) step = 5 else finish(false) }
+    }
+    val notificationSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (step == 5) finish(SystemDictationPermissions.granted(context))
     }
     LaunchedEffect(step) {
+        if (step == 0 || launchedStep == step) return@LaunchedEffect
+        launchedStep = step
         try {
             when (step) {
                 1 -> if (SystemDictationPermissions.microphone(context)) step = 2
@@ -412,7 +412,19 @@ private fun SystemDictationRow(viewModel: SettingsViewModel) {
                 3 -> if (SystemDictationPermissions.accessibility(context)) step = 4
                     else accessibility.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 4 -> if (SystemDictationPermissions.notifications(context)) finish(SystemDictationPermissions.granted(context))
-                    else if (Build.VERSION.SDK_INT >= 33) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    else step = 5
+                5 -> if (SystemDictationPermissions.notifications(context)) finish(SystemDictationPermissions.granted(context))
+                    else notificationSettings.launch(
+                        if (Build.VERSION.SDK_INT >= 26) {
+                            val action = if (NotificationManagerCompat.from(context).areNotificationsEnabled())
+                                Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS else Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                            Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                .putExtra(Settings.EXTRA_CHANNEL_ID, SystemDictationPermissions.CHANNEL)
+                        }
+                        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
             }
         } catch (_: Exception) { finish(false) }
     }
@@ -424,7 +436,6 @@ private fun SystemDictationRow(viewModel: SettingsViewModel) {
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
-            if (step != 0) setup.cancel()
         }
     }
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer,
@@ -433,9 +444,7 @@ private fun SystemDictationRow(viewModel: SettingsViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("System-wide dictation", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    "Tap a text box in another app and a small EchoFlow button appears. Tap to dictate; tap again to finish. " +
-                        "Words paste into that box, or stay on the clipboard if paste isn’t possible. " +
-                        "Nothing is recorded until you tap. EchoFlow’s chat mic is unchanged. Transcripts overwrite the clipboard.",
+                    "Turn on to use dictation across your device, outside EchoFlow too.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (!ready) Text("Requires Cloud mode and the selected provider’s API key.",

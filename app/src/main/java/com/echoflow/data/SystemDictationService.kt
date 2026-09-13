@@ -2,15 +2,19 @@ package com.echoflow.data
 
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Rect
+import android.util.Log
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.echoflow.R
 import kotlinx.coroutines.*
@@ -33,18 +37,39 @@ class SystemDictationService : AccessibilityService() {
     private var key = ""
     private var hinglish = false
 
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) abort()
+            else if (::settings.isInitialized) reconcile()
+        }
+    }
+    private var receiverRegistered = false
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         settings = SettingsRepository(this)
         bubble = DictationBubble(this, settings, ::tap, ::disable)
+        if (!receiverRegistered) {
+            ContextCompat.registerReceiver(this, screenReceiver, IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
+            receiverRegistered = true
+        }
         scope.launch {
             settings.systemWideDictation.collect { enabled ->
                 monitor?.cancel()
                 if (!enabled) abort() else {
+                    reconcile()
                     monitor = launch {
                         while (isActive) {
-                            reconcile()
-                            delay(500) // Also catches revocations/OEM changes without focus events.
+                            // Focus comes from accessibility events; polling only checks prerequisites.
+                            delay(if (phase == DictationPhase.Idle) 15_000L else 500L)
+                            if (!SystemDictationPermissions.granted(this@SystemDictationService) || !cloudReady()) {
+                                disable()
+                                break
+                            }
                         }
                     }
                 }
@@ -87,7 +112,14 @@ class SystemDictationService : AccessibilityService() {
         val visibleWindows = windows
         val appWindows = visibleWindows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
         try {
-            // A focused EchoFlow window suppresses the circle, including split-screen.
+            val keyboardTop = visibleWindows.filter { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+                .mapNotNull { keyboard ->
+                    val bounds = Rect()
+                    keyboard.getBoundsInScreen(bounds)
+                    bounds.top.takeIf { !bounds.isEmpty }
+                }.minOrNull()
+            bubble.setKeyboardTop(keyboardTop)
+            // A focused EchoFlow window suppresses the button, including split-screen.
             val window = appWindows.firstOrNull { it.isFocused } ?: return null
             val root = window.root ?: return null
             try {
@@ -121,7 +153,12 @@ class SystemDictationService : AccessibilityService() {
         try {
             // This service is bound by the system. Promote that same service only on a user tap.
             foreground("Recording dictation")
-            if (!recorder.start()) { disable(); return }
+            if (!recorder.start()) {
+                // A busy microphone or a transient capture failure does not revoke the opt-in.
+                abort()
+                reconcile()
+                return
+            }
             phase = DictationPhase.Recording
             bubble.show(phase)
             if (phase != DictationPhase.Recording) return
@@ -152,9 +189,12 @@ class SystemDictationService : AccessibilityService() {
                         return@onSuccess
                     }
                     deliver(transcript)
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    logTranscriptionFailure(error)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { /* No secondary UI; return the circle to idle. */ }
+            catch (error: Exception) { logTranscriptionFailure(error) }
             finally {
                 // A cancelled request must not clear a later session after off/on or reconnection.
                 if (thisGeneration == generation) {
@@ -178,13 +218,27 @@ class SystemDictationService : AccessibilityService() {
     }
 
     private fun foreground(text: String) {
-        if (Build.VERSION.SDK_INT >= 26) getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(NotificationChannel(CHANNEL, "Dictation", NotificationManager.IMPORTANCE_LOW))
-        val notification = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.logo)
+        SystemDictationPermissions.ensureNotificationChannel(this)
+        val notification = NotificationCompat.Builder(this, SystemDictationPermissions.CHANNEL).setSmallIcon(R.drawable.logo)
             .setContentTitle("EchoFlow").setContentText(text).setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE).build()
         if (Build.VERSION.SDK_INT >= 30) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         else startForeground(NOTIFICATION, notification)
+    }
+
+    private fun logTranscriptionFailure(error: Throwable) {
+        // Provider/parser messages can contain response text. Keep type and full stack, omit payloads.
+        val seen = java.util.IdentityHashMap<Throwable, Throwable>()
+        fun sanitized(source: Throwable): Throwable {
+            seen[source]?.let { return it }
+            val result = Throwable(source.javaClass.name).apply { stackTrace = source.stackTrace }
+            seen[source] = result
+            source.cause?.takeIf { it !== source }?.let { result.initCause(sanitized(it)) }
+            source.suppressed.filter { it !== source }.forEach { result.addSuppressed(sanitized(it)) }
+            return result
+        }
+        val diagnostic = sanitized(error)
+        Log.w("SystemDictation", "Transcription failed", diagnostic)
     }
 
     private fun clearTarget() { target?.recycle(); target = null; uninterrupted = false }
@@ -203,15 +257,18 @@ class SystemDictationService : AccessibilityService() {
         if (::settings.isInitialized) settings.saveSystemWideDictation(false)
         abort()
     }
-    override fun onInterrupt() = disable()
+    override fun onInterrupt() {
+        abort()
+        if (::settings.isInitialized) reconcile()
+    }
     override fun onUnbind(intent: Intent?): Boolean { disable(); return super.onUnbind(intent) }
     override fun onDestroy() {
         disable()
         scope.cancel()
+        if (receiverRegistered) { unregisterReceiver(screenReceiver); receiverRegistered = false }
         super.onDestroy()
     }
     companion object {
-        private const val CHANNEL = "system_dictation"
         private const val NOTIFICATION = 43
     }
 }
