@@ -10,9 +10,9 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.ChatDrawerContent
-import com.echoflow.ui.screens.ChatScreen
-import com.echoflow.ui.screens.PageWebSearch
-import com.echoflow.ui.screens.SettingsScreen
+import com.echoflow.ui.screens.chat.ChatScreen
+import com.echoflow.ui.screens.settings.PageWebSearch
+import com.echoflow.ui.screens.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
 @Composable
@@ -71,7 +71,7 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
         }
         if (projectsHubOpen) {
             // The hub owns its own back stepping: home → list → closed (see ProjectsHubScreen).
-            com.echoflow.ui.screens.ProjectsHubScreen(chatViewModel = chatViewModel)
+            com.echoflow.ui.screens.projects.ProjectsHubScreen(chatViewModel = chatViewModel)
         }
         // The artifact workspace is the top-most overlay: opening a tile from the gallery slides it
         // up *over* the still-mounted gallery (one continuous flow), and closing it reveals the

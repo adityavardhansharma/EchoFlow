@@ -10,6 +10,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.echoflow.ui.components.EchoCrawlIntroBanner
 import com.echoflow.ui.components.GroupedItemGap
+import com.echoflow.ui.screens.settings.EchoCrawlPrivacyCard
+import com.echoflow.ui.screens.settings.ProviderRow
+import com.echoflow.ui.screens.settings.searchProviders
 import com.echoflow.ui.theme.EchoFlowTheme
 import com.echoflow.ui.theme.Spacing
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers

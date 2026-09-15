@@ -2,7 +2,9 @@ package com.echoflow.ui.screens
 
 import com.echoflow.data.ExtractionStatus
 import com.echoflow.data.ProjectDocument
-import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.projects.ProjectImportProgress
+import com.echoflow.ui.screens.projects.documentStatusHint
+import com.echoflow.ui.screens.projects.filesHeaderSubtitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -35,7 +37,7 @@ class ProjectFileImportUiTest {
     }
 
     @Test fun `import progress queued is selected minus admitted and failed`() {
-        val progress = ChatViewModel.ProjectImportProgress(
+        val progress = ProjectImportProgress(
             projectId = "p",
             selected = 10,
             admitted = 4,

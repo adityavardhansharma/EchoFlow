@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithText
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.PersistedSegment
 import com.echoflow.data.ToolEventJson
+import com.echoflow.ui.screens.chat.MessageBubble
 import com.echoflow.ui.theme.EchoFlowTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule

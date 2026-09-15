@@ -449,7 +449,7 @@ state "Stopped". Same affordance position as the existing streaming Stop.
 
 ### 8.1 Composer integration
 
-- New entry in the `+` menu (`PlusMenu` in `ChatComposer.kt`): **"Sandbox"** with icon
+- New entry in the `+` menu (`PlusMenu` in `ui/screens/chat/ChatPlusMenu.kt`): **"Sandbox"** with icon
   `Icons.Default.Terminal`-adjacent but friendlier (suggest `Icons.Default.Handyman` or
   `Icons.Default.AutoFixHigh`) — gated on a configured provider key
   (`sandboxAvailable`, same pattern as `browserFlowAvailable`).
