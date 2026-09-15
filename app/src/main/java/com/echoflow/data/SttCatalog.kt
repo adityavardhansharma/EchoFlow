@@ -59,8 +59,10 @@ data class SttModel(
     val usdPerMinute: Double,
     val isBest: Boolean = false,
     val showCostTier: Boolean = true,
+    /** Optional display classification; the numeric price remains the billing reference. */
+    private val costTierOverride: SttCostTier? = null,
 ) {
-    val costTier: SttCostTier get() = SttCostTier.fromUsdPerMinute(usdPerMinute)
+    val costTier: SttCostTier get() = costTierOverride ?: SttCostTier.fromUsdPerMinute(usdPerMinute)
 }
 
 object SttCatalog {
@@ -98,6 +100,7 @@ object SttCatalog {
             blurb = "Clean multilingual dictation with automatic language detection and code switching.",
             usdPerMinute = 0.10 / 60.0,
             isBest = true,
+            costTierOverride = SttCostTier.Moderate,
         ),
         SttModel(
             id = "meta/muse-voice-transcribe-1.0",

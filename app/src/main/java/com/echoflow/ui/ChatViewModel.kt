@@ -3,29 +3,31 @@ package com.echoflow.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import com.echoflow.data.extract.ModelFileCapability
+import com.echoflow.ui.artifacts.ArtifactWorkspaceController
+import com.echoflow.ui.chat.ChatAttachmentController
+import com.echoflow.ui.chat.LocalSearchProtocol
+import com.echoflow.ui.projects.ProjectImportController
+import java.io.File
+import java.util.UUID
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.coroutines.coroutineContext
 
 class ChatViewModel(
     application: Application,
@@ -76,6 +78,7 @@ class ChatViewModel(
     private val customProviderFlowRouter = CustomProviderFlowRouter(customProviderService)
     private val webSearchService = WebSearchService()
     private val localLlmService = LocalLlmService(application)
+    private val localSearchProtocol = LocalSearchProtocol(localLlmService, webSearchService)
     private val chatRepository = ChatRepository(
         chatDao = chatDao,
         messageDao = messageDao,
@@ -203,22 +206,10 @@ class ChatViewModel(
         val lastUser = currentMessages.value.lastOrNull { it.role == "user" } ?: return null
         if (lastUser.id != messageId) return null
         _editingUserMessageId.value = messageId
-        cancelExtractionJobs()
-        _pendingAttachments.value = lastUser.attachments.map { att ->
-            PendingAttachment(
-                uri = att.uri,
-                mimeType = att.mimeType,
-                name = att.name,
-                kind = if (att.mimeType.startsWith("image/", ignoreCase = true)) PendingAttachment.Kind.Image
-                else PendingAttachment.Kind.Doc,
-                state = PendingAttachment.State.Ready,
-                extractedText = att.extractedText,
-            )
-        }
-        // Legacy / cloud-staged docs have no Markdown yet. Parse them if this send uses anydoc.
-        if (com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(settingsRepository.selectedModel.value)) {
-            extractMissingDocs()
-        }
+        attachments.restore(
+            lastUser.attachments,
+            extractLocally = ModelFileCapability.extractsDocsLocally(settingsRepository.selectedModel.value),
+        )
         return lastUser.content
     }
 
@@ -413,24 +404,22 @@ class ChatViewModel(
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
     // every path: cloud/image sends read the first entry (they only ever stage one); the local
     // multi-doc path stages several and parses each on-device before send.
-    private val _pendingAttachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
-    val pendingAttachments: StateFlow<List<PendingAttachment>> = _pendingAttachments.asStateFlow()
+    private val attachments = ChatAttachmentController(
+        application = application,
+        scope = viewModelScope,
+        maxAttachments = MAX_MESSAGE_ATTACHMENTS,
+        onError = { _errorMessage.value = it },
+    )
+    val pendingAttachments: StateFlow<List<PendingAttachment>> = attachments.pendingAttachments
 
     // Single-attachment compatibility views for the Imagine surface (image reference / video first
     // frame), which only ever stages one image. Chat consumes the full [pendingAttachments] list.
-    val pendingAttachmentUri: StateFlow<Uri?> = _pendingAttachments
+    val pendingAttachmentUri: StateFlow<Uri?> = pendingAttachments
         .map { list -> list.firstOrNull()?.let { Uri.parse(it.uri) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val pendingAttachmentName: StateFlow<String?> = _pendingAttachments
+    val pendingAttachmentName: StateFlow<String?> = pendingAttachments
         .map { list -> list.firstOrNull()?.name }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /** Per-attachment on-device extraction jobs, keyed by [PendingAttachment.id], so a removed or
-     *  retried chip can cancel its in-flight parse. */
-    private val extractionJobs = mutableMapOf<String, Job>()
-    private val chatAttachmentExtractor by lazy {
-        com.echoflow.data.extract.ChatAttachmentExtractor(getApplication<Application>().contentResolver)
-    }
 
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
@@ -520,79 +509,17 @@ class ChatViewModel(
     fun observeArtifactVersions(artifactId: String): Flow<List<ArtifactVersion>> =
         artifactManager.observeVersions(artifactId)
 
-    /** True while the fullscreen Artifact Workspace overlay is open. */
-    private val _artifactWorkspaceOpen = MutableStateFlow(false)
-    val artifactWorkspaceOpen: StateFlow<Boolean> = _artifactWorkspaceOpen.asStateFlow()
+    private val artifactWorkspace = ArtifactWorkspaceController(artifactManager, viewModelScope)
+    val artifactWorkspaceOpen = artifactWorkspace.artifactWorkspaceOpen
+    val artifactInitialVersion = artifactWorkspace.artifactInitialVersion
+    val workspaceOpenSession = artifactWorkspace.workspaceOpenSession
+    val workspaceArtifact = artifactWorkspace.workspaceArtifact
+    val workspaceArtifactVersions = artifactWorkspace.workspaceArtifactVersions
 
-    /**
-     * The lineage the workspace is showing — set by [openArtifactWorkspace] from the card that
-     * was tapped. Observing by id (not "latest for chat") means open stays correct if a chat
-     * ever holds more than one lineage; the one-lineage-per-chat rule is an authoring invariant,
-     * not a workspace routing invariant.
-     */
-    private val _workspaceArtifactId = MutableStateFlow<String?>(null)
+    fun openArtifactWorkspace(artifactId: String, targetVersion: Int? = null) =
+        artifactWorkspace.openArtifactWorkspace(artifactId, targetVersion)
 
-    /**
-     * The version the workspace should open at, set by whichever card was tapped. A card in
-     * scrolled-back history represents an earlier version than the lineage's latest, so tapping it
-     * must open *that* version — not silently jump to the newest. Null means "open the latest"
-     * of the targeted lineage.
-     */
-    private val _artifactInitialVersion = MutableStateFlow<Int?>(null)
-    val artifactInitialVersion: StateFlow<Int?> = _artifactInitialVersion.asStateFlow()
-
-    /**
-     * Bumped on every successful open so the workspace can re-seed its local selection even when
-     * the same lineage id is opened again at a different version. Keying Compose state on artifact
-     * id alone left [selectedVersion] sticky across close → reopen of another card in the lineage.
-     */
-    private val _workspaceOpenSession = MutableStateFlow(0)
-    val workspaceOpenSession: StateFlow<Int> = _workspaceOpenSession.asStateFlow()
-
-    /** The open workspace's lineage row (title, type, currentVersion). */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val workspaceArtifact: StateFlow<Artifact?> = _workspaceArtifactId
-        .flatMapLatest { id -> if (id == null) flowOf(null) else artifactManager.observeById(id) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /** All versions of the open workspace's lineage (drives the version switcher). */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val workspaceArtifactVersions: StateFlow<List<ArtifactVersion>> = _workspaceArtifactId
-        .flatMapLatest { id ->
-            if (id == null) flowOf(emptyList()) else artifactManager.observeVersions(id)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /**
-     * Only the newest open request may publish. Two cards tapped in quick succession each suspend
-     * on the DAO, and without this the first query to return last would win and the workspace
-     * would show the wrong lineage.
-     */
-    private var artifactWorkspaceJob: Job? = null
-
-    /**
-     * Open the workspace on a specific lineage at [targetVersion] (or that lineage's latest when
-     * null). Existence is resolved from the store by id — not from the chat's latest row — so a
-     * historical card never opens a different artifact than the one it represents.
-     */
-    fun openArtifactWorkspace(artifactId: String, targetVersion: Int? = null) {
-        artifactWorkspaceJob?.cancel()
-        artifactWorkspaceJob = viewModelScope.launch {
-            if (artifactManager.getById(artifactId) == null) return@launch
-            _workspaceArtifactId.value = artifactId
-            _artifactInitialVersion.value = targetVersion
-            _workspaceOpenSession.value = _workspaceOpenSession.value + 1
-            _artifactWorkspaceOpen.value = true
-        }
-    }
-
-    fun closeArtifactWorkspace() {
-        artifactWorkspaceJob?.cancel()
-        artifactWorkspaceJob = null
-        _artifactWorkspaceOpen.value = false
-        _workspaceArtifactId.value = null
-        _artifactInitialVersion.value = null
-    }
+    fun closeArtifactWorkspace() = artifactWorkspace.closeArtifactWorkspace()
 
     // ── Artifacts gallery ────────────────────────────────────────────────────────────────
     // A read-only shelf of every chat's latest artifact, opened from the drawer. Tapping a tile
@@ -634,7 +561,7 @@ class ChatViewModel(
      * the existing thread-delete path so media, in-flight work and the artifact rows all go.
      */
     fun deleteArtifactAndOwningChat(artifact: Artifact) {
-        if (_workspaceArtifactId.value == artifact.id) closeArtifactWorkspace()
+        if (artifactWorkspace.isShowing(artifact.id)) closeArtifactWorkspace()
         viewModelScope.launch {
             val thread = chatDao.getThreadById(artifact.chatId)
             if (thread != null) {
@@ -657,38 +584,10 @@ class ChatViewModel(
     private val _openProjectId = MutableStateFlow<String?>(null)
     val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
 
-    /**
-     * Errors raised while managing a project's files (e.g. an import that can't be read). Kept
-     * separate from [errorMessage] so it surfaces inside the Files screen that raised it, not on
-     * the chat surface sitting behind the hub overlay. The project id travels with the message
-     * so a late failure cannot paint a banner onto a different project's Files screen.
-     */
-    data class ProjectFileError(val projectId: String, val message: String, val importId: Long = 0L)
-
-    /**
-     * Files the user picked that have not been copied into the project yet. Used so the
-     * Files header can say "8 waiting" while the first batch of four occupies copy slots.
-     * Keyed by project so two open imports cannot overwrite each other.
-     */
-    data class ProjectImportProgress(
-        val projectId: String,
-        val selected: Int,
-        val admitted: Int = 0,
-        val failed: Int = 0,
-    ) {
-        val queued: Int get() = (selected - admitted - failed).coerceAtLeast(0)
-    }
-
-    private val _projectFileError = MutableStateFlow<ProjectFileError?>(null)
-    val projectFileError: StateFlow<ProjectFileError?> = _projectFileError.asStateFlow()
-    private var nextProjectFileImportId = 0L
-    private val importProgressLock = Any()
-    private val _projectImportProgress = MutableStateFlow<Map<String, ProjectImportProgress>>(emptyMap())
-    val projectImportProgress: StateFlow<Map<String, ProjectImportProgress>> =
-        _projectImportProgress.asStateFlow()
-    fun clearProjectFileError(projectId: String) {
-        if (_projectFileError.value?.projectId == projectId) _projectFileError.value = null
-    }
+    private val projectImports = ProjectImportController(projectManager, viewModelScope)
+    val projectFileError = projectImports.projectFileError
+    val projectImportProgress = projectImports.projectImportProgress
+    fun clearProjectFileError(projectId: String) = projectImports.clearProjectFileError(projectId)
 
     /**
      * The project a not-yet-created chat will belong to. Starting a new chat from a project home
@@ -802,89 +701,8 @@ class ChatViewModel(
         _pendingProjectId.value = null
     }
 
-    fun addProjectDocument(projectId: String, uri: Uri) {
-        addProjectDocuments(projectId, listOf(uri))
-    }
-
-    fun addProjectDocuments(projectId: String, uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        beginImport(projectId, uris.size)
-        for (uri in uris) {
-            val importId = ++nextProjectFileImportId
-            viewModelScope.launch {
-                val admitted = AtomicBoolean(false)
-                val added = try {
-                    projectManager.addDocument(projectId, uri) {
-                        if (admitted.compareAndSet(false, true)) {
-                            noteImportFinished(projectId, admitted = true)
-                        }
-                    }
-                } catch (t: CancellationException) {
-                    if (!admitted.get()) noteImportFinished(projectId, admitted = false)
-                    throw t
-                } catch (_: Throwable) {
-                    if (!admitted.get()) {
-                        val failed = noteImportFinished(projectId, admitted = false)
-                        reportProjectFileError(projectId, importId, failed)
-                    }
-                    return@launch
-                }
-                if (added == null) {
-                    if (!admitted.get()) {
-                        val failed = noteImportFinished(projectId, admitted = false)
-                        reportProjectFileError(projectId, importId, failed)
-                    }
-                } else {
-                    // Only a newer success may drop this project's banner. An older import
-                    // finishing later must not hide a failure that started after it.
-                    val current = _projectFileError.value
-                    if (current != null && current.projectId == projectId && current.importId < importId) {
-                        _projectFileError.value = null
-                    }
-                }
-            }
-        }
-    }
-
-    private fun beginImport(projectId: String, count: Int) {
-        synchronized(importProgressLock) {
-            val map = _projectImportProgress.value.toMutableMap()
-            val current = map[projectId]
-            map[projectId] = if (current != null) {
-                current.copy(selected = current.selected + count)
-            } else {
-                ProjectImportProgress(projectId = projectId, selected = count)
-            }
-            _projectImportProgress.value = map
-        }
-    }
-
-    /** Returns the running failure count for [projectId] after applying this result. */
-    private fun noteImportFinished(projectId: String, admitted: Boolean): Int {
-        synchronized(importProgressLock) {
-            val map = _projectImportProgress.value.toMutableMap()
-            val current = map[projectId] ?: return if (admitted) 0 else 1
-            val next = if (admitted) {
-                current.copy(admitted = current.admitted + 1)
-            } else {
-                current.copy(failed = current.failed + 1)
-            }
-            if (next.admitted + next.failed >= next.selected) {
-                map.remove(projectId)
-            } else {
-                map[projectId] = next
-            }
-            _projectImportProgress.value = map
-            return next.failed
-        }
-    }
-
-    private fun reportProjectFileError(projectId: String, importId: Long, failedCount: Int = 1) {
-        val current = _projectFileError.value
-        if (current != null && current.projectId == projectId && current.importId > importId) return
-        val message = if (failedCount <= 1) "Couldn't add that file." else "Couldn't add $failedCount files."
-        _projectFileError.value = ProjectFileError(projectId, message, importId)
-    }
+    fun addProjectDocument(projectId: String, uri: Uri) = projectImports.addProjectDocument(projectId, uri)
+    fun addProjectDocuments(projectId: String, uris: List<Uri>) = projectImports.addProjectDocuments(projectId, uris)
 
     fun removeProjectDocument(document: ProjectDocument) {
         viewModelScope.launch { projectManager.removeDocument(document) }
@@ -1198,185 +1016,20 @@ class ChatViewModel(
         _errorMessage.value = null
     }
 
-    /**
-     * Stage a single attachment (an image, or a cloud/custom PDF), replacing whatever was staged.
-     * This is the unchanged single-file path — images and cloud files are [State.Ready] at once,
-     * never parsed on-device. The local multi-doc path is [addPendingDocs].
-     */
-    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) {
-        viewModelScope.launch {
-            val resolver = getApplication<Application>().contentResolver
-            runCatching {
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/jpeg"
+    fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) =
+        attachments.setPendingAttachment(uri, fallbackMimeType, overrideName)
 
-            // Get display name. An override wins outright: a file the app generated has a UUID
-            // for a name, and showing that tells the user nothing about why it is attached.
-            val isPdf = mimeType.equals("application/pdf", ignoreCase = true)
-            var displayName = if (isPdf) "Attached PDF" else "Attached Image"
-            runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex != -1 && cursor.moveToFirst()) {
-                    displayName = cursor.getString(nameIndex)
-                }
-            }
-            cancelExtractionJobs()
-            _pendingAttachments.value = listOf(
-                PendingAttachment(
-                    uri = uri.toString(),
-                    mimeType = mimeType,
-                    name = overrideName ?: displayName,
-                    kind = if (mimeType.startsWith("image/", ignoreCase = true)) PendingAttachment.Kind.Image
-                    else PendingAttachment.Kind.Doc,
-                    state = PendingAttachment.State.Ready,
-                )
-            )
-        }
-    }
+    fun addPendingDocs(uris: List<Uri>) = attachments.addPendingDocs(uris)
+    fun retryPendingAttachment(id: String) = attachments.retryPendingAttachment(id)
+    fun removePendingAttachment(id: String) = attachments.removePendingAttachment(id)
 
-    /**
-     * Stage one or more documents for the local-model path (up to [MAX_MESSAGE_ATTACHMENTS] total),
-     * appending to whatever is already staged, and kick off on-device extraction for each. Each chip
-     * stays [State.Extracting] until anydoc yields Markdown (→ [State.Ready]) or declines
-     * (→ [State.Failed], retry/remove in the composer). Extra picks over the cap are dropped.
-     */
-    fun addPendingDocs(uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        viewModelScope.launch {
-            val resolver = getApplication<Application>().contentResolver
-            for (uri in uris) {
-                if (_pendingAttachments.value.size >= MAX_MESSAGE_ATTACHMENTS) break
-                if (_pendingAttachments.value.any { it.uri == uri.toString() }) continue
-                runCatching {
-                    resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                val mimeType = resolver.getType(uri) ?: "application/octet-stream"
-                var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Document"
-                runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex != -1 && cursor.moveToFirst()) {
-                        displayName = cursor.getString(nameIndex)
-                    }
-                }
-                val attachment = PendingAttachment(
-                    uri = uri.toString(),
-                    mimeType = mimeType,
-                    name = displayName,
-                    kind = PendingAttachment.Kind.Doc,
-                    state = PendingAttachment.State.Extracting,
-                )
-                _pendingAttachments.value = _pendingAttachments.value + attachment
-                startExtraction(attachment)
-            }
-        }
-    }
+    fun reconcilePendingAttachments(imageAllowed: Boolean, pdfAllowed: Boolean, localFilesAllowed: Boolean) =
+        attachments.reconcilePendingAttachments(imageAllowed, pdfAllowed, localFilesAllowed)
 
-    /** Runs (or re-runs) on-device extraction for one staged doc, updating its chip in place. */
-    private fun startExtraction(attachment: PendingAttachment) {
-        extractionJobs.remove(attachment.id)?.cancel()
-        val job = viewModelScope.launch {
-            val result = chatAttachmentExtractor.extract(Uri.parse(attachment.uri), attachment.name)
-            updateAttachment(attachment.id) { current ->
-                when (result) {
-                    is com.echoflow.data.extract.ChatAttachmentExtractor.Result.Text ->
-                        current.copy(state = PendingAttachment.State.Ready, extractedText = result.markdown)
-                    is com.echoflow.data.extract.ChatAttachmentExtractor.Result.Failed ->
-                        current.copy(state = PendingAttachment.State.Failed, extractedText = null)
-                }
-            }
-        }
-        extractionJobs[attachment.id] = job
-    }
+    fun setPendingPastedImage(uri: Uri, fallbackMimeType: String? = null) =
+        attachments.setPendingPastedImage(uri, fallbackMimeType)
 
-    /** Retry the on-device parse for a failed doc chip (the composer's retry arrow). */
-    fun retryPendingAttachment(id: String) {
-        val target = _pendingAttachments.value.firstOrNull { it.id == id } ?: return
-        if (target.kind != PendingAttachment.Kind.Doc) return
-        updateAttachment(id) { it.copy(state = PendingAttachment.State.Extracting, extractedText = null) }
-        startExtraction(target)
-    }
-
-    /** Remove one staged attachment (the composer's ✕). */
-    fun removePendingAttachment(id: String) {
-        extractionJobs.remove(id)?.cancel()
-        _pendingAttachments.value = _pendingAttachments.value.filterNot { it.id == id }
-    }
-
-    /**
-     * Drop files this model/mode cannot send, collapse to one file off the local path, and
-     * start parsing any Ready doc that still has no Markdown (cloud PDF → local switch, or edit).
-     */
-    fun reconcilePendingAttachments(
-        imageAllowed: Boolean,
-        pdfAllowed: Boolean,
-        localFilesAllowed: Boolean,
-    ) {
-        val current = _pendingAttachments.value
-        if (current.isEmpty()) return
-        val next = PendingAttachmentPolicy.keep(
-            current,
-            imageAllowed = imageAllowed,
-            pdfAllowed = pdfAllowed,
-            localFilesAllowed = localFilesAllowed,
-            cap = MAX_MESSAGE_ATTACHMENTS,
-        )
-        if (next.map { it.id } != current.map { it.id }) {
-            val keepIds = next.map { it.id }.toSet()
-            extractionJobs.keys.filter { it !in keepIds }.forEach { extractionJobs.remove(it)?.cancel() }
-            _pendingAttachments.value = next
-            if (next.size < current.size && !localFilesAllowed && next.isNotEmpty()) {
-                _errorMessage.value = "Only one file can go with this model. Extra files were dropped."
-            }
-        }
-        if (localFilesAllowed) extractMissingDocs()
-    }
-
-    private fun extractMissingDocs() {
-        for (att in _pendingAttachments.value) {
-            if (!PendingAttachmentPolicy.needsExtraction(att)) continue
-            updateAttachment(att.id) { it.copy(state = PendingAttachment.State.Extracting, extractedText = null) }
-            val updated = _pendingAttachments.value.firstOrNull { it.id == att.id } ?: continue
-            startExtraction(updated)
-        }
-    }
-
-    private fun updateAttachment(id: String, transform: (PendingAttachment) -> PendingAttachment) {
-        _pendingAttachments.value = _pendingAttachments.value.map { if (it.id == id) transform(it) else it }
-    }
-
-    private fun cancelExtractionJobs() {
-        extractionJobs.values.forEach { it.cancel() }
-        extractionJobs.clear()
-    }
-
-    fun setPendingPastedImage(uri: Uri, fallbackMimeType: String? = null) {
-        viewModelScope.launch {
-            val cached = copyPastedImageToCache(uri, fallbackMimeType)
-            if (cached == null) {
-                _errorMessage.value = "Could not paste image."
-            } else {
-                setPendingAttachment(cached.first, cached.second)
-            }
-        }
-    }
-
-    private suspend fun copyPastedImageToCache(uri: Uri, fallbackMimeType: String?): Pair<Uri, String>? =
-        withContext(Dispatchers.IO) {
-            val app = getApplication<Application>()
-            val resolver = app.contentResolver
-            val mimeType = resolver.getType(uri) ?: fallbackMimeType ?: "image/png"
-            if (!mimeType.startsWith("image/", ignoreCase = true)) return@withContext null
-
-            runCatching {
-                val dir = File(app.cacheDir, "pasted_images").apply { mkdirs() }
-                val file = File.createTempFile("pasted_image_", ".${imageExtensionFor(mimeType)}", dir)
-                resolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { output -> input.copyTo(output) }
-                } ?: return@runCatching null
-                Uri.fromFile(file) to mimeType
-            }.getOrNull()
-        }
+    fun clearPendingAttachment() = attachments.clearPendingAttachment()
 
     /**
      * Re-encodes an attached image as a data URL for the video API's `frame_images`. Capped
@@ -1393,20 +1046,6 @@ class ChatViewModel(
             if (bytes.isEmpty() || bytes.size > MAX_FRAME_IMAGE_BYTES) return@runCatching null
             "data:$mimeType;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
         }.getOrNull()
-    }
-
-    private fun imageExtensionFor(mimeType: String): String =
-        when (mimeType.lowercase()) {
-            "image/jpeg", "image/jpg" -> "jpg"
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            "image/gif" -> "gif"
-            else -> "img"
-        }
-
-    fun clearPendingAttachment() {
-        cancelExtractionJobs()
-        _pendingAttachments.value = emptyList()
     }
 
     fun startNewChat() {
@@ -1501,7 +1140,7 @@ class ChatViewModel(
     fun sendMessage(content: String) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
-        val stagedAttachments = _pendingAttachments.value
+        val stagedAttachments = pendingAttachments.value
         // The representative single attachment drives the legacy columns and the unchanged
         // cloud/image/deep-research paths (image first so a vision model / video frame still
         // resolves). The full list — with each doc's on-device Markdown — rides on attachmentsJson.
@@ -2116,7 +1755,7 @@ class ChatViewModel(
                         params = inferenceParams,
                     )
                 isLocal && clientSearchReady ->
-                    localPromptProtocolFlow(localModel!!, chatId, localHistory, systemPrompt, provider, searchKey, inferenceParams)
+                    localSearchProtocol.stream(localModel!!, chatId, localHistory, systemPrompt, provider, searchKey, inferenceParams)
                         .withLocalInferenceGate("a chat reply")
                 isLocal ->
                     localGateway.stream(
@@ -2727,127 +2366,6 @@ class ChatViewModel(
     // Local model + client search: prompt-based tool protocol
     // -------------------------------------------------------------------------------
 
-    /** Thrown to abort collection of a local generation once a complete tag is parsed. */
-    private class SearchTagFound : Exception()
-
-    private enum class TagState { HOLDING, TEXT, TAG_XML, TAG_PLAIN }
-
-    /**
-     * Agentic search loop for on-device models. The system prompt instructs the model to
-     * reply with a single `search: query` line when it needs the web; output is
-     * held back until it's clear whether the reply is a tag or normal text, so partial
-     * tags never reach the UI. Results are injected into the live session and generation
-     * continues, up to [MAX_LOCAL_SEARCH_ROUNDS] rounds.
-     */
-    private fun localPromptProtocolFlow(
-        model: LocalModel,
-        chatId: String,
-        history: List<ChatMessage>,
-        systemPrompt: String,
-        provider: String,
-        searchKey: String,
-        params: InferenceParams
-    ): Flow<StreamChunk> = flow {
-        var round = 0
-        var continuation = false
-
-        while (true) {
-            val allowTag = round < MAX_LOCAL_SEARCH_ROUNDS
-            val upstream = if (continuation) {
-                localLlmService.continueGeneration()
-            } else {
-                localLlmService.generate(model, chatId, history, systemPrompt, params)
-            }
-
-            val buf = StringBuilder()
-            var state = if (allowTag) TagState.HOLDING else TagState.TEXT
-            var emittedLen = 0
-
-            try {
-                upstream.collect { chunk ->
-                    if (chunk !is StreamChunk.Content) {
-                        emit(chunk)
-                        return@collect
-                    }
-                    buf.append(chunk.text)
-                    val trimmed = buf.toString().trimStart()
-
-                    if (state == TagState.HOLDING) {
-                        state = when {
-                            trimmed.startsWith("<search>") -> TagState.TAG_XML
-                            trimmed.lowercase().startsWith("search:") -> TagState.TAG_PLAIN
-                            trimmed.isNotEmpty() &&
-                                !"<search>".startsWith(trimmed.take(8)) &&
-                                !"search:".startsWith(trimmed.lowercase().take(7)) -> TagState.TEXT
-                            else -> TagState.HOLDING
-                        }
-                    }
-
-                    when (state) {
-                        TagState.TEXT -> {
-                            val full = buf.toString()
-                            if (emittedLen < full.length) {
-                                emit(StreamChunk.Content(full.substring(emittedLen)))
-                                emittedLen = full.length
-                            }
-                        }
-                        TagState.TAG_XML -> if (trimmed.contains("</search>")) throw SearchTagFound()
-                        TagState.TAG_PLAIN -> if (trimmed.contains("\n")) throw SearchTagFound()
-                        TagState.HOLDING -> Unit
-                    }
-                }
-            } catch (e: SearchTagFound) {
-                // Expected: upstream cancelled, the tag is complete in buf.
-            }
-
-            val query = when (state) {
-                TagState.TAG_XML, TagState.HOLDING, TagState.TAG_PLAIN -> extractSearchQuery(buf.toString())
-                TagState.TEXT -> null
-            }
-
-            if (query == null) {
-                // Normal answer (or an unparseable tag): flush anything still held back.
-                if (state != TagState.TEXT) {
-                    val leftover = buf.toString().trim()
-                    if (leftover.isNotEmpty() && extractSearchQuery(leftover) == null) {
-                        emit(StreamChunk.Content(leftover))
-                    }
-                }
-                break
-            }
-
-            emit(StreamChunk.SearchStarted(query))
-            val sources = try {
-                webSearchService.search(provider, searchKey, query)
-            } catch (e: Exception) {
-                emit(StreamChunk.StatusNote("Search failed: ${e.message}"))
-                emptyList()
-            }
-            emit(StreamChunk.SearchSources(query, sources))
-
-            val resultBlock = if (sources.isEmpty()) {
-                "The search failed or returned nothing. Answer from your own knowledge and " +
-                    "tell the user you could not verify current information."
-            } else {
-                "Search results for \"$query\":\n" + formatSearchResultsForModel(sources)
-            }
-            round++
-            val instruction = if (round >= MAX_LOCAL_SEARCH_ROUNDS) {
-                "\n\nAnswer the user's question now using these results, citing claims as [n](url). " +
-                    "Do not search again.\n\nEchoFlow reply:"
-            } else {
-                "\n\nAnswer the user's question now using these results, citing claims as [n](url). " +
-                    "Only reply with another single-line search: query if these results are truly insufficient.\n\nEchoFlow reply:"
-            }
-            localLlmService.appendContext(resultBlock + instruction)
-            continuation = true
-        }
-    }
-
-    private fun extractSearchQuery(text: String): String? {
-        return ChatResponsePolicy.extractSearchQuery(text)
-    }
-
     override fun onCleared() {
         localLlmService.releaseAll()
         super.onCleared()
@@ -2858,7 +2376,6 @@ class ChatViewModel(
         private val IMAGE_REFERENCE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
 
         private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
-        private const val MAX_LOCAL_SEARCH_ROUNDS = 3
         private const val STREAM_UI_EMIT_MS = 33L
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */

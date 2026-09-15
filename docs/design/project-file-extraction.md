@@ -622,7 +622,7 @@ earns the accent.
 
 Today the row's leading slot is a 34 dp `RoundedCornerShape(11.dp)` box on `secondaryContainer`
 holding an 18 dp `Icons.Default.Description`
-([ProjectsScreens.kt:798](app/src/main/java/com/echoflow/ui/screens/ProjectsScreens.kt:798)).
+([ProjectFilesScreen.kt](../../app/src/main/java/com/echoflow/ui/screens/projects/ProjectFilesScreen.kt)).
 
 **Keep the box. Swap only its contents.** The M3 Expressive `LoadingIndicator` — the morphing-shape
 mark the app already uses in [SearchTimeline.kt:86](app/src/main/java/com/echoflow/ui/components/SearchTimeline.kt:86)

@@ -100,11 +100,13 @@ Kotlin and Jetpack Compose (Material 3 Expressive), targeting Android 24+. Netwo
 ```text
 app/src/main/java/com/echoflow
 ├── data           # Room entities/DAOs, provider services, settings, research, agents, browser, artifacts, image/video generation, local models
-├── ui             # ViewModels and app state
+├── ui             # ViewModels and feature state controllers
 ├── ui/components  # cards, reports, markdown, browser/data/research result UI
-├── ui/screens     # chat and settings screens
+├── ui/screens     # chat/, imagine/, projects/, settings/ feature packages
 └── ui/theme       # color, shape, motion
 ```
+
+See [Architecture](docs/architecture.md) for feature ownership and [Contributing](CONTRIBUTING.md) for setup and verification.
 
 ## Building from source
 

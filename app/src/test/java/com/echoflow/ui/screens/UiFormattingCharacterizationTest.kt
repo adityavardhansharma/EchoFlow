@@ -1,6 +1,11 @@
 package com.echoflow.ui.screens
 
 import com.echoflow.data.OpenRouterModelInfo
+import com.echoflow.ui.screens.chat.modelPickerDisplayName
+import com.echoflow.ui.screens.settings.endpointSubtitle
+import com.echoflow.ui.screens.settings.formatContext
+import com.echoflow.ui.screens.settings.formatPricing
+import com.echoflow.ui.screens.settings.snapToStep
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
