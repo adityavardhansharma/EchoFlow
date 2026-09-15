@@ -97,6 +97,9 @@ internal fun InputToolbar(
     projectName: String? = null,
     projectColorIndex: Int = 0,
     onOpenProject: () -> Unit = {},
+    memoryAvailable: Boolean = false,
+    memoryOn: Boolean = false,
+    onToggleMemory: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
@@ -184,6 +187,8 @@ internal fun InputToolbar(
             }
         }
 
+        if (memoryOn) TextButton(onClick = onToggleMemory) { Text("✦ Recall memory for this reply · Cancel", style = MaterialTheme.typography.labelMedium) }
+
         AnimatedVisibility(visible = blockedReason != null) {
             Text(
                 blockedReason.orEmpty(),
@@ -243,6 +248,9 @@ internal fun InputToolbar(
                         onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
                         onToggleBrowserFlow = { plusMenuOpen = false; onToggleBrowserFlow() },
                         onToggleArtifact = { plusMenuOpen = false; onToggleArtifact() },
+                        memoryAvailable = memoryAvailable,
+                        memoryOn = memoryOn,
+                        onToggleMemory = { plusMenuOpen = false; onToggleMemory() },
                     )
                 }
 

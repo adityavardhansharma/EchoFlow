@@ -32,6 +32,7 @@ data class BrowserStartConflict(
 
 /** One visual block of the in-progress assistant reply, rendered in arrival order. */
 sealed class StreamSegment {
+    data class Memory(val id: String, val label: String, val active: Boolean) : StreamSegment()
     data class Text(val text: String) : StreamSegment()
     data class Reasoning(val text: String) : StreamSegment()
     data class Search(

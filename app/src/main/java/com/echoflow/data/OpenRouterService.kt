@@ -825,12 +825,14 @@ class OpenRouterService(private val context: Context) {
         history: List<ChatMessage>,
         systemPrompt: String,
         params: InferenceParams? = null,
+        serverSearch: Boolean = false,
         runSearch: suspend (String) -> List<SearchSource>
     ): Flow<StreamChunk> = flow {
         if (apiKey.isBlank()) {
             throw Exception("API key is missing! Please configure it in your Settings.")
         }
 
+        val memory = kotlinx.coroutines.currentCoroutineContext()[com.echoflow.data.memory.MemoryTools]
         val hasPdf = historyHasPdfAttachment(history)
         val messages: MutableList<Map<String, Any>> = buildMessagesPayload(history, systemPrompt)
         val toolSpec = listOf(
@@ -870,7 +872,11 @@ class OpenRouterService(private val context: Context) {
         for (round in 0 until maxRounds) {
             // Once the budget is spent (or on the last round) drop the tool so the model
             // is forced to answer with what it has.
-            val tools = if (searchesUsed >= maxSearches || round == maxRounds - 1) null else toolSpec
+            val tools = if (round == maxRounds - 1) null else buildList {
+                if (searchesUsed < maxSearches && memory?.webEnabled != false) addAll(toolSpec)
+                memory?.let { addAll(it.schemas()) }
+                if (serverSearch) addAll(openRouterWebTools())
+            }.takeIf { it.isNotEmpty() }
             val result = streamCompletion(apiKey, model, messages, tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
 
             val searchCalls = result.toolCalls
@@ -893,6 +899,14 @@ class OpenRouterService(private val context: Context) {
             messages.add(assistantMsg)
 
             for (call in searchCalls) {
+                if (memory?.handles(call.name) == true) {
+                    messages.add(toolResultMessage(call.id, memory.execute(call.name, call.arguments) { emit(it) }))
+                    continue
+                }
+                if (call.name != "web_search" || memory?.webEnabled == false) {
+                    messages.add(toolResultMessage(call.id, "Tool unavailable."))
+                    continue
+                }
                 val query = parseQueryArgument(call.arguments)
                 if (query == null) {
                     messages.add(toolResultMessage(call.id, "Invalid tool arguments. Call web_search with {\"query\": \"...\"}."))

@@ -91,6 +91,9 @@ internal fun PlusMenu(
     onToggleEchoAgent: () -> Unit,
     onToggleBrowserFlow: () -> Unit,
     onToggleArtifact: () -> Unit,
+    memoryAvailable: Boolean = false,
+    memoryOn: Boolean = false,
+    onToggleMemory: () -> Unit = {},
 ) {
     // Bespoke popup anchored above the "+". One surface that blooms out of the anchor corner: a
     // fast scale + fade, no slide. The drop shadow is drawn by the *same* graphics layer as the
@@ -217,6 +220,7 @@ internal fun PlusMenu(
                         PlusMenuDivider()
                     }
                     MenuSectionLabel("Capabilities")
+                    if (memoryAvailable) PlusMenuRow(Icons.Default.AutoAwesome, "Recall for next reply", on = memoryOn, onClick = onToggleMemory)
                     PlusMenuRow(Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
                     PlusMenuRow(Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
                     PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)

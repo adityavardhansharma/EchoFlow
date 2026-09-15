@@ -1,6 +1,8 @@
 package com.echoflow.data
 
 import com.squareup.moshi.JsonAdapter
+import com.echoflow.data.memory.MemoryTools
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -29,6 +31,15 @@ internal class CustomProviderToolStreamer(
     private fun customError(label: String, code: Int, body: String) = errorDecoder(label, code, body)
 
     private val maxToolSearches = 4
+
+    private suspend fun toolSchemas(round: Int, searches: Int, web: Map<String, Any>, format: String = "openai"): List<Map<String, Any>>? {
+        if (round >= 5) return null
+        val memory = currentCoroutineContext()[MemoryTools]
+        return buildList {
+            if (searches < maxToolSearches && memory?.webEnabled != false) add(web)
+            if (memory != null) addAll(memory.schemas(format))
+        }.takeIf { it.isNotEmpty() }
+    }
 
     private val webSearchToolOpenAi: Map<String, Any> = mapOf(
         "type" to "function",
@@ -101,9 +112,10 @@ internal class CustomProviderToolStreamer(
         validateBaseUrl(baseUrl).takeUnless { it.ok }?.let { throw Exception(it.message) }
         if (model.isBlank()) throw Exception("Enter a model name.")
         val messages = ArrayList<Map<String, Any?>>(buildOpenAiMessages(history, systemPrompt))
+        val memory = currentCoroutineContext()[MemoryTools]
         var round = 0
         var searchCount = 0
-        while (true) {
+        while (round < 6) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
                 "messages" to messages,
@@ -111,7 +123,7 @@ internal class CustomProviderToolStreamer(
                 "temperature" to params.temperature,
                 "top_p" to params.topP,
             )
-            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolOpenAi)
+            toolSchemas(round, searchCount, webSearchToolOpenAi)?.let { payload["tools"] = it }
             if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "chat/completions"))
@@ -150,7 +162,7 @@ internal class CustomProviderToolStreamer(
                 }
             }
 
-            if (pending.values.none { it.name == "web_search" }) break
+            if (pending.values.none { it.name == "web_search" || memory?.handles(it.name) == true }) break
 
             messages.add(
                 mapOf(
@@ -168,12 +180,16 @@ internal class CustomProviderToolStreamer(
             )
             for (call in pending.values) {
                 val callId = call.id.ifBlank { "call_${call.name}" }
+                if (memory?.handles(call.name) == true) {
+                    messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to memory.execute(call.name, call.args.toString()) { emit(it) }))
+                    continue
+                }
                 if (call.name != "web_search") {
                     messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Unknown tool."))
                     continue
                 }
                 val query = extractQuery(call.args.toString())
-                if (searchCount >= maxToolSearches) {
+                if (searchCount >= maxToolSearches || memory?.webEnabled == false) {
                     emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
                     messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Search limit reached. Answer now using the results already available."))
                     continue
@@ -212,14 +228,15 @@ internal class CustomProviderToolStreamer(
         var previousResponseId: String? = null
         var pendingOutputs: List<Map<String, Any>> = buildOpenAiResponsesInput(history, systemPrompt)
         var searchCount = 0
+        val memory = currentCoroutineContext()[MemoryTools]
         var round = 0
-        while (true) {
+        while (round < 6) {
             val payload = OpenAiResponses.request(
                 model = model,
                 input = pendingOutputs,
                 instructions = systemPrompt,
                 params = params,
-                tools = if (searchCount < maxToolSearches) listOf(OpenAiResponses.webSearchTool) else null,
+                tools = toolSchemas(round, searchCount, OpenAiResponses.webSearchTool, "responses"),
                 previousResponseId = previousResponseId,
             )
             val request = Request.Builder()
@@ -264,17 +281,21 @@ internal class CustomProviderToolStreamer(
                 }
             }
 
-            if (pending.values.none { it.name == "web_search" }) break
+            if (pending.values.none { it.name == "web_search" || memory?.handles(it.name) == true }) break
 
             val outputs = mutableListOf<Map<String, Any>>()
             for (call in pending.values) {
                 val callId = call.id.ifBlank { "call_${call.name}" }
+                if (memory?.handles(call.name) == true) {
+                    outputs.add(OpenAiResponses.functionCallOutput(callId, memory.execute(call.name, call.args.toString()) { emit(it) }))
+                    continue
+                }
                 if (call.name != "web_search") {
                     outputs.add(OpenAiResponses.functionCallOutput(callId, "Unknown tool."))
                     continue
                 }
                 val query = extractQuery(call.args.toString())
-                if (searchCount >= maxToolSearches) {
+                if (searchCount >= maxToolSearches || memory?.webEnabled == false) {
                     emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
                     outputs.add(OpenAiResponses.functionCallOutput(callId, "Search limit reached. Answer now using the results already available."))
                     continue
@@ -312,9 +333,10 @@ internal class CustomProviderToolStreamer(
         validateBaseUrl(baseUrl).takeUnless { it.ok }?.let { throw Exception(it.message) }
         if (model.isBlank()) throw Exception("Enter an Ollama model name.")
         val messages = ArrayList<Map<String, Any?>>(buildSimpleMessages(history, systemPrompt))
+        val memory = currentCoroutineContext()[MemoryTools]
         var round = 0
         var searchCount = 0
-        while (true) {
+        while (round < 6) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
                 "messages" to messages,
@@ -326,7 +348,7 @@ internal class CustomProviderToolStreamer(
                     "num_predict" to params.maxTokens,
                 ),
             )
-            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolOpenAi)
+            toolSchemas(round, searchCount, webSearchToolOpenAi)?.let { payload["tools"] = it }
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "api/chat"))
                 .addHeader("Content-Type", "application/json")
@@ -360,7 +382,7 @@ internal class CustomProviderToolStreamer(
                 }
             }
 
-            if (toolCalls.none { it.first == "web_search" }) break
+            if (toolCalls.none { it.first == "web_search" || memory?.handles(it.first) == true }) break
 
             messages.add(
                 mapOf(
@@ -379,12 +401,16 @@ internal class CustomProviderToolStreamer(
             for ((index, pair) in toolCalls.withIndex()) {
                 val (name, args) = pair
                 val callId = "call_${round}_${index}_${name}"
+                if (memory?.handles(name) == true) {
+                    messages.add(mapOf("role" to "tool", "tool_name" to name, "tool_call_id" to callId, "content" to memory.execute(name, args) { emit(it) }))
+                    continue
+                }
                 if (name != "web_search") {
                     messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Unknown tool."))
                     continue
                 }
                 val query = extractQuery(args)
-                if (searchCount >= maxToolSearches) {
+                if (searchCount >= maxToolSearches || memory?.webEnabled == false) {
                     emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
                     messages.add(mapOf("role" to "tool", "tool_call_id" to callId, "content" to "Search limit reached. Answer now using the results already available."))
                     continue
@@ -424,9 +450,10 @@ internal class CustomProviderToolStreamer(
         history.filter { it.role != "system" }.forEach {
             messages.add(mapOf("role" to if (it.role == "assistant") "assistant" else "user", "content" to it.content))
         }
+        val memory = currentCoroutineContext()[MemoryTools]
         var round = 0
         var searchCount = 0
-        while (true) {
+        while (round < 6) {
             val payload = mutableMapOf<String, Any?>(
                 "model" to model.trim(),
                 "messages" to messages,
@@ -434,7 +461,7 @@ internal class CustomProviderToolStreamer(
                 "max_tokens" to params.maxTokens.coerceAtLeast(1024),
             )
             CustomProviderCapabilities.putClaudeSampling(payload, model, params)
-            if (searchCount < maxToolSearches) payload["tools"] = listOf(webSearchToolClaude)
+            toolSchemas(round, searchCount, webSearchToolClaude, "claude")?.let { payload["tools"] = it }
             if (systemPrompt.isNotBlank()) payload["system"] = systemPrompt
             val request = Request.Builder()
                 .url("https://api.anthropic.com/v1/messages")
@@ -485,7 +512,7 @@ internal class CustomProviderToolStreamer(
             }
 
             val toolUses = blocks.values.filter { it.type == "tool_use" }
-            if (toolUses.none { it.name == "web_search" }) break
+            if (toolUses.none { it.name == "web_search" || memory?.handles(it.name) == true }) break
 
             val assistantBlocks = mutableListOf<Map<String, Any?>>()
             blocks.values.forEach { b ->
@@ -505,12 +532,16 @@ internal class CustomProviderToolStreamer(
 
             val resultBlocks = mutableListOf<Map<String, Any?>>()
             for (b in toolUses) {
+                if (memory?.handles(b.name) == true) {
+                    resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to memory.execute(b.name, b.json.toString()) { emit(it) }))
+                    continue
+                }
                 if (b.name != "web_search") {
                     resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to "Unknown tool."))
                     continue
                 }
                 val query = extractQuery(b.json.toString())
-                if (searchCount >= maxToolSearches) {
+                if (searchCount >= maxToolSearches || memory?.webEnabled == false) {
                     emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
                     resultBlocks.add(mapOf("type" to "tool_result", "tool_use_id" to b.id, "content" to "Search limit reached. Answer now using the results already available."))
                     continue
@@ -552,9 +583,10 @@ internal class CustomProviderToolStreamer(
             contents.add(mapOf("role" to if (it.role == "assistant") "model" else "user", "parts" to listOf(mapOf("text" to it.content))))
         }
         val cleanModel = model.removePrefix("models/")
+        val memory = currentCoroutineContext()[MemoryTools]
         var round = 0
         var searchCount = 0
-        while (true) {
+        while (round < 6) {
             val payload = mutableMapOf<String, Any?>(
                 "contents" to contents,
                 "generationConfig" to mapOf(
@@ -563,7 +595,7 @@ internal class CustomProviderToolStreamer(
                     "maxOutputTokens" to params.maxTokens.coerceAtLeast(256),
                 ),
             )
-            if (searchCount < maxToolSearches) payload["tools"] = listOf(mapOf("functionDeclarations" to listOf(webSearchFnGemini)))
+            toolSchemas(round, searchCount, webSearchFnGemini, "gemini")?.let { payload["tools"] = listOf(mapOf("functionDeclarations" to it)) }
             if (systemPrompt.isNotBlank()) payload["systemInstruction"] = mapOf("parts" to listOf(mapOf("text" to systemPrompt)))
             val request = Request.Builder()
                 .url("https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:streamGenerateContent?key=${apiKey.trim()}&alt=sse")
@@ -592,25 +624,29 @@ internal class CustomProviderToolStreamer(
                                 val name = fc["name"] as? String ?: return@let
                                 val args = fc["args"] as? Map<*, *> ?: emptyMap<String, Any>()
                                 functionCalls.add(name to args)
-                                modelParts.add(mapOf("functionCall" to mapOf("name" to name, "args" to args)))
+                                modelParts.add(p.entries.associate { it.key.toString() to it.value })
                             }
                         }
                     }
                 }
             }
 
-            if (functionCalls.none { it.first == "web_search" }) break
+            if (functionCalls.none { it.first == "web_search" || memory?.handles(it.first) == true }) break
 
             contents.add(mapOf("role" to "model", "parts" to modelParts))
             val responseParts = mutableListOf<Map<String, Any?>>()
             for ((name, args) in functionCalls) {
+                if (memory?.handles(name) == true) {
+                    responseParts.add(mapOf("functionResponse" to mapOf("name" to name, "response" to mapOf("content" to memory.execute(name, dynamicAdapter.toJson(args)) { emit(it) }))))
+                    continue
+                }
                 if (name != "web_search") {
                     responseParts.add(mapOf("functionResponse" to mapOf("name" to name, "response" to mapOf("content" to "Unknown tool."))))
                     continue
                 }
                 val query = (args["query"] as? String)?.trim().takeIf { !it.isNullOrBlank() }
                     ?: args.toString().trim()
-                if (searchCount >= maxToolSearches) {
+                if (searchCount >= maxToolSearches || memory?.webEnabled == false) {
                     emit(StreamChunk.StatusNote("Search limit reached ($maxToolSearches per answer)"))
                     responseParts.add(mapOf("functionResponse" to mapOf("name" to "web_search", "response" to mapOf("content" to "Search limit reached. Answer now using the results already available."))))
                     continue
