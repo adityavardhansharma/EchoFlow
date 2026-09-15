@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 26,
-    "identityHash": "3fa008cd840a75196cb228fb1900ff03",
+    "identityHash": "d2146b0d76c2a8b1a39097370903b8af",
     "entities": [
       {
         "tableName": "chat_threads",
@@ -1375,7 +1375,7 @@
       },
       {
         "tableName": "memory_sync",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`chatId` TEXT NOT NULL, `generation` INTEGER NOT NULL, `revision` TEXT NOT NULL, `sentRevision` TEXT NOT NULL, `documentId` TEXT NOT NULL, `status` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`chatId`, `generation`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`chatId` TEXT NOT NULL, `generation` INTEGER NOT NULL, `revision` TEXT NOT NULL, `sentRevision` TEXT NOT NULL, `documentId` TEXT NOT NULL, `status` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `includesLocal` INTEGER NOT NULL, PRIMARY KEY(`chatId`, `generation`))",
         "fields": [
           {
             "fieldPath": "chatId",
@@ -1418,6 +1418,12 @@
             "columnName": "updatedAt",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "includesLocal",
+            "columnName": "includesLocal",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -1431,7 +1437,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3fa008cd840a75196cb228fb1900ff03')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd2146b0d76c2a8b1a39097370903b8af')"
     ]
   }
 }
