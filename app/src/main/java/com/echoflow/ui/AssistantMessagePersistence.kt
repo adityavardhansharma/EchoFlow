@@ -19,7 +19,7 @@ internal object AssistantMessagePersistence {
             it is StreamSegment.Advisor || it is StreamSegment.Fusion || it is StreamSegment.Subagent ||
                 (it is StreamSegment.Artifact && it.artifactId != null) ||
                 (it is StreamSegment.Image && it.filePath != null) ||
-                it is StreamSegment.Video
+                it is StreamSegment.Video || it is StreamSegment.Memory
         }
         if (content.isEmpty() && !hasDurableCard && !stopped && interrupted.isNullOrBlank()) return null
         val reasoning = normalized.filterIsInstance<StreamSegment.Reasoning>()
@@ -38,6 +38,7 @@ internal object AssistantMessagePersistence {
     }
 
     private fun persistedSegment(segment: StreamSegment): PersistedSegment? = when (segment) {
+        is StreamSegment.Memory -> PersistedSegment("memory", text = if (segment.active) "Memory request interrupted" else segment.label)
         is StreamSegment.Reasoning -> segment.text.trim().takeIf(String::isNotEmpty)?.let { PersistedSegment("reasoning", text = it) }
         is StreamSegment.Search -> PersistedSegment("search", query = segment.query, sources = segment.sources)
         is StreamSegment.Advisor -> PersistedSegment("advisor", advisor = AdvisorAdvice(segment.advisorName, segment.advisorModel, segment.prompt, segment.advice.orEmpty()))

@@ -1,0 +1,116 @@
+package com.echoflow.data.memory
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.echoflow.data.ChatMessage
+import com.echoflow.data.StreamChunk
+import kotlinx.coroutines.runBlocking
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import java.util.concurrent.CopyOnWriteArrayList
+
+@RunWith(RobolectricTestRunner::class)
+class MemoryIntegrationTest {
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val requests = CopyOnWriteArrayList<Pair<String, JSONObject>>()
+    private fun api(code: Int = 200, response: (String) -> String = { "{}" }): SupermemoryClient {
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            assertEquals("Bearer test-key", request.header("Authorization"))
+            val buffer = Buffer(); request.body?.writeTo(buffer)
+            val raw = buffer.readUtf8()
+            requests.add(request.url.encodedPath to JSONObject(raw.ifBlank { "{}" }))
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(code).message("fixture")
+                .body(response(request.url.encodedPath).toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        return SupermemoryClient("test-key", "test-user", http)
+    }
+    private fun settings(): MemorySettings = MemorySettings(context.getSharedPreferences("memory-test", Context.MODE_PRIVATE)).apply {
+        disconnect(); connect("test-key", "test-user"); recall = true
+    }
+
+    @Test fun `list uses memoryEntries and respects pagination and forgotten records`() = runBlocking {
+        val page = api { """{"memoryEntries":[{"id":"m1","memory":"Likes cricket","history":[{"memory":"Likes sport"}],"documentIds":["d1"]},{"id":"m2","memory":"Old fact","isForgotten":true}],"pagination":{"totalPages":2}}""" }.list()
+        assertEquals(listOf("Likes cricket"), page.entries.map { it.text })
+        assertEquals(listOf("Likes sport"), page.entries.single().history)
+        assertTrue(page.hasMore)
+        assertEquals("test-user", requests.single().second.getJSONArray("containerTags").getString(0))
+    }
+    @Test fun `search sends focused query not full profile`() = runBlocking {
+        api { """{"results":[{"id":"m1","memory":"Building EchoFlow"}]}""" }.search("EchoFlow project decisions")
+        val body = requests.single().second
+        assertEquals("EchoFlow project decisions", body.getString("q"))
+        assertEquals("memories", body.getString("searchMode"))
+        assertEquals(8, body.getInt("limit"))
+        assertEquals("test-user", body.getString("containerTag"))
+    }
+    @Test fun `explicit save is immediate deduplicated and only reports success after request`() = runBlocking {
+        val events = mutableListOf<StreamChunk>()
+        val tools = MemoryTools(context, "chat", false, settings(), api { """{"memories":[{"id":"m1","memory":"I like cricket"}]}""" })
+        repeat(2) { tools.execute("remember_memory", """{"content":"I like cricket"}""") { events += it } }
+        assertEquals(1, requests.size)
+        assertEquals("/v4/memories", requests.single().first)
+        assertTrue((events.first() as StreamChunk.MemoryActivity).active)
+        assertEquals("Memory saved", (events.last() as StreamChunk.MemoryActivity).label)
+    }
+    @Test fun `quota failure is not a successful save and does not leak response body`() = runBlocking {
+        val events = mutableListOf<StreamChunk>()
+        val tools = MemoryTools(context, "chat", false, settings(), api(402) { "secret provider response" })
+        val result = tools.execute("remember_memory", """{"content":"I like cricket"}""") { events += it }
+        assertTrue(result.contains("failed"))
+        assertFalse(result.contains("secret provider response"))
+        assertFalse((events.last() as StreamChunk.MemoryActivity).active)
+    }
+    @Test fun `disconnect invalidates tools already created for a turn`() = runBlocking {
+        val settings = settings()
+        val tools = MemoryTools(context, "chat", false, settings, api())
+        settings.disconnect()
+        assertEquals("Memory is disabled.", tools.execute("search_memory", """{"query":"project"}""") {})
+        assertTrue(requests.isEmpty())
+    }
+    @Test fun `billing credits are not inferred from token counts`() {
+        assertNull(SupermemoryClient.findCredits(JSONObject("""{"usage":{"tokens":{"used":200,"limit":500}}}""")))
+        val credit = SupermemoryClient.findCredits(JSONObject("""{"features":[{"id":"usd_credits","used":2,"limit":20}]}"""))
+        assertEquals(2, credit!!.getInt("used"))
+    }
+    @Test fun `plan policy includes current Max and safe unknown fallback`() {
+        assertEquals(5, MemorySettings.batchSize("free")); assertEquals(5, MemorySettings.batchSize("unknown"))
+        assertEquals(3, MemorySettings.batchSize("api_pro")); assertEquals(1, MemorySettings.batchSize("max"))
+        assertEquals(1, MemorySettings.batchSize("scale")); assertEquals(1, MemorySettings.batchSize("enterprise"))
+    }
+    @Test fun `transcript excludes old content reasoning tools and attachment text`() {
+        val old = ChatMessage("1", "chat", "user", "old secret", 1)
+        val current = ChatMessage("2", "chat", "assistant", "Visible reply", 3,
+            reasoning = "private reasoning", toolEventsJson = "tool content", attachmentsJson = "attachment text")
+        val system = ChatMessage("3", "chat", "system", "system instruction", 3)
+        val text = MemoryLearning.transcript(listOf(old, current, system), 2)
+        assertEquals("assistant: Visible reply", text)
+        assertEquals(MemoryLearning.revision(text), MemoryLearning.revision(text))
+        assertNotEquals(MemoryLearning.revision(text), MemoryLearning.revision("changed"))
+    }
+    @Test fun `unavailable encrypted storage fails closed`() {
+        val settings = MemorySettings(null)
+        assertFalse(settings.connected)
+        assertThrows(IllegalStateException::class.java) { settings.connect("key", "space") }
+    }
+    @Test fun `known credentials are redacted without erasing ordinary project context`() {
+        val text = "I'm building EchoFlow. api_key=abcdefgh12345678 and Bearer abcdefgh1234567890"
+        val redacted = MemoryPrivacy.redact(text)
+        assertTrue(redacted.contains("building EchoFlow"))
+        assertFalse(redacted.contains("abcdefgh"))
+    }
+    @Test fun `empty creation response never becomes a saved confirmation`() = runBlocking {
+        val events = mutableListOf<StreamChunk>()
+        val tools = MemoryTools(context, "chat", false, settings(), api())
+        val result = tools.execute("remember_memory", """{"content":"I like cricket"}""") { events += it }
+        assertTrue(result.contains("failed"))
+        assertFalse(events.any { it is StreamChunk.MemoryActivity && it.label == "Memory saved" })
+    }
+}

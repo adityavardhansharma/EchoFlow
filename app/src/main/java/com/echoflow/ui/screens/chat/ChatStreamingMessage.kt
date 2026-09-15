@@ -98,6 +98,7 @@ internal fun StreamingAssistantBubble(
             val isLast = index == segments.lastIndex
             key(index) {
                 when (segment) {
+                    is StreamSegment.Memory -> MemoryActivityLine(segment.label, segment.active)
                     is StreamSegment.Reasoning -> {
                         ReasoningSection(reasoning = segment.text, active = isStreaming && isLast)
                         Spacer(Modifier.height(Spacing.s))

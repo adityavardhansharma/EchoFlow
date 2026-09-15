@@ -211,6 +211,12 @@ internal fun ChatSurface(
 
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
+    val memorySettings = remember { com.echoflow.data.memory.MemorySettings(chatViewModel.getApplication<android.app.Application>()) }
+    var forceMemory by remember(currentThreadId) { mutableStateOf(false) }
+    val memoryAvailable = memorySettings.connected && memorySettings.recall &&
+        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memorySettings.allowLocal) &&
+        !deepResearchActive && !dataAgentActive && !browserFlowActive
+    LaunchedEffect(memoryAvailable) { if (!memoryAvailable) forceMemory = false }
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
     val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()
     val browserStartConflict by chatViewModel.browserStartConflict.collectAsState()
@@ -600,7 +606,10 @@ internal fun ChatSurface(
                 localSendBlocked -> "On-device model is busy in another chat"
                 else -> null
             },
-            onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t) },
+            memoryAvailable = memoryAvailable,
+            memoryOn = forceMemory && memoryAvailable,
+            onToggleMemory = { forceMemory = !forceMemory },
+            onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t, forceMemory && memoryAvailable); forceMemory = false },
             onStop = {
                 // One Stop for both chat streams and Deep Research / Data Agent runs.
                 chatViewModel.stopStreaming()
