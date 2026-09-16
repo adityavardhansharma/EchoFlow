@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.echoflow.ui.screens.settings
 
-import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
@@ -14,96 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.echoflow.data.AppDatabase
 import com.echoflow.data.memory.*
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 
-class MemoryViewModel internal constructor(
-    application: Application,
-    val settings: MemorySettings,
-    private val clientFactory: (String, String) -> SupermemoryClient,
-) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, MemorySettings(application), { key, space -> SupermemoryClient(key, space) })
-    var connected by mutableStateOf(settings.connected); private set
-    var busy by mutableStateOf(false); private set
-    var error by mutableStateOf<String?>(null); private set
-    var billing by mutableStateOf<MemoryBilling?>(null); private set
-    var billingNote by mutableStateOf<String?>(null); private set
-    var profile by mutableStateOf(MemoryProfile(emptyList(), emptyList())); private set
-    var memories by mutableStateOf<List<RemoteMemory>>(emptyList()); private set
-    var suggestions by mutableStateOf<List<RemoteMemory>>(emptyList()); private set
-    var hasMore by mutableStateOf(false); private set
-    var recall by mutableStateOf(settings.recall)
-    var learn by mutableStateOf(settings.learn)
-    var local by mutableStateOf(settings.allowLocal)
-    private var page = 1
-    private fun client() = clientFactory(settings.key, settings.space)
-    private fun action(block: suspend () -> Unit) {
-        if (busy) return
-        viewModelScope.launch {
-            busy = true; error = null
-            try { block() } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = if (e is MemoryApiException || e is IllegalArgumentException || e is IllegalStateException) e.message else "Couldn't reach Supermemory. Check your connection and try again." }
-            finally { busy = false }
-        }
-    }
-    fun connect(key: String, space: String) = action {
-        require(space.matches(Regex("[a-zA-Z0-9_:-]{1,100}"))) { "Choose a valid memory space (letters, numbers, hyphens or underscores)." }
-        require(key.isNotBlank()) { "Enter an API key." }
-        clientFactory(key.trim(), space).profile()
-        settings.connect(key, space); connected = true; learn = false
-        loadBilling()
-    }
-    private suspend fun loadBilling() {
-        try { billing = client().billing(); settings.plan = billing!!.plan; billingNote = null }
-        catch (e: CancellationException) { throw e }
-        catch (e: Exception) { billing = null; billingNote = if (e is MemoryApiException && e.code == 403)
-            "This key can't read billing. Memory can still work. View usage in the Supermemory dashboard."
-            else "Usage is temporarily unavailable. Your memory settings are unchanged." }
-    }
-    fun refreshBilling() = action { loadBilling() }
-    fun refresh() = action {
-        val result = client().list(); memories = result.entries; hasMore = result.hasMore; page = 1
-        profile = client().profile()
-        suggestions = try { client().reviewQueue() } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
-    }
-    fun more() = action { val result = client().list(page + 1); memories = (memories + result.entries).distinctBy { it.id }; hasMore = result.hasMore; page++ }
-    fun search(query: String) = action {
-        if (query.isBlank()) { val result = client().list(); memories = result.entries; hasMore = result.hasMore; page = 1 }
-        else { memories = client().search(query); hasMore = false }
-    }
-    fun save(id: String?, text: String, onSaved: () -> Unit = {}) = action {
-        require(text.isNotBlank() && text.length <= 4000) { "Use between 1 and 4,000 characters." }
-        if (id == null) client().add(text) else client().edit(id, text)
-        onSaved()
-        val result = client().list(); memories = result.entries; hasMore = result.hasMore; page = 1
-        profile = client().profile()
-    }
-    fun forget(memory: RemoteMemory) = action {
-        client().forget(memory.id); memories = memories.filterNot { it.id == memory.id }; profile = client().profile()
-    }
-    fun review(memory: RemoteMemory, approve: Boolean) = action {
-        client().review(memory.id, approve); suggestions = suggestions.filterNot { it.id == memory.id }
-        val result = client().list(); memories = result.entries; hasMore = result.hasMore; page = 1
-    }
-    fun disconnect() = action {
-        settings.disconnect(); connected = false; learn = false; billing = null; profile = MemoryProfile(emptyList(), emptyList())
-        memories = emptyList(); suggestions = emptyList()
-        androidx.work.WorkManager.getInstance(getApplication()).cancelUniqueWork("memory-learning")
-        AppDatabase.getDatabase(getApplication()).memorySyncDao().clear()
-    }
-    fun setLearning(enabled: Boolean) = action {
-        learn = enabled; settings.learn = enabled
-        if (!enabled) {
-            androidx.work.WorkManager.getInstance(getApplication()).cancelUniqueWork("memory-learning")
-            AppDatabase.getDatabase(getApplication()).memorySyncDao().clear()
-        }
-    }
-}
 
 @Composable
 internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryViewModel = viewModel()) {
@@ -156,19 +68,19 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
             if (vm.connected) {
                 Spacer(Modifier.height(16.dp))
                 MemoryBlock("In your conversations", "You decide what crosses the boundary") {
-                    MemorySwitch("Use memory", "Let supported models recall relevant details and save facts you explicitly ask them to remember.", vm.recall, !vm.busy) { vm.recall = it; vm.settings.recall = it }
+                    MemorySwitch("Use memory", "Let supported models recall relevant details and save facts you explicitly ask them to remember.", vm.recall, !vm.busy, vm::setRecall)
                     HorizontalDivider()
                     MemorySwitch("Learn from conversations", "Send new chat text to Supermemory to learn lasting preferences, facts and projects.", vm.learn, !vm.busy) { if (it) consent = true else vm.setLearning(false) }
                     HorizontalDivider()
-                    MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy) { vm.local = it; vm.settings.allowLocal = it }
+                    MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy, vm::setLocal)
                 }
                 Spacer(Modifier.height(16.dp))
                 FilledTonalButton(onClick = onMemories, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("My Memories →") }
                 Text("Review what's known, add a fact, or forget something.", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
                 Text("Memory is available in standard chats with tool-capable models. Local models and specialised modes may not support automatic recall. Never store passwords or API keys.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (vm.settings.learningNote.isNotBlank()) {
-                    Text(vm.settings.learningNote, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { MemoryLearning.schedule(context) }, enabled = vm.learn) { Text("Retry learning") }
+                if (vm.learningNote.isNotBlank()) {
+                    Text(vm.learningNote, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = vm::retryLearning, enabled = vm.learn && !vm.busy) { Text("Retry learning") }
                 }
                 Text("Deleting a chat only removes its local copy. Manage already-uploaded source conversations in Supermemory. Chats used with local models while cloud memory is off are excluded from learning.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { disconnect = true }, enabled = !vm.busy) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
