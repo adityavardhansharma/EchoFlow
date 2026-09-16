@@ -1986,7 +1986,7 @@ class ChatViewModel(
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }
                     catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { /* A memory queue failure must not fail a completed chat. */ }
+                    catch (e: Exception) { MemoryLearning.reportFailure(getApplication(), e) }
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
                 if (videoGenMode) {

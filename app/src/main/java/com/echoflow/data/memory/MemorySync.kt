@@ -6,6 +6,9 @@ import androidx.work.*
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.ChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import android.util.Log
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -33,15 +36,23 @@ interface MemorySyncDao {
     suspend fun ready(chatId: String, generation: Long)
     @Query("UPDATE memory_sync SET status = 'unavailable' WHERE chatId = :chatId AND generation = :generation")
     suspend fun unavailable(chatId: String, generation: Long)
+    @Query("UPDATE memory_sync SET status = 'ready' WHERE chatId = :chatId AND generation = :generation AND revision = :revision AND sentRevision = :revision AND documentId = :documentId")
+    suspend fun readyRevision(chatId: String, generation: Long, revision: String, documentId: String)
+    @Query("UPDATE memory_sync SET status = 'unavailable' WHERE chatId = :chatId AND generation = :generation AND revision = :revision AND documentId = :documentId")
+    suspend fun unavailableRevision(chatId: String, generation: Long, revision: String, documentId: String)
+    @Query("UPDATE memory_sync SET status = 'pending', sentRevision = '', documentId = '' WHERE generation = :generation AND status = 'unavailable'")
+    suspend fun retryMissing(generation: Long)
     @Query("DELETE FROM memory_sync WHERE chatId = :chatId") suspend fun remove(chatId: String)
     @Query("DELETE FROM memory_sync") suspend fun clear()
 }
 
 /** Stores only revision hashes, never a second copy of conversation content. */
 object MemoryLearning {
-    fun transcript(messages: List<ChatMessage>, since: Long): String = MemoryPrivacy.redact(messages
+    private val queueLock = Mutex()
+    internal val workerLock = Mutex()
+    fun transcript(messages: List<ChatMessage>, since: Long): String = messages
         .filter { it.createdAt >= since && it.role in listOf("user", "assistant") }
-        .takeLast(120).joinToString("\n\n") { "${it.role}: ${it.content}" }.takeLast(180_000))
+        .takeLast(120).joinToString("\n\n") { "${it.role}: ${MemoryPrivacy.redact(it.content)}" }.takeLast(180_000)
     fun revision(text: String): String = MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
@@ -49,83 +60,136 @@ object MemoryLearning {
         val settings = MemorySettings(context)
         if (local) settings.recordLocalTurn(chatId)
         if (session == null || !settings.permits(session) || settings.excluded(chatId)) return
-        val db = AppDatabase.getDatabase(context)
-        val messages = db.messageDao().getMessagesForChatSync(chatId)
-        if (messages.none { it.role == "assistant" && it.createdAt >= session.since }) return
-        val text = transcript(messages, session.since)
-        val old = db.memorySyncDao().entries(session.generation).find { it.chatId == chatId }
-        val revision = revision(text)
-        if (old?.revision == revision) return
-        if (!settings.permits(session)) return
-        db.memorySyncDao().put(MemorySync(chatId, session.generation, revision,
-            old?.sentRevision.orEmpty(), old?.documentId.orEmpty(), includesLocal = settings.includesLocal(chatId) || old?.includesLocal == true))
+        settings.journal(chatId, session)
         schedule(context)
+        recoverQueue(context, settings, session)
     }
-    fun schedule(context: Context) {
-        WorkManager.getInstance(context).enqueueUniqueWork("memory-learning", ExistingWorkPolicy.REPLACE,
+
+    internal suspend fun recoverQueue(context: Context, settings: MemorySettings, session: MemorySession) = queueLock.withLock {
+        val db = AppDatabase.getDatabase(context)
+        for ((chatId, cutoff) in settings.pendingQueue()) {
+            if (!settings.permits(session)) return@withLock
+            val messages = db.messageDao().getMessagesForChatSync(chatId).filter { it.createdAt <= cutoff }
+            if (!settings.excluded(chatId) && messages.lastOrNull()?.role == "assistant" && messages.any { it.role == "user" && it.createdAt >= session.since }) {
+                val revision = revision(transcript(messages, session.since))
+                val old = db.memorySyncDao().entries(session.generation).find { it.chatId == chatId }
+                if (old?.revision != revision && settings.permits(session)) db.memorySyncDao().put(MemorySync(
+                    chatId, session.generation, revision, old?.sentRevision.orEmpty(), old?.documentId.orEmpty(),
+                    updatedAt = if (old != null && old.revision != old.sentRevision) old.updatedAt else cutoff,
+                    includesLocal = settings.includesLocal(chatId) || old?.includesLocal == true))
+            }
+            settings.acknowledgeQueue(chatId, cutoff, session)
+        }
+    }
+    fun schedule(context: Context, force: Boolean = false) {
+        if (MemorySettings(context).session() == null) return
+        val manager = WorkManager.getInstance(context)
+        val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+        manager.enqueueUniquePeriodicWork("memory-maintenance", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<MemorySyncWorker>(15, TimeUnit.MINUTES).setConstraints(constraints).build())
+        manager.enqueueUniqueWork(if (force) "memory-retry" else "memory-learning", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<MemorySyncWorker>()
-                .setInitialDelay(2, TimeUnit.MINUTES)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setInputData(workDataOf("force" to force))
+                .setInitialDelay(if (force) 0 else 2, TimeUnit.MINUTES)
+                .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build())
+    }
+    fun cancel(context: Context) {
+        val manager = WorkManager.getInstance(context)
+        listOf("memory-learning", "memory-maintenance", "memory-retry").forEach { manager.cancelUniqueWork(it) }
+    }
+    suspend fun retry(context: Context) {
+        val settings = MemorySettings(context)
+        val session = settings.session() ?: return
+        AppDatabase.getDatabase(context).memorySyncDao().retryMissing(session.generation)
+        if (!settings.permits(session)) return
+        settings.learningBlocked = false
+        settings.learningNote = ""
+        schedule(context, force = true)
+    }
+    fun reportFailure(context: Context, failure: Exception, note: String = "Couldn't queue learning. Your chat is saved; retry learning in Memory settings.") {
+        // Exception messages/causes may contain credentials, URLs or conversation text.
+        val safe = Exception("Memory operation failed (${failure.javaClass.simpleName})")
+        safe.stackTrace = failure.stackTrace
+        Log.w("MemoryLearning", "Memory operation failed", safe)
+        MemorySettings(context).learningNote = note
     }
 
     suspend fun pendingContext(context: Context, query: String, currentChat: String): String {
         val settings = MemorySettings(context)
-        if (!settings.learn) return ""
+        val session = settings.session() ?: return ""
         val db = AppDatabase.getDatabase(context)
         val words = Regex("[\\p{L}\\p{N}]{3,}").findAll(query.lowercase()).map { it.value }.toSet()
             .minus(setOf("the", "and", "what", "about", "with", "memory", "remember"))
         if (words.isEmpty()) return ""
-        return db.memorySyncDao().entries(settings.generation).filter { it.chatId != currentChat && it.status != "ready" && !settings.excluded(it.chatId) && (!it.includesLocal || settings.allowLocal) }
+        val result = db.memorySyncDao().entries(session.generation).filter { it.chatId != currentChat && it.status !in listOf("ready", "unavailable") && !settings.excluded(it.chatId) && (!(it.includesLocal || settings.includesLocal(it.chatId)) || settings.allowLocal) }
             .takeLast(15).flatMap { entry ->
-                db.messageDao().getMessagesForChatSync(entry.chatId)
-                    .filter { it.createdAt >= settings.since && it.role in listOf("user", "assistant") }
-                    .map { message -> message to words.count { message.content.contains(it, ignoreCase = true) } }
+                val messages = db.messageDao().getMessagesForChatSync(entry.chatId)
+                if (revision(transcript(messages, session.since)) != entry.revision) emptyList()
+                else messages.filter { it.createdAt >= session.since && it.role in listOf("user", "assistant") }
+                    .map { message -> message to Regex("[\\p{L}\\p{N}]{3,}").findAll(message.content.lowercase()).map { it.value }.toSet().intersect(words).size }
             }.filter { it.second > 0 }.sortedByDescending { it.second }.take(4)
             .joinToString("\n") { "Recent unsynced ${it.first.role}: ${MemoryPrivacy.redact(it.first.content).take(900)}" }
+        return if (settings.permits(session)) result else ""
     }
 }
 
 class MemorySyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = MemoryLearning.workerLock.withLock { deliver() }
+    private suspend fun deliver(): Result {
         val settings = MemorySettings(applicationContext)
-        if (!settings.connected || !settings.learn) return Result.success()
-        val generation = settings.generation
+        val session = settings.session() ?: return Result.success()
+        if (settings.learningBlocked) return Result.success()
+        val generation = session.generation
         val client = SupermemoryClient(settings.key, settings.space)
         val db = AppDatabase.getDatabase(applicationContext)
         val dao = db.memorySyncDao()
         try {
+            MemoryLearning.recoverQueue(applicationContext, settings, session)
             val entries = dao.entries(generation)
-            var stillProcessing = false
+            var missing = entries.any { it.status == "unavailable" }
             for (entry in entries.filter { it.status == "processing" && it.documentId.isNotBlank() }) {
-                if (settings.generation != generation || !settings.learn) return Result.success()
+                if (!settings.permits(session)) return Result.success()
                 try {
-                    if (client.document(entry.documentId).optString("dreamingStatus") == "done") dao.ready(entry.chatId, generation)
-                    else stillProcessing = true
-                } catch (e: MemoryApiException) { if (e.code == 404) dao.unavailable(entry.chatId, generation) else throw e }
+                    val document = client.document(entry.documentId)
+                    if (!settings.permits(session)) return Result.success()
+                    if (document.optString("dreamingStatus") == "done") dao.readyRevision(entry.chatId, generation, entry.revision, entry.documentId)
+                } catch (e: MemoryApiException) {
+                    if (!settings.permits(session)) return Result.success()
+                    if (e.code == 404) { dao.unavailableRevision(entry.chatId, generation, entry.revision, entry.documentId); missing = true } else throw e
+                }
             }
-            val pending = entries.filter { it.revision != it.sentRevision && !settings.excluded(it.chatId) && (!it.includesLocal || settings.allowLocal) }
-            if (pending.size < MemorySettings.batchSize(settings.plan)) {
-                return if (stillProcessing && runAttemptCount < 8) Result.retry() else Result.success()
-            }
+            val pending = dao.entries(generation).filter { it.status != "unavailable" && it.revision != it.sentRevision && !settings.excluded(it.chatId) && (!(it.includesLocal || settings.includesLocal(it.chatId)) || settings.allowLocal) }
+            val aged = pending.any { System.currentTimeMillis() - it.updatedAt >= TimeUnit.HOURS.toMillis(6) }
+            val flush = pending.size >= MemorySettings.batchSize(settings.plan) || aged || inputData.getBoolean("force", false)
+            if (flush)
             for (entry in pending) {
-                if (!settings.learn || settings.generation != generation || !settings.connected) return Result.success()
-                if (settings.excluded(entry.chatId) || (entry.includesLocal && !settings.allowLocal)) continue
+                if (!settings.permits(session)) return Result.success()
+                if (settings.excluded(entry.chatId) || ((entry.includesLocal || settings.includesLocal(entry.chatId)) && !settings.allowLocal)) continue
                 val messages = db.messageDao().getMessagesForChatSync(entry.chatId)
                 if (messages.isEmpty()) { dao.remove(entry.chatId); continue }
-                val text = MemoryLearning.transcript(messages, settings.since)
+                val text = MemoryLearning.transcript(messages, session.since)
                 if (text.isBlank()) { dao.remove(entry.chatId); continue }
+                if (messages.lastOrNull()?.role != "assistant" || MemoryLearning.revision(text) != entry.revision) continue
+                if (!settings.permits(session)) return Result.success()
                 // Stable IDs make retrying an interrupted upload safe.
                 val id = client.ingest(entry.chatId, text, Instant.ofEpochMilli(messages.last().createdAt).toString())
-                if (settings.generation != generation) return Result.success()
+                if (!settings.permits(session)) return Result.success()
                 dao.accepted(entry.chatId, generation, MemoryLearning.revision(text), id)
             }
-            settings.learningNote = ""
-            return Result.retry() // Poll extraction separately; an accepted document isn't a ready memory.
+            if (settings.permits(session)) settings.learningNote = if (missing) "A source is missing in Supermemory. Retry learning to upload it again, or leave it removed." else ""
+            return Result.success() // Periodic maintenance polls extraction and flushes aged partial batches.
         } catch (e: CancellationException) { throw e }
         catch (e: MemoryApiException) {
-            settings.learningNote = e.message.orEmpty()
-            return if (e.code == 429 || e.code >= 500) Result.retry() else Result.failure()
-        } catch (_: Exception) { settings.learningNote = "Learning is waiting for a connection."; return Result.retry() }
+            if (!settings.permits(session)) return Result.success()
+            val retryable = e.code == 429 || e.code >= 500
+            settings.learningBlocked = !retryable
+            MemoryLearning.reportFailure(applicationContext, e, e.message.orEmpty())
+            return if (retryable) Result.retry() else Result.failure()
+        } catch (e: Exception) {
+            if (!settings.permits(session)) return Result.success()
+            MemoryLearning.reportFailure(applicationContext, e, "Learning is waiting for a connection. You can retry in Memory settings.")
+            return Result.retry()
+        }
     }
 }

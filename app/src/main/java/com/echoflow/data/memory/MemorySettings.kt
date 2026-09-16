@@ -41,7 +41,7 @@ class MemorySettings internal constructor(
                 check(store.edit().putBoolean("memory_learn", value)
                     .putLong("memory_generation", generation + 1)
                     .putLong("memory_since", System.currentTimeMillis())
-                    .remove("memory_pending_queue").remove("memory_learning_note").commit()) {
+                    .remove("memory_pending_queue").remove("memory_learning_note").remove("memory_learning_blocked").commit()) {
                     "Couldn't save memory consent. Please try again."
                 }
             }
@@ -75,14 +75,14 @@ class MemorySettings internal constructor(
         check(store.edit().putString("memory_key", key.trim()).putString("memory_space", space)
             .putString("memory_plan", "unknown").putLong("memory_since", System.currentTimeMillis())
             .putLong("memory_generation", generation + 1).putBoolean("memory_learn", false)
-            .remove("memory_pending_queue").remove("memory_learning_note").commit()) { "Couldn't securely save the API key." }
+            .remove("memory_pending_queue").remove("memory_learning_note").remove("memory_learning_blocked").commit()) { "Couldn't securely save the API key." }
         }
     }
     fun disconnect() {
         synchronized(lock) {
             check(prefs?.edit()?.remove("memory_key")?.putBoolean("memory_learn", false)
                 ?.putLong("memory_generation", generation + 1)?.remove("memory_pending_queue")
-                ?.remove("memory_learning_note")?.commit() != false) { "Couldn't remove the key. Please try again." }
+                ?.remove("memory_learning_note")?.remove("memory_learning_blocked")?.commit() != false) { "Couldn't remove the key. Please try again." }
         }
     }
 
@@ -101,6 +101,36 @@ class MemorySettings internal constructor(
     fun includesLocal(chatId: String) = privacyPrefs?.getStringSet("memory_local_chats", emptySet())?.contains(chatId) == true
     fun session(): MemorySession? = if (connected && learn) MemorySession(generation, since) else null
     fun permits(session: MemorySession): Boolean = connected && learn && generation == session.generation && since == session.since
+
+    /** Journal IDs and a completion cutoff before Room work; never journal message text. */
+    fun journal(chatId: String, session: MemorySession): Long = synchronized(lock) {
+        check(permits(session)) { "Memory consent changed." }
+        val cutoff = System.currentTimeMillis()
+        val entries = pendingQueue().toMutableMap().apply { put(chatId, cutoff) }
+        check(prefs?.edit()?.putString("memory_pending_queue", org.json.JSONObject(entries as Map<*, *>).toString())?.commit() == true) {
+            "Couldn't queue memory for this conversation."
+        }
+        cutoff
+    }
+
+    fun pendingQueue(): Map<String, Long> = synchronized(lock) {
+        val json = org.json.JSONObject(prefs?.getString("memory_pending_queue", "{}") ?: "{}")
+        json.keys().asSequence().associateWith { json.getLong(it) }
+    }
+
+    fun acknowledgeQueue(chatId: String, cutoff: Long, session: MemorySession) = synchronized(lock) {
+        if (!permits(session)) return@synchronized
+        val entries = pendingQueue().toMutableMap()
+        if (entries[chatId] != cutoff) return@synchronized
+        entries.remove(chatId)
+        check(prefs?.edit()?.putString("memory_pending_queue", org.json.JSONObject(entries as Map<*, *>).toString())?.commit() == true) {
+            "Couldn't update the memory queue."
+        }
+    }
+
+    var learningBlocked: Boolean
+        get() = prefs?.getBoolean("memory_learning_blocked", false) ?: false
+        set(value) { prefs?.edit()?.putBoolean("memory_learning_blocked", value)?.apply() }
 
     /** Observe non-secret state only; API keys never enter Compose state or a flow. */
     fun snapshot() = MemoryPreferences(connected, recall, learn, allowLocal, generation, learningNote)
