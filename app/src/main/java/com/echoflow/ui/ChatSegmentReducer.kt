@@ -12,6 +12,11 @@ internal object ChatSegmentReducer {
             segments.removeAll { it is StreamSegment.AgentRun }
         }
         when (chunk) {
+            is StreamChunk.MemoryActivity -> {
+                val index = segments.indexOfLast { it is StreamSegment.Memory && it.id == chunk.id }
+                val updated = StreamSegment.Memory(chunk.id, chunk.label, chunk.active)
+                if (index >= 0) segments[index] = updated else segments.add(updated)
+            }
             is StreamChunk.AgentRunStarted -> {
                 if (segments.none { it is StreamSegment.AgentRun }) segments.add(StreamSegment.AgentRun)
             }

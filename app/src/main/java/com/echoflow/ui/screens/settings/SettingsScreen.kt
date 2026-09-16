@@ -145,6 +145,8 @@ internal val accents = listOf(
 internal const val CatalogPreviewCount = 3
 
 internal const val PageHome = "home"
+internal const val PageMemory = "memory"
+internal const val PageMyMemories = "my_memories"
 internal const val PageAppearance = "appearance"
 internal const val PageModels = "models"
 internal const val PageCloudModels = "cloud_models"
@@ -175,6 +177,7 @@ internal val CustomProviderSectionGap = 28.dp
 /** Parent page when backing out of [page]; null on the settings hub. */
 internal fun settingsParentPage(page: String): String? = when (page) {
     PageHome -> null
+    PageMyMemories -> PageMemory
     PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
     PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud,
     -> PageHome
@@ -243,6 +246,8 @@ fun SettingsScreen(
         label = "settingsPages",
     ) { current ->
         when (current) {
+            PageMemory -> MemoryPage(onBack = navigateBack, onMemories = { page = PageMyMemories })
+            PageMyMemories -> MyMemoriesPage(onBack = navigateBack)
             PageAppearance -> AppearancePage(viewModel, onBack = navigateBack)
             PageModels -> ModelsPage(viewModel, onBack = navigateBack)
             PageCloudModels -> CloudModelsPage(viewModel, onBack = navigateBack)
@@ -427,7 +432,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 8,
+                index = 0, count = 9,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -437,7 +442,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenRouter & on-device",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 8,
+                index = 1, count = 9,
                 onClick = { onOpen(PageModels) },
             )
             SettingsNavRow(
@@ -447,7 +452,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 8,
+                index = 2, count = 9,
                 onClick = { onOpen(PageCustomProviderCloud) },
             )
             SettingsNavRow(
@@ -457,7 +462,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 8,
+                index = 3, count = 9,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -467,7 +472,7 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 8,
+                index = 4, count = 9,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -477,7 +482,7 @@ internal fun SettingsHomePage(
                 subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 8,
+                index = 5, count = 9,
                 onClick = { onOpen(PageImagine) },
             )
             SettingsNavRow(
@@ -487,7 +492,7 @@ internal fun SettingsHomePage(
                 subtitle = sttSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 8,
+                index = 6, count = 9,
                 onClick = { onOpen(PageSpeechToText) },
             )
             SettingsNavRow(
@@ -497,8 +502,18 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 8,
+                index = 7, count = 9,
                 onClick = { onOpen(PageEchoLabs) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.AutoAwesome,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Memory",
+                subtitle = "Supermemory · EchoBrain",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 8, count = 9,
+                onClick = { onOpen(PageMemory) },
             )
         }
     }

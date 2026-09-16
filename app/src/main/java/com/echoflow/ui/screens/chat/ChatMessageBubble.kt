@@ -194,6 +194,7 @@ private fun AssistantAnswerBody(
             }
             persistedSegments.forEachIndexed { index, segment ->
                 when (segment.type) {
+                    "memory" -> MemoryActivityLine(segment.text.orEmpty(), false)
                     "reasoning" -> {
                         ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
                         Spacer(Modifier.height(Spacing.s))

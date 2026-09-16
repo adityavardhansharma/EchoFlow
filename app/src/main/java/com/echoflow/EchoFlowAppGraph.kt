@@ -40,6 +40,12 @@ class EchoFlowAppGraph(application: Application) {
         // the sweep runs once here, off the startup path.
         CoroutineScope(Dispatchers.IO).launch {
             LegacyImageModelCleanup.run(application.applicationContext)
+            try {
+                com.echoflow.data.memory.MemoryLearning.schedule(application.applicationContext)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                com.echoflow.data.memory.MemoryLearning.reportFailure(application.applicationContext, e)
+            }
         }
     }
 
