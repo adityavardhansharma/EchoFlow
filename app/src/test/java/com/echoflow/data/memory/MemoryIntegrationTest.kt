@@ -91,7 +91,10 @@ class MemoryIntegrationTest {
             reasoning = "private reasoning", toolEventsJson = "tool content", attachmentsJson = "attachment text")
         val system = ChatMessage("3", "chat", "system", "system instruction", 3)
         val text = MemoryLearning.transcript(listOf(old, current, system), 2)
-        assertEquals("assistant: Visible reply", text)
+        assertEquals("", text) // The reply belongs to a pre-consent user turn.
+        val eligible = ChatMessage("4", "chat", "user", "Current question", 2)
+        assertEquals("user: Current question\n\nassistant: Visible reply",
+            MemoryLearning.transcript(listOf(old, eligible, current, system), 2))
         assertEquals(MemoryLearning.revision(text), MemoryLearning.revision(text))
         assertNotEquals(MemoryLearning.revision(text), MemoryLearning.revision("changed"))
     }

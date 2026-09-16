@@ -1499,7 +1499,15 @@ class ChatViewModel(
             if (streamJobs[chatId]?.isActive == true) return@launch
             // Record provenance before user text is stored: a cancelled local reply must
             // never become eligible when the next turn happens to use a cloud provider.
-            if (isLocal || customProvider == "ollama") memorySettings.recordLocalTurn(chatId)
+            if (isLocal || customProvider == "ollama") {
+                try { memorySettings.recordLocalTurn(chatId) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    MemoryLearning.reportFailure(getApplication(), e)
+                    _errorMessage.value = "Couldn't save this conversation's privacy choice. Please try again."
+                    return@launch
+                }
+            }
             coroutineContext[Job]?.let { streamJobs[chatId] = it }
 
             // Carried into the new assistant row so prior answers survive regeneration.

@@ -14,8 +14,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.echoflow.data.memory.*
-
 
 @Composable
 internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryViewModel = viewModel()) {
@@ -42,16 +40,16 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
             MemoryBlock(if (vm.connected) "Connected to Supermemory" else "Bring your own memory", if (vm.connected) vm.settings.space else "Your account. Your API key.") {
                 if (!vm.connected) {
                     Text("Recall relevant details when they're useful, without loading your entire memory into every chat.", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedTextField(key, { key = it }, label = { Text("Supermemory API key") }, singleLine = true,
+                    OutlinedTextField(key, { key = it }, label = { Text("Supermemory API key") }, singleLine = true, enabled = !vm.busy,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
                         visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(space, { space = it.trim() }, label = { Text("Memory space") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    OutlinedTextField(space, { space = it.trim() }, label = { Text("Memory space") }, singleLine = true, enabled = !vm.busy, modifier = Modifier.fillMaxWidth(),
                         supportingText = { Text("Use the same space to share memory across your devices.") })
                     Text("Connecting sends a profile request. Learning stays off until you enable it.", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = { vm.connect(key, space) }, enabled = !vm.busy && key.isNotBlank()) { Text("Connect") }
                 } else {
                     val billing = vm.billing
-                    Text(billing?.plan?.replaceFirstChar { it.uppercase() }?.let { "$it account" } ?: "Account connected", style = MaterialTheme.typography.titleMedium)
+                    Text(billing?.plan?.takeUnless { it == "unknown" }?.replaceFirstChar { it.uppercase() }?.let { "$it account" } ?: "Account connected", style = MaterialTheme.typography.titleMedium)
                     if (billing?.used != null && billing.limit != null && billing.limit > 0) {
                         LinearProgressIndicator(progress = { (billing.used / billing.limit).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                         val currency = java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US)
@@ -68,14 +66,14 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
             if (vm.connected) {
                 Spacer(Modifier.height(16.dp))
                 MemoryBlock("In your conversations", "You decide what crosses the boundary") {
-                    MemorySwitch("Use memory", "Let supported models recall relevant details and save facts you explicitly ask them to remember.", vm.recall, !vm.busy, vm::setRecall)
+                    MemorySwitch("Use memory", "Let supported models recall relevant details and save facts you explicitly ask them to remember.", vm.recall, !vm.busy, vm::updateRecall)
                     HorizontalDivider()
                     MemorySwitch("Learn from conversations", "Send new chat text to Supermemory to learn lasting preferences, facts and projects.", vm.learn, !vm.busy) { if (it) consent = true else vm.setLearning(false) }
                     HorizontalDivider()
-                    MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy, vm::setLocal)
+                    MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy, vm::updateLocal)
                 }
                 Spacer(Modifier.height(16.dp))
-                FilledTonalButton(onClick = onMemories, enabled = !vm.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("My Memories →") }
+                FilledTonalButton(onClick = onMemories, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("My Memories →") }
                 Text("Review what's known, add a fact, or forget something.", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
                 Text("Memory is available in standard chats with tool-capable models. Local models and specialised modes may not support automatic recall. Never store passwords or API keys.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (vm.learningNote.isNotBlank()) {
@@ -96,65 +94,6 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
         confirmButton = { TextButton(onClick = { vm.disconnect(); disconnect = false }) { Text("Disconnect") } }, dismissButton = { TextButton(onClick = { disconnect = false }) { Text("Cancel") } })
 }
 
-@Composable
-internal fun MyMemoriesPage(onBack: () -> Unit, vm: MemoryViewModel = viewModel()) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var editor by remember { mutableStateOf<RemoteMemory?>(null) }
-    var editing by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf("") }
-    var forget by remember { mutableStateOf<RemoteMemory?>(null) }
-    var expanded by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { vm.refresh() }
-    SettingsPageScaffold("My Memories", "Your Supermemory space", onBack) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            FilledTonalButton(onClick = { editor = null; text = ""; editing = true }, enabled = !vm.busy) { Text("Add a memory") }
-            TextButton(onClick = { vm.refresh() }, enabled = !vm.busy) { Text("Refresh") }
-        }
-        Spacer(Modifier.height(16.dp))
-        if (vm.profile.stable.isNotEmpty() || vm.profile.recent.isNotEmpty()) MemoryBlock("About you", "A living summary, not a new source of truth") {
-            if (vm.profile.stable.isNotEmpty()) { Text("Lasting details", style = MaterialTheme.typography.labelLarge); vm.profile.stable.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) } }
-            if (vm.profile.recent.isNotEmpty()) { Text("Recently relevant", style = MaterialTheme.typography.labelLarge); vm.profile.recent.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) } }
-        }
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(query, { query = it }, label = { Text("Find a memory") }, singleLine = true, modifier = Modifier.fillMaxWidth(), trailingIcon = {
-            TextButton(onClick = { vm.search(query) }, enabled = !vm.busy) { Text("Find") }
-        })
-        MemoryFeedback(vm)
-        vm.suggestions.forEach { memory ->
-            MemoryBlock("Suggested connection", "Supermemory inferred this — is it right?") {
-                Text(memory.text)
-                Row { TextButton(onClick = { vm.review(memory, true) }, enabled = !vm.busy) { Text("Keep") }; TextButton(onClick = { vm.review(memory, false) }, enabled = !vm.busy) { Text("Dismiss") } }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        if (vm.memories.isEmpty() && !vm.busy && vm.error == null) MemoryBlock("Nothing here yet", "Memory grows with you") {
-            Text("Add something you'd like remembered, or enable learning. New conversations can take a little time to become memories.", style = MaterialTheme.typography.bodyMedium)
-        }
-        vm.memories.forEach { memory ->
-            Spacer(Modifier.height(8.dp))
-            MemoryBlock(null, null) {
-                Text(memory.text, style = MaterialTheme.typography.bodyLarge)
-                Row {
-                    TextButton(onClick = { expanded = if (expanded == memory.id) null else memory.id }) { Text("Details") }
-                    TextButton(onClick = { editor = memory; text = memory.text; editing = true }, enabled = !vm.busy) { Text("Edit") }
-                    TextButton(onClick = { forget = memory }, enabled = !vm.busy) { Text("Forget") }
-                }
-                if (expanded == memory.id) {
-                    Text(memory.updated.ifBlank { "Date unavailable" }, style = MaterialTheme.typography.bodySmall)
-                    if (memory.sources.isNotEmpty()) Text("Source documents: ${memory.sources.joinToString()}", style = MaterialTheme.typography.bodySmall)
-                    memory.history.forEach { Text("Earlier: $it", style = MaterialTheme.typography.bodySmall) }
-                }
-            }
-        }
-        if (vm.hasMore) TextButton(onClick = { vm.more() }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Load more") }
-    }
-    if (editing) AlertDialog(onDismissRequest = { editing = false }, title = { Text(if (editor == null) "Remember something" else "Edit memory") },
-        text = { Column { OutlinedTextField(text, { text = it.take(4000) }, label = { Text("What should be remembered?") }, minLines = 3); MemoryFeedback(vm) } },
-        confirmButton = { TextButton(onClick = { vm.save(editor?.id, text.trim()) { editing = false } }, enabled = text.isNotBlank() && !vm.busy) { Text("Save") } }, dismissButton = { TextButton(onClick = { editing = false }, enabled = !vm.busy) { Text("Cancel") } })
-    forget?.let { memory -> AlertDialog(onDismissRequest = { forget = null }, title = { Text("Forget this memory?") },
-        text = { Text("It will no longer be used as an active memory. Supermemory may retain its history and source conversations. Learning from those sources can recreate a fact; manage source data in your dashboard if needed.") },
-        confirmButton = { TextButton(onClick = { vm.forget(memory); forget = null }) { Text("Forget") } }, dismissButton = { TextButton(onClick = { forget = null }) { Text("Keep") } }) }
-}
 
 @Composable private fun MemoryFeedback(vm: MemoryViewModel) {
     if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))

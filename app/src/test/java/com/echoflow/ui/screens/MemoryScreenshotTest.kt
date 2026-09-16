@@ -35,10 +35,10 @@ class MemoryScreenshotTest {
         val vm = MemoryViewModel(ApplicationProvider.getApplicationContext<Application>())
         compose.setContent { EchoFlowTheme { MemoryPage({}, {}, vm) } }
         compose.onNodeWithText("Connect").assertIsNotEnabled()
-        compose.onRoot().captureRoboImage("src/test/screenshots/memory_connect.png")
+        compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_connect.png")
         compose.onNodeWithText("EchoBrain").performClick()
         compose.onNodeWithText("Coming soon").assertIsDisplayed()
-        compose.onRoot().captureRoboImage("src/test/screenshots/memory_echobrain.png")
+        compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_echobrain.png")
     }
     @Test fun quiet_chat_receipts() {
         compose.setContent { EchoFlowTheme { Surface { Column(Modifier.fillMaxWidth().padding(24.dp)) {
@@ -47,7 +47,7 @@ class MemoryScreenshotTest {
             MemoryActivityLine("No relevant memories", false)
             MemoryActivityLine("Memory unavailable · chat can continue", false)
         } } } }
-        compose.onRoot().captureRoboImage("src/test/screenshots/memory_chat_receipts.png")
+        compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_chat_receipts.png")
     }
     private fun connectedViewModel(): MemoryViewModel {
         val app = ApplicationProvider.getApplicationContext<Application>()
@@ -70,14 +70,15 @@ class MemoryScreenshotTest {
         val vm = connectedViewModel()
         compose.setContent { EchoFlowTheme { MemoryPage({}, {}, vm) } }
         compose.waitUntil(10_000) { vm.billing != null && !vm.busy }
-        compose.onRoot().captureRoboImage("src/test/screenshots/memory_account.png")
+        compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_account.png")
         compose.onNodeWithText("My Memories →").performScrollTo().assertIsEnabled()
     }
     @Test fun memory_library_dark() {
         val vm = connectedViewModel()
         compose.setContent { EchoFlowTheme(darkTheme = true) { MyMemoriesPage({}, vm) } }
         compose.waitUntil(10_000) { vm.memories.isNotEmpty() && !vm.busy }
-        compose.onNodeWithText("About you").assertIsDisplayed()
-        compose.onRoot().captureRoboImage("src/test/screenshots/memory_library_dark.png")
+        compose.onNodeWithText("Profile").assertIsDisplayed()
+        compose.onNodeWithText("SAVED MEMORIES").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_library_dark.png")
     }
 }

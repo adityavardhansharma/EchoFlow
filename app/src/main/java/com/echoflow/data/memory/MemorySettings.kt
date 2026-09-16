@@ -29,9 +29,10 @@ class MemorySettings internal constructor(
     val key: String get() = prefs?.getString("memory_key", "").orEmpty()
     val space: String get() = prefs?.getString("memory_space", "echoflow-personal") ?: "echoflow-personal"
     val connected get() = key.isNotBlank()
+    val accessRevision: Long get() = prefs?.getLong("memory_access_revision", 0) ?: 0
     var recall: Boolean
         get() = prefs?.getBoolean("memory_recall", true) ?: true
-        set(value) { prefs?.edit()?.putBoolean("memory_recall", value)?.apply() }
+        set(value) { updateAccess("memory_recall", value) }
     var learn: Boolean
         get() = prefs?.getBoolean("memory_learn", false) ?: false
         set(value) {
@@ -48,7 +49,12 @@ class MemorySettings internal constructor(
         }
     var allowLocal: Boolean
         get() = prefs?.getBoolean("memory_local", false) ?: false
-        set(value) { prefs?.edit()?.putBoolean("memory_local", value)?.apply() }
+        set(value) { updateAccess("memory_local", value) }
+    private fun updateAccess(name: String, value: Boolean) = synchronized(lock) {
+        check(prefs?.edit()?.putBoolean(name, value)?.putLong("memory_access_revision", accessRevision + 1)?.commit() == true) {
+            "Couldn't save memory permissions. Please try again."
+        }
+    }
     var plan: String
         get() = prefs?.getString("memory_plan", "unknown") ?: "unknown"
         set(value) { prefs?.edit()?.putString("memory_plan", value)?.apply() }

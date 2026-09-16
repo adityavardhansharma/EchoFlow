@@ -155,7 +155,7 @@ class MemoryViewModel internal constructor(
         settings.learn = enabled; learn = settings.learn
         if (enabled) MemoryLearning.schedule(getApplication()) else MemoryLearning.cancel(getApplication())
     }
-    fun setRecall(enabled: Boolean) = action { settings.recall = enabled; recall = settings.recall }
-    fun setLocal(enabled: Boolean) = action { settings.allowLocal = enabled; local = settings.allowLocal }
+    fun updateRecall(enabled: Boolean) = action { settings.recall = enabled; recall = settings.recall }
+    fun updateLocal(enabled: Boolean) = action { settings.allowLocal = enabled; local = settings.allowLocal }
     fun retryLearning() = action { MemoryLearning.retry(getApplication()) }
 }

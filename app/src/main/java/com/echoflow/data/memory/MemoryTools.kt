@@ -42,9 +42,10 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
                 "required" to listOf(argument), "additionalProperties" to false))
     }
     private val generation = settings.generation
+    private val accessRevision = settings.accessRevision
     private var calls = 0
     private val saved = mutableSetOf<String>()
-    private fun permitted() = settings.connected && settings.recall && settings.generation == generation &&
+    private fun permitted() = settings.connected && settings.recall && settings.generation == generation && settings.accessRevision == accessRevision &&
         (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
     fun handles(name: String) = name == "search_memory" || name == "remember_memory"
     fun schemas(format: String = "openai"): List<Map<String, Any>> = functions.map { fn -> when (format) {
@@ -55,7 +56,7 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
     } }
     suspend fun execute(name: String, args: String, emit: suspend (StreamChunk) -> Unit): String {
         if (!handles(name)) return "Unknown memory tool."
-        if (!permitted()) return "Memory is disabled for this conversation."
+        if (!permitted()) return "Memory is disabled."
         if (++calls > 4) return "Memory tool limit reached. Answer with the context already available."
         val data = try { JSONObject(args) } catch (_: Exception) { return "Invalid JSON arguments." }
         val query = (data.opt(if (name == "search_memory") "query" else "content") as? String)?.trim()
