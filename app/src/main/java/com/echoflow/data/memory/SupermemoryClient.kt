@@ -14,6 +14,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -57,18 +58,20 @@ class SupermemoryClient(
         }
     }
     private fun scoped() = JSONObject().put("containerTag", space)
+    private fun segment(value: String): String = "https://memory.invalid/".toHttpUrl().newBuilder()
+        .addPathSegment(value).build().encodedPath.removePrefix("/")
     suspend fun profile(): MemoryProfile {
-        val profile = request("/v4/profile", body = scoped()).optJSONObject("profile") ?: JSONObject()
+        val profile = request("/v4/profile", body = scoped()).getJSONObject("profile")
         return MemoryProfile(profile.optJSONArray("static").strings(), profile.optJSONArray("dynamic").strings())
     }
     suspend fun search(query: String): List<RemoteMemory> = entries(request("/v4/search", body = scoped()
         .put("q", query.take(2000)).put("searchMode", "memories").put("limit", 8).put("threshold", 0.65)
-        .put("include", JSONObject().put("documents", true))).optJSONArray("results"))
+        .put("include", JSONObject().put("documents", true))).getJSONArray("results")).filterNot { it.forgotten }
     suspend fun list(page: Int = 1): MemoryPage {
         val result = request("/v4/memories/list", body = JSONObject().put("containerTags", JSONArray().put(space))
             .put("page", page).put("limit", 30).put("sort", "updatedAt").put("order", "desc"))
         val pagination = result.optJSONObject("pagination")
-        return MemoryPage(entries(result.optJSONArray("memoryEntries")).filterNot { it.forgotten }, page < (pagination?.optInt("totalPages", page) ?: page))
+        return MemoryPage(entries(result.getJSONArray("memoryEntries")).filterNot { it.forgotten }, page < (pagination?.optInt("totalPages", page) ?: page))
     }
     suspend fun add(text: String, permanent: Boolean = false): JSONObject {
         require(MemoryPrivacy.redact(text) == text) { "Remove credentials before saving a memory." }
@@ -83,9 +86,9 @@ class SupermemoryClient(
         return request("/v4/memories", "PATCH", scoped().put("id", id).put("newContent", text))
     }
     suspend fun forget(id: String) = request("/v4/memories", "DELETE", scoped().put("id", id))
-    suspend fun reviewQueue(): List<RemoteMemory> = entries(request("/v3/container-tags/$space/inferred", "GET").optJSONArray("memories"))
-    suspend fun review(id: String, approve: Boolean) = request("/v3/container-tags/$space/inferred/$id/review", body = JSONObject().put("action", if (approve) "approve" else "decline"))
-    suspend fun document(id: String) = request("/v3/documents/$id", "GET")
+    suspend fun reviewQueue(): List<RemoteMemory> = entries(request("/v3/container-tags/${segment(space)}/inferred", "GET").getJSONArray("memories"))
+    suspend fun review(id: String, approve: Boolean) = request("/v3/container-tags/${segment(space)}/inferred/${segment(id)}/review", body = JSONObject().put("action", if (approve) "approve" else "decline"))
+    suspend fun document(id: String) = request("/v3/documents/${segment(id)}", "GET")
     suspend fun ingest(chatId: String, transcript: String, date: String): String = request("/v3/documents", body = scoped()
         .put("content", transcript).put("customId", "echoflow-${MemoryLearning.revision(space).take(12)}-$chatId").put("dreaming", "dynamic").put("documentDate", date)
         .put("entityContext", "Conversations between one EchoFlow user and an assistant. Learn personal facts, recurring interests, preferences, ongoing projects and confirmed decisions. Repeated cricket questions can indicate an interest in cricket; individual scores are disposable. Treat assistant suggestions as unconfirmed until the user accepts them. Do not infer identity from a single general question. Never retain credentials.")
@@ -95,7 +98,7 @@ class SupermemoryClient(
         // Shapes vary by billing generation. Unknown amounts stay unknown; never manufacture credits.
         val usage = try { request("/v3/auth/billing/usage", "GET") }
             catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-        val credits = findCredits(usage) ?: summary.optJSONObject("credits")
+        val credits = findCredits(usage) ?: findCredits(summary)
         return MemoryBilling(summary.optString("plan", "unknown").removePrefix("api_"), credits?.numberOrNull("used"),
             credits?.numberOrNull("limit"), summary.optString("resetDate").takeIf { it.isNotBlank() })
     }
@@ -125,4 +128,4 @@ class SupermemoryClient(
     }
 }
 private fun JSONArray?.strings(): List<String> = (0 until (this?.length() ?: 0)).mapNotNull { this?.optString(it)?.takeIf(String::isNotBlank) }
-private fun JSONObject.numberOrNull(key: String): Double? = (opt(key) as? Number)?.toDouble()
+private fun JSONObject.numberOrNull(key: String): Double? = (opt(key) as? Number)?.toDouble()?.takeIf { it.isFinite() && it >= 0 }

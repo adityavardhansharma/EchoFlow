@@ -15,6 +15,7 @@ class MemoryTools(
     val webEnabled: Boolean,
     private val settings: MemorySettings = MemorySettings(context),
     private val api: SupermemoryClient = SupermemoryClient(settings.key, settings.space),
+    private val local: Boolean = false,
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<MemoryTools> {
         const val PROMPT = """
@@ -43,6 +44,8 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
     private val generation = settings.generation
     private var calls = 0
     private val saved = mutableSetOf<String>()
+    private fun permitted() = settings.connected && settings.recall && settings.generation == generation &&
+        (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
     fun handles(name: String) = name == "search_memory" || name == "remember_memory"
     fun schemas(format: String = "openai"): List<Map<String, Any>> = functions.map { fn -> when (format) {
         "claude" -> mapOf("name" to fn.getValue("name"), "description" to fn.getValue("description"), "input_schema" to fn.getValue("parameters"))
@@ -51,10 +54,12 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
         else -> mapOf("type" to "function", "function" to fn)
     } }
     suspend fun execute(name: String, args: String, emit: suspend (StreamChunk) -> Unit): String {
-        if (!settings.connected || !settings.recall || settings.generation != generation) return "Memory is disabled."
+        if (!handles(name)) return "Unknown memory tool."
+        if (!permitted()) return "Memory is disabled for this conversation."
         if (++calls > 4) return "Memory tool limit reached. Answer with the context already available."
         val data = try { JSONObject(args) } catch (_: Exception) { return "Invalid JSON arguments." }
-        val query = data.optString(if (name == "search_memory") "query" else "content").trim()
+        val query = (data.opt(if (name == "search_memory") "query" else "content") as? String)?.trim()
+            ?: return "Supply a text value."
         if (query.isBlank() || query.length > 4000) return "Supply a nonempty value of at most 4000 characters."
         if (MemoryPrivacy.redact(query) != query) return "This request appears to contain a credential. Remove secrets before using memory."
         val id = UUID.randomUUID().toString()
@@ -62,14 +67,25 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
         return try {
             val client = api
             if (name == "search_memory") {
-                val pending = MemoryLearning.pendingContext(context, query, chatId)
+                val pending = try { MemoryLearning.pendingContext(context, query, chatId) }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { MemoryLearning.reportFailure(context, e, "Recent local context is unavailable. Cloud recall can still work."); "" }
+                if (!permitted()) {
+                    emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                    return "Memory access changed. No context was supplied."
+                }
                 var unavailable = false
                 val remote = try { client.search(query) }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { if (pending.isBlank()) throw e else { unavailable = true; emptyList() } }
+                if (!permitted()) {
+                    emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                    return "Memory access changed. No context was supplied."
+                }
                 emit(StreamChunk.MemoryActivity(id, when {
                     unavailable -> "Recent context recalled · cloud memory unavailable"
                     remote.isEmpty() && pending.isBlank() -> "No relevant memories"
+                    pending.isNotBlank() && remote.isEmpty() -> "Recalled recent context"
                     pending.isNotBlank() -> "Recalled memories & recent context"
                     else -> "Recalled ${remote.size} ${if (remote.size == 1) "memory" else "memories"}"
                 }, false))
@@ -77,7 +93,16 @@ relevant; never invent a remembered fact. No deletion tool is available; use Set
                     .put("cloudMemoryAvailable", !unavailable)
                     .put("recentConversationExcerpts", pending).toString()
             } else {
-                if (saved.add(query)) client.add(query)
+                if (!permitted()) {
+                    emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                    return "Memory access changed; nothing was saved."
+                }
+                if (query !in saved) { client.add(query); saved.add(query) }
+                // A completed remote write cannot be recalled when consent changes in flight.
+                if (!permitted()) {
+                    emit(StreamChunk.MemoryActivity(id, "Save completed before access changed", false))
+                    return "The save request completed, but memory access changed. Manage saved data in Supermemory."
+                }
                 emit(StreamChunk.MemoryActivity(id, "Memory saved", false))
                 "Memory saved successfully."
             }

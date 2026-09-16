@@ -212,9 +212,10 @@ internal fun ChatSurface(
     val browserFlowActive by chatViewModel.browserFlowActive.collectAsState()
     val browserFlowAvailable by chatViewModel.browserFlowAvailable.collectAsState()
     val memorySettings = remember { com.echoflow.data.memory.MemorySettings(chatViewModel.getApplication<android.app.Application>()) }
-    var forceMemory by remember(currentThreadId) { mutableStateOf(false) }
-    val memoryAvailable = memorySettings.connected && memorySettings.recall &&
-        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memorySettings.allowLocal) &&
+    val memoryPreferences by remember(memorySettings) { memorySettings.changes() }.collectAsState(initial = memorySettings.snapshot())
+    var forceMemory by remember(currentThreadId, selectedModelID, memoryPreferences.generation) { mutableStateOf(false) }
+    val memoryAvailable = memoryPreferences.connected && memoryPreferences.recall &&
+        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal) &&
         !deepResearchActive && !dataAgentActive && !browserFlowActive
     LaunchedEffect(memoryAvailable) { if (!memoryAvailable) forceMemory = false }
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
