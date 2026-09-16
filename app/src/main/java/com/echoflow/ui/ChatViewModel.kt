@@ -1376,6 +1376,7 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
+            val learningSession = memorySettings.session()
             val memoryRequested = memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
             val customToolCallingActive = customProviderActive &&
@@ -1496,6 +1497,9 @@ class ChatViewModel(
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
+            // Record provenance before user text is stored: a cancelled local reply must
+            // never become eligible when the next turn happens to use a cloud provider.
+            if (isLocal || customProvider == "ollama") memorySettings.recordLocalTurn(chatId)
             coroutineContext[Job]?.let { streamJobs[chatId] = it }
 
             // Carried into the new assistant row so prior answers survive regeneration.
@@ -1980,7 +1984,7 @@ class ChatViewModel(
                     replyVersionsJson = archivedReplyVersionsJson,
                 )
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
-                    try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama") }
+                    try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { /* A memory queue failure must not fail a completed chat. */ }
                 }

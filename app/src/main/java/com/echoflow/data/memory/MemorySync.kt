@@ -45,19 +45,20 @@ object MemoryLearning {
     fun revision(text: String): String = MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    suspend fun queue(context: Context, chatId: String, local: Boolean) {
+    suspend fun queue(context: Context, chatId: String, local: Boolean, session: MemorySession? = MemorySettings(context).session()) {
         val settings = MemorySettings(context)
-        if (local && !settings.allowLocal) { settings.exclude(chatId); return }
-        if (!settings.connected || !settings.learn || settings.excluded(chatId)) return
+        if (local) settings.recordLocalTurn(chatId)
+        if (session == null || !settings.permits(session) || settings.excluded(chatId)) return
         val db = AppDatabase.getDatabase(context)
         val messages = db.messageDao().getMessagesForChatSync(chatId)
-        if (messages.none { it.role == "assistant" && it.createdAt >= settings.since }) return
-        val text = transcript(messages, settings.since)
-        val old = db.memorySyncDao().entries(settings.generation).find { it.chatId == chatId }
+        if (messages.none { it.role == "assistant" && it.createdAt >= session.since }) return
+        val text = transcript(messages, session.since)
+        val old = db.memorySyncDao().entries(session.generation).find { it.chatId == chatId }
         val revision = revision(text)
         if (old?.revision == revision) return
-        db.memorySyncDao().put(MemorySync(chatId, settings.generation, revision,
-            old?.sentRevision.orEmpty(), old?.documentId.orEmpty(), includesLocal = local || old?.includesLocal == true))
+        if (!settings.permits(session)) return
+        db.memorySyncDao().put(MemorySync(chatId, session.generation, revision,
+            old?.sentRevision.orEmpty(), old?.documentId.orEmpty(), includesLocal = settings.includesLocal(chatId) || old?.includesLocal == true))
         schedule(context)
     }
     fun schedule(context: Context) {
