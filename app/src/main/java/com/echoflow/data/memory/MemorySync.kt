@@ -43,6 +43,8 @@ interface MemorySyncDao {
     @Query("UPDATE memory_sync SET status = 'pending', sentRevision = '', documentId = '' WHERE generation = :generation AND status = 'unavailable'")
     suspend fun retryMissing(generation: Long)
     @Query("DELETE FROM memory_sync WHERE chatId = :chatId") suspend fun remove(chatId: String)
+    @Query("DELETE FROM memory_sync WHERE generation < :generation")
+    suspend fun removeObsolete(generation: Long)
     @Query("DELETE FROM memory_sync") suspend fun clear()
 }
 
@@ -50,6 +52,13 @@ interface MemorySyncDao {
 object MemoryLearning {
     private val queueLock = Mutex()
     internal val workerLock = Mutex()
+    /** Serialize with ledger inserts; a delayed cleanup must never delete a newer session. */
+    suspend fun pruneObsolete(context: Context) {
+        val generation = MemorySettings(context).generation
+        queueLock.withLock {
+            AppDatabase.getDatabase(context).memorySyncDao().removeObsolete(generation)
+        }
+    }
     /** Starts at an eligible user turn so a pre-consent prompt cannot leak through its later reply. */
     fun transcript(messages: List<ChatMessage>, since: Long): String = messages
         .filter { it.createdAt >= since && it.role in listOf("user", "assistant") }
@@ -88,6 +97,8 @@ object MemoryLearning {
     }
     /** Persists both jobs before reporting success so scheduler failures remain observable. */
     suspend fun schedule(context: Context, force: Boolean = false) {
+        // Also runs at startup while disconnected, recovering interrupted cleanup.
+        pruneObsolete(context)
         if (MemorySettings(context).session() == null) return
         val manager = WorkManager.getInstance(context)
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
@@ -101,6 +112,7 @@ object MemoryLearning {
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build()).await()
     }
     suspend fun cancel(context: Context) {
+        pruneObsolete(context)
         val manager = WorkManager.getInstance(context)
         listOf("memory-learning", "memory-maintenance", "memory-retry").forEach { manager.cancelUniqueWork(it).await() }
     }

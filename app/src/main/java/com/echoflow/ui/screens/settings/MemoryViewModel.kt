@@ -77,6 +77,7 @@ class MemoryViewModel internal constructor(
         clientFactory(key.trim(), space).profile()
         settings.connect(key, space); connected = true; learn = false
         resetLibrary()
+        MemoryLearning.pruneObsolete(getApplication())
         loadBilling()
     }
     private suspend fun loadBilling() {
@@ -148,7 +149,7 @@ class MemoryViewModel internal constructor(
     fun disconnect() = action {
         settings.disconnect(); connected = false; learn = false; billing = null; billingNote = null
         resetLibrary()
-        // Generations invalidate old rows. Never clear a newer session's ledger asynchronously.
+        // Cancel also prunes only older generations, serialized with ledger inserts.
         MemoryLearning.cancel(getApplication())
     }
     fun setLearning(enabled: Boolean) = action {

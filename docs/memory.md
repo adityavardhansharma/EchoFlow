@@ -80,7 +80,9 @@ ledger row. Account generations isolate reconnects. 429/network/server failures 
 auth/quota failures stop and show a learning note with retry.
 
 Turning learning off cancels future work and invalidates the current consent generation.
-Older hash-only ledger rows aren't read by a new session. Disconnect removes
+Older hash-only ledger rows are pruned on consent/account changes and at startup,
+including while disconnected. Cleanup deletes only generations below its captured
+boundary and is serialized with inserts, preserving current/newer sessions. Disconnect removes
 the encrypted key and cancels work. Already accepted remote requests cannot be recalled.
 Deleting a local chat does not delete remote source data. Forget is Supermemory's soft
 forget, not an assurance of source deletion; the confirmation explains that learning from
