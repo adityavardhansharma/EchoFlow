@@ -1523,7 +1523,8 @@ class ChatViewModel(
                     return@launch
                 }
             }
-            coroutineContext[Job]?.let { streamJobs[chatId] = it }
+            val streamJob = coroutineContext[Job]
+            streamJob?.let { streamJobs[chatId] = it }
 
             // Carried into the new assistant row so prior answers survive regeneration.
             var archivedReplyVersionsJson: String? = null
@@ -2018,12 +2019,13 @@ class ChatViewModel(
                     chatRepository.messagesForChat(chatId).first { messages ->
                         messages.any { it.id == assistantMessageId }
                     }
+                    // Do not expose an idle composer while the active-job guard still points at
+                    // this turn. A later turn may replace the map entry while background work runs.
+                    streamJob?.let { streamJobs.remove(chatId, it) }
                     setStreamState(chatId, null)
                 }
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
-                    try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }
-                    catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { MemoryLearning.reportFailure(getApplication(), e) }
+                    queueMemoryLearning(chatId, isLocal || customProvider == "ollama", learningSession)
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
                 if (videoGenMode) {
@@ -2109,8 +2111,21 @@ class ChatViewModel(
                 }
             } finally {
                 KeepAliveService.release(getApplication())
-                streamJobs.remove(chatId)
+                streamJob?.let { streamJobs.remove(chatId, it) }
                 setStreamState(chatId, null)
+            }
+        }
+    }
+
+    /** Queue durable learning without extending the visible chat-send lifecycle. */
+    private fun queueMemoryLearning(chatId: String, local: Boolean, session: MemorySession?) {
+        viewModelScope.launch {
+            try {
+                MemoryLearning.queue(getApplication(), chatId, local, session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                MemoryLearning.reportFailure(getApplication(), e)
             }
         }
     }
