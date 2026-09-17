@@ -141,6 +141,42 @@ object MemoryLearning {
         schedule(context, force = true)
     }
 
+    /** Flushes the current revision ledger without waiting for the provider batch threshold. */
+    suspend fun flushNow(context: Context): MemoryLearningStatus {
+        val settings = MemorySettings(context)
+        val session = settings.session() ?: error("Enable conversation learning first.")
+        recoverQueue(context, settings, session)
+        discoverCompletedChats(context, settings, session)
+        if (!settings.permits(session)) error("Memory consent changed. Try again.")
+        schedule(context, force = true)
+        return status(context)
+    }
+
+    private suspend fun discoverCompletedChats(context: Context, settings: MemorySettings, session: MemorySession) = queueLock.withLock {
+        val db = AppDatabase.getDatabase(context)
+        for (chatId in db.messageDao().memoryCandidateChatIds(session.since)) {
+            if (!settings.permits(session)) return@withLock
+            if (settings.excluded(chatId) || (settings.includesLocal(chatId) && !settings.allowLocal)) continue
+            val messages = db.messageDao().getMessagesForChatSync(chatId)
+            if (messages.lastOrNull()?.role != "assistant") continue
+            val text = transcript(messages, session.since)
+            if (text.isBlank()) continue
+            val revision = revision(text)
+            val old = db.memorySyncDao().entries(session.generation).find { it.chatId == chatId }
+            if (old?.revision != revision && settings.permits(session)) {
+                db.memorySyncDao().put(MemorySync(
+                    chatId = chatId,
+                    generation = session.generation,
+                    revision = revision,
+                    sentRevision = old?.sentRevision.orEmpty(),
+                    documentId = old?.documentId.orEmpty(),
+                    updatedAt = System.currentTimeMillis(),
+                    includesLocal = settings.includesLocal(chatId) || old?.includesLocal == true,
+                ))
+            }
+        }
+    }
+
     suspend fun status(context: Context): MemoryLearningStatus {
         val settings = MemorySettings(context)
         val entries = AppDatabase.getDatabase(context).memorySyncDao().entries(settings.generation)
@@ -218,6 +254,9 @@ object MemoryLearning {
         if (base.any { it in setOf("favorite", "favourite", "prefer", "preferences") }) base += setOf("favorite", "favourite", "prefer")
         return base
     }
+
+    internal fun shouldFlush(pendingCount: Int, plan: String, aged: Boolean, forced: Boolean): Boolean =
+        pendingCount > 0 && (forced || aged || pendingCount >= MemorySettings.batchSize(plan))
 }
 
 class MemorySyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -247,7 +286,7 @@ class MemorySyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
             }
             val pending = dao.entries(generation).filter { it.status != "unavailable" && it.revision != it.sentRevision && !settings.excluded(it.chatId) && (!(it.includesLocal || settings.includesLocal(it.chatId)) || settings.allowLocal) }
             val aged = pending.any { System.currentTimeMillis() - it.updatedAt >= TimeUnit.HOURS.toMillis(6) }
-            val flush = pending.size >= MemorySettings.batchSize(settings.plan) || aged || inputData.getBoolean("force", false)
+            val flush = MemoryLearning.shouldFlush(pending.size, settings.plan, aged, inputData.getBoolean("force", false))
             for (entry in if (flush) pending else emptyList()) {
                 if (!settings.permits(session)) return Result.success()
                 if (settings.excluded(entry.chatId) || ((entry.includesLocal || settings.includesLocal(entry.chatId)) && !settings.allowLocal)) continue

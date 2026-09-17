@@ -98,6 +98,14 @@ interface MessageDao {
     )
     suspend fun recentUserMessages(currentChat: String, since: Long, limit: Int, offset: Int = 0): List<ChatMessage>
 
+    /** Completed Chat conversations containing user text inside the active learning-consent window. */
+    @Query(
+        "SELECT m.chatId FROM chat_messages m INNER JOIN chat_threads t ON t.id = m.chatId " +
+            "WHERE t.kind = 'chat' AND m.role = 'user' AND m.createdAt >= :since " +
+            "GROUP BY m.chatId ORDER BY MAX(m.createdAt) DESC"
+    )
+    suspend fun memoryCandidateChatIds(since: Long): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessage)
 
