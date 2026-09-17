@@ -360,6 +360,15 @@ class ChatViewModel(
         initialValue = emptyList()
     )
 
+    /** Persisted message that is replacing the transient row, if the handoff has started. */
+    val streamHandoffMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
+        streams[chatId]?.handoffMessageId
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null,
+    )
+
     /** Transient status line shown under the streaming bubble (e.g. search failures). */
     val statusNote: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
         streams[chatId]?.statusNote
@@ -1138,6 +1147,11 @@ class ChatViewModel(
         _activeStreams.value = _activeStreams.value.toMutableMap().apply {
             if (state == null) remove(chatId) else put(chatId, state)
         }
+    }
+
+    private fun beginStreamHandoff(chatId: String, messageId: String) {
+        val active = _activeStreams.value[chatId] ?: return
+        setStreamState(chatId, active.copy(handoffMessageId = messageId))
     }
 
     fun sendMessage(content: String, forceMemory: Boolean = false) {
@@ -1990,12 +2004,21 @@ class ChatViewModel(
                 ) {
                     throw IllegalStateException("The model returned no response. Try again.")
                 }
+                beginStreamHandoff(chatId, assistantMessageId)
                 withContext(NonCancellable) {
                     assistantPersisted = persistAssistantMessage(
                         chatId, segments, interrupted = null,
                         replyVersionsJson = archivedReplyVersionsJson,
                         messageId = assistantMessageId,
                     )
+                }
+                if (assistantPersisted) {
+                    // Room may publish on a later frame. Keep the transient row until this exact
+                    // persisted replacement is observable; the UI suppresses one when both exist.
+                    chatRepository.messagesForChat(chatId).first { messages ->
+                        messages.any { it.id == assistantMessageId }
+                    }
+                    setStreamState(chatId, null)
                 }
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }

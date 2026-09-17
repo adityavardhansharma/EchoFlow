@@ -39,6 +39,7 @@ internal fun MessagesPane(
     messages: List<ChatMessage>,
     isStreaming: Boolean,
     segments: List<StreamSegment>,
+    handoffMessageId: String? = null,
     statusNote: String?,
     progressLoading: Boolean,
     modelLoading: Boolean,
@@ -142,7 +143,8 @@ internal fun MessagesPane(
                 item { ThinkingRow() }
             }
         }
-        if (segments.isNotEmpty()) item(key = "streaming") {
+        val persistedHandoffVisible = handoffMessageId != null && messages.any { it.id == handoffMessageId }
+        if (segments.isNotEmpty() && !persistedHandoffVisible) item(key = "streaming") {
             StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen, observeArtifactVersions = observeArtifactVersions)
         }
     }
