@@ -1154,6 +1154,14 @@ class ChatViewModel(
         setStreamState(chatId, active.copy(handoffMessageId = messageId))
     }
 
+    /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
+    private fun clearStreamIfOwned(chatId: String, streamJob: Job?): Boolean {
+        if (streamJob == null || streamJobs[chatId] !== streamJob) return false
+        streamJobs.remove(chatId)
+        setStreamState(chatId, null)
+        return true
+    }
+
     fun sendMessage(content: String, forceMemory: Boolean = false) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
@@ -2021,8 +2029,7 @@ class ChatViewModel(
                     }
                     // Do not expose an idle composer while the active-job guard still points at
                     // this turn. A later turn may replace the map entry while background work runs.
-                    streamJob?.let { streamJobs.remove(chatId, it) }
-                    setStreamState(chatId, null)
+                    clearStreamIfOwned(chatId, streamJob)
                 }
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     queueMemoryLearning(chatId, isLocal || customProvider == "ollama", learningSession)
@@ -2111,8 +2118,7 @@ class ChatViewModel(
                 }
             } finally {
                 KeepAliveService.release(getApplication())
-                streamJob?.let { streamJobs.remove(chatId, it) }
-                setStreamState(chatId, null)
+                clearStreamIfOwned(chatId, streamJob)
             }
         }
     }
