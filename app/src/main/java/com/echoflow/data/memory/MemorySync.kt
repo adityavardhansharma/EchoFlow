@@ -25,6 +25,20 @@ data class MemorySync(
     val includesLocal: Boolean = false,
 )
 
+data class MemoryLearningStatus(
+    val queued: Int = 0,
+    val processing: Int = 0,
+    val ready: Int = 0,
+    val unavailable: Int = 0,
+) {
+    val summary: String get() = buildList {
+        if (queued > 0) add("$queued queued")
+        if (processing > 0) add("$processing processing")
+        if (ready > 0) add("$ready ready")
+        if (unavailable > 0) add("$unavailable needs attention")
+    }.joinToString(" · ").ifBlank { "No conversations queued yet" }
+}
+
 @Dao
 interface MemorySyncDao {
     @Query("SELECT * FROM memory_sync WHERE generation = :generation ORDER BY updatedAt ASC")
@@ -61,9 +75,10 @@ object MemoryLearning {
     }
     /** Starts at an eligible user turn so a pre-consent prompt cannot leak through its later reply. */
     fun transcript(messages: List<ChatMessage>, since: Long): String = messages
-        .filter { it.createdAt >= since && it.role in listOf("user", "assistant") }
-        .dropWhile { it.role != "user" }
-        .takeLast(120).joinToString("\n\n") { "${it.role}: ${MemoryPrivacy.redact(it.content)}" }.takeLast(180_000)
+        // Assistant prose is deliberately excluded: provider extraction previously turned claims
+        // such as "I can retrieve your name" into user memories. User-authored evidence is safer.
+        .filter { it.createdAt >= since && it.role == "user" }
+        .takeLast(120).joinToString("\n\n") { "user: ${MemoryPrivacy.redact(it.content)}" }.takeLast(180_000)
     fun revision(text: String): String = MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
@@ -125,6 +140,19 @@ object MemoryLearning {
         settings.learningNote = ""
         schedule(context, force = true)
     }
+
+    suspend fun status(context: Context): MemoryLearningStatus {
+        val settings = MemorySettings(context)
+        val entries = AppDatabase.getDatabase(context).memorySyncDao().entries(settings.generation)
+        val queuedChats = entries.filter { it.status == "pending" && it.revision != it.sentRevision }.map { it.chatId }.toSet() +
+            settings.pendingQueue().keys
+        return MemoryLearningStatus(
+            queued = queuedChats.size,
+            processing = entries.count { it.status == "processing" },
+            ready = entries.count { it.status == "ready" },
+            unavailable = entries.count { it.status == "unavailable" },
+        )
+    }
     fun reportFailure(context: Context, failure: Exception, note: String = "Couldn't queue learning. Your chat is saved; retry learning in Memory settings.") {
         // Exception messages/causes may contain credentials, URLs or conversation text.
         val safe = Exception("Memory operation failed (${failure.javaClass.simpleName})")
@@ -138,19 +166,40 @@ object MemoryLearning {
         val session = settings.session() ?: return ""
         val accessRevision = settings.accessRevision
         val db = AppDatabase.getDatabase(context)
-        val words = Regex("[\\p{L}\\p{N}]{3,}").findAll(query.lowercase()).map { it.value }.toSet()
-            .minus(setOf("the", "and", "what", "about", "with", "memory", "remember"))
+        val words = queryWords(query)
         if (words.isEmpty()) return ""
-        val result = db.memorySyncDao().entries(session.generation).filter { it.chatId != currentChat && it.status !in listOf("ready", "unavailable") && !settings.excluded(it.chatId) && (!(it.includesLocal || settings.includesLocal(it.chatId)) || settings.allowLocal) }
-            .takeLast(15).flatMap { entry ->
-                val messages = db.messageDao().getMessagesForChatSync(entry.chatId)
-                if (revision(transcript(messages, session.since)) != entry.revision) emptyList()
-                else messages.filter { it.createdAt >= session.since && it.role in listOf("user", "assistant") }
-                    .dropWhile { it.role != "user" }
-                    .map { message -> message to Regex("[\\p{L}\\p{N}]{3,}").findAll(message.content.lowercase()).map { it.value }.toSet().intersect(words).size }
-            }.filter { it.second > 0 }.sortedByDescending { it.second }.take(4)
-            .joinToString("\n") { "Recent unsynced ${it.first.role}: ${MemoryPrivacy.redact(it.first.content).take(900)}" }
+        val result = db.messageDao().recentUserMessages(currentChat, session.since, 240)
+            .asSequence()
+            .filterNot { settings.excluded(it.chatId) }
+            .filter { !settings.includesLocal(it.chatId) || settings.allowLocal }
+            .map { message ->
+                val messageWords = queryWords(message.content)
+                val semanticTypeBonus = MemoryPolicy.durableFacts(message.content).maxOfOrNull { fact ->
+                    when {
+                        "name" in words && fact.kind == "identity" -> 4
+                        ("age" in words || "old" in words) && fact.kind == "demographic" -> 4
+                        ("preference" in words || "favorite" in words) && fact.kind == "preference" -> 3
+                        ("project" in words || "work" in words) && fact.kind == "project" -> 3
+                        else -> 0
+                    }
+                } ?: 0
+                message to (messageWords.intersect(words).size + semanticTypeBonus)
+            }
+            .filter { it.second > 0 }
+            .sortedWith(compareByDescending<Pair<ChatMessage, Int>> { it.second }.thenByDescending { it.first.createdAt })
+            .distinctBy { MemoryPolicy.normalize(it.first.content) }
+            .take(4)
+            .joinToString("\n") { "Earlier user statement: ${MemoryPrivacy.redact(it.first.content).take(900)}" }
         return if (settings.permits(session) && settings.accessRevision == accessRevision) result else ""
+    }
+
+    private fun queryWords(text: String): Set<String> {
+        val base = Regex("[\\p{L}\\p{N}]{3,}").findAll(text.lowercase()).map { it.value }.toMutableSet()
+        base.removeAll(setOf("the", "and", "what", "about", "with", "memory", "remember", "user", "relevant", "facts", "previous", "conversations"))
+        if (base.any { it in setOf("name", "called", "identity") }) base += setOf("name", "called")
+        if (base.any { it in setOf("age", "old", "birth") }) base += setOf("age", "old", "birth")
+        if (base.any { it in setOf("favorite", "favourite", "prefer", "preferences") }) base += setOf("favorite", "favourite", "prefer")
+        return base
     }
 }
 

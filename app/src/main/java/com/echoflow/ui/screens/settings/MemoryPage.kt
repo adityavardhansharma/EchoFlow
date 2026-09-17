@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -66,9 +68,21 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
             if (vm.connected) {
                 Spacer(Modifier.height(16.dp))
                 MemoryBlock("In your conversations", "You decide what crosses the boundary") {
-                    MemorySwitch("Use memory", "Let supported models recall relevant details and save facts you explicitly ask them to remember.", vm.recall, !vm.busy, vm::updateRecall)
+                    MemorySwitch("Use memory", "Let supported models recall relevant details and save durable personal facts you clearly state.", vm.recall, !vm.busy, vm::updateRecall)
                     HorizontalDivider()
                     MemorySwitch("Learn from conversations", "Send new chat text to Supermemory to learn lasting preferences, facts and projects.", vm.learn, !vm.busy) { if (it) consent = true else vm.setLearning(false) }
+                    if (vm.learn) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                                Text("Learning status", style = MaterialTheme.typography.labelLarge)
+                                Text(vm.learningStatus.summary, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = vm::refreshLearningStatus, enabled = !vm.busy) {
+                                Icon(Icons.Default.Refresh, "Refresh learning status")
+                            }
+                        }
+                    }
                     HorizontalDivider()
                     MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy, vm::updateLocal)
                 }
@@ -87,7 +101,7 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
         }
     }
     if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("Let Supermemory learn?") },
-        text = { Text("New user messages and assistant replies are sent to your Supermemory account. Attachments, reasoning and tool results are excluded. Relevant memories may be shared with the model answering you. Existing chat history isn't imported. You can turn this off at any time.") },
+        text = { Text("New user messages are sent to your Supermemory account. High-confidence personal facts may be saved immediately; other learning is processed in the background. Assistant replies, attachments, reasoning and tool results are excluded. Relevant memories may be shared with the model answering you. Existing chat history isn't imported. You can turn this off at any time.") },
         confirmButton = { TextButton(onClick = { vm.setLearning(true); consent = false }) { Text("Enable learning") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("Not now") } })
     if (disconnect) AlertDialog(onDismissRequest = { disconnect = false }, title = { Text("Disconnect Supermemory?") },
         text = { Text("Stops future memory requests and removes the key from this device. Existing data stays in your Supermemory account.") },

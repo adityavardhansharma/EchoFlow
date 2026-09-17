@@ -54,6 +54,9 @@ internal fun MyMemoriesPage(onBack: () -> Unit, vm: MemoryViewModel = viewModel(
             TopAppBar(title = { Text("My Memories") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    IconButton(onClick = vm::scanCleanup, enabled = !vm.busy && vm.connected) {
+                        Icon(Icons.Default.CleaningServices, "Find duplicate and low-quality memories")
+                    }
                     IconButton(onClick = { vm.refresh() }, enabled = !vm.busy && vm.connected) { Icon(Icons.Default.Refresh, "Refresh memories") }
                     IconButton(onClick = { edit(null) }, enabled = !vm.busy && vm.connected) { Icon(Icons.Default.Add, "Add a memory") }
                 })
@@ -190,6 +193,24 @@ internal fun MyMemoriesPage(onBack: () -> Unit, vm: MemoryViewModel = viewModel(
                 }
             }
         }
+    }
+    vm.cleanupPlan?.takeUnless { it.isEmpty }?.let { plan ->
+        AlertDialog(
+            onDismissRequest = vm::dismissCleanup,
+            title = { Text("Clean up memories?") },
+            text = {
+                Text(buildString {
+                    append("This will forget ${plan.discard.size} low-quality ")
+                    append(if (plan.discard.size == 1) "memory" else "memories")
+                    append(". ")
+                    if (plan.duplicateGroups > 0) append("One copy from each of ${plan.duplicateGroups} duplicate groups will be kept. ")
+                    if (plan.metaMemories > 0) append("${plan.metaMemories} assistant-meta memories will be removed. ")
+                    append("Source conversations in Supermemory are not deleted and may recreate facts later.")
+                })
+            },
+            confirmButton = { TextButton(onClick = vm::applyCleanup, enabled = !vm.busy) { Text("Clean up") } },
+            dismissButton = { TextButton(onClick = vm::dismissCleanup) { Text("Cancel") } },
+        )
     }
 }
 

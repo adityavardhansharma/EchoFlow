@@ -37,6 +37,8 @@ class MemoryViewModel internal constructor(
     var learn by mutableStateOf(settings.learn); private set
     var local by mutableStateOf(settings.allowLocal); private set
     var learningNote by mutableStateOf(settings.learningNote); private set
+    var learningStatus by mutableStateOf(MemoryLearningStatus()); private set
+    var cleanupPlan by mutableStateOf<MemoryPolicy.CleanupPlan?>(null); private set
     private var page = 1
     private var pendingActions = 0
     private val actions = Mutex()
@@ -48,6 +50,7 @@ class MemoryViewModel internal constructor(
                 learningNote = it.learningNote
             }
         }
+        viewModelScope.launch { refreshLearningStatusDirect() }
     }
 
     private fun client(): SupermemoryClient {
@@ -95,7 +98,7 @@ class MemoryViewModel internal constructor(
         memories = result.entries; hasMore = result.hasMore; page = 1; activeQuery = query; loaded = true
     }
     private suspend fun loadProfile() {
-        try { profile = client().profile(); profileNote = null }
+        try { profile = client().profile(); settings.cacheProfile(profile); profileNote = null }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { profileNote = "Couldn't refresh your profile. Any details below are from the last successful refresh." }
     }
@@ -109,7 +112,7 @@ class MemoryViewModel internal constructor(
         }
     }
     fun refreshBilling() = action { loadBilling() }
-    fun refresh() = action { loadList(); loadProfile(); loadSuggestions() }
+    fun refresh() = action { loadList(); loadProfile(); loadSuggestions(); refreshLearningStatusDirect() }
     fun more() = action {
         if (!hasMore || activeQuery.isNotBlank()) return@action
         val result = client().list(page + 1)
@@ -117,6 +120,7 @@ class MemoryViewModel internal constructor(
     }
     fun search(query: String) = action { loadList(query.trim()) }
     private suspend fun refreshAfterWrite() {
+        settings.invalidateProfile()
         try { loadList() }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { notice = "Your change was saved. Refresh to update this list." }
@@ -132,6 +136,7 @@ class MemoryViewModel internal constructor(
     }
     fun forget(memory: RemoteMemory, onForgotten: () -> Unit = {}) = action {
         client().forget(memory.id)
+        settings.invalidateProfile()
         memories = memories.filterNot { it.id == memory.id }
         onForgotten(); notice = "Memory forgotten."
         loadProfile()
@@ -145,6 +150,7 @@ class MemoryViewModel internal constructor(
     private fun resetLibrary() {
         profile = MemoryProfile(emptyList(), emptyList()); memories = emptyList(); suggestions = emptyList()
         profileNote = null; suggestionsNote = null; activeQuery = ""; loaded = false; hasMore = false; page = 1
+        cleanupPlan = null; learningStatus = MemoryLearningStatus()
     }
     fun disconnect() = action {
         settings.disconnect(); connected = false; learn = false; billing = null; billingNote = null
@@ -155,8 +161,49 @@ class MemoryViewModel internal constructor(
     fun setLearning(enabled: Boolean) = action {
         settings.learn = enabled; learn = settings.learn
         if (enabled) MemoryLearning.schedule(getApplication()) else MemoryLearning.cancel(getApplication())
+        refreshLearningStatusDirect()
     }
     fun updateRecall(enabled: Boolean) = action { settings.recall = enabled; recall = settings.recall }
     fun updateLocal(enabled: Boolean) = action { settings.allowLocal = enabled; local = settings.allowLocal }
-    fun retryLearning() = action { MemoryLearning.retry(getApplication()) }
+    fun retryLearning() = action { MemoryLearning.retry(getApplication()); refreshLearningStatusDirect() }
+
+    fun refreshLearningStatus() = action { refreshLearningStatusDirect() }
+    private suspend fun refreshLearningStatusDirect() {
+        learningStatus = if (settings.connected) MemoryLearning.status(getApplication()) else MemoryLearningStatus()
+    }
+
+    /** Reads the complete library first; deletion happens only after a separate confirmation. */
+    fun scanCleanup() = action {
+        val all = mutableListOf<RemoteMemory>()
+        var nextPage = 1
+        var more: Boolean
+        do {
+            val result = client().list(nextPage++)
+            all += result.entries
+            more = result.hasMore
+        } while (more && nextPage <= 100)
+        cleanupPlan = MemoryPolicy.cleanupPlan(all.distinctBy { it.id })
+        if (cleanupPlan?.isEmpty == true) notice = "No duplicate or assistant-meta memories found."
+    }
+
+    fun dismissCleanup() { cleanupPlan = null }
+    fun applyCleanup() = action {
+        val plan = cleanupPlan ?: return@action
+        var removed = 0
+        var failed = 0
+        plan.discard.forEach { memory ->
+            try { client().forget(memory.id); removed++ }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { failed++ }
+        }
+        settings.invalidateProfile()
+        cleanupPlan = null
+        loadList()
+        loadProfile()
+        notice = when {
+            failed == 0 -> "Cleaned up $removed low-quality ${if (removed == 1) "memory" else "memories"}."
+            removed == 0 -> "Cleanup couldn't remove any memories. Try again."
+            else -> "Cleaned up $removed memories; $failed couldn't be removed. Try again."
+        }
+    }
 }
