@@ -20,6 +20,10 @@ object MemoryPolicy {
             "as i (?:said|mentioned) before|from (?:our|the) (?:last|previous) (?:chat|conversation)|" +
             "continue where we left off|we discussed (?:before|earlier))\\b"
     )
+    private val personalizableChoice = Regex(
+        "(?i)\\b(?:recommend|suggest|recommendation|what should i (?:watch|read|play|buy|visit|choose|pick)|" +
+            "help me (?:choose|pick|decide)|which (?:one|movie|film|show|series|book|game|product|place) should i)\\b"
+    )
     private val denial = Regex(
         "(?i)\\b(?:i (?:do not|don't) know|i (?:do not|don't|cannot|can't) have access|" +
             "i (?:cannot|can't) tell|you (?:have not|haven't) told me|not in (?:my |the )?(?:saved )?memor)"
@@ -30,7 +34,8 @@ object MemoryPolicy {
         val correctingDenial = previousAssistant?.let { denial.containsMatchIn(it.content) } == true &&
             Regex("(?i)^(?:no[,. ]*)?(?:u|you) do\\b|\\bi told you\\b|\\byou know\\b|\\bremember\\b")
                 .containsMatchIn(text)
-        if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) && !correctingDenial) return null
+        if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) &&
+            !personalizableChoice.containsMatchIn(text) && !correctingDenial) return null
         return focusedQuery(text)
     }
 
@@ -47,6 +52,8 @@ object MemoryPolicy {
                 "user profile: identity, preferences, work, interests, relationships, and ongoing projects"
             "favorite" in value || "favourite" in value || "my usual" in value ->
                 "user's relevant preferences and usual choices: $prompt"
+            personalizableChoice.containsMatchIn(value) ->
+                "preferences, prior experiences, consumed or owned items, rejections, and constraints relevant to: $prompt"
             else -> "relevant facts from the user's previous conversations: $prompt"
         }.take(1000)
     }

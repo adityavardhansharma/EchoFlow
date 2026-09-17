@@ -13,7 +13,12 @@ class MemoryPolicyTest {
         assertNotNull(MemoryPolicy.recallQuery("what do you know about me?", null))
         assertNotNull(MemoryPolicy.recallQuery("what are my preferences?", null))
         assertNotNull(MemoryPolicy.recallQuery("of people I know", null))
+        assertEquals(
+            "preferences, prior experiences, consumed or owned items, rejections, and constraints relevant to: suggest sci-fi movies",
+            MemoryPolicy.recallQuery("suggest sci-fi movies", null),
+        )
         assertNull(MemoryPolicy.recallQuery("any big birthdays today?", null))
+        assertNull(MemoryPolicy.recallQuery("Explain the history of science fiction", null))
         assertNull(MemoryPolicy.recallQuery("Explain Kotlin coroutines", null))
     }
 

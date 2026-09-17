@@ -65,7 +65,7 @@ class MemoryTools(
     is available; use Settings > Memory.
 """
         val functions: List<Map<String, Any>> = listOf(
-            definition("search_memory", "Search persistent memory for user-specific facts or earlier-conversation context. Call before answering questions about what the user previously shared, including identity, preferences, people, background, ongoing work and prior discussions. Do not call for self-contained requests or facts visible in this chat.", "query"),
+            definition("search_memory", "Search persistent memory for user-specific facts or earlier-conversation context. Call when personal history could change an answer, recommendation, ranking, exclusion or decision, including identity, preferences, experiences, consumed items, constraints, people, projects and prior discussions. Do not call for self-contained requests or facts visible in this chat.", "query"),
             definition("remember_memory", "Save a concise, durable, user-authored personal fact for future conversations. Use for explicit remember requests and clearly stated durable facts; never save assistant claims, guesses, temporary details or secrets.", "content"),
         )
         private fun definition(name: String, description: String, argument: String): Map<String, Any> = mapOf(
