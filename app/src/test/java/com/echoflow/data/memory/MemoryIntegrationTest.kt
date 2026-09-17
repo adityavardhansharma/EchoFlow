@@ -109,6 +109,25 @@ class MemoryIntegrationTest {
         assertEquals("automatic", requests.single().second.getJSONArray("memories").getJSONObject(0)
             .getJSONObject("metadata").getString("source"))
     }
+    @Test fun `revoking learning stops remaining automatic fact requests`() = runBlocking {
+        val settings = settings().apply { learn = true }
+        val session = settings.session()!!
+        val client = api { path ->
+            if (path == "/v4/search") {
+                settings.learn = false
+                """{"results":[]}"""
+            } else """{"memories":[{"id":"m1","memory":"saved"}]}"""
+        }
+        val result = MemoryTools(context, "chat", false, settings, client).rememberFacts(
+            listOf(
+                MemoryPolicy.Fact("identity", "The user's name is Aditya."),
+                MemoryPolicy.Fact("demographic", "The user is 22 years old."),
+            ),
+            session,
+        ) {}
+        assertFalse(result.success)
+        assertEquals(listOf("/v4/search"), requests.map { it.first })
+    }
     @Test fun `search removes assistant meta memories and duplicates`() = runBlocking {
         val found = api { """{"results":[
             {"id":"m1","memory":"The assistant can retrieve the user's name."},

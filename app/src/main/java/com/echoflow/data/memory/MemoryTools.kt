@@ -170,8 +170,19 @@ class MemoryTools(
         val id = UUID.randomUUID().toString()
         emit(StreamChunk.MemoryActivity(id, "Learning ${values.size} ${if (values.size == 1) "fact" else "facts"}…", true))
         return try {
-            val newValues = values.filter { candidate ->
-                api.search(candidate).none { MemoryPolicy.normalize(it.text) == MemoryPolicy.normalize(candidate) }
+            val newValues = mutableListOf<String>()
+            for (candidate in values) {
+                if (!permittedToLearn(session)) {
+                    emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                    return FactSaveResult(false)
+                }
+                val alreadyStored = api.search(candidate)
+                    .any { MemoryPolicy.normalize(it.text) == MemoryPolicy.normalize(candidate) }
+                if (!permittedToLearn(session)) {
+                    emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                    return FactSaveResult(false)
+                }
+                if (!alreadyStored) newValues += candidate
             }
             if (!permittedToLearn(session)) {
                 emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
