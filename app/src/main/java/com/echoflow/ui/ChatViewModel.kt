@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.room.withTransaction
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import com.echoflow.data.memory.*
@@ -1892,6 +1893,8 @@ class ChatViewModel(
 
             val segments = mutableListOf<StreamSegment>()
             var statusNote: String? = null
+            val assistantMessageId = UUID.randomUUID().toString()
+            var assistantPersisted = false
             // Echo Adviser/Fusion are cost-heavy and can take a while; label the keep-alive
             // notification and ping the user when they finish in the background (like research).
             val echoLabel = when {
@@ -1987,10 +1990,13 @@ class ChatViewModel(
                 ) {
                     throw IllegalStateException("The model returned no response. Try again.")
                 }
-                persistAssistantMessage(
-                    chatId, segments, interrupted = null,
-                    replyVersionsJson = archivedReplyVersionsJson,
-                )
+                withContext(NonCancellable) {
+                    assistantPersisted = persistAssistantMessage(
+                        chatId, segments, interrupted = null,
+                        replyVersionsJson = archivedReplyVersionsJson,
+                        messageId = assistantMessageId,
+                    )
+                }
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }
                     catch (e: CancellationException) { throw e }
@@ -2037,33 +2043,39 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 // User tapped Stop — keep whatever streamed so far and surface no error banner.
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
-                withContext(NonCancellable) {
-                    persistAssistantMessage(
-                        chatId, segments, interrupted = null, stopped = true,
-                        replyVersionsJson = archivedReplyVersionsJson,
-                    )
+                if (!assistantPersisted) {
+                    withContext(NonCancellable) {
+                        persistAssistantMessage(
+                            chatId, segments, interrupted = null, stopped = true,
+                            replyVersionsJson = archivedReplyVersionsJson,
+                            messageId = assistantMessageId,
+                        )
+                    }
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
-                if (editingUserId != null) {
-                    // A transport/provider failure is not an answer version. Put the replaced
-                    // answer back exactly as it was and keep edit mode ready for a retry.
-                    withContext(NonCancellable) {
-                        val assistantToRestore = replacedAssistant
-                        if (assistantToRestore != null) {
-                            chatRepository.insertMessage(assistantToRestore)
+                if (!assistantPersisted) {
+                    if (editingUserId != null) {
+                        // A transport/provider failure is not an answer version. Put the replaced
+                        // answer back exactly as it was and keep edit mode ready for a retry.
+                        withContext(NonCancellable) {
+                            val assistantToRestore = replacedAssistant
+                            if (assistantToRestore != null) {
+                                chatRepository.insertMessage(assistantToRestore)
+                            }
                         }
+                        _editingUserMessageId.value = editingUserId
+                    } else {
+                        persistAssistantMessage(
+                            chatId,
+                            segments,
+                            interrupted = e.message,
+                            messageId = assistantMessageId,
+                        )
                     }
-                    _editingUserMessageId.value = editingUserId
-                } else {
-                    persistAssistantMessage(
-                        chatId,
-                        segments,
-                        interrupted = e.message,
-                    )
                 }
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
@@ -2407,11 +2419,13 @@ class ChatViewModel(
         interrupted: String?,
         stopped: Boolean = false,
         replyVersionsJson: String? = null,
-    ) {
-        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
-        messageDao.insertMessage(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
+        messageId: String = UUID.randomUUID().toString(),
+    ): Boolean {
+        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return false
+        val database = AppDatabase.getDatabase(getApplication())
+        database.withTransaction {
+            messageDao.insertMessage(ChatMessage(
+                id = messageId,
                 chatId = chatId,
                 role = "assistant",
                 content = draft.content,
@@ -2421,9 +2435,10 @@ class ChatViewModel(
                 citationsJson = ToolEventJson.citationsToJson(draft.citations),
                 segmentsJson = ToolEventJson.segmentsToJson(draft.segments),
                 replyVersionsJson = replyVersionsJson,
-            )
-        )
-        chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
+            ))
+            chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
+        }
+        return true
     }
     // -------------------------------------------------------------------------------
     // Local model + client search: prompt-based tool protocol
