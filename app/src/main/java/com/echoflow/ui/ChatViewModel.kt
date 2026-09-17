@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.room.withTransaction
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import com.echoflow.data.memory.*
@@ -357,6 +358,15 @@ class ChatViewModel(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
+    )
+
+    /** Persisted message that is replacing the transient row, if the handoff has started. */
+    val streamHandoffMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
+        streams[chatId]?.handoffMessageId
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null,
     )
 
     /** Transient status line shown under the streaming bubble (e.g. search failures). */
@@ -1139,6 +1149,19 @@ class ChatViewModel(
         }
     }
 
+    private fun beginStreamHandoff(chatId: String, messageId: String) {
+        val active = _activeStreams.value[chatId] ?: return
+        setStreamState(chatId, active.copy(handoffMessageId = messageId))
+    }
+
+    /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
+    private fun clearStreamIfOwned(chatId: String, streamJob: Job?): Boolean {
+        if (streamJob == null || streamJobs[chatId] !== streamJob) return false
+        streamJobs.remove(chatId)
+        setStreamState(chatId, null)
+        return true
+    }
+
     fun sendMessage(content: String, forceMemory: Boolean = false) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
@@ -1508,7 +1531,8 @@ class ChatViewModel(
                     return@launch
                 }
             }
-            coroutineContext[Job]?.let { streamJobs[chatId] = it }
+            val streamJob = coroutineContext[Job]
+            streamJob?.let { streamJobs[chatId] = it }
 
             // Carried into the new assistant row so prior answers survive regeneration.
             var archivedReplyVersionsJson: String? = null
@@ -1892,6 +1916,8 @@ class ChatViewModel(
 
             val segments = mutableListOf<StreamSegment>()
             var statusNote: String? = null
+            val assistantMessageId = UUID.randomUUID().toString()
+            var assistantPersisted = false
             // Echo Adviser/Fusion are cost-heavy and can take a while; label the keep-alive
             // notification and ping the user when they finish in the background (like research).
             val echoLabel = when {
@@ -1987,14 +2013,26 @@ class ChatViewModel(
                 ) {
                     throw IllegalStateException("The model returned no response. Try again.")
                 }
-                persistAssistantMessage(
-                    chatId, segments, interrupted = null,
-                    replyVersionsJson = archivedReplyVersionsJson,
-                )
+                beginStreamHandoff(chatId, assistantMessageId)
+                withContext(NonCancellable) {
+                    assistantPersisted = persistAssistantMessage(
+                        chatId, segments, interrupted = null,
+                        replyVersionsJson = archivedReplyVersionsJson,
+                        messageId = assistantMessageId,
+                    )
+                }
+                if (assistantPersisted) {
+                    // Room may publish on a later frame. Keep the transient row until this exact
+                    // persisted replacement is observable; the UI suppresses one when both exist.
+                    chatRepository.messagesForChat(chatId).first { messages ->
+                        messages.any { it.id == assistantMessageId }
+                    }
+                    // Do not expose an idle composer while the active-job guard still points at
+                    // this turn. A later turn may replace the map entry while background work runs.
+                    clearStreamIfOwned(chatId, streamJob)
+                }
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
-                    try { MemoryLearning.queue(getApplication(), chatId, isLocal || customProvider == "ollama", learningSession) }
-                    catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { MemoryLearning.reportFailure(getApplication(), e) }
+                    queueMemoryLearning(chatId, isLocal || customProvider == "ollama", learningSession)
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
                 if (videoGenMode) {
@@ -2037,33 +2075,39 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 // User tapped Stop — keep whatever streamed so far and surface no error banner.
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
-                withContext(NonCancellable) {
-                    persistAssistantMessage(
-                        chatId, segments, interrupted = null, stopped = true,
-                        replyVersionsJson = archivedReplyVersionsJson,
-                    )
+                if (!assistantPersisted) {
+                    withContext(NonCancellable) {
+                        persistAssistantMessage(
+                            chatId, segments, interrupted = null, stopped = true,
+                            replyVersionsJson = archivedReplyVersionsJson,
+                            messageId = assistantMessageId,
+                        )
+                    }
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
-                if (editingUserId != null) {
-                    // A transport/provider failure is not an answer version. Put the replaced
-                    // answer back exactly as it was and keep edit mode ready for a retry.
-                    withContext(NonCancellable) {
-                        val assistantToRestore = replacedAssistant
-                        if (assistantToRestore != null) {
-                            chatRepository.insertMessage(assistantToRestore)
+                if (!assistantPersisted) {
+                    if (editingUserId != null) {
+                        // A transport/provider failure is not an answer version. Put the replaced
+                        // answer back exactly as it was and keep edit mode ready for a retry.
+                        withContext(NonCancellable) {
+                            val assistantToRestore = replacedAssistant
+                            if (assistantToRestore != null) {
+                                chatRepository.insertMessage(assistantToRestore)
+                            }
                         }
+                        _editingUserMessageId.value = editingUserId
+                    } else {
+                        persistAssistantMessage(
+                            chatId,
+                            segments,
+                            interrupted = e.message,
+                            messageId = assistantMessageId,
+                        )
                     }
-                    _editingUserMessageId.value = editingUserId
-                } else {
-                    persistAssistantMessage(
-                        chatId,
-                        segments,
-                        interrupted = e.message,
-                    )
                 }
                 if (echoLabel != null) {
                     ReplyNotifications.notifyReplyReady(
@@ -2074,8 +2118,20 @@ class ChatViewModel(
                 }
             } finally {
                 KeepAliveService.release(getApplication())
-                streamJobs.remove(chatId)
-                setStreamState(chatId, null)
+                clearStreamIfOwned(chatId, streamJob)
+            }
+        }
+    }
+
+    /** Queue durable learning without extending the visible chat-send lifecycle. */
+    private fun queueMemoryLearning(chatId: String, local: Boolean, session: MemorySession?) {
+        viewModelScope.launch {
+            try {
+                MemoryLearning.queue(getApplication(), chatId, local, session)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                MemoryLearning.reportFailure(getApplication(), e)
             }
         }
     }
@@ -2407,11 +2463,13 @@ class ChatViewModel(
         interrupted: String?,
         stopped: Boolean = false,
         replyVersionsJson: String? = null,
-    ) {
-        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return
-        messageDao.insertMessage(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
+        messageId: String = UUID.randomUUID().toString(),
+    ): Boolean {
+        val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return false
+        val database = AppDatabase.getDatabase(getApplication())
+        database.withTransaction {
+            messageDao.insertMessage(ChatMessage(
+                id = messageId,
                 chatId = chatId,
                 role = "assistant",
                 content = draft.content,
@@ -2421,9 +2479,10 @@ class ChatViewModel(
                 citationsJson = ToolEventJson.citationsToJson(draft.citations),
                 segmentsJson = ToolEventJson.segmentsToJson(draft.segments),
                 replyVersionsJson = replyVersionsJson,
-            )
-        )
-        chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
+            ))
+            chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
+        }
+        return true
     }
     // -------------------------------------------------------------------------------
     // Local model + client search: prompt-based tool protocol
