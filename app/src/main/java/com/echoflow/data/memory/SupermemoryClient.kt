@@ -62,11 +62,20 @@ class SupermemoryClient(
         .addPathSegment(value).build().encodedPath.removePrefix("/")
     suspend fun profile(): MemoryProfile {
         val profile = request("/v4/profile", body = scoped()).getJSONObject("profile")
-        return MemoryProfile(profile.optJSONArray("static").strings(), profile.optJSONArray("dynamic").strings())
+        return MemoryProfile(
+            profile.optJSONArray("static").strings().map(MemoryPrivacy::redact).filterNot(MemoryPolicy::isAssistantMetaMemory)
+                .distinctBy(MemoryPolicy::normalize),
+            profile.optJSONArray("dynamic").strings().map(MemoryPrivacy::redact).filterNot(MemoryPolicy::isAssistantMetaMemory)
+                .distinctBy(MemoryPolicy::normalize),
+        )
     }
     suspend fun search(query: String): List<RemoteMemory> = entries(request("/v4/search", body = scoped()
-        .put("q", query.take(2000)).put("searchMode", "memories").put("limit", 8).put("threshold", 0.65)
-        .put("include", JSONObject().put("documents", true))).getJSONArray("results")).filterNot { it.forgotten }
+        .put("q", query.take(2000)).put("searchMode", "memories").put("limit", 8).put("threshold", 0.45)
+        .put("rerank", true).put("rewriteQuery", true)
+        .put("include", JSONObject().put("documents", true))).getJSONArray("results"))
+        .map { it.copy(text = MemoryPrivacy.redact(it.text)) }
+        .filterNot { it.forgotten || MemoryPolicy.isAssistantMetaMemory(it.text) }
+        .distinctBy { MemoryPolicy.normalize(it.text) }
     suspend fun list(page: Int = 1): MemoryPage {
         val result = request("/v4/memories/list", body = JSONObject().put("containerTags", JSONArray().put(space))
             .put("page", page).put("limit", 30).put("sort", "updatedAt").put("order", "desc"))
@@ -74,10 +83,13 @@ class SupermemoryClient(
         return MemoryPage(entries(result.getJSONArray("memoryEntries")).filterNot { it.forgotten }, page < (pagination?.optInt("totalPages", page) ?: page))
     }
     suspend fun add(text: String, permanent: Boolean = false): JSONObject {
-        require(MemoryPrivacy.redact(text) == text) { "Remove credentials before saving a memory." }
+        return addAll(listOf(text), permanent, source = "explicit")
+    }
+    suspend fun addAll(texts: List<String>, permanent: Boolean = false, source: String = "automatic"): JSONObject {
+        require(texts.isNotEmpty() && texts.all { it.isNotBlank() && MemoryPrivacy.redact(it) == it }) { "Remove credentials before saving a memory." }
         val response = request("/v4/memories", body = scoped()
-        .put("memories", JSONArray().put(JSONObject().put("content", text).put("isStatic", permanent)
-            .put("metadata", JSONObject().put("application", "echoflow").put("source", "explicit")))))
+        .put("memories", JSONArray(texts.map { text -> JSONObject().put("content", text).put("isStatic", permanent)
+            .put("metadata", JSONObject().put("application", "echoflow").put("source", source)) })))
         check((response.optJSONArray("memories")?.length() ?: 0) > 0) { "Supermemory did not confirm that the memory was created. Refresh before trying again." }
         return response
     }
@@ -91,7 +103,7 @@ class SupermemoryClient(
     suspend fun document(id: String) = request("/v3/documents/${segment(id)}", "GET")
     suspend fun ingest(chatId: String, transcript: String, date: String): String = request("/v3/documents", body = scoped()
         .put("content", transcript).put("customId", "echoflow-${MemoryLearning.revision(space).take(12)}-$chatId").put("dreaming", "dynamic").put("documentDate", date)
-        .put("entityContext", "Conversations between one EchoFlow user and an assistant. Learn personal facts, recurring interests, preferences, ongoing projects and confirmed decisions. Repeated cricket questions can indicate an interest in cricket; individual scores are disposable. Treat assistant suggestions as unconfirmed until the user accepts them. Do not infer identity from a single general question. Never retain credentials.")
+        .put("entityContext", "User-authored statements from one EchoFlow user. Extract only facts the user explicitly states about themself, people they know, preferences, ongoing projects, and confirmed decisions. Never create facts about what an assistant knows, stores, remembers, retrieves, or can do. Do not infer identity from a general question, and never retain credentials.")
         .put("metadata", JSONObject().put("application", "echoflow").put("chatId", chatId))).getString("id")
     suspend fun billing(): MemoryBilling {
         val summary = request("/v3/auth/billing", "GET")

@@ -49,6 +49,9 @@ class MemoryIntegrationTest {
         assertEquals("EchoFlow project decisions", body.getString("q"))
         assertEquals("memories", body.getString("searchMode"))
         assertEquals(8, body.getInt("limit"))
+        assertEquals(0.45, body.getDouble("threshold"), 0.001)
+        assertTrue(body.getBoolean("rerank"))
+        assertTrue(body.getBoolean("rewriteQuery"))
         assertEquals("test-user", body.getString("containerTag"))
     }
     @Test fun `explicit save is immediate deduplicated and only reports success after request`() = runBlocking {
@@ -85,7 +88,7 @@ class MemoryIntegrationTest {
         assertEquals(3, MemorySettings.batchSize("api_pro")); assertEquals(1, MemorySettings.batchSize("max"))
         assertEquals(1, MemorySettings.batchSize("scale")); assertEquals(1, MemorySettings.batchSize("enterprise"))
     }
-    @Test fun `transcript excludes old content reasoning tools and attachment text`() {
+    @Test fun `transcript contains only eligible user authored text`() {
         val old = ChatMessage("1", "chat", "user", "old secret", 1)
         val current = ChatMessage("2", "chat", "assistant", "Visible reply", 3,
             reasoning = "private reasoning", toolEventsJson = "tool content", attachmentsJson = "attachment text")
@@ -93,21 +96,99 @@ class MemoryIntegrationTest {
         val text = MemoryLearning.transcript(listOf(old, current, system), 2)
         assertEquals("", text) // The reply belongs to a pre-consent user turn.
         val eligible = ChatMessage("4", "chat", "user", "Current question", 2)
-        assertEquals("user: Current question\n\nassistant: Visible reply",
+        assertEquals("user: Current question",
             MemoryLearning.transcript(listOf(old, eligible, current, system), 2))
         assertEquals(MemoryLearning.revision(text), MemoryLearning.revision(text))
         assertNotEquals(MemoryLearning.revision(text), MemoryLearning.revision("changed"))
+    }
+    @Test fun `bulk automatic facts use one request`() = runBlocking {
+        val api = api { """{"memories":[{"id":"m1","memory":"Name"},{"id":"m2","memory":"Age"}]}""" }
+        api.addAll(listOf("The user's name is Aditya.", "The user is 22 years old."))
+        assertEquals(1, requests.size)
+        assertEquals(2, requests.single().second.getJSONArray("memories").length())
+        assertEquals("automatic", requests.single().second.getJSONArray("memories").getJSONObject(0)
+            .getJSONObject("metadata").getString("source"))
+    }
+    @Test fun `revoking learning stops remaining automatic fact requests`() = runBlocking {
+        val settings = settings().apply { learn = true }
+        val session = settings.session()!!
+        val client = api { path ->
+            if (path == "/v4/search") {
+                settings.learn = false
+                """{"results":[]}"""
+            } else """{"memories":[{"id":"m1","memory":"saved"}]}"""
+        }
+        val result = MemoryTools(context, "chat", false, settings, client).rememberFacts(
+            listOf(
+                MemoryPolicy.Fact("identity", "The user's name is Aditya."),
+                MemoryPolicy.Fact("demographic", "The user is 22 years old."),
+            ),
+            session,
+        ) {}
+        assertFalse(result.success)
+        assertEquals(listOf("/v4/search"), requests.map { it.first })
+    }
+    @Test fun `search removes assistant meta memories and duplicates`() = runBlocking {
+        val found = api { """{"results":[
+            {"id":"m1","memory":"The assistant can retrieve the user's name."},
+            {"id":"m2","memory":"The user's name is Aditya."},
+            {"id":"m3","memory":"The user's name is Aditya!"}
+        ]}""" }.search("name")
+        assertEquals(listOf("The user's name is Aditya."), found.map { it.text })
+    }
+    @Test fun `identity recall combines profile and memory search`() = runBlocking {
+        val tools = MemoryTools(context, "chat", false, settings(), api { path -> when (path) {
+            "/v4/profile" -> """{"profile":{"static":["The user's name is Aditya."],"dynamic":[]}}"""
+            else -> """{"results":[]}"""
+        } })
+        val result = tools.execute("search_memory", """{"query":"user's name or preferred name"}""") {}
+        assertEquals(listOf("/v4/profile", "/v4/search"), requests.map { it.first })
+        assertTrue(result.contains("Aditya"))
+    }
+    @Test fun `assistant meta claim is rejected before a write`() = runBlocking {
+        val tools = MemoryTools(context, "chat", false, settings(), api())
+        val result = tools.execute("remember_memory", """{"content":"The assistant can retrieve my name."}""") {}
+        assertTrue(result.contains("Do not save claims"))
+        assertTrue(requests.isEmpty())
     }
     @Test fun `unavailable encrypted storage fails closed`() {
         val settings = MemorySettings(null)
         assertFalse(settings.connected)
         assertThrows(IllegalStateException::class.java) { settings.connect("key", "space") }
     }
+    @Test fun `profile cache is bounded and cleared on reconnect`() {
+        val prefs = context.getSharedPreferences("memory-cache-test", Context.MODE_PRIVATE)
+        val settings = MemorySettings(prefs)
+        settings.disconnect(); settings.connect("key", "space")
+        settings.cacheProfile(MemoryProfile(listOf("Name is Aditya"), listOf("Building EchoFlow")))
+        assertEquals(listOf("Name is Aditya"), settings.cachedProfile()!!.stable)
+        assertNull(settings.cachedProfile(maxAgeMs = -1))
+        settings.connect("new-key", "space")
+        assertNull(settings.cachedProfile())
+    }
+    @Test fun `stale profile request cannot repopulate cache after disconnect`() {
+        val prefs = context.getSharedPreferences("memory-stale-cache-test", Context.MODE_PRIVATE)
+        val settings = MemorySettings(prefs)
+        settings.disconnect(); settings.connect("key", "space")
+        val generation = settings.generation
+        val revision = settings.accessRevision
+        settings.disconnect()
+        assertFalse(settings.cacheProfileIfCurrent(MemoryProfile(listOf("Old profile"), emptyList()), generation, revision))
+        assertNull(settings.cachedProfile())
+    }
     @Test fun `known credentials are redacted without erasing ordinary project context`() {
         val text = "I'm building EchoFlow. api_key=abcdefgh12345678 and Bearer abcdefgh1234567890"
         val redacted = MemoryPrivacy.redact(text)
         assertTrue(redacted.contains("building EchoFlow"))
         assertFalse(redacted.contains("abcdefgh"))
+    }
+    @Test fun `retrieved profile and memories redact legacy credentials`() = runBlocking {
+        val client = api { path -> when (path) {
+            "/v4/profile" -> """{"profile":{"static":["api_key=abcdefgh12345678"],"dynamic":[]}}"""
+            else -> """{"results":[{"id":"m1","memory":"Bearer abcdefgh1234567890"}]}"""
+        } }
+        assertFalse(client.profile().stable.single().contains("abcdefgh"))
+        assertFalse(client.search("credential").single().text.contains("abcdefgh"))
     }
     @Test fun `empty creation response never becomes a saved confirmation`() = runBlocking {
         val events = mutableListOf<StreamChunk>()

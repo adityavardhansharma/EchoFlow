@@ -25,9 +25,12 @@ coming-soon destination, not an active service. There is no EchoFlow backend.
 ## Retrieval and writes
 
 Ordinary tool-capable chats receive `search_memory(query)` and `remember_memory(content)`.
-The system instruction asks the model to retrieve only when personal context is relevant
-or the user explicitly requests recall. Self-contained questions need no memory request.
-Explicit remember requests use direct memory creation, not the background batch.
+The system instruction gives mandatory retrieval cases for personal facts, prior-chat references
+and corrective follow-ups, while self-contained questions need no memory request. A bounded local
+policy also retrieves before generation for unmistakable personal-memory intent, so basic identity
+questions do not depend solely on model tool choice. Memory and web search can both run when a
+request combines personal and current information. Explicit remember requests use direct memory
+creation, not the background batch.
 Native transport coverage: OpenRouter, OpenAI Responses, OpenAI-compatible chat completions,
 Claude, Gemini and Ollama (the existing endpoint tool-calling opt-in still applies).
 Specialised Echo/Artifact flows do not automatically receive client-side memory tools;
@@ -39,11 +42,17 @@ Retrieved text is untrusted historical data; current user corrections take prece
 Memory failures become tool results so the provider can still answer. Models that reject
 native tool schemas may require a tool-capable model or the explicit recall path.
 
-Search sends a focused query to `/v4/search` in `memories` mode, with a result limit and
-threshold. It does not fetch/inject the full profile each turn. Up to four keyword-ranked
-excerpts from recent eligible unsynced chats bridge ingestion lag. This local fallback is
-bounded lexical matching, not an embedding model or a semantic guarantee. It excludes
-the current chat, which the model already has.
+Search sends a focused query to `/v4/search` in `memories` mode with reranking, query rewriting,
+a result limit and threshold. Identity and broad profile queries also fetch the static/dynamic
+profile; the profile is not injected on unrelated turns. Intent/type-aware ranking selects up to
+three matches from recent eligible local Chat threads and supplies bounded neighboring user-turn
+windows to bridge ingestion lag. This local fallback avoids an extra embedding service and is not
+a semantic guarantee. It excludes the current chat, which the model already has.
+
+Successful profiles are cached for 15 minutes in the same encrypted preference store as the
+connection, then refreshed. Writes invalidate the cache. The memory library can scan all pages for
+exact/canonical duplicates and known assistant-meta garbage, presents a count for confirmation, and
+only then soft-forgets the redundant entries. It never performs fuzzy destructive cleanup.
 
 ## Background learning
 
@@ -56,8 +65,10 @@ number of tokens charged by Supermemory. Paid accounts can still incur provider 
 Partial batches become eligible after six hours even if the user only uses one thread.
 Maintenance is requested every 15 minutes, but Android/network restrictions can delay it.
 Retry learning explicitly flushes a partial batch; the settings UI does not display a schedule.
+The settings UI reports queued, processing, ready and unavailable conversation counts.
 
-The worker uploads visible user/assistant text only, oldest pending conversations first.
+The worker uploads user-authored text only, oldest pending conversations first. Assistant prose is
+excluded so statements about what the assistant knows or can retrieve cannot become user memories.
 No system prompt, reasoning, tool payload, archived reply, or attachment extraction is sent.
 Only user turns started after learning consent and their replies are eligible. Consent is
 captured before generation; a reply finishing after consent changes cannot enqueue that turn.

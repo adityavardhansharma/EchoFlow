@@ -217,7 +217,8 @@ internal fun ChatSurface(
     var forceMemory by remember(currentThreadId, selectedModelID, memoryPreferences.generation) { mutableStateOf(false) }
     val memoryAvailable = memoryPreferences.connected && memoryPreferences.recall &&
         (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal) &&
-        !deepResearchActive && !dataAgentActive && !browserFlowActive
+        !deepResearchActive && !dataAgentActive && !browserFlowActive && !artifactActive &&
+        !echoAgentActive && !echoAdviserActive && !echoFusionActive
     LaunchedEffect(memoryAvailable) { if (!memoryAvailable) forceMemory = false }
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
     val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()

@@ -6,6 +6,8 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Immutable consent boundary captured before a turn starts, never after it finishes. */
 data class MemorySession(val generation: Long, val since: Long)
@@ -81,14 +83,16 @@ class MemorySettings internal constructor(
         check(store.edit().putString("memory_key", key.trim()).putString("memory_space", space)
             .putString("memory_plan", "unknown").putLong("memory_since", System.currentTimeMillis())
             .putLong("memory_generation", generation + 1).putBoolean("memory_learn", false)
-            .remove("memory_pending_queue").remove("memory_learning_note").remove("memory_learning_blocked").commit()) { "Couldn't securely save the API key." }
+            .remove("memory_pending_queue").remove("memory_learning_note").remove("memory_learning_blocked")
+            .remove("memory_profile_cache").remove("memory_profile_cached_at").commit()) { "Couldn't securely save the API key." }
         }
     }
     fun disconnect() {
         synchronized(lock) {
             check(prefs?.edit()?.remove("memory_key")?.putBoolean("memory_learn", false)
                 ?.putLong("memory_generation", generation + 1)?.remove("memory_pending_queue")
-                ?.remove("memory_learning_note")?.remove("memory_learning_blocked")?.commit() != false) { "Couldn't remove the key. Please try again." }
+                ?.remove("memory_learning_note")?.remove("memory_learning_blocked")
+                ?.remove("memory_profile_cache")?.remove("memory_profile_cached_at")?.commit() != false) { "Couldn't remove the key. Please try again." }
         }
     }
 
@@ -138,6 +142,35 @@ class MemorySettings internal constructor(
         get() = prefs?.getBoolean("memory_learning_blocked", false) ?: false
         set(value) { prefs?.edit()?.putBoolean("memory_learning_blocked", value)?.apply() }
 
+    /** Small encrypted cache: avoids a profile network call on every obvious identity question. */
+    fun cachedProfile(maxAgeMs: Long = PROFILE_CACHE_TTL_MS): MemoryProfile? = synchronized(lock) {
+        val savedAt = prefs?.getLong("memory_profile_cached_at", 0) ?: 0
+        if (savedAt <= 0 || System.currentTimeMillis() - savedAt > maxAgeMs) return@synchronized null
+        runCatching {
+            val json = JSONObject(prefs?.getString("memory_profile_cache", "") ?: "")
+            MemoryProfile(json.getJSONArray("stable").strings(), json.getJSONArray("recent").strings())
+        }.getOrNull()
+    }
+
+    fun cacheProfile(profile: MemoryProfile) = synchronized(lock) {
+        val json = JSONObject().put("stable", JSONArray(profile.stable)).put("recent", JSONArray(profile.recent))
+        check(prefs?.edit()?.putString("memory_profile_cache", json.toString())
+            ?.putLong("memory_profile_cached_at", System.currentTimeMillis())?.commit() == true) {
+            "Couldn't cache the memory profile."
+        }
+    }
+
+    /** Prevent an in-flight request from restoring profile data after access changes. */
+    fun cacheProfileIfCurrent(profile: MemoryProfile, expectedGeneration: Long, expectedAccessRevision: Long): Boolean = synchronized(lock) {
+        if (!connected || generation != expectedGeneration || accessRevision != expectedAccessRevision) return@synchronized false
+        cacheProfile(profile)
+        true
+    }
+
+    fun invalidateProfile() = synchronized(lock) {
+        prefs?.edit()?.remove("memory_profile_cache")?.remove("memory_profile_cached_at")?.apply()
+    }
+
     /** Observe non-secret state only; API keys never enter Compose state or a flow. */
     fun snapshot() = MemoryPreferences(connected, recall, learn, allowLocal, generation, learningNote)
     fun changes() = callbackFlow {
@@ -151,6 +184,7 @@ class MemorySettings internal constructor(
 
     companion object {
         private val lock = Any()
+        internal const val PROFILE_CACHE_TTL_MS = 15 * 60 * 1000L
         fun batchSize(plan: String) = when (plan.lowercase().removePrefix("api_")) {
             "pro" -> 3
             "max", "scale", "enterprise" -> 1
@@ -158,3 +192,5 @@ class MemorySettings internal constructor(
         }
     }
 }
+
+private fun JSONArray.strings(): List<String> = (0 until length()).mapNotNull { optString(it).takeIf(String::isNotBlank) }
