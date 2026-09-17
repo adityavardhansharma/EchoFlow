@@ -43,8 +43,10 @@ class MemoryPolicyTest {
 
     @Test fun `prompt requires recall and supports combined tools`() {
         assertTrue(MemoryTools.PROMPT.contains("MUST call search_memory"))
-        assertTrue(MemoryTools.PROMPT.contains("Memory and web search are complementary"))
-        assertTrue(MemoryTools.PROMPT.contains("of people I know"))
+        assertTrue(MemoryTools.PROMPT.contains("Use memory and web together"))
+        assertTrue(MemoryTools.PROMPT.contains("empty result means only"))
+        assertTrue(MemoryTools.PROMPT.contains("both context and a constraint"))
+        assertFalse(MemoryTools.PROMPT.contains("birthdays today"))
     }
 
     @Test fun `cleanup rejects meta memories and keeps newest exact equivalent`() {
