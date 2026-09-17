@@ -168,10 +168,10 @@ object MemoryLearning {
         val db = AppDatabase.getDatabase(context)
         val words = queryWords(query)
         if (words.isEmpty()) return ""
-        val result = db.messageDao().recentUserMessages(currentChat, session.since, 240)
-            .asSequence()
+        val localMessages = db.messageDao().recentUserMessages(currentChat, session.since, 240)
             .filterNot { settings.excluded(it.chatId) }
             .filter { !settings.includesLocal(it.chatId) || settings.allowLocal }
+        val anchors = localMessages.asSequence()
             .map { message ->
                 val messageWords = queryWords(message.content)
                 val semanticTypeBonus = MemoryPolicy.durableFacts(message.content).maxOfOrNull { fact ->
@@ -188,8 +188,15 @@ object MemoryLearning {
             .filter { it.second > 0 }
             .sortedWith(compareByDescending<Pair<ChatMessage, Int>> { it.second }.thenByDescending { it.first.createdAt })
             .distinctBy { MemoryPolicy.normalize(it.first.content) }
-            .take(4)
-            .joinToString("\n") { "Earlier user statement: ${MemoryPrivacy.redact(it.first.content).take(900)}" }
+            .take(3).map { it.first }.toList()
+        val result = anchors.joinToString("\n\n") { anchor ->
+            val sameChat = localMessages.filter { it.chatId == anchor.chatId }.sortedBy { it.createdAt }
+            val index = sameChat.indexOfFirst { it.id == anchor.id }
+            val window = sameChat.subList((index - 1).coerceAtLeast(0), (index + 2).coerceAtMost(sameChat.size))
+                .distinctBy { MemoryPolicy.normalize(it.content) }
+                .joinToString("\n") { "User: ${MemoryPrivacy.redact(it.content).take(700)}" }
+            "Earlier conversation excerpt:\n$window"
+        }
         return if (settings.permits(session) && settings.accessRevision == accessRevision) result else ""
     }
 

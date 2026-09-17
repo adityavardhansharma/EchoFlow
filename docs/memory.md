@@ -44,10 +44,10 @@ native tool schemas may require a tool-capable model or the explicit recall path
 
 Search sends a focused query to `/v4/search` in `memories` mode with reranking, query rewriting,
 a result limit and threshold. Identity and broad profile queries also fetch the static/dynamic
-profile; the profile is not injected on unrelated turns. Up to four keyword/type-ranked user
-statements from recent eligible local Chat threads bridge ingestion lag. This local fallback is
-bounded matching, not an embedding model or a semantic guarantee. It excludes the current chat,
-which the model already has.
+profile; the profile is not injected on unrelated turns. Intent/type-aware ranking selects up to
+three matches from recent eligible local Chat threads and supplies bounded neighboring user-turn
+windows to bridge ingestion lag. This local fallback avoids an extra embedding service and is not
+a semantic guarantee. It excludes the current chat, which the model already has.
 
 Successful profiles are cached for 15 minutes in the same encrypted preference store as the
 connection, then refreshed. Writes invalidate the cache. The memory library can scan all pages for
