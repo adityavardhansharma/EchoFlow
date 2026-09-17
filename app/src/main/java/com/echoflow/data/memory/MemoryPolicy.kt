@@ -64,10 +64,10 @@ object MemoryPolicy {
         Regex("(?i)\\bmy name is\\s+([\\p{L}][\\p{L} .'-]{0,59}?)(?=[,.!?;]|$)").find(text)
             ?.groupValues?.get(1)?.trim()?.takeIf(::plausibleName)
             ?.let { facts += Fact("identity", "The user's name is $it.") }
-        Regex("(?i)\\b(?:please )?call me\\s+([\\p{L}][\\p{L} .'-]{0,59}?)(?=[,.!?;]|$)").find(text)
+        Regex("\\b(?:[Pp]lease )?[Cc]all me\\s+([\\p{Lu}][\\p{L} .'-]{0,59}?)(?=[,.!?;]|$)").find(text)
             ?.groupValues?.get(1)?.trim()?.takeIf(::plausibleName)
             ?.let { facts += Fact("identity", "The user prefers to be called $it.") }
-        Regex("(?i)\\b(?:i am|i'm)\\s+(1[3-9]|[2-9][0-9]|1[01][0-9])(?:\\s+years? old)?\\b").find(text)
+        Regex("(?i)\\b(?:i am|i'm)\\s+(1[3-9]|[2-9][0-9]|1[01][0-9])(?:\\s+years? old\\b|(?=\\s*(?:[.!?;]|$|,?\\s+and\\s+i\\b)))").find(text)
             ?.groupValues?.get(1)?.toIntOrNull()
             ?.let { facts += Fact("demographic", "The user is $it years old as of $observedOn.") }
         Regex("(?i)\\bi live in\\s+([^,.!?;]{2,80})(?=[,.!?;]|$)").find(text)
@@ -89,7 +89,7 @@ object MemoryPolicy {
     fun isAssistantMetaMemory(text: String): Boolean = listOf(
         Regex("(?i)\\bthe assistant (?:has |can |will |should )?(?:stored|saved|remember|retrieve|recall|know)"),
         Regex("(?i)\\bwhen (?:prompted|asked) to (?:search|use|check) memor"),
-        Regex("(?i)\\bthe (?:memory|remember_memory|search_memory) tool\\b"),
+        Regex("(?i)^(?:please )?(?:use|call|invoke|run) (?:the )?(?:memory|remember_memory|search_memory) tool\\b"),
     ).any { it.containsMatchIn(text) }
 
     fun normalize(text: String): String = text.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
@@ -120,6 +120,6 @@ object MemoryPolicy {
     private fun plausibleName(value: String): Boolean {
         val words = value.split(Regex("\\s+")).filter(String::isNotBlank)
         return words.size in 1..5 && value.length in 2..60 &&
-            words.none { it.lowercase() in setOf("tired", "hungry", "fine", "good", "okay", "ok", "here", "ready") }
+            words.none { it.lowercase() in setOf("tired", "hungry", "fine", "good", "okay", "ok", "here", "ready", "crazy", "maybe", "later") }
     }
 }

@@ -147,11 +147,29 @@ class MemoryIntegrationTest {
         settings.connect("new-key", "space")
         assertNull(settings.cachedProfile())
     }
+    @Test fun `stale profile request cannot repopulate cache after disconnect`() {
+        val prefs = context.getSharedPreferences("memory-stale-cache-test", Context.MODE_PRIVATE)
+        val settings = MemorySettings(prefs)
+        settings.disconnect(); settings.connect("key", "space")
+        val generation = settings.generation
+        val revision = settings.accessRevision
+        settings.disconnect()
+        assertFalse(settings.cacheProfileIfCurrent(MemoryProfile(listOf("Old profile"), emptyList()), generation, revision))
+        assertNull(settings.cachedProfile())
+    }
     @Test fun `known credentials are redacted without erasing ordinary project context`() {
         val text = "I'm building EchoFlow. api_key=abcdefgh12345678 and Bearer abcdefgh1234567890"
         val redacted = MemoryPrivacy.redact(text)
         assertTrue(redacted.contains("building EchoFlow"))
         assertFalse(redacted.contains("abcdefgh"))
+    }
+    @Test fun `retrieved profile and memories redact legacy credentials`() = runBlocking {
+        val client = api { path -> when (path) {
+            "/v4/profile" -> """{"profile":{"static":["api_key=abcdefgh12345678"],"dynamic":[]}}"""
+            else -> """{"results":[{"id":"m1","memory":"Bearer abcdefgh1234567890"}]}"""
+        } }
+        assertFalse(client.profile().stable.single().contains("abcdefgh"))
+        assertFalse(client.search("credential").single().text.contains("abcdefgh"))
     }
     @Test fun `empty creation response never becomes a saved confirmation`() = runBlocking {
         val events = mutableListOf<StreamChunk>()

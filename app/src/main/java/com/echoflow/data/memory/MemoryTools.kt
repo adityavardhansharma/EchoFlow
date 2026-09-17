@@ -17,6 +17,7 @@ class MemoryTools(
     private val api: SupermemoryClient = SupermemoryClient(settings.key, settings.space),
     private val local: Boolean = false,
 ) : AbstractCoroutineContextElement(Key) {
+    data class FactSaveResult(val success: Boolean, val savedCount: Int = 0)
     companion object Key : CoroutineContext.Key<MemoryTools> {
         const val PROMPT = """
 
@@ -71,6 +72,8 @@ class MemoryTools(
     private val saved = mutableSetOf<String>()
     private fun permitted() = settings.connected && settings.recall && settings.generation == generation && settings.accessRevision == accessRevision &&
         (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
+    private fun permittedToLearn(session: MemorySession) = settings.permits(session) &&
+        settings.accessRevision == accessRevision && (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
     fun handles(name: String) = name == "search_memory" || name == "remember_memory"
     fun schemas(format: String = "openai"): List<Map<String, Any>> = functions.map { fn -> when (format) {
         "claude" -> mapOf("name" to fn.getValue("name"), "description" to fn.getValue("description"), "input_schema" to fn.getValue("parameters"))
@@ -103,7 +106,9 @@ class MemoryTools(
                 }
                 var unavailable = false
                 val profile = if (MemoryPolicy.needsProfile(query)) try {
-                    settings.cachedProfile() ?: client.profile().also(settings::cacheProfile)
+                    settings.cachedProfile() ?: client.profile().also {
+                        settings.cacheProfileIfCurrent(it, generation, accessRevision)
+                    }
                 }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { null }
@@ -126,10 +131,10 @@ class MemoryTools(
                     !profile.isEmpty() -> "Recalled profile & ${remote.size} ${if (remote.size == 1) "memory" else "memories"}"
                     else -> "Recalled ${remote.size} ${if (remote.size == 1) "memory" else "memories"}"
                 }, false))
-                JSONObject().put("memories", org.json.JSONArray(remote.take(8).map { it.text.take(1500) }))
+                JSONObject().put("memories", org.json.JSONArray(remote.take(8).map { MemoryPrivacy.redact(it.text).take(1500) }))
                     .put("profile", JSONObject()
-                        .put("stable", org.json.JSONArray(profile?.stable.orEmpty()))
-                        .put("recent", org.json.JSONArray(profile?.recent.orEmpty())))
+                        .put("stable", org.json.JSONArray(profile?.stable.orEmpty().map(MemoryPrivacy::redact)))
+                        .put("recent", org.json.JSONArray(profile?.recent.orEmpty().map(MemoryPrivacy::redact))))
                     .put("cloudMemoryAvailable", !unavailable)
                     .put("recentConversationExcerpts", pending).toString()
             } else {
@@ -157,29 +162,35 @@ class MemoryTools(
     }
 
     /** Immediate app-controlled write for facts too clear to leave to model tool selection. */
-    suspend fun rememberFacts(facts: List<MemoryPolicy.Fact>, emit: suspend (StreamChunk) -> Unit): String {
+    suspend fun rememberFacts(facts: List<MemoryPolicy.Fact>, session: MemorySession, emit: suspend (StreamChunk) -> Unit): FactSaveResult {
         val values = facts.map { it.text.trim() }.filter { it.isNotBlank() && MemoryPrivacy.redact(it) == it }
             .filterNot(MemoryPolicy::isAssistantMetaMemory)
             .distinctBy(MemoryPolicy::normalize).filterNot { it in saved }.take(3)
-        if (values.isEmpty()) return "No new durable facts."
-        if (!permitted()) return "Memory is disabled."
-        if (++calls > 4) return "Memory tool limit reached."
+        if (values.isEmpty() || !permittedToLearn(session) || ++calls > 4) return FactSaveResult(false)
         val id = UUID.randomUUID().toString()
         emit(StreamChunk.MemoryActivity(id, "Learning ${values.size} ${if (values.size == 1) "fact" else "facts"}…", true))
         return try {
-            api.addAll(values)
+            val newValues = values.filter { candidate ->
+                api.search(candidate).none { MemoryPolicy.normalize(it.text) == MemoryPolicy.normalize(candidate) }
+            }
+            if (!permittedToLearn(session)) {
+                emit(StreamChunk.MemoryActivity(id, "Memory access changed", false))
+                return FactSaveResult(false)
+            }
+            if (newValues.isNotEmpty()) api.addAll(newValues)
             saved.addAll(values)
             settings.invalidateProfile()
-            if (!permitted()) {
+            if (!permittedToLearn(session)) {
                 emit(StreamChunk.MemoryActivity(id, "Save completed before access changed", false))
-                return "The save completed, but memory access changed. Manage saved data in Supermemory."
+                return FactSaveResult(false)
             }
-            emit(StreamChunk.MemoryActivity(id, "Learned ${values.size} ${if (values.size == 1) "fact" else "facts"}", false))
-            "Durable facts saved successfully."
+            emit(StreamChunk.MemoryActivity(id, if (newValues.isEmpty()) "Already remembered" else
+                "Learned ${newValues.size} ${if (newValues.size == 1) "fact" else "facts"}", false))
+            FactSaveResult(true, newValues.size)
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) {
             emit(StreamChunk.MemoryActivity(id, "Automatic memory unavailable · chat can continue", false))
-            "Automatic memory save failed."
+            FactSaveResult(false)
         }
     }
 }

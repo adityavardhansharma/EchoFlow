@@ -94,9 +94,9 @@ interface MessageDao {
     @Query(
         "SELECT m.* FROM chat_messages m INNER JOIN chat_threads t ON t.id = m.chatId " +
             "WHERE m.role = 'user' AND m.chatId != :currentChat AND m.createdAt >= :since " +
-            "AND t.kind = 'chat' ORDER BY m.createdAt DESC LIMIT :limit"
+            "AND t.kind = 'chat' ORDER BY m.createdAt DESC LIMIT :limit OFFSET :offset"
     )
-    suspend fun recentUserMessages(currentChat: String, since: Long, limit: Int): List<ChatMessage>
+    suspend fun recentUserMessages(currentChat: String, since: Long, limit: Int, offset: Int = 0): List<ChatMessage>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessage)

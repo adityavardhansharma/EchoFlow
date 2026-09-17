@@ -1493,6 +1493,10 @@ class ChatViewModel(
             val memoryEnabled = memoryRequested && !imageGenMode && !videoGenMode && !artifactMode &&
                 agentReq == null && advisorReq == null && fusionReq == null &&
                 (!customProviderActive || customToolCallingActive)
+            val memoryLearningEnabled = learningSession != null && !imageGenMode && !videoGenMode && !artifactMode &&
+                agentReq == null && advisorReq == null && fusionReq == null &&
+                (!customProviderActive || customToolCallingActive) &&
+                (!(isLocal || customProvider == "ollama") || memorySettings.allowLocal)
             val systemPrompt = baseSystemPrompt + (activeProjectId?.let { projectManager.buildSystemContext(it) } ?: "") +
                 (if (memoryEnabled) MemoryTools.PROMPT else if (memorySettings.connected)
                     "\nPersistent memory tools are unavailable in this mode. Do not claim to save facts beyond this conversation. " +
@@ -1700,17 +1704,15 @@ class ChatViewModel(
             val baseResponseFlow: Flow<StreamChunk> = flow {
                 val tools = kotlinx.coroutines.currentCoroutineContext()[MemoryTools]
                     ?: MemoryTools(getApplication(), chatId, false, local = isLocal || customProvider == "ollama")
-                val automaticFacts = if (memoryEnabled && memorySettings.learn && editingUserId == null) {
+                val automaticFacts = if (memoryLearningEnabled && editingUserId == null) {
                     MemoryPolicy.durableFacts(prompt)
                 } else emptyList()
-                if (automaticFacts.isNotEmpty()) {
-                    tools.rememberFacts(automaticFacts) { emit(it) }
-                }
+                val factsSaved = automaticFacts.isNotEmpty() && learningSession != null &&
+                    tools.rememberFacts(automaticFacts, learningSession) { emit(it) }.success
                 val previousAssistant = fullHistory.dropLastWhile { it.role == "user" }.lastOrNull { it.role == "assistant" }
                 val automaticRecall = if (memoryEnabled) MemoryPolicy.recallQuery(prompt, previousAssistant) else null
-                val canRecall = (forceMemory || automaticRecall != null) && memorySettings.connected && memorySettings.recall &&
-                    (!(isLocal || customProvider == "ollama") || memorySettings.allowLocal) && !imageGenMode && !videoGenMode
-                val turnSystemPrompt = systemPrompt + if (automaticFacts.isNotEmpty())
+                val canRecall = memoryEnabled && (forceMemory || automaticRecall != null)
+                val turnSystemPrompt = systemPrompt + if (factsSaved)
                     "\nHigh-confidence durable facts in the current user message were already submitted to memory. Do not call remember_memory for those same facts."
                 else ""
                 val systemPrompt = if (canRecall) {

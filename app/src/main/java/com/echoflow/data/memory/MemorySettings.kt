@@ -160,6 +160,13 @@ class MemorySettings internal constructor(
         }
     }
 
+    /** Prevent an in-flight request from restoring profile data after access changes. */
+    fun cacheProfileIfCurrent(profile: MemoryProfile, expectedGeneration: Long, expectedAccessRevision: Long): Boolean = synchronized(lock) {
+        if (!connected || generation != expectedGeneration || accessRevision != expectedAccessRevision) return@synchronized false
+        cacheProfile(profile)
+        true
+    }
+
     fun invalidateProfile() = synchronized(lock) {
         prefs?.edit()?.remove("memory_profile_cache")?.remove("memory_profile_cached_at")?.apply()
     }

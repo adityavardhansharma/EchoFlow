@@ -63,9 +63,9 @@ class SupermemoryClient(
     suspend fun profile(): MemoryProfile {
         val profile = request("/v4/profile", body = scoped()).getJSONObject("profile")
         return MemoryProfile(
-            profile.optJSONArray("static").strings().filterNot(MemoryPolicy::isAssistantMetaMemory)
+            profile.optJSONArray("static").strings().map(MemoryPrivacy::redact).filterNot(MemoryPolicy::isAssistantMetaMemory)
                 .distinctBy(MemoryPolicy::normalize),
-            profile.optJSONArray("dynamic").strings().filterNot(MemoryPolicy::isAssistantMetaMemory)
+            profile.optJSONArray("dynamic").strings().map(MemoryPrivacy::redact).filterNot(MemoryPolicy::isAssistantMetaMemory)
                 .distinctBy(MemoryPolicy::normalize),
         )
     }
@@ -73,6 +73,7 @@ class SupermemoryClient(
         .put("q", query.take(2000)).put("searchMode", "memories").put("limit", 8).put("threshold", 0.45)
         .put("rerank", true).put("rewriteQuery", true)
         .put("include", JSONObject().put("documents", true))).getJSONArray("results"))
+        .map { it.copy(text = MemoryPrivacy.redact(it.text)) }
         .filterNot { it.forgotten || MemoryPolicy.isAssistantMetaMemory(it.text) }
         .distinctBy { MemoryPolicy.normalize(it.text) }
     suspend fun list(page: Int = 1): MemoryPage {

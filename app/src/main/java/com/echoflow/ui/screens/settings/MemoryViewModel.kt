@@ -181,7 +181,7 @@ class MemoryViewModel internal constructor(
             val result = client().list(nextPage++)
             all += result.entries
             more = result.hasMore
-        } while (more && nextPage <= 100)
+        } while (more)
         cleanupPlan = MemoryPolicy.cleanupPlan(all.distinctBy { it.id })
         if (cleanupPlan?.isEmpty == true) notice = "No duplicate or assistant-meta memories found."
     }

@@ -168,9 +168,19 @@ object MemoryLearning {
         val db = AppDatabase.getDatabase(context)
         val words = queryWords(query)
         if (words.isEmpty()) return ""
-        val localMessages = db.messageDao().recentUserMessages(currentChat, session.since, 240)
-            .filterNot { settings.excluded(it.chatId) }
-            .filter { !settings.includesLocal(it.chatId) || settings.allowLocal }
+        val localMessages = mutableListOf<ChatMessage>()
+        var offset = 0
+        val pageSize = 240
+        val scanLimit = 2_400
+        while (localMessages.size < 240 && offset < scanLimit) {
+            val page = db.messageDao().recentUserMessages(currentChat, session.since, pageSize, offset)
+            localMessages += page.asSequence()
+                .filterNot { settings.excluded(it.chatId) }
+                .filter { !settings.includesLocal(it.chatId) || settings.allowLocal }
+                .take(240 - localMessages.size)
+            if (page.size < pageSize) break
+            offset += pageSize
+        }
         val anchors = localMessages.asSequence()
             .map { message ->
                 val messageWords = queryWords(message.content)

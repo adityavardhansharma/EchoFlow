@@ -29,12 +29,16 @@ class MemoryPolicyTest {
         assertEquals("The user's name is Aditya.", facts.first().text)
         assertTrue(facts[1].text.contains("as of 2026-09-17"))
         assertTrue(MemoryPolicy.durableFacts("I am tired", date).isEmpty())
+        assertTrue(MemoryPolicy.durableFacts("I am 22 minutes away", date).isEmpty())
+        assertTrue(MemoryPolicy.durableFacts("I am 30% done", date).isEmpty())
+        assertTrue(MemoryPolicy.durableFacts("Call me crazy", date).isEmpty())
     }
 
     @Test fun `rejects assistant capability statements as memories`() {
         assertTrue(MemoryPolicy.isAssistantMetaMemory("The assistant can retrieve the user's name when prompted."))
         assertTrue(MemoryPolicy.isAssistantMetaMemory("Use the search_memory tool."))
         assertFalse(MemoryPolicy.isAssistantMetaMemory("The user's name is Aditya."))
+        assertFalse(MemoryPolicy.isAssistantMetaMemory("The user is building the memory tool."))
     }
 
     @Test fun `prompt requires recall and supports combined tools`() {
