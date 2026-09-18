@@ -17,6 +17,9 @@ class MemoryPolicyTest {
             "preferences, prior experiences, consumed or owned items, rejections, and constraints relevant to: suggest sci-fi movies",
             MemoryPolicy.recallQuery("suggest sci-fi movies", null),
         )
+        assertNotNull(MemoryPolicy.recallQuery("Which laptop should I buy?", null))
+        assertNull(MemoryPolicy.recallQuery("Which one should I choose from the two options above?", null))
+        assertNull(MemoryPolicy.recallQuery("Suggest better phrasing for this paragraph", null))
         assertNull(MemoryPolicy.recallQuery("any big birthdays today?", null))
         assertNull(MemoryPolicy.recallQuery("Explain the history of science fiction", null))
         assertNull(MemoryPolicy.recallQuery("Explain Kotlin coroutines", null))

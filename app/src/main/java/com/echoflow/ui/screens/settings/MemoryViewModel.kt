@@ -169,19 +169,15 @@ class MemoryViewModel internal constructor(
     fun updateRecall(enabled: Boolean) = action { settings.recall = enabled; recall = settings.recall }
     fun updateLocal(enabled: Boolean) = action { settings.allowLocal = enabled; local = settings.allowLocal }
     fun retryLearning() = action { MemoryLearning.retry(getApplication()); refreshLearningStatusDirect() }
+    /** Starts immediate learning for eligible completed conversations. */
     fun learnNow() = action {
         val status = MemoryLearning.flushNow(getApplication())
         learningStatus = status
-        notice = if (status.queued > 0) {
-            "Learning started for ${status.queued} queued ${if (status.queued == 1) "conversation" else "conversations"}."
-        } else if (status.processing > 0) {
-            "Learning is processing ${status.processing} ${if (status.processing == 1) "conversation" else "conversations"}."
-        } else {
-            "All eligible completed conversations are already learned."
-        }
+        notice = MemoryLearning.manualFlushNotice(status)
         watchLearningProgress()
     }
 
+    /** Refreshes the ledger while the forced WorkManager job transitions to completion. */
     private fun watchLearningProgress() {
         learningRefreshJob?.cancel()
         learningRefreshJob = viewModelScope.launch {

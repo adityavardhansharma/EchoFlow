@@ -24,18 +24,31 @@ object MemoryPolicy {
         "(?i)\\b(?:recommend|suggest|recommendation|what should i (?:watch|read|play|buy|visit|choose|pick)|" +
             "help me (?:choose|pick|decide)|which (?:one|movie|film|show|series|book|game|product|place) should i)\\b"
     )
+    private val generalWhichChoice = Regex(
+        "(?i)\\bwhich (?:[\\p{L}\\p{N}-]+\\s+){1,5}should i\\b"
+    )
+    private val selfContainedChoice = Regex(
+        "(?i)\\b(?:from|between|among)\\b.*\\b(?:above|below|these|following|options?)\\b|" +
+            "\\b(?:the )?(?:two|three) options?\\b"
+    )
+    private val nonPersonalSuggestion = Regex(
+        "(?i)\\b(?:suggest|recommend)\\s+(?:better\\s+)?(?:phrasing|wording|title|titles|edits?|" +
+            "rewrites?|corrections?|improvements?|changes?)\\b"
+    )
     private val denial = Regex(
         "(?i)\\b(?:i (?:do not|don't) know|i (?:do not|don't|cannot|can't) have access|" +
             "i (?:cannot|can't) tell|you (?:have not|haven't) told me|not in (?:my |the )?(?:saved )?memor)"
     )
 
+    /** Selects a focused memory query only when personal history can affect the response. */
     fun recallQuery(prompt: String, previousAssistant: ChatMessage?): String? {
         val text = prompt.trim()
+        if (selfContainedChoice.containsMatchIn(text) || nonPersonalSuggestion.containsMatchIn(text)) return null
         val correctingDenial = previousAssistant?.let { denial.containsMatchIn(it.content) } == true &&
             Regex("(?i)^(?:no[,. ]*)?(?:u|you) do\\b|\\bi told you\\b|\\byou know\\b|\\bremember\\b")
                 .containsMatchIn(text)
         if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) &&
-            !personalizableChoice.containsMatchIn(text) && !correctingDenial) return null
+            !personalizableChoice.containsMatchIn(text) && !generalWhichChoice.containsMatchIn(text) && !correctingDenial) return null
         return focusedQuery(text)
     }
 

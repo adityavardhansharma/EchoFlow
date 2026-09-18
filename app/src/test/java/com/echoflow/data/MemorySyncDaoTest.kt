@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.echoflow.data.memory.MemorySync
 import com.echoflow.data.memory.MemoryLearning
+import com.echoflow.data.memory.MemoryLearningStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -17,6 +18,12 @@ class MemorySyncDaoTest {
         assertFalse(MemoryLearning.shouldFlush(2, "free", aged = false, forced = false))
         assertTrue(MemoryLearning.shouldFlush(2, "free", aged = false, forced = true))
         assertFalse(MemoryLearning.shouldFlush(0, "free", aged = true, forced = true))
+    }
+
+    @Test fun `manual learning reports unavailable sources instead of claiming success`() {
+        assertTrue(MemoryLearning.manualFlushNotice(MemoryLearningStatus(unavailable = 2)).contains("Retry learning"))
+        assertTrue(MemoryLearning.manualFlushNotice(MemoryLearningStatus(ready = 2)).contains("already learned"))
+        assertTrue(MemoryLearning.manualFlushNotice(MemoryLearningStatus()).contains("No eligible"))
     }
 
     @Test fun `late upload acknowledgement cannot mark a newer revision as sent or recreate a deleted chat`() = runBlocking {
