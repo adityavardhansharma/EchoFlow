@@ -54,17 +54,17 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                 Text("A future memory system built into EchoFlow. Nothing to connect yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
-            MemoryBlock(if (vm.connected) "Connected to Supermemory" else "Bring your own memory", if (vm.connected) vm.settings.space else "Your account. Your API key.") {
-                if (!vm.connected) {
-                    Text("Recall relevant details when they're useful, without loading your entire memory into every chat.", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedTextField(key, { key = it }, label = { Text("Supermemory API key") }, singleLine = true, enabled = !vm.busy,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
-                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(space, { space = it.trim() }, label = { Text("Memory space") }, singleLine = true, enabled = !vm.busy, modifier = Modifier.fillMaxWidth(),
-                        supportingText = { Text("Use the same space to share memory across your devices.") })
-                    Text("Connecting sends a profile request. Learning stays off until you enable it.", style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { vm.connect(key, space) }, enabled = !vm.busy && key.isNotBlank()) { Text("Connect") }
-                } else {
+            if (!vm.connected) {
+                MemoryConnectionForm(
+                    key = key,
+                    onKeyChange = { key = it },
+                    space = space,
+                    onSpaceChange = { space = it.trim() },
+                    busy = vm.busy,
+                    onConnect = { vm.connect(key, space) },
+                )
+            } else {
+                MemoryBlock("Connected to Supermemory", vm.settings.space) {
                     val billing = vm.billing
                     Text(billing?.plan?.takeUnless { it == "unknown" }?.replaceFirstChar { it.uppercase() }?.let { "$it account" } ?: "Account connected", style = MaterialTheme.typography.titleMedium)
                     if (billing?.used != null && billing.limit != null && billing.limit > 0) {
