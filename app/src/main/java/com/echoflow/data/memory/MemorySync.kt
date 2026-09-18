@@ -159,14 +159,24 @@ object MemoryLearning {
         val db = AppDatabase.getDatabase(context)
         val existing = db.memorySyncDao().entries(session.generation).associateBy { it.chatId }
         val pageSize = 50
-        var offset = 0
+        val snapshotAt = System.currentTimeMillis()
+        var beforeCreatedAt = Long.MAX_VALUE
+        var beforeChatId = "\uFFFF"
         while (settings.permits(session)) {
-            val candidates = db.messageDao().memoryCandidateChatIds(session.since, pageSize, offset)
+            val candidates = db.messageDao().memoryCandidateChats(
+                since = session.since,
+                snapshotAt = snapshotAt,
+                beforeCreatedAt = beforeCreatedAt,
+                beforeChatId = beforeChatId,
+                limit = pageSize,
+            )
             if (candidates.isEmpty()) break
-            for (chatId in candidates) {
+            for (candidate in candidates) {
+                val chatId = candidate.chatId
                 if (!settings.permits(session)) return@withLock
                 if (settings.excluded(chatId) || (settings.includesLocal(chatId) && !settings.allowLocal)) continue
                 val messages = db.messageDao().getMessagesForChatSync(chatId)
+                    .filter { it.createdAt <= snapshotAt }
                 if (messages.lastOrNull()?.role != "assistant") continue
                 val text = transcript(messages, session.since)
                 if (text.isBlank()) continue
@@ -186,7 +196,9 @@ object MemoryLearning {
                 }
             }
             if (candidates.size < pageSize) break
-            offset += pageSize
+            val last = candidates.last()
+            beforeCreatedAt = last.latestCreatedAt
+            beforeChatId = last.chatId
         }
     }
 
