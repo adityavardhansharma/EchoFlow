@@ -103,7 +103,7 @@ class SupermemoryClient(
     suspend fun document(id: String) = request("/v3/documents/${segment(id)}", "GET")
     suspend fun ingest(chatId: String, transcript: String, date: String): String = request("/v3/documents", body = scoped()
         .put("content", transcript).put("customId", "echoflow-${MemoryLearning.revision(space).take(12)}-$chatId").put("dreaming", "dynamic").put("documentDate", date)
-        .put("entityContext", "User-authored statements from one EchoFlow user. Extract only facts the user explicitly states about themself, people they know, preferences, ongoing projects, and confirmed decisions. Never create facts about what an assistant knows, stores, remembers, retrieves, or can do. Do not infer identity from a general question, and never retain credentials.")
+        .put("entityContext", INGEST_ENTITY_CONTEXT)
         .put("metadata", JSONObject().put("application", "echoflow").put("chatId", chatId))).getString("id")
     suspend fun billing(): MemoryBilling {
         val summary = request("/v3/auth/billing", "GET")
@@ -115,6 +115,14 @@ class SupermemoryClient(
             credits?.numberOrNull("limit"), summary.optString("resetDate").takeIf { it.isNotBlank() })
     }
     companion object {
+        /**
+         * Steering for automatic extraction. Bulk send stays as-is; this prompt decides
+         * what becomes a durable memory. Consumption is saved literally, pure inquiry
+         * is not, a single question never generalizes to a preference, and zero
+         * memories is valid when nothing durable is stated. Max 1500 chars per API.
+         */
+        internal const val INGEST_ENTITY_CONTEXT =
+            "Conversation between EchoFlow user and assistant EchoFlow. Extract only durable user facts: identity, people they know, stated preferences with polarity, concrete consumption or ownership (watched, read, visited, bought, completed), projects, goals, decisions, constraints. Save consumption literally even without like or dislike, e.g. Watched Dune Part 2. A single question implies interest in that answer only, never a genre preference; never generalize asked-about into likes or prefers. If nothing durable is stated, create zero memories. Never save absence of information, assistant capabilities or status, transient questions or requests, or conversation commentary. Never retain credentials."
         /** Only USD credit fields can populate the credit balance; token counts aren't money. */
         internal fun findCredits(value: Any?): JSONObject? = when (value) {
             is JSONObject -> {
