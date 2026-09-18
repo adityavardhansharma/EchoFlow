@@ -63,22 +63,6 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                     busy = vm.busy,
                     onConnect = { vm.connect(key, space) },
                 )
-            } else {
-                MemoryBlock("Connected to Supermemory", vm.settings.space) {
-                    val billing = vm.billing
-                    Text(billing?.plan?.takeUnless { it == "unknown" }?.replaceFirstChar { it.uppercase() }?.let { "$it account" } ?: "Account connected", style = MaterialTheme.typography.titleMedium)
-                    if (billing?.used != null && billing.limit != null && billing.limit > 0) {
-                        LinearProgressIndicator(progress = { (billing.used / billing.limit).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                        val currency = java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US)
-                        Text("${currency.format(billing.used)} used · ${currency.format((billing.limit - billing.used).coerceAtLeast(0.0))} left", style = MaterialTheme.typography.bodySmall)
-                    } else if (billing?.used != null) Text("${java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US).format(billing.used)} used · no fixed limit reported", style = MaterialTheme.typography.bodySmall)
-                    else Text(vm.billingNote ?: "Your API key doesn't expose a usage balance.", style = MaterialTheme.typography.bodySmall)
-                    billing?.reset?.let { Text("Resets $it", style = MaterialTheme.typography.bodySmall) }
-                    Row {
-                        TextButton(onClick = { vm.refreshBilling() }, enabled = !vm.busy) { Text("Refresh") }
-                        TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.supermemory.ai"))) }) { Text("Dashboard ↗") }
-                    }
-                }
             }
             if (vm.connected) {
                 Spacer(Modifier.height(16.dp))
@@ -120,6 +104,8 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                     TextButton(onClick = vm::retryLearning, enabled = vm.learn && !vm.busy) { Text("Retry learning") }
                 }
                 Text("Deleting a chat only removes its local copy. Manage already-uploaded source conversations in Supermemory. Chats used with local models while cloud memory is off are excluded from learning.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(Spacing.xl))
+                MemoryAccountSection(vm)
                 TextButton(onClick = { disconnect = true }, enabled = !vm.busy) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
             }
             MemoryFeedback(vm)
