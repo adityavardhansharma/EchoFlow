@@ -109,6 +109,28 @@ class MemoryIntegrationTest {
         assertEquals("automatic", requests.single().second.getJSONArray("memories").getJSONObject(0)
             .getJSONObject("metadata").getString("source"))
     }
+    @Test fun `ingest steers extraction toward durable facts only`() = runBlocking {
+        val api = api { """{"id":"doc1"}""" }
+        api.ingest("chat1", "user: I watched Dune Part 2", "2026-09-18T00:00:00Z")
+        assertEquals(1, requests.size)
+        val (path, body) = requests.single()
+        assertEquals("/v3/documents", path)
+        assertEquals("dynamic", body.getString("dreaming"))
+        assertEquals("test-user", body.getString("containerTag"))
+        val context = body.getString("entityContext")
+        assertEquals(SupermemoryClient.INGEST_ENTITY_CONTEXT, context)
+        assertTrue(context.length <= 1500)
+        // Pure inquiry must not become a memory; questions establish nothing on their own.
+        assertFalse(context.contains("implies interest"))
+        assertTrue(context.contains("Questions and asked-about subjects establish no user fact"))
+        assertTrue(context.contains("create zero memories"))
+        // Consumption is saved literally; meta/absence/credentials stay excluded.
+        assertTrue(context.contains("Save consumption literally"))
+        assertTrue(context.contains("transient questions or requests"))
+        assertTrue(context.contains("absence of information"))
+        assertTrue(context.contains("assistant capabilities or status"))
+        assertTrue(context.contains("Never retain credentials"))
+    }
     @Test fun `revoking learning stops remaining automatic fact requests`() = runBlocking {
         val settings = settings().apply { learn = true }
         val session = settings.session()!!

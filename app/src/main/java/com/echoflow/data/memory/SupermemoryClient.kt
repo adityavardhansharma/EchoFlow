@@ -116,13 +116,13 @@ class SupermemoryClient(
     }
     companion object {
         /**
-         * Steering for automatic extraction. Bulk send stays as-is; this prompt decides
-         * what becomes a durable memory. Consumption is saved literally, pure inquiry
-         * is not, a single question never generalizes to a preference, and zero
+         * Steering for automatic extraction. Bulk send stays as-is (user-only transcript);
+         * this prompt decides what becomes a durable memory. Consumption is saved literally,
+         * pure inquiry is not, questions never establish a fact on their own, and zero
          * memories is valid when nothing durable is stated. Max 1500 chars per API.
          */
         internal const val INGEST_ENTITY_CONTEXT =
-            "Conversation between EchoFlow user and assistant EchoFlow. Extract only durable user facts: identity, people they know, stated preferences with polarity, concrete consumption or ownership (watched, read, visited, bought, completed), projects, goals, decisions, constraints. Save consumption literally even without like or dislike, e.g. Watched Dune Part 2. A single question implies interest in that answer only, never a genre preference; never generalize asked-about into likes or prefers. If nothing durable is stated, create zero memories. Never save absence of information, assistant capabilities or status, transient questions or requests, or conversation commentary. Never retain credentials."
+            "User-authored statements from one EchoFlow user. Extract only durable user facts: identity, people they know, stated preferences with polarity, concrete consumption or ownership (watched, read, visited, bought, completed), projects, goals, decisions, constraints. Save consumption literally even without like or dislike, e.g. Watched Dune Part 2. Questions and asked-about subjects establish no user fact or preference unless the user separately states one explicitly; never generalize asked-about into likes or prefers. If nothing durable is stated, create zero memories. Never save absence of information, assistant capabilities or status, transient questions or requests, or conversation commentary. Never retain credentials."
         /** Only USD credit fields can populate the credit balance; token counts aren't money. */
         internal fun findCredits(value: Any?): JSONObject? = when (value) {
             is JSONObject -> {
