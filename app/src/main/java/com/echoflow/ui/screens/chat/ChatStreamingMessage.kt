@@ -282,6 +282,14 @@ internal fun ReasoningSection(
 ) {
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
     val expanded = userToggled ?: active
+    val skipReader = remember { Any() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(revealState, segmentIndex, lifecycleOwner, expanded, active) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (active && !expanded) revealState?.reportSkipped(skipReader, segmentIndex)
+            else revealState?.detach(skipReader)
+        }
+    }
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "reasoning-chevron")
     val toggleInteraction = remember { MutableInteractionSource() }
     Surface(

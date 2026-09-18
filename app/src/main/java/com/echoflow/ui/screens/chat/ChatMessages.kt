@@ -76,7 +76,7 @@ internal fun MessagesPane(
                 // Register while waiting for the first chunk too, so a one-burst response gets
                 // a reveal. A reply scrolled out of view must never hold up persistence.
                 snapshotFlow {
-                    autoFollow || listState.layoutInfo.visibleItemsInfo.any { it.key == "streaming" }
+                    listState.layoutInfo.visibleItemsInfo.any { it.key == "streaming" }
                 }.collect { visible ->
                     if (visible) revealState?.attachViewport(viewport)
                     else revealState?.detachViewport(viewport)

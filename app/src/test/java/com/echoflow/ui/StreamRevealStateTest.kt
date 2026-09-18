@@ -41,4 +41,16 @@ class StreamRevealStateTest {
     @Test fun `background replies do not wait for readers`() = runTest {
         StreamRevealState().awaitRevealed(listOf(StreamSegment.Text("answer")))
     }
+
+    @Test fun `a mounted viewport waits for a reader acknowledgement`() = runTest {
+        val state = StreamRevealState()
+        state.attachViewport(Any())
+        val completion = launch(start = CoroutineStart.UNDISPATCHED) {
+            state.awaitRevealed(listOf(StreamSegment.Reasoning("thought")))
+        }
+        assertFalse(completion.isCompleted)
+        state.reportSkipped(Any(), 0)
+        completion.join()
+        assertTrue(completion.isCompleted)
+    }
 }

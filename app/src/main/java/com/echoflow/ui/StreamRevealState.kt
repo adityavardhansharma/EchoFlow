@@ -32,6 +32,9 @@ class StreamRevealState {
         }
     }
 
+    /** Marks a conditionally hidden segment as intentionally skipped by its visible reader. */
+    fun reportSkipped(reader: Any, segmentIndex: Int) = report(reader, segmentIndex, Int.MAX_VALUE)
+
     fun detach(reader: Any) {
         presentation.update { it.copy(readers = it.readers - reader) }
     }
@@ -43,9 +46,15 @@ class StreamRevealState {
                 when (segment) {
                     // Include text not composed yet: the last network chunk may have just
                     // created a new answer segment after reasoning or a tool card.
-                    is StreamSegment.Text -> (readers.maxOfOrNull { it.shown } ?: 0) >= segment.text.length
-                    is StreamSegment.Reasoning -> index != segments.lastIndex ||
-                        readers.all { it.shown >= segment.text.length }
+                    is StreamSegment.Text -> readers.isNotEmpty() &&
+                        readers.maxOf { it.shown } >= segment.text.length
+                    is StreamSegment.Reasoning -> {
+                        if (index != segments.lastIndex) {
+                            true
+                        } else {
+                            readers.isNotEmpty() && readers.any { it.shown >= segment.text.length }
+                        }
+                    }
                     else -> true
                 }
             }
