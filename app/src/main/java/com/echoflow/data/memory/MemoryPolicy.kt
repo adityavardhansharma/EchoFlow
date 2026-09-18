@@ -21,19 +21,22 @@ object MemoryPolicy {
             "continue where we left off|we discussed (?:before|earlier))\\b"
     )
     private val personalizableChoice = Regex(
-        "(?i)\\b(?:recommend|suggest|recommendation|what should i (?:watch|read|play|buy|visit|choose|pick)|" +
-            "help me (?:choose|pick|decide)|which (?:one|movie|film|show|series|book|game|product|place) should i)\\b"
-    )
-    private val generalWhichChoice = Regex(
-        "(?i)\\bwhich (?:[\\p{L}\\p{N}-]+\\s+){1,5}should i\\b"
+        "(?i)\\b(?:what should i (?:watch|read|play|buy|visit|choose|pick)|" +
+            "help me (?:choose|pick|decide)|" +
+            "(?:recommend|suggest)(?:\\s+me)?\\s+(?:(?:some|a|an)\\s+)?" +
+            "(?:[\\p{L}\\p{N}-]+\\s+){0,4}(?:movies?|films?|shows?|series|books?|games?|products?|" +
+            "laptops?|phones?|restaurants?|places?|destinations?|music|albums?|songs?|apps?|tools?)|" +
+            "(?:recommend|suggest)\\b[^.!?]{0,120}\\b(?:for me|based on (?:my|what i)|similar to (?:what i|my))|" +
+            "which (?:[\\p{L}\\p{N}-]+\\s+){0,4}(?:movies?|films?|shows?|series|books?|games?|products?|" +
+            "laptops?|phones?|restaurants?|places?|destinations?|music|albums?|songs?|apps?|tools?)\\s+should i)\\b"
     )
     private val selfContainedChoice = Regex(
-        "(?i)\\b(?:from|between|among)\\b.*\\b(?:above|below|these|following|options?)\\b|" +
-            "\\b(?:the )?(?:two|three) options?\\b"
+        "(?i)\\b(?:from|between|among)\\b.*\\b(?:above|below|these|following|options?)\\b"
     )
     private val nonPersonalSuggestion = Regex(
         "(?i)\\b(?:suggest|recommend)\\s+(?:better\\s+)?(?:phrasing|wording|title|titles|edits?|" +
-            "rewrites?|corrections?|improvements?|changes?)\\b"
+            "rewrites?|corrections?|improvements?|changes?|approach|solution|advice|strategy|way|method|" +
+            "idea|ideas|plan)\\b"
     )
     private val denial = Regex(
         "(?i)\\b(?:i (?:do not|don't) know|i (?:do not|don't|cannot|can't) have access|" +
@@ -48,7 +51,7 @@ object MemoryPolicy {
             Regex("(?i)^(?:no[,. ]*)?(?:u|you) do\\b|\\bi told you\\b|\\byou know\\b|\\bremember\\b")
                 .containsMatchIn(text)
         if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) &&
-            !personalizableChoice.containsMatchIn(text) && !generalWhichChoice.containsMatchIn(text) && !correctingDenial) return null
+            !personalizableChoice.containsMatchIn(text) && !correctingDenial) return null
         return focusedQuery(text)
     }
 

@@ -20,6 +20,8 @@ class MemoryPolicyTest {
         assertNotNull(MemoryPolicy.recallQuery("Which laptop should I buy?", null))
         assertNull(MemoryPolicy.recallQuery("Which one should I choose from the two options above?", null))
         assertNull(MemoryPolicy.recallQuery("Suggest better phrasing for this paragraph", null))
+        assertNull(MemoryPolicy.recallQuery("Suggest a better approach for this bug", null))
+        assertNull(MemoryPolicy.recallQuery("Which approach should I use from the options above?", null))
         assertNull(MemoryPolicy.recallQuery("any big birthdays today?", null))
         assertNull(MemoryPolicy.recallQuery("Explain the history of science fiction", null))
         assertNull(MemoryPolicy.recallQuery("Explain Kotlin coroutines", null))
