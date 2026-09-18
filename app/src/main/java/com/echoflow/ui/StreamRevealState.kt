@@ -12,17 +12,42 @@ import kotlinx.coroutines.flow.update
 class StreamRevealState {
     private data class Reader(val segmentIndex: Int, val shown: Int)
     private data class Presentation(
+        val pendingViewports: Set<Any> = emptySet(),
         val viewports: Set<Any> = emptySet(),
         val readers: Map<Any, Reader> = emptyMap(),
     )
     private val presentation = MutableStateFlow(Presentation())
 
+    /** Registers a started chat surface before LazyColumn has composed its streaming row. */
+    fun beginViewport(viewport: Any) {
+        presentation.update { it.copy(pendingViewports = it.pendingViewports + viewport) }
+    }
+
     fun attachViewport(viewport: Any) {
-        presentation.update { it.copy(viewports = it.viewports + viewport) }
+        presentation.update {
+            it.copy(
+                pendingViewports = it.pendingViewports - viewport,
+                viewports = it.viewports + viewport,
+            )
+        }
     }
 
     fun detachViewport(viewport: Any) {
-        presentation.update { it.copy(viewports = it.viewports - viewport) }
+        presentation.update {
+            // A false visibility sample before the first layout must not release the handoff.
+            if (viewport in it.pendingViewports) it
+            else it.copy(viewports = it.viewports - viewport)
+        }
+    }
+
+    /** Abandons a pending or visible surface when its lifecycle owner leaves composition. */
+    fun abandonViewport(viewport: Any) {
+        presentation.update {
+            it.copy(
+                pendingViewports = it.pendingViewports - viewport,
+                viewports = it.viewports - viewport,
+            )
+        }
     }
 
     fun report(reader: Any, segmentIndex: Int, shown: Int) {
@@ -41,23 +66,25 @@ class StreamRevealState {
 
     suspend fun awaitRevealed(segments: List<StreamSegment>) {
         presentation.first { mounted ->
-            mounted.viewports.isEmpty() || segments.withIndex().all { (index, segment) ->
-                val readers = mounted.readers.values.filter { it.segmentIndex == index }
-                when (segment) {
-                    // Include text not composed yet: the last network chunk may have just
-                    // created a new answer segment after reasoning or a tool card.
-                    is StreamSegment.Text -> readers.isNotEmpty() &&
-                        readers.maxOf { it.shown } >= segment.text.length
-                    is StreamSegment.Reasoning -> {
-                        if (index != segments.lastIndex) {
-                            true
-                        } else {
-                            readers.isNotEmpty() && readers.any { it.shown >= segment.text.length }
+            mounted.pendingViewports.isEmpty() && (
+                mounted.viewports.isEmpty() || segments.withIndex().all { (index, segment) ->
+                    val readers = mounted.readers.values.filter { it.segmentIndex == index }
+                    when (segment) {
+                        // Include text not composed yet: the last network chunk may have just
+                        // created a new answer segment after reasoning or a tool card.
+                        is StreamSegment.Text -> readers.isNotEmpty() &&
+                            readers.maxOf { it.shown } >= segment.text.length
+                        is StreamSegment.Reasoning -> {
+                            if (index != segments.lastIndex) {
+                                true
+                            } else {
+                                readers.isNotEmpty() && readers.any { it.shown >= segment.text.length }
+                            }
                         }
+                        else -> true
                     }
-                    else -> true
                 }
-            }
+            )
         }
     }
 }

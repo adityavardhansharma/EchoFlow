@@ -72,6 +72,7 @@ internal fun MessagesPane(
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            revealState?.beginViewport(viewport)
             try {
                 // Register while waiting for the first chunk too, so a one-burst response gets
                 // a reveal. A reply scrolled out of view must never hold up persistence.
@@ -82,7 +83,7 @@ internal fun MessagesPane(
                     else revealState?.detachViewport(viewport)
                 }
             } finally {
-                revealState?.detachViewport(viewport)
+                revealState?.abandonViewport(viewport)
             }
         }
     }

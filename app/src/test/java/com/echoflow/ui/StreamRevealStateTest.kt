@@ -53,4 +53,17 @@ class StreamRevealStateTest {
         completion.join()
         assertTrue(completion.isCompleted)
     }
+
+    @Test fun `a pending viewport blocks the handoff until it is abandoned`() = runTest {
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        val completion = launch(start = CoroutineStart.UNDISPATCHED) {
+            state.awaitRevealed(listOf(StreamSegment.Text("answer")))
+        }
+        assertFalse(completion.isCompleted)
+        state.abandonViewport(viewport)
+        completion.join()
+        assertTrue(completion.isCompleted)
+    }
 }
