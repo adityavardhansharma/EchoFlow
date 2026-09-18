@@ -5,24 +5,19 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import com.echoflow.ui.theme.Spacing
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Psychology
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.echoflow.ui.theme.Spacing
 
 @Composable
 internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryViewModel = viewModel()) {
@@ -33,7 +28,6 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
     var disconnect by remember { mutableStateOf(false) }
     LaunchedEffect(vm.connected) { if (vm.connected) key = "" }
     LaunchedEffect(Unit) { if (vm.connected) vm.refreshBilling() }
-    val context = LocalContext.current
     SettingsPageScaffold("Memory", "A little continuity, on your terms", onBack) {
         ConnectedToggleRow(
             options = listOf("supermemory" to "Supermemory", "echobrain" to "EchoBrain"),
@@ -49,43 +43,95 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
             label = "memoryProvider",
         ) { current ->
             Column(Modifier.fillMaxWidth()) {
-        if (current == "echobrain") {
-            EchoBrainSection()
-        } else {
-            if (!vm.connected) {
-                MemoryConnectionForm(
-                    key = key,
-                    onKeyChange = { key = it },
-                    space = space,
-                    onSpaceChange = { space = it.trim() },
-                    busy = vm.busy,
-                    onConnect = { vm.connect(key, space) },
-                )
-            }
-            if (vm.connected) {
-                MemoryConversationSection(vm, onEnableLearning = { consent = true })
-                Spacer(Modifier.height(Spacing.xl))
-                MemoryLibrarySection(onMemories)
-                Spacer(Modifier.height(Spacing.xl))
-                MemoryAccountSection(vm)
-                TextButton(onClick = { disconnect = true }, enabled = !vm.busy) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
-            }
-            MemoryFeedback(vm)
-        }
+                if (current == "echobrain") {
+                    EchoBrainSection()
+                } else {
+                    MemoryFeedback(vm)
+                    if (!vm.connected) {
+                        MemoryConnectionForm(
+                            key = key,
+                            onKeyChange = { key = it },
+                            space = space,
+                            onSpaceChange = { space = it.trim() },
+                            busy = vm.busy,
+                            onConnect = { vm.connect(key, space) },
+                        )
+                    }
+                    if (vm.connected) {
+                        MemoryConversationSection(vm, onEnableLearning = { consent = true })
+                        Spacer(Modifier.height(Spacing.xl))
+                        MemoryLibrarySection(onMemories)
+                        Spacer(Modifier.height(Spacing.xl))
+                        MemoryAccountSection(vm)
+                        Spacer(Modifier.height(Spacing.s))
+                        TextButton(
+                            onClick = { disconnect = true },
+                            enabled = !vm.busy,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Disconnect Supermemory") }
+                    }
+                }
             }
         }
     }
-    if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("Let Supermemory learn?") },
-        text = { Text("New user messages are sent to your Supermemory account. High-confidence personal facts may be saved immediately; other learning is processed in the background. Assistant replies, attachments, reasoning and tool results are excluded. Relevant memories may be shared with the model answering you. Existing chat history isn't imported. You can turn this off at any time.") },
-        confirmButton = { TextButton(onClick = { vm.setLearning(true); consent = false }) { Text("Enable learning") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("Not now") } })
-    if (disconnect) AlertDialog(onDismissRequest = { disconnect = false }, title = { Text("Disconnect Supermemory?") },
-        text = { Text("Stops future memory requests and removes the key from this device. Existing data stays in your Supermemory account.") },
-        confirmButton = { TextButton(onClick = { vm.disconnect(); disconnect = false }) { Text("Disconnect") } }, dismissButton = { TextButton(onClick = { disconnect = false }) { Text("Cancel") } })
+    if (consent) {
+        AlertDialog(
+            onDismissRequest = { consent = false },
+            icon = { Icon(Icons.Default.Psychology, null) },
+            title = { Text("Let Supermemory learn?") },
+            text = {
+                Text(
+                    "New user messages are sent to your Supermemory account. High-confidence personal facts may be saved immediately; " +
+                        "other learning is processed in the background. Assistant replies, attachments, reasoning and tool results are excluded. " +
+                        "Relevant memories may be shared with the model answering you. Existing chat history isn't imported. You can turn this off at any time.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.setLearning(true); consent = false },
+                    enabled = !vm.busy,
+                ) { Text("Enable learning") }
+            },
+            dismissButton = { TextButton(onClick = { consent = false }) { Text("Not now") } },
+        )
+    }
+    if (disconnect) {
+        AlertDialog(
+            onDismissRequest = { disconnect = false },
+            title = { Text("Disconnect Supermemory?") },
+            text = { Text("Stops future memory requests and removes the key from this device. Existing data stays in your Supermemory account.") },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.disconnect(); disconnect = false },
+                    enabled = !vm.busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Disconnect") }
+            },
+            dismissButton = { TextButton(onClick = { disconnect = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 
-@Composable private fun MemoryFeedback(vm: MemoryViewModel) {
-    if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
-    vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium) }
-    vm.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium) }
+@Composable
+private fun MemoryFeedback(vm: MemoryViewModel) {
+    if (vm.busy) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+        Spacer(Modifier.height(Spacing.m))
+    }
+    vm.error?.let { MemoryFeedbackMessage(it, isError = true) }
+    vm.notice?.let { MemoryFeedbackMessage(it, isError = false) }
+}
+
+@Composable
+private fun MemoryFeedbackMessage(message: String, isError: Boolean) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+    ) {
+        Text(message, modifier = Modifier.padding(Spacing.base), style = MaterialTheme.typography.bodySmall)
+    }
+    Spacer(Modifier.height(Spacing.m))
 }
