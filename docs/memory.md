@@ -25,12 +25,14 @@ coming-soon destination, not an active service. There is no EchoFlow backend.
 ## Retrieval and writes
 
 Ordinary tool-capable chats receive `search_memory(query)` and `remember_memory(content)`.
-The system instruction gives mandatory retrieval cases for personal facts, prior-chat references
-and corrective follow-ups, while self-contained questions need no memory request. A bounded local
-policy also retrieves before generation for unmistakable personal-memory intent, so basic identity
-questions do not depend solely on model tool choice. Memory and web search can both run when a
-request combines personal and current information. Explicit remember requests use direct memory
-creation, not the background batch.
+The system instruction plans evidence across visible chat, personal memory and public web sources.
+It gives mandatory retrieval cases for personal facts, prior-chat references, corrective follow-ups,
+and choices where preferences, prior experiences or consumed items could change ranking or exclusions.
+Self-contained questions need no memory request. A bounded local policy retrieves before generation
+for unmistakable personal intent and recommendation/decision requests, so those cases do not depend
+solely on model tool choice. Memory and web search can both run when a request needs personal and
+current information; an empty result is missing evidence, not a negative answer. Explicit remember
+requests use direct memory creation, not the background batch.
 Native transport coverage: OpenRouter, OpenAI Responses, OpenAI-compatible chat completions,
 Claude, Gemini and Ollama (the existing endpoint tool-calling opt-in still applies).
 Specialised Echo/Artifact flows do not automatically receive client-side memory tools;
@@ -64,8 +66,10 @@ Pro = three; Max/Scale/Enterprise = one. Batching limits request frequency, **no
 number of tokens charged by Supermemory. Paid accounts can still incur provider charges.
 Partial batches become eligible after six hours even if the user only uses one thread.
 Maintenance is requested every 15 minutes, but Android/network restrictions can delay it.
-Retry learning explicitly flushes a partial batch; the settings UI does not display a schedule.
-The settings UI reports queued, processing, ready and unavailable conversation counts.
+“Learn queued chats now” discovers eligible completed Chat conversations inside the current consent
+window and explicitly flushes a partial batch. Excluded chats and disallowed local chats stay on-device;
+revision hashes keep unchanged conversations idempotent. The settings UI reports and refreshes queued,
+processing, ready and unavailable conversation counts.
 
 The worker uploads user-authored text only, oldest pending conversations first. Assistant prose is
 excluded so statements about what the assistant knows or can retrieve cannot become user memories.
@@ -109,11 +113,6 @@ retained sources can recreate facts. Use the provider dashboard to manage source
   plan table may lag this page).
 - [Inference review](https://supermemory.ai/docs/recall/memory-review) — approve/decline
   semantics and access restrictions.
-
-No tests, builds, or screenshot captures were run for the PR review/redesign follow-up,
-as explicitly requested. Changes received static source inspection and `git diff --check`.
-Previous test/build results do not validate the revised implementation. See
-[review follow-up](memory-review.md) for reviewer dispositions and remaining validation.
 
 No live paid-account calls are made in automated tests. Existing HTTP fixtures exercise contract
 shapes and all native custom-provider memory-only loops; Room tests cover stale/deleted

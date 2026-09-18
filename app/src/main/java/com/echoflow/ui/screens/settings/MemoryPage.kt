@@ -82,6 +82,16 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                                 Icon(Icons.Default.Refresh, "Refresh learning status")
                             }
                         }
+                        FilledTonalButton(
+                            onClick = vm::learnNow,
+                            enabled = !vm.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Learn queued chats now") }
+                        Text(
+                            "Processes eligible completed chats now instead of waiting for Supermemory's normal batch threshold. Unchanged chats are not uploaded twice.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     HorizontalDivider()
                     MemorySwitch("Include on-device chats", "Allows eligible local chat text to leave your device for Supermemory.", vm.local, !vm.busy, vm::updateLocal)
@@ -112,6 +122,7 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
 @Composable private fun MemoryFeedback(vm: MemoryViewModel) {
     if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium) }
+    vm.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium) }
 }
 @Composable private fun MemoryBlock(title: String?, subtitle: String?, content: @Composable ColumnScope.() -> Unit) {
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {

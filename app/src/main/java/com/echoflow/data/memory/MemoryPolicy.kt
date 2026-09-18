@@ -20,17 +20,38 @@ object MemoryPolicy {
             "as i (?:said|mentioned) before|from (?:our|the) (?:last|previous) (?:chat|conversation)|" +
             "continue where we left off|we discussed (?:before|earlier))\\b"
     )
+    private val personalizableChoice = Regex(
+        "(?i)\\b(?:what should i (?:watch|read|play|buy|visit|choose|pick)|" +
+            "help me (?:choose|pick|decide)|" +
+            "(?:recommend|suggest)(?:\\s+me)?\\s+(?:(?:some|a|an)\\s+)?" +
+            "(?:[\\p{L}\\p{N}-]+\\s+){0,4}(?:movies?|films?|shows?|series|books?|games?|products?|" +
+            "laptops?|phones?|restaurants?|places?|destinations?|music|albums?|songs?|apps?|tools?)|" +
+            "(?:recommend|suggest)\\b[^.!?]{0,120}\\b(?:for me|based on (?:my|what i)|similar to (?:what i|my))|" +
+            "which (?:[\\p{L}\\p{N}-]+\\s+){0,4}(?:movies?|films?|shows?|series|books?|games?|products?|" +
+            "laptops?|phones?|restaurants?|places?|destinations?|music|albums?|songs?|apps?|tools?)\\s+should i)\\b"
+    )
+    private val selfContainedChoice = Regex(
+        "(?i)\\b(?:from|between|among)\\b.*\\b(?:above|below|these|following|options?)\\b"
+    )
+    private val nonPersonalSuggestion = Regex(
+        "(?i)\\b(?:suggest|recommend)\\s+(?:better\\s+)?(?:phrasing|wording|title|titles|edits?|" +
+            "rewrites?|corrections?|improvements?|changes?|approach|solution|advice|strategy|way|method|" +
+            "idea|ideas|plan)\\b"
+    )
     private val denial = Regex(
         "(?i)\\b(?:i (?:do not|don't) know|i (?:do not|don't|cannot|can't) have access|" +
             "i (?:cannot|can't) tell|you (?:have not|haven't) told me|not in (?:my |the )?(?:saved )?memor)"
     )
 
+    /** Selects a focused memory query only when personal history can affect the response. */
     fun recallQuery(prompt: String, previousAssistant: ChatMessage?): String? {
         val text = prompt.trim()
+        if (selfContainedChoice.containsMatchIn(text) || nonPersonalSuggestion.containsMatchIn(text)) return null
         val correctingDenial = previousAssistant?.let { denial.containsMatchIn(it.content) } == true &&
             Regex("(?i)^(?:no[,. ]*)?(?:u|you) do\\b|\\bi told you\\b|\\byou know\\b|\\bremember\\b")
                 .containsMatchIn(text)
-        if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) && !correctingDenial) return null
+        if (!personalQuestion.containsMatchIn(text) && !priorConversation.containsMatchIn(text) &&
+            !personalizableChoice.containsMatchIn(text) && !correctingDenial) return null
         return focusedQuery(text)
     }
 
@@ -47,6 +68,8 @@ object MemoryPolicy {
                 "user profile: identity, preferences, work, interests, relationships, and ongoing projects"
             "favorite" in value || "favourite" in value || "my usual" in value ->
                 "user's relevant preferences and usual choices: $prompt"
+            personalizableChoice.containsMatchIn(value) ->
+                "preferences, prior experiences, consumed or owned items, rejections, and constraints relevant to: $prompt"
             else -> "relevant facts from the user's previous conversations: $prompt"
         }.take(1000)
     }

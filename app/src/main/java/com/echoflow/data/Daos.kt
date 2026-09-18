@@ -98,6 +98,25 @@ interface MessageDao {
     )
     suspend fun recentUserMessages(currentChat: String, since: Long, limit: Int, offset: Int = 0): List<ChatMessage>
 
+    /** A stable keyset page of completed Chat candidates inside the active consent window. */
+    data class MemoryCandidate(val chatId: String, val latestCreatedAt: Long)
+
+    @Query(
+        "SELECT m.chatId AS chatId, MAX(m.createdAt) AS latestCreatedAt FROM chat_messages m INNER JOIN chat_threads t ON t.id = m.chatId " +
+            "WHERE t.kind = 'chat' AND m.role = 'user' AND m.createdAt >= :since " +
+            "GROUP BY m.chatId HAVING MAX(m.createdAt) <= :snapshotAt AND " +
+            "(MAX(m.createdAt) < :beforeCreatedAt OR " +
+            "(MAX(m.createdAt) = :beforeCreatedAt AND m.chatId < :beforeChatId)) " +
+            "ORDER BY MAX(m.createdAt) DESC, m.chatId DESC LIMIT :limit"
+    )
+    suspend fun memoryCandidateChats(
+        since: Long,
+        snapshotAt: Long,
+        beforeCreatedAt: Long,
+        beforeChatId: String,
+        limit: Int,
+    ): List<MemoryCandidate>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessage)
 

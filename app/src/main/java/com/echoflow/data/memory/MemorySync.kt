@@ -6,6 +6,8 @@ import androidx.work.*
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.ChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import android.util.Log
@@ -141,6 +143,65 @@ object MemoryLearning {
         schedule(context, force = true)
     }
 
+    /** Flushes the current revision ledger without waiting for the provider batch threshold. */
+    /** Discovers eligible completed chats and bypasses the normal provider batch threshold. */
+    suspend fun flushNow(context: Context): MemoryLearningStatus {
+        val settings = MemorySettings(context)
+        val session = settings.session() ?: error("Enable conversation learning first.")
+        recoverQueue(context, settings, session)
+        withContext(Dispatchers.Default) { discoverCompletedChats(context, settings, session) }
+        if (!settings.permits(session)) error("Memory consent changed. Try again.")
+        schedule(context, force = true)
+        return status(context)
+    }
+
+    private suspend fun discoverCompletedChats(context: Context, settings: MemorySettings, session: MemorySession) = queueLock.withLock {
+        val db = AppDatabase.getDatabase(context)
+        val existing = db.memorySyncDao().entries(session.generation).associateBy { it.chatId }
+        val pageSize = 50
+        val snapshotAt = System.currentTimeMillis()
+        var beforeCreatedAt = Long.MAX_VALUE
+        var beforeChatId = "\uFFFF"
+        while (settings.permits(session)) {
+            val candidates = db.messageDao().memoryCandidateChats(
+                since = session.since,
+                snapshotAt = snapshotAt,
+                beforeCreatedAt = beforeCreatedAt,
+                beforeChatId = beforeChatId,
+                limit = pageSize,
+            )
+            if (candidates.isEmpty()) break
+            for (candidate in candidates) {
+                val chatId = candidate.chatId
+                if (!settings.permits(session)) return@withLock
+                if (settings.excluded(chatId) || (settings.includesLocal(chatId) && !settings.allowLocal)) continue
+                val messages = db.messageDao().getMessagesForChatSync(chatId)
+                    .filter { it.createdAt <= snapshotAt }
+                if (messages.lastOrNull()?.role != "assistant") continue
+                val text = transcript(messages, session.since)
+                if (text.isBlank()) continue
+                val revision = revision(text)
+                val old = existing[chatId]
+                if (old?.revision != revision && settings.permits(session)) {
+                    db.memorySyncDao().put(MemorySync(
+                        chatId = chatId,
+                        generation = session.generation,
+                        revision = revision,
+                        sentRevision = old?.sentRevision.orEmpty(),
+                        documentId = old?.documentId.orEmpty(),
+                        status = if (old?.status == "processing") "processing" else "pending",
+                        updatedAt = System.currentTimeMillis(),
+                        includesLocal = settings.includesLocal(chatId) || old?.includesLocal == true,
+                    ))
+                }
+            }
+            if (candidates.size < pageSize) break
+            val last = candidates.last()
+            beforeCreatedAt = last.latestCreatedAt
+            beforeChatId = last.chatId
+        }
+    }
+
     suspend fun status(context: Context): MemoryLearningStatus {
         val settings = MemorySettings(context)
         val entries = AppDatabase.getDatabase(context).memorySyncDao().entries(settings.generation)
@@ -218,6 +279,18 @@ object MemoryLearning {
         if (base.any { it in setOf("favorite", "favourite", "prefer", "preferences") }) base += setOf("favorite", "favourite", "prefer")
         return base
     }
+
+    internal fun shouldFlush(pendingCount: Int, plan: String, aged: Boolean, forced: Boolean): Boolean =
+        pendingCount > 0 && (forced || aged || pendingCount >= MemorySettings.batchSize(plan))
+
+    /** Converts a post-flush status into truthful user-facing feedback. */
+    internal fun manualFlushNotice(status: MemoryLearningStatus): String = when {
+        status.queued > 0 -> "Learning started for ${status.queued} ${if (status.queued == 1) "conversation" else "conversations"}."
+        status.processing > 0 -> "Learning is processing ${status.processing} ${if (status.processing == 1) "conversation" else "conversations"}."
+        status.unavailable > 0 -> "${status.unavailable} source${if (status.unavailable == 1) " is" else "s are"} unavailable. Use Retry learning to try again."
+        status.ready > 0 -> "All eligible completed conversations are already learned."
+        else -> "No eligible completed conversations are waiting to be learned."
+    }
 }
 
 class MemorySyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -247,7 +320,7 @@ class MemorySyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
             }
             val pending = dao.entries(generation).filter { it.status != "unavailable" && it.revision != it.sentRevision && !settings.excluded(it.chatId) && (!(it.includesLocal || settings.includesLocal(it.chatId)) || settings.allowLocal) }
             val aged = pending.any { System.currentTimeMillis() - it.updatedAt >= TimeUnit.HOURS.toMillis(6) }
-            val flush = pending.size >= MemorySettings.batchSize(settings.plan) || aged || inputData.getBoolean("force", false)
+            val flush = MemoryLearning.shouldFlush(pending.size, settings.plan, aged, inputData.getBoolean("force", false))
             for (entry in if (flush) pending else emptyList()) {
                 if (!settings.permits(session)) return Result.success()
                 if (settings.excluded(entry.chatId) || ((entry.includesLocal || settings.includesLocal(entry.chatId)) && !settings.allowLocal)) continue

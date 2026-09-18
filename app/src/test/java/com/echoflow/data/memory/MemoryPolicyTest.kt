@@ -13,7 +13,17 @@ class MemoryPolicyTest {
         assertNotNull(MemoryPolicy.recallQuery("what do you know about me?", null))
         assertNotNull(MemoryPolicy.recallQuery("what are my preferences?", null))
         assertNotNull(MemoryPolicy.recallQuery("of people I know", null))
+        assertEquals(
+            "preferences, prior experiences, consumed or owned items, rejections, and constraints relevant to: suggest sci-fi movies",
+            MemoryPolicy.recallQuery("suggest sci-fi movies", null),
+        )
+        assertNotNull(MemoryPolicy.recallQuery("Which laptop should I buy?", null))
+        assertNull(MemoryPolicy.recallQuery("Which one should I choose from the two options above?", null))
+        assertNull(MemoryPolicy.recallQuery("Suggest better phrasing for this paragraph", null))
+        assertNull(MemoryPolicy.recallQuery("Suggest a better approach for this bug", null))
+        assertNull(MemoryPolicy.recallQuery("Which approach should I use from the options above?", null))
         assertNull(MemoryPolicy.recallQuery("any big birthdays today?", null))
+        assertNull(MemoryPolicy.recallQuery("Explain the history of science fiction", null))
         assertNull(MemoryPolicy.recallQuery("Explain Kotlin coroutines", null))
     }
 
@@ -43,8 +53,10 @@ class MemoryPolicyTest {
 
     @Test fun `prompt requires recall and supports combined tools`() {
         assertTrue(MemoryTools.PROMPT.contains("MUST call search_memory"))
-        assertTrue(MemoryTools.PROMPT.contains("Memory and web search are complementary"))
-        assertTrue(MemoryTools.PROMPT.contains("of people I know"))
+        assertTrue(MemoryTools.PROMPT.contains("Use memory and web together"))
+        assertTrue(MemoryTools.PROMPT.contains("empty result means only"))
+        assertTrue(MemoryTools.PROMPT.contains("both context and a constraint"))
+        assertFalse(MemoryTools.PROMPT.contains("birthdays today"))
     }
 
     @Test fun `cleanup rejects meta memories and keeps newest exact equivalent`() {

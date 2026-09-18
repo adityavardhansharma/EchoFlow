@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.echoflow.data.memory.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -41,6 +43,7 @@ class MemoryViewModel internal constructor(
     var cleanupPlan by mutableStateOf<MemoryPolicy.CleanupPlan?>(null); private set
     private var page = 1
     private var pendingActions = 0
+    private var learningRefreshJob: Job? = null
     private val actions = Mutex()
 
     init {
@@ -166,6 +169,25 @@ class MemoryViewModel internal constructor(
     fun updateRecall(enabled: Boolean) = action { settings.recall = enabled; recall = settings.recall }
     fun updateLocal(enabled: Boolean) = action { settings.allowLocal = enabled; local = settings.allowLocal }
     fun retryLearning() = action { MemoryLearning.retry(getApplication()); refreshLearningStatusDirect() }
+    /** Starts immediate learning for eligible completed conversations. */
+    fun learnNow() = action {
+        val status = MemoryLearning.flushNow(getApplication())
+        learningStatus = status
+        notice = MemoryLearning.manualFlushNotice(status)
+        watchLearningProgress()
+    }
+
+    /** Refreshes the ledger while the forced WorkManager job transitions to completion. */
+    private fun watchLearningProgress() {
+        learningRefreshJob?.cancel()
+        learningRefreshJob = viewModelScope.launch {
+            repeat(20) {
+                delay(1_500)
+                refreshLearningStatusDirect()
+                if (learningStatus.queued == 0 && learningStatus.processing == 0) return@launch
+            }
+        }
+    }
 
     fun refreshLearningStatus() = action { refreshLearningStatusDirect() }
     private suspend fun refreshLearningStatusDirect() {
