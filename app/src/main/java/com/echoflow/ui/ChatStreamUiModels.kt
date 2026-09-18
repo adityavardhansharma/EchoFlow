@@ -12,6 +12,7 @@ internal data class ActiveStreamState(
     val progressLoading: Boolean = false,
     val isLocal: Boolean = false,
     val handoffMessageId: String? = null,
+    val revealState: StreamRevealState? = null,
 )
 
 /**

@@ -86,7 +86,47 @@ private val TABLE_SEPARATOR = Regex("""^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)
  * Parses markdown text into a flat list of renderable blocks. Line-based and allocation-light so it
  * is cheap to re-run on every streaming frame.
  */
-fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
+fun parseMarkdownBlocks(text: String): List<MarkdownBlock> = parseMarkdownBlocks(text, null)
+
+/**
+ * Only a completed blank line outside code/math commits a prefix. A single newline is not
+ * enough: the next line can still extend a paragraph or turn it into a table header.
+ */
+internal class StreamingMarkdownCache {
+    private var previousText = ""
+    private var prefixLength = 0
+    private var prefixBlocks: List<MarkdownBlock> = emptyList()
+    private var result: List<MarkdownBlock> = emptyList()
+
+    fun parse(text: String): List<MarkdownBlock> {
+        if (text == previousText) return result
+        if (!text.startsWith(previousText)) {
+            prefixLength = 0
+            prefixBlocks = emptyList()
+        }
+        val tail = text.substring(prefixLength)
+        var stableLines = 0
+        var stableBlocks = 0
+        val tailBlocks = parseMarkdownBlocks(tail) { lines, blocks ->
+            stableLines = lines
+            stableBlocks = blocks
+        }
+        result = prefixBlocks + tailBlocks
+        if (stableLines > 0) {
+            var end = 0
+            repeat(stableLines) { end = tail.indexOf('\n', end) + 1 }
+            prefixLength += end
+            prefixBlocks = prefixBlocks + tailBlocks.take(stableBlocks)
+        }
+        previousText = text
+        return result
+    }
+}
+
+private fun parseMarkdownBlocks(
+    text: String,
+    onStableBoundary: ((lineCount: Int, blockCount: Int) -> Unit)?,
+): List<MarkdownBlock> {
     val blocks = mutableListOf<MarkdownBlock>()
     val lines = text.split("\n")
 
@@ -152,7 +192,10 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
         }
 
         when {
-            trimmed.isEmpty() -> flushParagraph()
+            trimmed.isEmpty() -> {
+                flushParagraph()
+                if (i < lines.lastIndex) onStableBoundary?.invoke(i + 1, blocks.size)
+            }
 
             HR_LINE.matches(trimmed) -> {
                 flushParagraph()

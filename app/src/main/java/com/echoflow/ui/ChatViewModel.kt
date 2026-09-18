@@ -360,6 +360,11 @@ class ChatViewModel(
         initialValue = emptyList()
     )
 
+    /** Visible readers acknowledge their reveal before the persisted-message handoff. */
+    val streamRevealState: StateFlow<StreamRevealState?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
+        streams[chatId]?.revealState
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     /** Persisted message that is replacing the transient row, if the handoff has started. */
     val streamHandoffMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
         streams[chatId]?.handoffMessageId
@@ -1919,13 +1924,15 @@ class ChatViewModel(
                 else baseResponseFlow
 
             // Begin Streaming Assistant response
+            val revealState = StreamRevealState()
             setStreamState(
                 chatId,
                 ActiveStreamState(
                     segments = emptyList(),
                     statusNote = null,
                     progressLoading = true,
-                    isLocal = isLocal
+                    isLocal = isLocal,
+                    revealState = revealState,
                 )
             )
 
@@ -1956,22 +1963,35 @@ class ChatViewModel(
             }
             // Keep the process unfrozen so the reply keeps streaming while minimized.
             KeepAliveService.acquire(getApplication(), keepAliveText)
+            var streamUiFlushJob: Job? = null
             try {
                 var lastStreamUiEmit = 0L
-                var pendingStreamUiState: ActiveStreamState? = null
+                var streamUiDirty = false
                 fun emitStreamUiState(force: Boolean = false) {
-                    val state = ActiveStreamState(
-                        segments = segments.toList(),
-                        statusNote = statusNote,
-                        progressLoading = false,
-                        isLocal = isLocal
-                    )
-                    pendingStreamUiState = state
-                    val now = System.currentTimeMillis()
+                    streamUiDirty = true
+                    val now = android.os.SystemClock.uptimeMillis()
                     if (force || now - lastStreamUiEmit >= STREAM_UI_EMIT_MS) {
-                        setStreamState(chatId, state)
-                        pendingStreamUiState = null
+                        streamUiFlushJob?.cancel()
+                        streamUiFlushJob = null
+                        setStreamState(
+                            chatId,
+                            ActiveStreamState(
+                                segments = segments.toList(),
+                                statusNote = statusNote,
+                                progressLoading = false,
+                                isLocal = isLocal,
+                                revealState = revealState,
+                            ),
+                        )
+                        streamUiDirty = false
                         lastStreamUiEmit = now
+                    } else if (streamUiFlushJob == null) {
+                        // Flush the trailing chunk even if the provider pauses after a burst.
+                        streamUiFlushJob = launch {
+                            delay(STREAM_UI_EMIT_MS - (now - lastStreamUiEmit))
+                            streamUiFlushJob = null
+                            emitStreamUiState(force = true)
+                        }
                     }
                 }
                 responseFlow.collect { rawChunk ->
@@ -2005,7 +2025,10 @@ class ChatViewModel(
                     if (note != null) statusNote = note
                     emitStreamUiState()
                 }
-                pendingStreamUiState?.let { emitStreamUiState(force = true) }
+                if (streamUiDirty) emitStreamUiState(force = true)
+                // Keep the existing live row until its visible text has caught up. Readers
+                // detach when off screen/backgrounded; Stop still cancels this wait normally.
+                revealState.awaitRevealed(segments)
                 // The image usually arrives as the final chunk, so persisting immediately would
                 // replace the streaming bubble (and its stretch-and-reveal choreography) after a
                 // few frames. Hold the live bubble long enough for the ~2s handoff to finish;
@@ -2089,6 +2112,7 @@ class ChatViewModel(
                 }
             } catch (e: CancellationException) {
                 // User tapped Stop — keep whatever streamed so far and surface no error banner.
+                streamUiFlushJob?.cancel()
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
                 if (!assistantPersisted) {
                     withContext(NonCancellable) {
@@ -2104,6 +2128,7 @@ class ChatViewModel(
             } catch (e: Exception) {
                 e.printStackTrace()
                 _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
+                streamUiFlushJob?.cancel()
                 if (!assistantPersisted) {
                     if (editingUserId != null) {
                         // A transport/provider failure is not an answer version. Put the replaced
@@ -2132,6 +2157,7 @@ class ChatViewModel(
                     )
                 }
             } finally {
+                streamUiFlushJob?.cancel()
                 KeepAliveService.release(getApplication())
                 clearStreamIfOwned(chatId, streamJob)
             }

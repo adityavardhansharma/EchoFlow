@@ -15,6 +15,9 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.GeneratedVideo
@@ -22,11 +25,13 @@ import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ResearchJson
 import com.echoflow.data.ResearchRef
 import com.echoflow.data.ResearchRun
+import com.echoflow.ui.StreamRevealState
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.ResearchTimeline
 import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -40,6 +45,7 @@ internal fun MessagesPane(
     isStreaming: Boolean,
     segments: List<StreamSegment>,
     handoffMessageId: String? = null,
+    revealState: StreamRevealState? = null,
     statusNote: String?,
     progressLoading: Boolean,
     modelLoading: Boolean,
@@ -62,6 +68,24 @@ internal fun MessagesPane(
 ) {
     val listState = rememberLazyListState()
     var autoFollow by remember { mutableStateOf(true) }
+    val viewport = remember { Any() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(revealState, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                // Register while waiting for the first chunk too, so a one-burst response gets
+                // a reveal. A reply scrolled out of view must never hold up persistence.
+                snapshotFlow {
+                    autoFollow || listState.layoutInfo.visibleItemsInfo.any { it.key == "streaming" }
+                }.collect { visible ->
+                    if (visible) revealState?.attachViewport(viewport)
+                    else revealState?.detachViewport(viewport)
+                }
+            } finally {
+                revealState?.detachViewport(viewport)
+            }
+        }
+    }
     val atBottom by remember {
         derivedStateOf {
             val li = listState.layoutInfo
@@ -145,7 +169,16 @@ internal fun MessagesPane(
         }
         val persistedHandoffVisible = handoffMessageId != null && messages.any { it.id == handoffMessageId }
         if (segments.isNotEmpty() && !persistedHandoffVisible) item(key = "streaming") {
-            StreamingAssistantBubble(segments = segments, statusNote = statusNote, isStreaming = isStreaming, onArtifactOpen = onArtifactOpen, observeArtifactVersions = observeArtifactVersions)
+            key(revealState) {
+                StreamingAssistantBubble(
+                    segments = segments,
+                    statusNote = statusNote,
+                    isStreaming = isStreaming,
+                    revealState = revealState,
+                    onArtifactOpen = onArtifactOpen,
+                    observeArtifactVersions = observeArtifactVersions,
+                )
+            }
         }
     }
 }
