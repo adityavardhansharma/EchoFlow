@@ -1,6 +1,13 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.echoflow.ui.screens.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import com.echoflow.ui.theme.Spacing
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Psychology
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
@@ -19,7 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryViewModel = viewModel()) {
-    var tab by rememberSaveable { mutableStateOf(0) }
+    var tab by rememberSaveable { mutableStateOf("supermemory") }
     var key by remember { mutableStateOf("") } // Never save API keys in instance state.
     var space by rememberSaveable { mutableStateOf(vm.settings.space) }
     var consent by remember { mutableStateOf(false) }
@@ -28,13 +35,21 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
     LaunchedEffect(Unit) { if (vm.connected) vm.refreshBilling() }
     val context = LocalContext.current
     SettingsPageScaffold("Memory", "A little continuity, on your terms", onBack) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf("Supermemory", "EchoBrain").forEachIndexed { i, label ->
-                SegmentedButton(selected = tab == i, onClick = { tab = i }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        if (tab == 1) {
+        ConnectedToggleRow(
+            options = listOf("supermemory" to "Supermemory", "echobrain" to "EchoBrain"),
+            selected = tab,
+            onSelect = { tab = it },
+            icons = listOf(Icons.Default.CloudQueue, Icons.Default.Psychology),
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = { fadeIn(effects) togetherWith fadeOut(effects) },
+            label = "memoryProvider",
+        ) { current ->
+            Column(Modifier.fillMaxWidth()) {
+        if (current == "echobrain") {
             MemoryBlock("EchoBrain", "Coming soon") {
                 Text("A future memory system built into EchoFlow. Nothing to connect yet.", style = MaterialTheme.typography.bodyMedium)
             }
@@ -108,6 +123,8 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                 TextButton(onClick = { disconnect = true }, enabled = !vm.busy) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
             }
             MemoryFeedback(vm)
+        }
+            }
         }
     }
     if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("Let Supermemory learn?") },
