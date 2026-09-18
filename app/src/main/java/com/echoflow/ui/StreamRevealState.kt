@@ -3,6 +3,7 @@ package com.echoflow.ui
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Per-reply acknowledgement of text actually revealed by a visible, started UI. The producer
@@ -15,12 +16,20 @@ class StreamRevealState {
         val pendingViewports: Set<Any> = emptySet(),
         val viewports: Set<Any> = emptySet(),
         val readers: Map<Any, Reader> = emptyMap(),
+        val trackingStarted: Boolean = false,
+        val trackingEnded: Boolean = false,
     )
     private val presentation = MutableStateFlow(Presentation())
 
     /** Registers a started chat surface before LazyColumn has composed its streaming row. */
     fun beginViewport(viewport: Any) {
-        presentation.update { it.copy(pendingViewports = it.pendingViewports + viewport) }
+        presentation.update {
+            it.copy(
+                pendingViewports = it.pendingViewports + viewport,
+                trackingStarted = true,
+                trackingEnded = false,
+            )
+        }
     }
 
     fun attachViewport(viewport: Any) {
@@ -46,6 +55,8 @@ class StreamRevealState {
             it.copy(
                 pendingViewports = it.pendingViewports - viewport,
                 viewports = it.viewports - viewport,
+                trackingEnded = it.pendingViewports - viewport == emptySet<Any>() &&
+                    it.viewports - viewport == emptySet<Any>(),
             )
         }
     }
@@ -65,9 +76,15 @@ class StreamRevealState {
     }
 
     suspend fun awaitRevealed(segments: List<StreamSegment>) {
+        val tracking = withTimeoutOrNull(INITIAL_TRACKING_TIMEOUT_MS) {
+            presentation.first { it.trackingStarted || it.trackingEnded }
+        } ?: return
+        if (tracking.trackingEnded) return
         presentation.first { mounted ->
-            mounted.pendingViewports.isEmpty() && (
-                mounted.viewports.isEmpty() || segments.withIndex().all { (index, segment) ->
+            mounted.trackingEnded || when {
+                mounted.pendingViewports.isNotEmpty() -> false
+                mounted.viewports.isEmpty() -> true
+                else -> segments.withIndex().all { (index, segment) ->
                     val readers = mounted.readers.values.filter { it.segmentIndex == index }
                     when (segment) {
                         // Include text not composed yet: the last network chunk may have just
@@ -84,7 +101,11 @@ class StreamRevealState {
                         else -> true
                     }
                 }
-            )
+            }
         }
+    }
+
+    private companion object {
+        const val INITIAL_TRACKING_TIMEOUT_MS = 1_500L
     }
 }

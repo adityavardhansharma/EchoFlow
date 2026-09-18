@@ -11,7 +11,9 @@ import org.junit.Test
 class StreamRevealStateTest {
     @Test fun `waits for an answer that has not been composed yet`() = runTest {
         val state = StreamRevealState()
-        state.attachViewport(Any())
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
         val reader = Any()
         val completion = launch(start = CoroutineStart.UNDISPATCHED) {
             state.awaitRevealed(listOf(StreamSegment.Text("hello")))
@@ -28,6 +30,7 @@ class StreamRevealStateTest {
     @Test fun `leaving the viewport releases an unfinished reveal`() = runTest {
         val state = StreamRevealState()
         val viewport = Any()
+        state.beginViewport(viewport)
         state.attachViewport(viewport)
         val completion = launch(start = CoroutineStart.UNDISPATCHED) {
             state.awaitRevealed(listOf(StreamSegment.Text("answer")))
@@ -39,12 +42,18 @@ class StreamRevealStateTest {
     }
 
     @Test fun `background replies do not wait for readers`() = runTest {
-        StreamRevealState().awaitRevealed(listOf(StreamSegment.Text("answer")))
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.abandonViewport(viewport)
+        state.awaitRevealed(listOf(StreamSegment.Text("answer")))
     }
 
     @Test fun `a mounted viewport waits for a reader acknowledgement`() = runTest {
         val state = StreamRevealState()
-        state.attachViewport(Any())
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
         val completion = launch(start = CoroutineStart.UNDISPATCHED) {
             state.awaitRevealed(listOf(StreamSegment.Reasoning("thought")))
         }
