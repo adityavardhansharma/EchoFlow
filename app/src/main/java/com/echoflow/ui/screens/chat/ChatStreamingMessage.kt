@@ -28,6 +28,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ArtifactVersion
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.echoflow.ui.StreamRevealState
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
 import com.echoflow.ui.components.AgentDeployingCard
@@ -38,8 +42,11 @@ import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.theme.Spacing
+import com.echoflow.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 
 /**
  * Shown while an on-device model is loaded into RAM (or a long chat is prefilled) —
@@ -83,6 +90,7 @@ internal fun StreamingAssistantBubble(
     segments: List<StreamSegment>,
     statusNote: String?,
     isStreaming: Boolean,
+    revealState: StreamRevealState? = null,
     onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
 ) {
@@ -100,7 +108,10 @@ internal fun StreamingAssistantBubble(
                 when (segment) {
                     is StreamSegment.Memory -> MemoryActivityLine(segment.label, segment.active)
                     is StreamSegment.Reasoning -> {
-                        ReasoningSection(reasoning = segment.text, active = isStreaming && isLast)
+                        ReasoningSection(
+                            reasoning = segment.text, active = isStreaming && isLast,
+                            revealState = revealState, segmentIndex = index,
+                        )
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Search -> {
@@ -186,7 +197,10 @@ internal fun StreamingAssistantBubble(
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Text -> {
-                        SmoothStreamingText(segment.text, Modifier.fillMaxWidth())
+                        SmoothStreamingText(
+                            segment.text, Modifier.fillMaxWidth(),
+                            revealState = revealState, segmentIndex = index,
+                        )
                         if (!isLast) Spacer(Modifier.height(Spacing.s))
                     }
                 }
@@ -204,12 +218,7 @@ internal fun StreamingAssistantBubble(
     }
 }
 
-/**
- * Smooth "typewriter" reveal, the way production AI apps (T3 Chat, Vercel v0, ChatGPT) do it:
- * the network delivers text in bursts, but we reveal it at a steady, frame-synced cadence so it
- * reads pleasantly instead of flickering in chunks. The pace is a gentle base speed plus a
- * proportional catch-up, so it never lags far behind a fast model yet never feels rushed.
- */
+/** Buffered, frame-synced text reveal shared by answers and live reasoning. */
 @Composable
 internal fun SmoothStreamingText(
     text: String,
@@ -217,31 +226,42 @@ internal fun SmoothStreamingText(
     markdown: Boolean = true,
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
     color: Color = MaterialTheme.colorScheme.onSurface,
+    revealState: StreamRevealState? = null,
+    segmentIndex: Int = -1,
 ) {
     val target by rememberUpdatedState(text)
-    var shown by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) {
-        var lastFrame = 0L
-        while (true) {
-            val frame = withFrameNanos { it }
-            val dt = if (lastFrame == 0L) 0f else (frame - lastFrame) / 1_000_000_000f
-            lastFrame = frame
-            val t = target
-            if (shown > t.length) shown = 0 // a new message started — restart the reveal
-            if (shown < t.length) {
-                val remaining = t.length - shown
-                // Steady, pleasant cadence that scales with backlog so the whole answer finishes a
-                // beat after the model (≈2s drain), never instant-dumping even at 1000+ tps.
-                val charsPerSec = (remaining / 2f).coerceIn(40f, 900f)
-                val add = (charsPerSec * dt).toInt().coerceAtLeast(1)
-                shown = (shown + add).coerceAtMost(t.length)
+    val pacer = remember { StreamingTextPacer() }
+    val reader = remember { Any() }
+    var shown by remember { mutableIntStateOf(0) }
+    val reducedMotion = rememberReducedMotion()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(revealState, segmentIndex, lifecycleOwner, reducedMotion) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                revealState?.report(reader, segmentIndex, if (reducedMotion) target.length else shown)
+                if (reducedMotion) {
+                    snapshotFlow { target }.collect {
+                        shown = it.length
+                        revealState?.report(reader, segmentIndex, shown)
+                    }
+                } else {
+                    while (true) {
+                        // Completed blocks sleep instead of waking on every display frame.
+                        snapshotFlow { target }.first { it.length != shown }
+                        pacer.resume()
+                        do {
+                            withFrameNanos { frame -> shown = pacer.advance(target, frame) }
+                            revealState?.report(reader, segmentIndex, shown)
+                        } while (shown != target.length)
+                    }
+                }
+            } finally {
+                revealState?.detach(reader)
             }
         }
     }
-    val revealed = target.take(shown)
+    val revealed = if (reducedMotion) target else target.take(shown)
     if (markdown) {
-        // Live markdown while streaming. Because the text is revealed gradually (not in bursts),
-        // markdown spans complete one char at a time, so re-layout stays smooth like ChatGPT/Claude.
         MarkdownText(text = revealed, modifier = modifier, textColor = color, style = style)
     } else {
         SelectionContainer { Text(text = revealed, style = style, color = color, modifier = modifier) }
@@ -254,9 +274,26 @@ internal fun SmoothStreamingText(
  * the answer begins; the user can expand/collapse at any time (collapsed by default once complete).
  */
 @Composable
-internal fun ReasoningSection(reasoning: String, active: Boolean) {
+internal fun ReasoningSection(
+    reasoning: String,
+    active: Boolean,
+    revealState: StreamRevealState? = null,
+    segmentIndex: Int = -1,
+) {
     var userToggled by remember { mutableStateOf<Boolean?>(null) }
     val expanded = userToggled ?: active
+    val skipReader = remember { Any() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(revealState, segmentIndex, lifecycleOwner, expanded, active) {
+        try {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                if (active && !expanded) revealState?.reportSkipped(skipReader, segmentIndex)
+                else revealState?.detach(skipReader)
+            }
+        } finally {
+            revealState?.detach(skipReader)
+        }
+    }
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "reasoning-chevron")
     val toggleInteraction = remember { MutableInteractionSource() }
     Surface(
@@ -306,6 +343,8 @@ internal fun ReasoningSection(reasoning: String, active: Boolean) {
                         SmoothStreamingText(
                             reasoning, Modifier.fillMaxWidth(),
                             markdown = true,
+                            revealState = revealState,
+                            segmentIndex = segmentIndex,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

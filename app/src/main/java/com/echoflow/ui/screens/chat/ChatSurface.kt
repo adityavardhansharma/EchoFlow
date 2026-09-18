@@ -156,6 +156,7 @@ internal fun ChatSurface(
     val currentThreadProject by chatViewModel.currentThreadProject.collectAsState()
     val isStreaming by chatViewModel.isStreaming.collectAsState()
     val activeSegments by chatViewModel.activeSegments.collectAsState()
+    val streamRevealState by chatViewModel.streamRevealState.collectAsState()
     val streamHandoffMessageId by chatViewModel.streamHandoffMessageId.collectAsState()
     val statusNote by chatViewModel.statusNote.collectAsState()
     val progressLoading by chatViewModel.apiProgressLoading.collectAsState()
@@ -454,6 +455,7 @@ internal fun ChatSurface(
                     isStreaming = isStreaming,
                     segments = activeSegments,
                     handoffMessageId = streamHandoffMessageId,
+                    revealState = streamRevealState,
                     statusNote = statusNote,
                     progressLoading = progressLoading,
                     modelLoading = localModelLoading,

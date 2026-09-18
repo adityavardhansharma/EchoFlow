@@ -77,21 +77,28 @@ fun MarkdownText(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     style: TextStyle = MaterialTheme.typography.bodyLarge
 ) {
-    val blocks = remember(text) { parseMarkdownBlocks(text) }
+    val cache = remember { StreamingMarkdownCache() }
+    val blocks = remember(text) { cache.parse(text) }
     val linkColor = MaterialTheme.colorScheme.primary
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         for (block in blocks) {
-            when (block) {
-                is MarkdownBlock.Header -> MdHeader(block.text, block.level, textColor, linkColor)
-                is MarkdownBlock.CodeBlock -> CodeBlockItem(code = block.code, language = block.language)
-                is MarkdownBlock.MathBlock -> MdMathBlock(block, textColor, linkColor, style)
-                is MarkdownBlock.BulletItem -> MdBullet(block.text, block.indent, block.ordinal, textColor, linkColor, style)
-                is MarkdownBlock.Quote -> MdQuote(block.text, textColor, linkColor, style)
-                is MarkdownBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                is MarkdownBlock.Table -> MdTable(block, textColor, linkColor, style)
-                is MarkdownBlock.Paragraph -> MdParagraph(block.text, textColor, linkColor, style)
-            }
+            MarkdownBlockContent(block, textColor, linkColor, style)
         }
+    }
+}
+
+/** Completed blocks retain their identity while only the trailing block grows. */
+@Composable
+private fun MarkdownBlockContent(block: MarkdownBlock, textColor: Color, linkColor: Color, style: TextStyle) {
+    when (block) {
+        is MarkdownBlock.Header -> MdHeader(block.text, block.level, textColor, linkColor)
+        is MarkdownBlock.CodeBlock -> CodeBlockItem(code = block.code, language = block.language)
+        is MarkdownBlock.MathBlock -> MdMathBlock(block, textColor, linkColor, style)
+        is MarkdownBlock.BulletItem -> MdBullet(block.text, block.indent, block.ordinal, textColor, linkColor, style)
+        is MarkdownBlock.Quote -> MdQuote(block.text, textColor, linkColor, style)
+        is MarkdownBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        is MarkdownBlock.Table -> MdTable(block, textColor, linkColor, style)
+        is MarkdownBlock.Paragraph -> MdParagraph(block.text, textColor, linkColor, style)
     }
 }
 
