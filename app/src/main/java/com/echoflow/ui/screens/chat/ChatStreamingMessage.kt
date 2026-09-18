@@ -285,9 +285,13 @@ internal fun ReasoningSection(
     val skipReader = remember { Any() }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, segmentIndex, lifecycleOwner, expanded, active) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (active && !expanded) revealState?.reportSkipped(skipReader, segmentIndex)
-            else revealState?.detach(skipReader)
+        try {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                if (active && !expanded) revealState?.reportSkipped(skipReader, segmentIndex)
+                else revealState?.detach(skipReader)
+            }
+        } finally {
+            revealState?.detach(skipReader)
         }
     }
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "reasoning-chevron")
