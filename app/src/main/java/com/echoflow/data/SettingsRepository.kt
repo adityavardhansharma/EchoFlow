@@ -215,6 +215,13 @@ class SettingsRepository(context: Context) {
     private val _echoAgentEnabled = MutableStateFlow(getEchoAgentEnabledDirect())
     val echoAgentEnabled: StateFlow<Boolean> = _echoAgentEnabled.asStateFlow()
 
+    // Jev Router (TypeSafe System One classifier; Echo Labs opt-in, cloud chats only).
+    private val _jevEnabled = MutableStateFlow(getJevEnabledDirect())
+    val jevEnabled: StateFlow<Boolean> = _jevEnabled.asStateFlow()
+
+    private val _jevApiKey = MutableStateFlow(getJevApiKeyDirect())
+    val jevApiKey: StateFlow<String> = _jevApiKey.asStateFlow()
+
     // Inference parameters: one global set for on-device models, one for OpenRouter models.
     private val _localInferenceParams = MutableStateFlow(getInferenceParamsDirect(local = true))
     val localInferenceParams: StateFlow<InferenceParams> = _localInferenceParams.asStateFlow()
@@ -645,6 +652,22 @@ class SettingsRepository(context: Context) {
     fun saveEchoAgentEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("echo_agent_enabled", enabled).apply()
         _echoAgentEnabled.value = enabled
+    }
+
+    // ── Jev Router ───────────────────────────────────────────────────────────────────
+
+    /** Master switch. Off by default; only runs on cloud chats when a key is saved. */
+    fun getJevEnabledDirect(): Boolean = prefs.getBoolean("jev_enabled", false)
+    fun saveJevEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("jev_enabled", enabled).apply()
+        _jevEnabled.value = enabled
+    }
+
+    fun getJevApiKeyDirect(): String = prefs.getString("jev_api_key", "").orEmpty()
+    fun saveJevApiKey(key: String) {
+        val clean = key.trim()
+        prefs.edit().putString("jev_api_key", clean).apply()
+        _jevApiKey.value = clean
     }
 
     // ── Browser Flow (beta) ────────────────────────────────────────────────────────────

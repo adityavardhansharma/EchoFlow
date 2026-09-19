@@ -125,6 +125,8 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
     val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
     val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+    val jevEnabled by viewModel.jevEnabled.collectAsState()
+    val jevApiKey by viewModel.jevApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
@@ -137,6 +139,11 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
         !browserFlowEnabled -> "Off"
         firecrawlKey.isBlank() -> "On · add a Firecrawl key"
         else -> "Live browser · chat-controlled"
+    }
+    val jevSubtitle = when {
+        !jevEnabled -> "Off"
+        jevApiKey.isBlank() -> "On · add a TypeSafe key"
+        else -> "Routing memory & web"
     }
     SettingsPageScaffold(title = "Echo Labs", subtitle = "Experimental modes · turn on what you need", onBack = onBack) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
@@ -177,8 +184,18 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = agentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 5,
+                index = 3, count = 6,
                 onClick = { onOpen(PageEchoAgent) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Tune,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Jev Router",
+                subtitle = jevSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 4, count = 6,
+                onClick = { onOpen(PageJev) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Language,
@@ -187,7 +204,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = "Ollama · OpenAI-compatible",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 5,
+                index = 5, count = 6,
                 onClick = { onOpen(PageCustomProvider) },
             )
         }

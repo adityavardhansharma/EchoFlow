@@ -77,6 +77,12 @@ data class ChatMessage(
      * predate multi-attach or that carry only a single legacy attachment (see [attachments]).
      */
     val attachmentsJson: String? = null,
+    /**
+     * Jev Router classification for this turn, as JSON [com.echoflow.data.jev.JevDecision].
+     * Written on the assistant row only, visible only in Echo Labs > Jev. Null when Jev
+     * was off, ineligible (local chats), or the turn predates the feature.
+     */
+    val jevJson: String? = null,
 ) {
     /**
      * In-memory only. Extra files (project docs that still need the provider) attached to this

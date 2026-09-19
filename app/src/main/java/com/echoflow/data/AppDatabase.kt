@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class
     ],
-    version = 26, // v26: durable memory upload revisions
+    version = 27, // v27: Jev router classification per assistant message
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -466,6 +466,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Jev Router decision record. Additive, nullable — no DEFAULT (matches the
+         * no-defaultValue entity policy). Existing rows keep jevJson = NULL and the
+         * Echo Labs > Jev history simply skips them.
+         */
+        internal val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN jevJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -499,6 +510,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_23_24,
                     MIGRATION_24_25,
                     MIGRATION_25_26,
+                    MIGRATION_26_27,
                 )
                 .build()
                 INSTANCE = instance
