@@ -12,11 +12,21 @@ object JevThresholds {
     /** Below ACT but at/above: keep legacy prompt behaviour (model decides). Below: skip. */
     const val REVIEW = 0.4
     const val MODEL = "jev-latest"
+    /** Upper bound per classification so a TypeSafe outage never stalls a reply. */
+    const val TIMEOUT_MS = 5_000L
 }
 
 /**
  * One Jev classification for a chat turn. Persisted as JSON on the assistant
  * message row ([jevJson]) and surfaced only inside Echo Labs > Jev.
+ *
+ * Action semantics are deliberately unequal and recorded honestly:
+ * - [memoryRecalled]: the app executed `search_memory` itself before answering.
+ * - [webForced]: a strong search-first instruction was appended for the main
+ *   model (model-directed — the model still performs the search, so this is a
+ *   request, not a completed search).
+ * - [saveTriggered]: a `remember_memory` instruction was appended, only when
+ *   memory tools are installed for this turn (model-directed, same caveat).
  */
 data class JevDecision(
     val modelVersion: String,

@@ -78,4 +78,21 @@ class JevRouterTest {
         assertEquals(0.84, scores.routeProbabilities["memory_only"] ?: -1.0, 0.0)
         assertEquals(0.68, scores.routeConfidence, 0.0)
     }
+
+    @Test fun `client rejects incomplete responses instead of fabricating zeros`() {
+        val missingQuestion = JSONObject()
+            .put("model", "jev-1.13.0")
+            .put("answers", JSONObject()
+                .put("needs_memory", JSONObject().put("type", "noul").put("noul", 0.5)))
+        var failures = 0
+        try { JevClient().parse(missingQuestion) } catch (e: JevException) { failures++ }
+        val missingRoute = JSONObject()
+            .put("model", "jev-1.13.0")
+            .put("answers", JSONObject()
+                .put("needs_memory", JSONObject().put("type", "noul").put("noul", 0.5))
+                .put("needs_save", JSONObject().put("type", "noul").put("noul", 0.1))
+                .put("needs_web", JSONObject().put("type", "noul").put("noul", 0.1)))
+        try { JevClient().parse(missingRoute) } catch (e: JevException) { failures++ }
+        assertEquals(2, failures)
+    }
 }

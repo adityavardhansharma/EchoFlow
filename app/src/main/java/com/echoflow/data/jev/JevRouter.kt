@@ -1,6 +1,7 @@
 package com.echoflow.data.jev
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Backend router: one Jev call per turn, fixed thresholds, cloud chats only.
@@ -24,7 +25,6 @@ object JevRouter {
     data class RouteInput(
         val apiKey: String,
         val prompt: String,
-        val previousAssistant: String?,
         val memoryEnabled: Boolean,
         val memoryLearningEnabled: Boolean,
         val searchAvailable: Boolean,
@@ -37,19 +37,25 @@ object JevRouter {
         if (input.apiKey.isBlank() || input.prompt.isBlank()) return JevDecision.fallback()
         val started = System.currentTimeMillis()
         return try {
-            val scores = client.classify(
-                apiKey = input.apiKey,
-                message = input.prompt,
-                previousAssistant = input.previousAssistant,
-                memoryOn = input.memoryEnabled,
-                searchOn = input.searchAvailable,
-            )
+            // Bounded: a TypeSafe outage must never stall the reply. Normal Jev
+            // calls land in 70-500ms; past the timeout we use legacy behaviour.
+            val scores = withTimeoutOrNull(JevThresholds.TIMEOUT_MS) {
+                client.classify(
+                    apiKey = input.apiKey,
+                    message = input.prompt,
+                    memoryOn = input.memoryEnabled,
+                    searchOn = input.searchAvailable,
+                )
+            } ?: return JevDecision.fallback()
             val latency = System.currentTimeMillis() - started
             val memoryRecall = input.memoryEnabled &&
                 scores.needsMemory >= JevThresholds.ACT
             val webForced = input.searchAvailable &&
                 scores.needsWeb >= JevThresholds.ACT
-            val saveTriggered = input.memoryLearningEnabled &&
+            // The save instruction orders a remember_memory call, so it is only
+            // raised when memory tools are installed for this turn (memoryEnabled)
+            // — never when learning is on but recall (and the tool) is off.
+            val saveTriggered = input.memoryEnabled && input.memoryLearningEnabled &&
                 scores.needsSave >= JevThresholds.ACT
             JevDecision(
                 modelVersion = scores.modelVersion,

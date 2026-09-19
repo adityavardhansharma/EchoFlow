@@ -72,7 +72,8 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             Text(
                 "Cloud chats only: on-device models, Ollama and OpenAI-compatible endpoints never " +
                     "call Jev. Each classified prompt is sent to TypeSafe's API; nothing else leaves " +
-                    "your device for Jev, and the key is stored only on this phone.",
+                    "your device for Jev, and the key is stored only on this phone. " +
+                    "Jev is optional and off by default.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -111,9 +112,20 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     viewModel.saveJevApiKey(keyInput)
                     keyInput = ""
                 },
+                enabled = keyInput.isNotBlank(),
                 shape = CircleShape,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) { Text("Save key") }
+            if (savedKey.isNotBlank()) {
+                Spacer(Modifier.height(Spacing.s))
+                TextButton(
+                    onClick = {
+                        viewModel.saveJevApiKey("")
+                        keyInput = ""
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Remove key") }
+            }
         }
 
         AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {

@@ -44,17 +44,16 @@ class JevClient(
     suspend fun classify(
         apiKey: String,
         message: String,
-        previousAssistant: String? = null,
         memoryOn: Boolean = true,
         searchOn: Boolean = true,
     ): JevScores = withContext(Dispatchers.IO) {
+        // Privacy: only the current prompt and feature flags leave the device.
+        // Prior assistant replies are never sent — they can restate recalled
+        // memories or project content, and the questions only need this turn.
         val state = JSONObject()
             .put("message", message.take(6000))
             .put("memory_on", memoryOn)
             .put("search_on", searchOn)
-        if (!previousAssistant.isNullOrBlank()) {
-            state.put("previous_assistant", previousAssistant.take(2000))
-        }
         val body = JSONObject()
             .put("model", model)
             .put("state", state)
@@ -105,24 +104,34 @@ class JevClient(
         parse(raw)
     }
 
+    /**
+     * Strict parse: every expected question must be present with a numeric value.
+     * A partial HTTP 200 must never become a confident-looking decision — any
+     * missing or non-numeric field throws so the router falls back instead of
+     * persisting fabricated probabilities.
+     */
     internal fun parse(response: JSONObject): JevScores {
         val modelVersion = response.optString("model", model)
         val answers = response.optJSONObject("answers") ?: throw JevException("Invalid Jev response.")
-        fun noul(id: String): Double =
-            answers.optJSONObject(id)?.optDouble("noul", 0.0) ?: 0.0
-        val route = answers.optJSONObject("route")
-        val probs = mutableMapOf<String, Double>()
-        route?.optJSONObject("probabilities")?.let { p ->
-            p.keys().forEach { k -> probs[k] = p.optDouble(k, 0.0) }
+        fun noul(id: String): Double {
+            val obj = answers.optJSONObject(id) ?: throw JevException("Jev answer missing: $id.")
+            if (!obj.has("noul") || obj.isNull("noul")) throw JevException("Jev answer not numeric: $id.")
+            return obj.getDouble("noul").coerceIn(0.0, 1.0)
         }
+        val route = answers.optJSONObject("route") ?: throw JevException("Jev answer missing: route.")
+        if (!route.has("choice") || route.isNull("choice")) throw JevException("Jev route has no choice.")
+        val probsJson = route.optJSONObject("probabilities") ?: throw JevException("Jev route has no probabilities.")
+        val probs = mutableMapOf<String, Double>()
+        probsJson.keys().forEach { k -> probs[k] = probsJson.getDouble(k).coerceIn(0.0, 1.0) }
         return JevScores(
             modelVersion = modelVersion,
-            needsMemory = noul("needs_memory").coerceIn(0.0, 1.0),
-            needsSave = noul("needs_save").coerceIn(0.0, 1.0),
-            needsWeb = noul("needs_web").coerceIn(0.0, 1.0),
-            routeChoice = route?.optString("choice", "neither").orEmpty().ifBlank { "neither" },
+            needsMemory = noul("needs_memory"),
+            needsSave = noul("needs_save"),
+            needsWeb = noul("needs_web"),
+            routeChoice = route.getString("choice").ifBlank { throw JevException("Jev route choice blank.") },
             routeProbabilities = probs,
-            routeConfidence = route?.optDouble("confidence", 0.0) ?: 0.0,
+            routeConfidence = if (route.has("confidence") && !route.isNull("confidence"))
+                route.getDouble("confidence").coerceIn(0.0, 1.0) else 0.0,
         )
     }
 }

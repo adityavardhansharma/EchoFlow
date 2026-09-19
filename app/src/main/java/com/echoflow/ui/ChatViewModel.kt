@@ -1724,13 +1724,10 @@ class ChatViewModel(
                     !imageGenMode && !videoGenMode && !artifactMode &&
                     agentReq == null && advisorReq == null && fusionReq == null
                 if (jevEligible) {
-                    val previousAssistantForJev = fullHistory.dropLastWhile { it.role == "user" }
-                        .lastOrNull { it.role == "assistant" }?.content
                     jevDecision = JevRouter.route(
                         JevRouter.RouteInput(
                             apiKey = settingsRepository.getJevApiKeyDirect(),
                             prompt = prompt,
-                            previousAssistant = previousAssistantForJev,
                             memoryEnabled = memoryEnabled,
                             memoryLearningEnabled = memoryLearningEnabled && editingUserId == null,
                             searchAvailable = effectiveProvider != "off",
