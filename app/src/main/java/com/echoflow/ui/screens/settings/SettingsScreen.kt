@@ -161,6 +161,7 @@ internal const val PageEchoLabs = "echo_labs"
 internal const val PageEchoAdviser = "echo_adviser"
 internal const val PageEchoFusion = "echo_fusion"
 internal const val PageEchoAgent = "echo_agent"
+internal const val PageJev = "jev_router"
 internal const val PageCustomProvider = "custom_provider"
 internal const val PageCustomProviderCloud = "custom_provider_cloud"
 internal const val PageCustomProviderOpenAi = "custom_provider_openai"
@@ -182,7 +183,7 @@ internal fun settingsParentPage(page: String): String? = when (page) {
     PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
-    PageEchoAgent, PageCustomProvider, PageLicenses,
+    PageEchoAgent, PageCustomProvider, PageLicenses, PageJev,
     -> PageEchoLabs
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
@@ -267,6 +268,7 @@ fun SettingsScreen(
             PageEchoAdviser -> EchoAdviserPage(viewModel, onBack = navigateBack)
             PageEchoFusion -> EchoFusionPage(viewModel, onBack = navigateBack)
             PageEchoAgent -> EchoAgentPage(viewModel, onBack = navigateBack)
+            PageJev -> JevPage(viewModel, onBack = navigateBack)
             PageCustomProvider -> CustomApiEndpointPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
             PageCustomProviderCloud -> DirectCloudApisPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
             PageCustomProviderOpenAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.OpenAi, onBack = navigateBack)
@@ -343,6 +345,7 @@ internal fun SettingsHomePage(
     val echoAdviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
     val echoFusionEnabled by viewModel.echoFusionEnabled.collectAsState()
     val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
+    val jevEnabledHome by viewModel.jevEnabled.collectAsState()
     val customProviderConfig by viewModel.customProviderConfig.collectAsState()
     val firecrawlKeyHome by viewModel.firecrawlApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
@@ -404,6 +407,7 @@ internal fun SettingsHomePage(
         echoAdviserEnabled,
         echoFusionEnabled,
         echoAgentEnabled,
+        jevEnabledHome,
         browserFlowEnabled,
         customProviderConfig.ollamaEnabled,
         customProviderConfig.openAiCompatibleEnabled,
