@@ -139,6 +139,14 @@ interface MessageDao {
     /** Chat ids whose message text matches the drawer search query. */
     @Query("SELECT DISTINCT chatId FROM chat_messages WHERE content LIKE '%' || :query || '%'")
     fun searchChatIdsByContent(query: String): Flow<List<String>>
+
+    /** Jev Router history for one chat: assistant rows carrying a classification. */
+    @Query("SELECT * FROM chat_messages WHERE chatId = :chatId AND jevJson IS NOT NULL ORDER BY createdAt DESC LIMIT :limit")
+    fun getJevDecisionsForChat(chatId: String, limit: Int = 50): Flow<List<ChatMessage>>
+
+    /** Latest Jev classifications across chats for the Echo Labs > Jev page. */
+    @Query("SELECT * FROM chat_messages WHERE jevJson IS NOT NULL ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getRecentJevDecisions(limit: Int = 50): List<ChatMessage>
 }
 
 @Dao

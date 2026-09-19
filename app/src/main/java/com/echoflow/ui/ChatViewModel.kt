@@ -10,6 +10,9 @@ import androidx.room.withTransaction
 import androidx.lifecycle.viewModelScope
 import com.echoflow.data.*
 import com.echoflow.data.memory.*
+import com.echoflow.data.jev.JevDecision
+import com.echoflow.data.jev.JevRouter
+import com.echoflow.data.jev.JevStore
 import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
@@ -1706,9 +1709,37 @@ class ChatViewModel(
             } else null
             val videoPattern = if (videoGenMode) listOf("ripple", "rain").random() else ""
 
+            // Jev Router decision for this turn (set inside baseResponseFlow, read at persist).
+            var pendingJevJson: String? = null
             val baseResponseFlow: Flow<StreamChunk> = flow {
                 val tools = kotlinx.coroutines.currentCoroutineContext()[MemoryTools]
                     ?: MemoryTools(getApplication(), chatId, false, local = isLocal || customProvider == "ollama")
+                // Jev Router (Echo Labs opt-in): one classification per turn, cloud chats only.
+                // Never blocks the reply — any failure falls back to the legacy policy below.
+                // Chat UI is untouched; the decision is recorded on the assistant row for Labs.
+                var jevDecision: JevDecision? = null
+                val jevEligible = settingsRepository.getJevEnabledDirect() &&
+                    settingsRepository.getJevApiKeyDirect().isNotBlank() &&
+                    JevRouter.isCloudChat(isLocal, customProvider) &&
+                    !imageGenMode && !videoGenMode && !artifactMode &&
+                    agentReq == null && advisorReq == null && fusionReq == null
+                if (jevEligible) {
+                    val previousAssistantForJev = fullHistory.dropLastWhile { it.role == "user" }
+                        .lastOrNull { it.role == "assistant" }?.content
+                    jevDecision = JevRouter.route(
+                        JevRouter.RouteInput(
+                            apiKey = settingsRepository.getJevApiKeyDirect(),
+                            prompt = prompt,
+                            previousAssistant = previousAssistantForJev,
+                            memoryEnabled = memoryEnabled,
+                            memoryLearningEnabled = memoryLearningEnabled && editingUserId == null,
+                            searchAvailable = effectiveProvider != "off",
+                        ),
+                    )
+                    if (jevDecision.fallback) jevDecision = null else JevStore.record(jevDecision)
+                }
+                // Stash for the assistant-row write once the stream completes.
+                pendingJevJson = jevDecision?.toJson()
                 val automaticFacts = if (memoryLearningEnabled && editingUserId == null) {
                     MemoryPolicy.durableFacts(prompt)
                 } else emptyList()
@@ -1716,10 +1747,19 @@ class ChatViewModel(
                     tools.rememberFacts(automaticFacts, learningSession) { emit(it) }.success
                 val previousAssistant = fullHistory.dropLastWhile { it.role == "user" }.lastOrNull { it.role == "assistant" }
                 val automaticRecall = if (memoryEnabled) MemoryPolicy.recallQuery(prompt, previousAssistant) else null
-                val canRecall = memoryEnabled && (forceMemory || automaticRecall != null)
-                val turnSystemPrompt = systemPrompt + if (factsSaved)
+                // Jev enforcement: a high needs_memory score pre-recalls directly, so turns the
+                // legacy regex misses (and small models that ignore the tool prompt) still run.
+                val jevRecall = jevDecision?.takeIf { memoryEnabled && it.memoryRecalled }
+                val canRecall = memoryEnabled && (forceMemory || automaticRecall != null || jevRecall != null)
+                var turnSystemPrompt = systemPrompt + if (factsSaved)
                     "\nHigh-confidence durable facts in the current user message were already submitted to memory. Do not call remember_memory for those same facts."
                 else ""
+                if (jevDecision?.saveTriggered == true && !factsSaved) {
+                    turnSystemPrompt += "\nThe user asked to remember something this turn. You MUST call remember_memory with the concise fact before answering."
+                }
+                if (jevDecision?.webForced == true) {
+                    turnSystemPrompt += "\nA router classified this turn as needing current information. Search the web before answering — do not answer from memory."
+                }
                 val systemPrompt = if (canRecall) {
                     val result = tools.execute("search_memory",
                         org.json.JSONObject().put("query", automaticRecall ?: MemoryPolicy.focusedQuery(prompt)).toString()) { emit(it) }
@@ -2057,6 +2097,7 @@ class ChatViewModel(
                         chatId, segments, interrupted = null,
                         replyVersionsJson = archivedReplyVersionsJson,
                         messageId = assistantMessageId,
+                        jevJson = pendingJevJson,
                     )
                 }
                 if (assistantPersisted) {
@@ -2120,6 +2161,7 @@ class ChatViewModel(
                             chatId, segments, interrupted = null, stopped = true,
                             replyVersionsJson = archivedReplyVersionsJson,
                             messageId = assistantMessageId,
+                            jevJson = pendingJevJson,
                         )
                     }
                 }
@@ -2146,6 +2188,7 @@ class ChatViewModel(
                             segments,
                             interrupted = e.message,
                             messageId = assistantMessageId,
+                            jevJson = pendingJevJson,
                         )
                     }
                 }
@@ -2505,6 +2548,7 @@ class ChatViewModel(
         stopped: Boolean = false,
         replyVersionsJson: String? = null,
         messageId: String = UUID.randomUUID().toString(),
+        jevJson: String? = null,
     ): Boolean {
         val draft = AssistantMessagePersistence.draft(segments, interrupted, stopped) ?: return false
         val database = AppDatabase.getDatabase(getApplication())
@@ -2520,6 +2564,7 @@ class ChatViewModel(
                 citationsJson = ToolEventJson.citationsToJson(draft.citations),
                 segmentsJson = ToolEventJson.segmentsToJson(draft.segments),
                 replyVersionsJson = replyVersionsJson,
+                jevJson = jevJson,
             ))
             chatDao.touchUpdatedAt(chatId, System.currentTimeMillis())
         }
