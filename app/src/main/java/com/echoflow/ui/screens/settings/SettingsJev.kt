@@ -121,6 +121,7 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 TextButton(
                     onClick = {
                         viewModel.saveJevApiKey("")
+                        viewModel.saveJevEnabled(false)
                         keyInput = ""
                     },
                     modifier = Modifier.fillMaxWidth(),
