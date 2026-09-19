@@ -121,6 +121,10 @@ class SettingsViewModel(
     val echoFusionEnabled: StateFlow<Boolean> = repository.echoFusionEnabled
     val echoAgentEnabled: StateFlow<Boolean> = repository.echoAgentEnabled
 
+    // Jev Router (Echo Labs opt-in classifier)
+    val jevEnabled: StateFlow<Boolean> = repository.jevEnabled
+    val jevApiKey: StateFlow<String> = repository.jevApiKey
+
     // Browser Flow (beta)
     val browserFlowEnabled: StateFlow<Boolean> = repository.browserFlowEnabled
     val browserIdleMinutes: StateFlow<Int> = repository.browserIdleMinutes
@@ -430,6 +434,8 @@ class SettingsViewModel(
     fun saveEchoAdviserEnabled(enabled: Boolean) = repository.saveEchoAdviserEnabled(enabled)
     fun saveEchoFusionEnabled(enabled: Boolean) = repository.saveEchoFusionEnabled(enabled)
     fun saveEchoAgentEnabled(enabled: Boolean) = repository.saveEchoAgentEnabled(enabled)
+    fun saveJevEnabled(enabled: Boolean) = repository.saveJevEnabled(enabled)
+    fun saveJevApiKey(key: String) = repository.saveJevApiKey(key)
     fun saveDataAgentEngine(id: String) = repository.saveDataAgentEngine(id)
     fun saveDataAgentMaxCredits(value: Int) = repository.saveDataAgentMaxCredits(value)
 
