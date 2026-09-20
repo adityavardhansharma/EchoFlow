@@ -12,7 +12,7 @@ object JevThresholds {
     /** Retained for historical diagnostics; contextual routing uses the Choice distribution. */
     const val REVIEW = 0.4
     const val MODEL = "jev-latest"
-    const val PROMPT_VERSION = "contextual-memory-v2"
+    const val PROMPT_VERSION = "contextual-memory-v3"
     /** Upper bound per classification so a TypeSafe outage never stalls a reply. */
     const val TIMEOUT_MS = 5_000L
 }
@@ -44,7 +44,7 @@ data class JevDecision(
     val saveTriggered: Boolean,
     val fallback: Boolean,
     val createdAt: Long = System.currentTimeMillis(),
-    val memoryAction: String = "defer",
+    val memoryAction: String = "legacy",
     val promptVersion: String = "legacy-v1",
 ) {
     fun toJson(): String = JSONObject()
@@ -103,7 +103,7 @@ data class JevDecision(
                     saveTriggered = o.optBoolean("saveTriggered", false),
                     fallback = o.optBoolean("fallback", false),
                     createdAt = o.optLong("createdAt", 0),
-                    memoryAction = o.optString("memoryAction", "defer"),
+                    memoryAction = o.optString("memoryAction", "legacy"),
                     promptVersion = o.optString("promptVersion", "legacy-v1"),
                 )
             }.getOrNull()

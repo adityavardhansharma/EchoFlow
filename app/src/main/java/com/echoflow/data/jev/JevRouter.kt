@@ -1,5 +1,6 @@
 package com.echoflow.data.jev
 
+import com.echoflow.data.memory.MemoryPrivacy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -30,6 +31,26 @@ object JevRouter {
         val searchAvailable: Boolean,
         val recentTurns: List<Pair<String, String>> = emptyList(),
     )
+
+    data class RecallPlan(val prefetch: Boolean, val allowTool: Boolean, val action: String)
+
+    /** One policy for prefetch, tool exposure and diagnostics; a force request cannot enable disabled memory. */
+    fun recallPlan(decision: JevDecision?, memoryEnabled: Boolean, forceMemory: Boolean, legacyRecall: Boolean): RecallPlan = when {
+        !memoryEnabled -> RecallPlan(false, false, "disabled")
+        forceMemory -> RecallPlan(true, true, "forced_recall")
+        decision == null || decision.fallback -> RecallPlan(legacyRecall, true, "legacy")
+        decision.memoryAction == "skip" -> RecallPlan(false, false, "skip")
+        decision.memoryAction == "recall" -> RecallPlan(true, true, "recall")
+        else -> RecallPlan(false, true, "defer")
+    }
+
+    /** Preserve referents from both speakers for the memory backend's query rewriter. */
+    fun recallQuery(message: String, recentTurns: List<Pair<String, String>>): String =
+        "Missing personal history relevant to the latest user request: " + MemoryPrivacy.redact(message).take(1000) +
+            recentTurns.filter { it.first == "user" || it.first == "assistant" }.takeLast(4)
+                .joinToString(separator = "", prefix = "\nRecent conversation (context only):") { (role, content) ->
+                    "\n$role: " + MemoryPrivacy.redact(content).take(500)
+                }
 
     suspend fun route(
         input: RouteInput,

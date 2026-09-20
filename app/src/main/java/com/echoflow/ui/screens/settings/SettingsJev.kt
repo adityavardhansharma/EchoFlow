@@ -61,7 +61,8 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 "Jev reads your latest message and recent conversation to choose whether to recall " +
                     "personal memory, answer without retrieval, or let your model decide. " +
                     "Uncertain choices also go to your model. A skip decision disables memory search " +
-                    "for that reply; a recall decision retrieves once before answering. Saving useful " +
+                    "for that reply; a recall decision retrieves before answering and lets your model " +
+                    "retry or refine the search if evidence is missing. Saving useful " +
                     "facts stays available independently. Jev also checks for explicit save requests " +
                     "and a need for current web information. If Jev is unavailable, normal chat behaviour resumes.",
                 style = MaterialTheme.typography.bodySmall,
@@ -75,7 +76,8 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     "personal facts or project details mentioned in the conversation. Attachments, " +
                     "reasoning and tool payloads are excluded, and recognized credentials are redacted. " +
                     "The key is stored only on this phone. " +
-                    "Jev is optional and off by default.",
+                    "Jev is optional and off by default. If you enabled the earlier prompt-only version, " +
+                    "turn Jev on again here to allow this recent-conversation sharing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

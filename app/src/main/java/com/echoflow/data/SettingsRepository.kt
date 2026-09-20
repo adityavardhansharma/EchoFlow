@@ -656,10 +656,12 @@ class SettingsRepository(context: Context) {
 
     // ── Jev Router ───────────────────────────────────────────────────────────────────
 
-    /** Master switch. Off by default; only runs on cloud chats when a key is saved. */
-    fun getJevEnabledDirect(): Boolean = prefs.getBoolean("jev_enabled", false)
+    /** Contextual routing requires a new opt-in after the original prompt-only version. */
+    fun getJevEnabledDirect(): Boolean = prefs.getBoolean("jev_enabled", false) &&
+        prefs.getInt("jev_consent_version", 0) == 2
     fun saveJevEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("jev_enabled", enabled).apply()
+        prefs.edit().putBoolean("jev_enabled", enabled)
+            .putInt("jev_consent_version", if (enabled) 2 else 0).apply()
         _jevEnabled.value = enabled
     }
 

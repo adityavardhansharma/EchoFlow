@@ -50,16 +50,7 @@ class JevClient(
         searchOn: Boolean = true,
         recentTurns: List<Pair<String, String>> = emptyList(),
     ): JevScores = withContext(Dispatchers.IO) {
-        // Text only: bounded recent context, no attachments, reasoning or tool payloads.
-        val state = JSONObject()
-            .put("message", MemoryPrivacy.redact(message).take(6000))
-            .put("message_truncated", message.length > 6000)
-            .put("recent_turns", JSONArray(recentTurns.takeLast(4).map { (role, content) ->
-                JSONObject().put("role", role).put("text", MemoryPrivacy.redact(content).take(1500))
-                    .put("truncated", content.length > 1500)
-            }))
-            .put("memory_on", memoryOn)
-            .put("search_on", searchOn)
+        val state = buildState(message, recentTurns, memoryOn, searchOn)
         val body = JSONObject()
             .put("model", model)
             .put("state", state)
@@ -104,6 +95,28 @@ class JevClient(
             })
         }
         parse(raw)
+    }
+
+    /** Redact before bounding text; truncation describes exactly the text being sent. */
+    internal fun buildState(
+        message: String,
+        recentTurns: List<Pair<String, String>>,
+        memoryOn: Boolean,
+        searchOn: Boolean,
+    ): JSONObject {
+        val redacted = MemoryPrivacy.redact(message)
+        val turns = recentTurns.filter { it.first == "user" || it.first == "assistant" }
+        return JSONObject()
+            .put("message", redacted.take(6000))
+            .put("message_truncated", redacted.length > 6000)
+            .put("earlier_turns_omitted", turns.size > 4)
+            .put("recent_turns", JSONArray(turns.takeLast(4).map { (role, content) ->
+                val text = MemoryPrivacy.redact(content)
+                JSONObject().put("role", role).put("text", text.take(1500))
+                    .put("truncated", text.length > 1500)
+            }))
+            .put("memory_on", memoryOn)
+            .put("search_on", searchOn)
     }
 
     /**
