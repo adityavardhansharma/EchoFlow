@@ -28,6 +28,7 @@ object JevRouter {
         val memoryEnabled: Boolean,
         val memoryLearningEnabled: Boolean,
         val searchAvailable: Boolean,
+        val recentTurns: List<Pair<String, String>> = emptyList(),
     )
 
     suspend fun route(
@@ -45,11 +46,14 @@ object JevRouter {
                     message = input.prompt,
                     memoryOn = input.memoryEnabled,
                     searchOn = input.searchAvailable,
+                    recentTurns = input.recentTurns,
                 )
             } ?: return JevDecision.fallback()
             val latency = System.currentTimeMillis() - started
-            val memoryRecall = input.memoryEnabled &&
-                scores.needsMemory >= JevThresholds.ACT
+            // One judgment, not agreement between overlapping classifiers. Uncertainty
+            // delegates to the answering model; it never activates legacy keyword recall.
+            val memoryAction = if (scores.routeProbabilities.getValue(scores.routeChoice) >= JevThresholds.ACT)
+                scores.routeChoice else "defer"
             val webForced = input.searchAvailable &&
                 scores.needsWeb >= JevThresholds.ACT
             // The save instruction orders a remember_memory call, so it is only
@@ -66,10 +70,12 @@ object JevRouter {
                 routeChoice = scores.routeChoice,
                 routeProbabilities = scores.routeProbabilities,
                 routeConfidence = scores.routeConfidence,
-                memoryRecalled = memoryRecall,
+                memoryRecalled = false, // Updated by the caller after the recall attempt.
                 webForced = webForced,
                 saveTriggered = saveTriggered,
                 fallback = false,
+                memoryAction = memoryAction,
+                promptVersion = JevThresholds.PROMPT_VERSION,
             )
         } catch (e: CancellationException) {
             throw e

@@ -4,14 +4,15 @@ import org.json.JSONObject
 
 /**
  * Fixed decision thresholds for the Jev Router (Echo Labs opt-in).
- * Not user-tunable by design: one calibrated set, reviewed against Labs history.
+ * Initial operating thresholds; not a claim of calibration on EchoFlow traffic.
  */
 object JevThresholds {
     /** At or above: act automatically (pre-recall memory, force web, direct save). */
     const val ACT = 0.7
-    /** Below ACT but at/above: keep legacy prompt behaviour (model decides). Below: skip. */
+    /** Retained for historical diagnostics; contextual routing uses the Choice distribution. */
     const val REVIEW = 0.4
     const val MODEL = "jev-latest"
+    const val PROMPT_VERSION = "contextual-memory-v2"
     /** Upper bound per classification so a TypeSafe outage never stalls a reply. */
     const val TIMEOUT_MS = 5_000L
 }
@@ -21,7 +22,8 @@ object JevThresholds {
  * message row ([jevJson]) and surfaced only inside Echo Labs > Jev.
  *
  * Action semantics are deliberately unequal and recorded honestly:
- * - [memoryRecalled]: the app executed `search_memory` itself before answering.
+ * - [memoryRecalled]: the app attempted `search_memory` itself before answering;
+ *   this does not imply that relevant memories were found or the request succeeded.
  * - [webForced]: a strong search-first instruction was appended for the main
  *   model (model-directed — the model still performs the search, so this is a
  *   request, not a completed search).
@@ -42,6 +44,8 @@ data class JevDecision(
     val saveTriggered: Boolean,
     val fallback: Boolean,
     val createdAt: Long = System.currentTimeMillis(),
+    val memoryAction: String = "defer",
+    val promptVersion: String = "legacy-v1",
 ) {
     fun toJson(): String = JSONObject()
         .put("modelVersion", modelVersion)
@@ -57,6 +61,8 @@ data class JevDecision(
         .put("saveTriggered", saveTriggered)
         .put("fallback", fallback)
         .put("createdAt", createdAt)
+        .put("memoryAction", memoryAction)
+        .put("promptVersion", promptVersion)
         .toString()
 
     companion object {
@@ -97,6 +103,8 @@ data class JevDecision(
                     saveTriggered = o.optBoolean("saveTriggered", false),
                     fallback = o.optBoolean("fallback", false),
                     createdAt = o.optLong("createdAt", 0),
+                    memoryAction = o.optString("memoryAction", "defer"),
+                    promptVersion = o.optString("promptVersion", "legacy-v1"),
                 )
             }.getOrNull()
         }

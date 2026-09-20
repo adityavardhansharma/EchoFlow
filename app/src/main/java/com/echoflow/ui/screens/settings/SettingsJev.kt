@@ -22,7 +22,6 @@ import com.echoflow.data.AppDatabase
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.jev.JevDecision
 import com.echoflow.data.jev.JevStore
-import com.echoflow.data.jev.JevThresholds
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.theme.Spacing
@@ -35,8 +34,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Jev Router (Echo Labs opt-in). A TypeSafe System One classifier that reads each
- * cloud-chat prompt and decides — with fixed thresholds — whether to pre-recall
- * memory, force web search, or save a fact, before the main model runs.
+ * cloud-chat prompt with bounded recent context and chooses recall, skip or defer.
+ * Independent questions cover current web information and explicit save requests.
  *
  * Strictly Labs-only: chat UI is untouched. This page is the only surface that
  * mentions Jev — master switch, key, last probabilities, and per-turn history.
@@ -50,7 +49,7 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     SettingsPageScaffold(title = "Jev Router", subtitle = "Classify prompts before the main model", onBack = onBack) {
         LabMasterToggle(
             title = "Jev Router",
-            subtitle = "Cloud chats only · fixed thresholds · chat looks the same",
+            subtitle = "Cloud chats only · contextual memory decisions",
             enabled = enabled,
             onToggle = viewModel::saveJevEnabled,
         )
@@ -59,20 +58,23 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text(
-                "Before your model answers, Jev reads the prompt and scores three questions: " +
-                    "does personal memory matter (≥ ${JevThresholds.ACT}), does something need " +
-                    "remembering, and could the answer have changed since training. High scores act " +
-                    "directly — memory is recalled up front and save/web instructions are enforced — " +
-                    "so small models that ignore tool prompts still behave. Anything below the bar " +
-                    "keeps today's behaviour: the main model decides.",
+                "Jev reads your latest message and recent conversation to choose whether to recall " +
+                    "personal memory, answer without retrieval, or let your model decide. " +
+                    "Uncertain choices also go to your model. A skip decision disables memory search " +
+                    "for that reply; a recall decision retrieves once before answering. Saving useful " +
+                    "facts stays available independently. Jev also checks for explicit save requests " +
+                    "and a need for current web information. If Jev is unavailable, normal chat behaviour resumes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(Spacing.s))
             Text(
                 "Cloud chats only: on-device models, Ollama and OpenAI-compatible endpoints never " +
-                    "call Jev. Each classified prompt is sent to TypeSafe's API; nothing else leaves " +
-                    "your device for Jev, and the key is stored only on this phone. " +
+                    "call Jev. TypeSafe receives your message (up to 6,000 characters) and up to four " +
+                    "preceding messages (up to 1,500 characters each). These excerpts may include " +
+                    "personal facts or project details mentioned in the conversation. Attachments, " +
+                    "reasoning and tool payloads are excluded, and recognized credentials are redacted. " +
+                    "The key is stored only on this phone. " +
                     "Jev is optional and off by default.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -227,7 +229,7 @@ internal fun JevDecisionCard(decision: JevDecision, chatLabel: String?) {
             Spacer(Modifier.height(Spacing.s))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "route: ${decision.routeChoice}",
+                    "route: ${decision.routeChoice} · action: ${decision.memoryAction}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -249,7 +251,7 @@ internal fun JevDecisionCard(decision: JevDecision, chatLabel: String?) {
             }
             Spacer(Modifier.height(Spacing.s))
             Text(
-                "model ${decision.modelVersion.ifBlank { "—" }} · ${decision.latencyMs}ms · ${formatTime(decision.createdAt)}" +
+                "model ${decision.modelVersion.ifBlank { "—" }} · ${decision.promptVersion} · ${decision.latencyMs}ms · ${formatTime(decision.createdAt)}" +
                     if (decision.fallback) " · fallback" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

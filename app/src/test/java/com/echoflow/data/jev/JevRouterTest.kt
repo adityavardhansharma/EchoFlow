@@ -42,6 +42,8 @@ class JevRouterTest {
             saveTriggered = false,
             fallback = false,
             createdAt = 123L,
+            memoryAction = "recall",
+            promptVersion = JevThresholds.PROMPT_VERSION,
         )
         val restored = JevDecision.fromJson(decision.toJson())
         assertNotNull(restored)
@@ -57,25 +59,23 @@ class JevRouterTest {
         val response = JSONObject()
             .put("model", "jev-1.13.0")
             .put("answers", JSONObject()
-                .put("needs_memory", JSONObject().put("type", "noul").put("noul", 0.93))
                 .put("needs_save", JSONObject().put("type", "noul").put("noul", 0.02))
                 .put("needs_web", JSONObject().put("type", "noul").put("noul", 0.2))
                 .put("route", JSONObject()
                     .put("type", "choice")
-                    .put("choice", "memory_only")
+                    .put("choice", "recall")
                     .put("probabilities", JSONObject()
-                        .put("memory_only", 0.84)
-                        .put("neither", 0.1)
-                        .put("web_only", 0.03)
-                        .put("both", 0.03))
+                        .put("recall", 0.84)
+                        .put("skip", 0.1)
+                        .put("defer", 0.06))
                     .put("confidence", 0.68)))
         val scores = JevClient().parse(response)
         assertEquals("jev-1.13.0", scores.modelVersion)
-        assertEquals(0.93, scores.needsMemory, 0.0)
+        assertEquals(0.84, scores.needsMemory, 0.0)
         assertEquals(0.02, scores.needsSave, 0.0)
         assertEquals(0.2, scores.needsWeb, 0.0)
-        assertEquals("memory_only", scores.routeChoice)
-        assertEquals(0.84, scores.routeProbabilities["memory_only"] ?: -1.0, 0.0)
+        assertEquals("recall", scores.routeChoice)
+        assertEquals(0.84, scores.routeProbabilities["recall"] ?: -1.0, 0.0)
         assertEquals(0.68, scores.routeConfidence, 0.0)
     }
 
