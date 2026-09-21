@@ -1,6 +1,8 @@
 package com.echoflow.ui.screens
 
 import com.echoflow.ui.screens.chat.StreamingTextPacer
+import java.text.BreakIterator
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,6 +32,34 @@ class StreamingTextPacerTest {
             previous = shown
         }
         assertEquals(text.length, previous)
+    }
+
+    @Test fun `reveal never splits a combining grapheme`() {
+        val pacer = StreamingTextPacer()
+        val text = "Cafe\u0301 noir ".repeat(30)
+        for (frame in 0..300) {
+            val shown = pacer.advance(text, frame * 16_666_667L)
+            if (shown in 1 until text.length) {
+                assertFalse("combining mark must stay with its base", text[shown].category == CharCategory.NON_SPACING_MARK)
+            }
+        }
+    }
+
+    @Test fun `late combining mark never retracts visible text`() {
+        val pacer = StreamingTextPacer()
+        var frame = 0L
+        var shown = 0
+        while (shown < 1) {
+            shown = pacer.advance("e", frame)
+            frame += 16_666_667L
+        }
+
+        assertEquals(1, shown)
+        val extended = "e\u0301x"
+        val next = pacer.advance(extended, frame)
+        val graphemes = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(extended) }
+        assertTrue(next >= shown)
+        assertTrue("reveal must remain on a grapheme boundary", graphemes.isBoundary(next))
     }
 
     @Test fun `resuming does not turn elapsed background time into reveal credit`() {

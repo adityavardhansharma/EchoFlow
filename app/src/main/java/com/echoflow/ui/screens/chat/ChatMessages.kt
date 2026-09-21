@@ -32,6 +32,8 @@ import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -105,9 +107,18 @@ internal fun MessagesPane(
     }
     LaunchedEffect(autoFollow, isStreaming, progressLoading) {
         if (autoFollow && (isStreaming || progressLoading)) {
-            while (true) {
-                withFrameNanos { it }
-                if (!listState.isScrollInProgress) {
+            snapshotFlow {
+                val layout = listState.layoutInfo
+                layout.totalItemsCount to layout.visibleItemsInfo.lastOrNull()?.size
+            }.distinctUntilChanged().collect {
+                // Coalesce multiple measurements into the next frame, then follow only when the
+                // final row actually gained height. Per-frame scrollToItem caused needless layout
+                // work even while streamed characters stayed on the same visual line.
+                withFrameNanos { }
+                // Keep this emission pending while another scroll is settling. If the user moves
+                // away from the bottom, autoFollow changes and cancels this effect instead.
+                snapshotFlow { listState.isScrollInProgress }.first { !it }
+                if (autoFollow) {
                     val idx = listState.layoutInfo.totalItemsCount - 1
                     if (idx >= 0) runCatching { listState.scrollToItem(idx, Int.MAX_VALUE) }
                 }
