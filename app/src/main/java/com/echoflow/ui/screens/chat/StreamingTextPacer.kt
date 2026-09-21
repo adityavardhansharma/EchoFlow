@@ -44,18 +44,26 @@ internal class StreamingTextPacer {
             // Do not accumulate reveal credit during a network pause.
             speed += (BASE_SPEED - speed) * (1.0 - exp(-dt / SPEED_RESPONSE_SECONDS))
         }
-        val candidate = position.toInt()
-        if (candidate <= 0 || candidate >= text.length) return emit(candidate)
         if (boundaryText != text) {
             boundaryText = text
             graphemes.setText(text)
         }
+        val candidate = position.toInt()
+        if (candidate <= 0 || candidate >= text.length) return emitOnBoundary(candidate, text.length)
         val boundary = if (graphemes.isBoundary(candidate)) candidate else graphemes.preceding(candidate).coerceAtLeast(0)
-        return emit(boundary)
+        return emitOnBoundary(boundary, text.length)
     }
 
-    /** A newly arrived combining mark may move a grapheme boundary, but visible text never retracts. */
-    private fun emit(candidate: Int): Int = candidate.coerceAtLeast(lastEmitted).also { lastEmitted = it }
+    /** Keep progress monotonic and move forward if new input shifts a boundary behind it. */
+    private fun emitOnBoundary(candidate: Int, textLength: Int): Int {
+        var emitted = candidate.coerceAtLeast(lastEmitted)
+        if (emitted in 1 until textLength && !graphemes.isBoundary(emitted)) {
+            val following = graphemes.following(emitted)
+            if (following != BreakIterator.DONE) emitted = following
+        }
+        lastEmitted = emitted
+        return emitted
+    }
 
     fun resume() {
         lastFrame = null

@@ -1,6 +1,8 @@
 package com.echoflow.ui.screens
 
 import com.echoflow.ui.screens.chat.StreamingTextPacer
+import java.text.BreakIterator
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,7 +55,11 @@ class StreamingTextPacerTest {
         }
 
         assertEquals(1, shown)
-        assertTrue(pacer.advance("e\u0301", frame) >= shown)
+        val extended = "e\u0301x"
+        val next = pacer.advance(extended, frame)
+        val graphemes = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(extended) }
+        assertTrue(next >= shown)
+        assertTrue("reveal must remain on a grapheme boundary", graphemes.isBoundary(next))
     }
 
     @Test fun `resuming does not turn elapsed background time into reveal credit`() {

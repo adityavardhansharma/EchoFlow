@@ -82,6 +82,44 @@ class MarkdownTextTest {
     }
 
     @Test
+    fun sameLineDisplayDelimiterWithTrailingProseCannotConsumeLaterParagraphs() {
+        val markdown = """
+            ${'$'}${'$'}E=mc^2${'$'}${'$'} is famous.
+
+            Some explanation paragraph.
+
+            ${'$'}${'$'}
+            \int_0^1 x\,dx
+            ${'$'}${'$'}
+        """.trimIndent()
+        val segments = prepareGfmLatex(markdown)
+
+        assertEquals(2, segments.size)
+        val prose = segments[0] as com.echoflow.ui.components.GfmLatexSegment.Markdown
+        assertTrue(prose.source.contains("${'$'}${'$'}E=mc^2${'$'}${'$'} is famous."))
+        assertTrue(prose.source.contains("Some explanation paragraph."))
+        assertEquals("\\int_0^1 x\\,dx", (segments[1] as com.echoflow.ui.components.GfmLatexSegment.DisplayMath).latex)
+    }
+
+    @Test
+    fun nestedListMathIsNotMisclassifiedAsIndentedCode() {
+        val markdown = "1. Item one\n    - Sub item with ${'$'}x^2${'$'}"
+        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+
+        assertEquals(listOf("x^2"), segment.math.map { it.latex })
+    }
+
+    @Test
+    fun ordinaryAngleBracketsDoNotSuppressMathButTagsAndAutolinksDo() {
+        val markdown = "a < ${'$'}x${'$'} > b <https://example.test/${'$'}y${'$'}> <u data-v='${'$'}z${'$'}'>under</u>"
+        val (prepared, math) = prepareInlineLatex(markdown)
+
+        assertEquals(listOf("x"), math.map { it.latex })
+        assertTrue(prepared.contains("<https://example.test/${'$'}y${'$'}>"))
+        assertTrue(prepared.contains("<u data-v='${'$'}z${'$'}'>"))
+    }
+
+    @Test
     fun inlineLatexDoesNotRewriteLinkDestinationsOrLiteralTokens() {
         val literal = "ECHOFLOWLATEXPLACEHOLDER0TOKEN"
         val markdown = "$literal [details](https://example.test/${'$'}x${'$'}) then ${'$'}y${'$'}"

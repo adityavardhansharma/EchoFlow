@@ -308,7 +308,14 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
         val close = if (opener == "$$") "$$" else "\\]"
         val first = line.trimEnd().removePrefix(opener)
         val sameLineClose = first.indexOf(close)
-        if (sameLineClose >= 0 && first.substring(sameLineClose + close.length).isBlank()) {
+        if (sameLineClose >= 0) {
+            if (first.substring(sameLineClose + close.length).isNotBlank()) {
+                // A display delimiter followed by prose is ordinary GFM, not the beginning of a
+                // multi-line equation. Inline extraction can still handle any valid math within it.
+                appendLinePreservingSource(markdown, line, i < lines.lastIndex)
+                i++
+                continue
+            }
             val latex = first.substring(0, sameLineClose).trim()
             if (latex.isBlank()) {
                 appendLinePreservingSource(markdown, line, i < lines.lastIndex)
@@ -380,7 +387,8 @@ internal fun prepareInlineLatex(source: String): Pair<String, List<InlineLatex>>
         }
 
         val parenMath = source.startsWith("\\(", i)
-        val dollarMath = source[i] == '$' && source.getOrNull(i + 1) != '$' && !isEscaped(source, i)
+        val dollarMath = source[i] == '$' && source.getOrNull(i - 1) != '$' &&
+            source.getOrNull(i + 1) != '$' && !isEscaped(source, i)
         val close = when {
             parenMath -> source.indexOfUnprotected("\\)", i + 2, protected)
             dollarMath -> source.findInlineDollarCloseUnprotected(i + 1, protected)
@@ -430,6 +438,8 @@ private fun closesFence(line: String, fence: MarkdownFence): Boolean {
 private fun markdownProtectedCharacters(source: String): BooleanArray {
     val protected = BooleanArray(source.length)
     var fence: MarkdownFence? = null
+    var previousBlank = true
+    var inList = false
     var lineStart = 0
     while (lineStart < source.length) {
         val lineEnd = source.indexOf('\n', lineStart).takeIf { it >= 0 } ?: source.length
@@ -437,6 +447,7 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
         val activeFence = fence
         val newFence = if (activeFence == null) openingFence(line) else null
         val indentedCode = activeFence == null && newFence == null &&
+            previousBlank && !inList &&
             (line.startsWith("    ") || line.startsWith('\t'))
         if (activeFence != null || newFence != null || indentedCode) {
             for (index in lineStart until minOf(lineEnd + 1, source.length)) protected[index] = true
@@ -447,6 +458,15 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
             newFence != null -> newFence
             else -> null
         }
+        val startsListItem = MARKDOWN_LIST_ITEM.matches(line)
+        inList = when {
+            activeFence != null || newFence != null -> inList
+            startsListItem -> true
+            line.isBlank() -> inList
+            inList && line.firstOrNull()?.isWhitespace() == true -> true
+            else -> false
+        }
+        previousBlank = line.isBlank()
         lineStart = lineEnd + 1
     }
 
@@ -474,8 +494,8 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
             }
         }
         if (source[i] == '<') {
-            val close = source.indexOf('>', i + 1)
-            if (close >= 0) {
+            val close = source.findAngleConstructEnd(i)
+            if (close >= 0 && isHtmlTagOrAutolink(source.substring(i, close + 1))) {
                 for (index in i..close) protected[index] = true
                 i = close + 1
                 continue
@@ -484,6 +504,35 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
         i++
     }
     return protected
+}
+
+private val MARKDOWN_LIST_ITEM = Regex("""^ {0,3}(?:[*+-]|\d+[.)])\s+.*$""")
+private val HTML_TAG = Regex("""</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\s*/?>""")
+private val URI_AUTOLINK = Regex("""<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>""")
+private val EMAIL_AUTOLINK = Regex("""<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?>""")
+
+private fun isHtmlTagOrAutolink(candidate: String): Boolean =
+    HTML_TAG.matches(candidate) ||
+        URI_AUTOLINK.matches(candidate) ||
+        EMAIL_AUTOLINK.matches(candidate) ||
+        (candidate.startsWith("<!--") && candidate.endsWith("-->")) ||
+        (candidate.startsWith("<?") && candidate.endsWith("?>")) ||
+        (candidate.startsWith("<!") && candidate.endsWith('>'))
+
+private fun String.findAngleConstructEnd(start: Int): Int {
+    if (startsWith("<!--", start)) return indexOf("-->", start + 4).let { if (it < 0) -1 else it + 2 }
+    var quote: Char? = null
+    var index = start + 1
+    while (index < length) {
+        val char = this[index]
+        when {
+            quote != null && char == quote -> quote = null
+            quote == null && (char == '\'' || char == '"') -> quote = char
+            quote == null && char == '>' -> return index
+        }
+        index++
+    }
+    return -1
 }
 
 private fun String.indexOfUnprotected(needle: String, from: Int, protected: BooleanArray): Int {
@@ -505,7 +554,9 @@ private fun String.findClosingCodeSpan(from: Int, length: Int, protected: Boolea
 private fun String.findInlineDollarCloseUnprotected(from: Int, protected: BooleanArray): Int {
     var index = from
     while (index < length) {
-        if (this[index] == '$' && !protected[index] && !isEscaped(this, index) && getOrNull(index + 1) != '$') {
+        if (this[index] == '$' && !protected[index] && !isEscaped(this, index) &&
+            getOrNull(index - 1) != '$' && getOrNull(index + 1) != '$'
+        ) {
             return index
         }
         index++
