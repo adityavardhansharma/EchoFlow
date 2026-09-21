@@ -232,20 +232,22 @@ class SpeechToTextTranscriber(
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(IllegalStateException("No OpenRouter key"))
             }
-            val payload = SttPayloads.requestBody(
-                modelId,
-                Base64.encodeToString(wav, Base64.NO_WRAP),
-            )
-            val body = SttPayloads.encode(payload).toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("https://openrouter.ai/api/v1/audio/transcriptions")
-                .header("Authorization", "Bearer $apiKey")
-                .header("HTTP-Referer", "https://echoflow.app")
-                .header("X-Title", "EchoFlow")
-                .post(body)
-                .build()
+            val wavBase64 = Base64.encodeToString(wav, Base64.NO_WRAP)
             runCatching {
-                val (code, text) = executeCancellable(request)
+                var attemptedModel = modelId
+                var (code, text) = executeCancellable(
+                    SttPayloads.request(apiKey, attemptedModel, wavBase64),
+                )
+                // A 400 means OpenRouter accepted the credential but rejected this model/request
+                // combination. Retry once without changing the user's saved model selection.
+                if (code == 400) {
+                    attemptedModel = SttCatalog.fallbackForBadRequest(modelId)
+                    val fallback = executeCancellable(
+                        SttPayloads.request(apiKey, attemptedModel, wavBase64),
+                    )
+                    code = fallback.first
+                    text = fallback.second
+                }
                 if (code !in 200..299) {
                     error(ProviderHttpSupport.errorMessage("Dictation", code, text))
                 }
@@ -332,6 +334,14 @@ internal object SttPayloads {
     }
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
+
+    fun request(apiKey: String, modelId: String, wavBase64: String): Request = Request.Builder()
+        .url("https://openrouter.ai/api/v1/audio/transcriptions")
+        .header("Authorization", "Bearer $apiKey")
+        .header("HTTP-Referer", "https://echoflow.app")
+        .header("X-Title", "EchoFlow")
+        .post(encode(requestBody(modelId, wavBase64)).toRequestBody("application/json".toMediaType()))
+        .build()
 
     fun parseSarvamTranscript(body: String): String = parseSarvamResult(body).text
 
