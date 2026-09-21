@@ -46,6 +46,53 @@ class MarkdownTextTest {
     }
 
     @Test
+    fun mismatchedAndShorterFencesDoNotExposeLatex() {
+        val markdown = """
+            ````markdown
+            ~~~
+            ```
+            ${'$'}x${'$'}
+            ${'$'}${'$'}
+            y
+            ${'$'}${'$'}
+            ````
+
+            ~~~~markdown
+            ```
+            ${'$'}z${'$'}
+            ~~~~
+        """.trimIndent()
+
+        val segments = prepareGfmLatex(markdown)
+        assertEquals(1, segments.size)
+        val segment = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+        assertEquals(markdown, segment.source)
+        assertTrue(segment.math.isEmpty())
+    }
+
+    @Test
+    fun indentedAndEmptyDisplayMathStayWithGfm() {
+        val markdown = "    ${'$'}${'$'}\n    x + y\n    ${'$'}${'$'}\n\n${'$'}${'$'}${'$'}${'$'}\n\n${'$'}${'$'}\n${'$'}${'$'}"
+        val segments = prepareGfmLatex(markdown)
+
+        assertEquals(1, segments.size)
+        val segment = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+        assertEquals(markdown, segment.source)
+        assertTrue(segment.math.isEmpty())
+    }
+
+    @Test
+    fun inlineLatexDoesNotRewriteLinkDestinationsOrLiteralTokens() {
+        val literal = "ECHOFLOWLATEXPLACEHOLDER0TOKEN"
+        val markdown = "$literal [details](https://example.test/${'$'}x${'$'}) then ${'$'}y${'$'}"
+        val (prepared, math) = prepareInlineLatex(markdown)
+
+        assertTrue(prepared.startsWith(literal))
+        assertTrue(prepared.contains("[details](https://example.test/${'$'}x${'$'})"))
+        assertEquals(listOf("y"), math.map { it.latex })
+    }
+
+    @Test
     fun parsesDollarDisplayMathBlock() {
         val blocks = parseMarkdownBlocks(
             """
@@ -132,6 +179,16 @@ class MarkdownTextTest {
             "Dune: Part Two and Blade Runner 2049; keep file_name intact.",
             markdownToPlainText("_Dune: Part Two_ and __Blade Runner 2049__; keep file_name intact."),
         )
+    }
+
+    @Test
+    fun markdownToPlainTextHandlesNestedAndEscapedUnderscores() {
+        assertEquals(
+            "important; outer inner text; outer inner text",
+            markdownToPlainText("___important___; _outer __inner__ text_; __outer _inner_ text__"),
+        )
+        assertEquals("_literal_ and _closing_", markdownToPlainText("\\_literal_ and _closing\\_"))
+        assertEquals("\\_code", markdownToPlainText("`\\_code`"))
     }
 
     @Test

@@ -43,6 +43,19 @@ class StreamingTextPacerTest {
         }
     }
 
+    @Test fun `late combining mark never retracts visible text`() {
+        val pacer = StreamingTextPacer()
+        var frame = 0L
+        var shown = 0
+        while (shown < 1) {
+            shown = pacer.advance("e", frame)
+            frame += 16_666_667L
+        }
+
+        assertEquals(1, shown)
+        assertTrue(pacer.advance("e\u0301", frame) >= shown)
+    }
+
     @Test fun `resuming does not turn elapsed background time into reveal credit`() {
         val pacer = StreamingTextPacer()
         val text = "a".repeat(1000)

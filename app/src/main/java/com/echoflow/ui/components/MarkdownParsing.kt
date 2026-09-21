@@ -300,7 +300,7 @@ private fun flattenInline(nodes: List<InlineNode>): String = buildString {
 private fun StringBuilder.appendFlattened(nodes: List<InlineNode>) {
     fun walk(node: InlineNode) {
         when (node) {
-            is InlineNode.Text -> append(node.text)
+            is InlineNode.Text -> append(unescapeMarkdownText(node.text))
             is InlineNode.Math -> append(node.latex)
             is InlineNode.Code -> append(node.text)
             is InlineNode.Span -> appendFlattened(node.children)
@@ -342,6 +342,9 @@ private fun skipCopiedCitation(out: StringBuilder, nodes: List<InlineNode>, i: I
     if (rest.isNotEmpty()) out.append(rest)
     return i + 3
 }
+
+private fun unescapeMarkdownText(text: String): String =
+    text.replace(Regex("""\\([!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])"""), "$1")
 
 private fun tidyInlinePlainText(text: String): String =
     text.replace(Regex("""[ \t]{2,}"""), " ")
@@ -525,6 +528,7 @@ internal class InlineParser(private val source: String) {
             consider(indexOfDoubleDollar(cursor, end), "doubleDollarMath")
             consider(indexOfDollar(cursor, end), "dollarMath")
             consider(source.indexOf("**", cursor).takeIf { it < end } ?: -1, "bold")
+            consider(findUnderscoreDelimiter(source, cursor, end, 3, opening = true), "underscoreBoldItalic")
             consider(findUnderscoreDelimiter(source, cursor, end, 2, opening = true), "underscoreBold")
             consider(source.indexOf("~~", cursor).takeIf { it < end } ?: -1, "strike")
             consider(source.indexOf("`", cursor).takeIf { it < end } ?: -1, "code")
@@ -601,6 +605,21 @@ internal class InlineParser(private val source: String) {
                     } else {
                         nodes.add(InlineNode.Text("__"))
                         cursor = nextIdx + 2
+                    }
+                }
+                "underscoreBoldItalic" -> {
+                    val close = findUnderscoreDelimiter(source, nextIdx + 3, end, 3, opening = false)
+                    if (close >= 0) {
+                        nodes.add(
+                            InlineNode.Span(
+                                SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic),
+                                parseRange(nextIdx + 3, close),
+                            )
+                        )
+                        cursor = close + 3
+                    } else {
+                        nodes.add(InlineNode.Text("___"))
+                        cursor = nextIdx + 3
                     }
                 }
                 "strike" -> {
@@ -716,7 +735,7 @@ internal fun findUnderscoreDelimiter(
     var index = text.indexOf("_".repeat(length), from)
     while (index >= 0 && index + length <= end) {
         val isPartOfLongerRun = text.getOrNull(index - 1) == '_' || text.getOrNull(index + length) == '_'
-        if (!isPartOfLongerRun) {
+        if (!isPartOfLongerRun && !isEscaped(text, index)) {
             val before = text.getOrNull(index - 1)
             val after = text.getOrNull(index + length)
             val beforeSpace = before == null || before.isWhitespace()

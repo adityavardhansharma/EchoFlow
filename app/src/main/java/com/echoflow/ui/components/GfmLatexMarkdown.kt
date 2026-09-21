@@ -64,7 +64,7 @@ internal fun GfmLatexMarkdown(
                     style = style,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                is GfmLatexSegment.DisplayMath -> DisplayMathSegment(segment, style, textColor)
+                is GfmLatexSegment.DisplayMath -> DisplayMathSegment(segment, style)
             }
             if (index != segments.lastIndex && segment is GfmLatexSegment.DisplayMath) {
                 androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 3.dp))
@@ -132,7 +132,7 @@ private fun GfmSegment(
         colors = markdownColor(
             text = textColor,
             codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
-            inlineCodeBackground = Color.Gray.copy(alpha = 0.18f),
+            inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
             dividerColor = MaterialTheme.colorScheme.outlineVariant,
             tableBackground = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
@@ -237,11 +237,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendMathPlacehold
 }
 
 @Composable
-private fun DisplayMathSegment(segment: GfmLatexSegment.DisplayMath, style: TextStyle, color: Color) {
-    if (!segment.complete || segment.latex.isBlank()) {
-        GfmLatexMarkdown(segment.raw, Modifier.fillMaxWidth(), color, style)
-        return
-    }
+private fun DisplayMathSegment(segment: GfmLatexSegment.DisplayMath, style: TextStyle) {
     LatexAutoWrap(
         latex = segment.latex,
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -252,7 +248,7 @@ private fun DisplayMathSegment(segment: GfmLatexSegment.DisplayMath, style: Text
 
 internal sealed interface GfmLatexSegment {
     data class Markdown(val source: String, val math: List<InlineLatex>) : GfmLatexSegment
-    data class DisplayMath(val latex: String, val raw: String, val complete: Boolean) : GfmLatexSegment
+    data class DisplayMath(val latex: String, val raw: String) : GfmLatexSegment
 }
 
 internal data class InlineLatex(
@@ -267,7 +263,7 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
     val lines = source.split('\n')
     val segments = mutableListOf<GfmLatexSegment>()
     val markdown = StringBuilder()
-    var fenced = false
+    var fence: MarkdownFence? = null
     var i = 0
 
     fun flushMarkdown() {
@@ -280,16 +276,27 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
 
     while (i < lines.size) {
         val line = lines[i]
-        val trimmed = line.trim()
-        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-            fenced = !fenced
+        val activeFence = fence
+        if (activeFence != null) {
+            appendLinePreservingSource(markdown, line, i < lines.lastIndex)
+            if (closesFence(line, activeFence)) fence = null
+            i++
+            continue
+        }
+
+        val newFence = openingFence(line)
+        if (newFence != null) {
+            fence = newFence
             appendLinePreservingSource(markdown, line, i < lines.lastIndex)
             i++
             continue
         }
-        val opener = if (!fenced) when {
-            trimmed.startsWith("$$") -> "$$"
-            trimmed.startsWith("\\[") -> "\\["
+
+        // Display math is deliberately top-level. Four-space/tab-indented code and nested
+        // containers remain entirely under the GFM parser's ownership.
+        val opener = if (line == line.trimStart()) when {
+            line.startsWith("$$") -> "$$"
+            line.startsWith("\\[") -> "\\["
             else -> null
         } else null
         if (opener == null) {
@@ -299,21 +306,30 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
         }
 
         val close = if (opener == "$$") "$$" else "\\]"
-        val first = trimmed.removePrefix(opener)
+        val first = line.trimEnd().removePrefix(opener)
         val sameLineClose = first.indexOf(close)
         if (sameLineClose >= 0 && first.substring(sameLineClose + close.length).isBlank()) {
-            flushMarkdown()
-            segments += GfmLatexSegment.DisplayMath(
-                latex = first.substring(0, sameLineClose).trim(),
-                raw = line,
-                complete = true,
-            )
+            val latex = first.substring(0, sameLineClose).trim()
+            if (latex.isBlank()) {
+                appendLinePreservingSource(markdown, line, i < lines.lastIndex)
+            } else {
+                flushMarkdown()
+                segments += GfmLatexSegment.DisplayMath(latex = latex, raw = line)
+            }
             i++
             continue
         }
 
         var end = i + 1
-        while (end < lines.size && !lines[end].contains(close)) end++
+        var closeAt = -1
+        while (end < lines.size) {
+            val candidate = lines[end].indexOf(close)
+            if (candidate >= 0 && lines[end].substring(candidate + close.length).isBlank()) {
+                closeAt = candidate
+                break
+            }
+            end++
+        }
         if (end >= lines.size) {
             // Keep an unfinished delimiter in GFM as literal streaming text. It becomes a stable
             // math block only when the closing delimiter arrives.
@@ -321,13 +337,6 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
             i++
             continue
         }
-        val closeAt = lines[end].indexOf(close)
-        if (lines[end].substring(closeAt + close.length).isNotBlank()) {
-            appendLinePreservingSource(markdown, line, i < lines.lastIndex)
-            i++
-            continue
-        }
-        flushMarkdown()
         val latex = buildString {
             if (first.isNotBlank()) append(first.trimStart())
             for (j in i + 1..end) {
@@ -336,11 +345,15 @@ internal fun prepareGfmLatex(source: String): List<GfmLatexSegment> {
                 append(part)
             }
         }.trim()
-        segments += GfmLatexSegment.DisplayMath(
-            latex = latex,
-            raw = lines.subList(i, end + 1).joinToString("\n"),
-            complete = true,
-        )
+        if (latex.isBlank()) {
+            for (j in i..end) appendLinePreservingSource(markdown, lines[j], j < lines.lastIndex)
+        } else {
+            flushMarkdown()
+            segments += GfmLatexSegment.DisplayMath(
+                latex = latex,
+                raw = lines.subList(i, end + 1).joinToString("\n"),
+            )
+        }
         i = end + 1
     }
     flushMarkdown()
@@ -356,35 +369,21 @@ private fun appendLinePreservingSource(out: StringBuilder, line: String, hasNewl
 internal fun prepareInlineLatex(source: String): Pair<String, List<InlineLatex>> {
     val out = StringBuilder(source.length)
     val math = mutableListOf<InlineLatex>()
+    val protected = markdownProtectedCharacters(source)
+    var tokenPrefix = "ECHOFLOWLATEXPLACEHOLDER"
+    while (source.contains(tokenPrefix)) tokenPrefix += "X"
     var i = 0
-    var fenced = false
     while (i < source.length) {
-        if (source.startsWith("```", i) || source.startsWith("~~~", i)) {
-            fenced = !fenced
-            out.append(source, i, i + 3)
-            i += 3
-            continue
-        }
-        if (fenced) {
+        if (protected[i]) {
             out.append(source[i++])
             continue
-        }
-        if (source[i] == '`') {
-            val ticks = source.runLength(i, '`')
-            val delimiter = "`".repeat(ticks)
-            val close = source.indexOf(delimiter, i + ticks)
-            if (close >= 0) {
-                out.append(source, i, close + ticks)
-                i = close + ticks
-                continue
-            }
         }
 
         val parenMath = source.startsWith("\\(", i)
         val dollarMath = source[i] == '$' && source.getOrNull(i + 1) != '$' && !isEscaped(source, i)
         val close = when {
-            parenMath -> source.indexOf("\\)", i + 2)
-            dollarMath -> findInlineDollarClose(source, i + 1)
+            parenMath -> source.indexOfUnprotected("\\)", i + 2, protected)
+            dollarMath -> source.findInlineDollarCloseUnprotected(i + 1, protected)
             else -> -1
         }
         if (close >= 0) {
@@ -393,7 +392,7 @@ internal fun prepareInlineLatex(source: String): Pair<String, List<InlineLatex>>
             val latex = source.substring(contentStart, close).trim()
             val valid = parenMath || looksLikeMath(latex, source.getOrNull(i - 1), source.getOrNull(rawEnd))
             if (latex.isNotBlank() && valid) {
-                val token = "ECHOFLOWLATEX${i}TOKEN"
+                val token = "$tokenPrefix${math.size}TOKEN"
                 val raw = source.substring(i, rawEnd)
                 math += InlineLatex(token, latex, raw)
                 out.append(token)
@@ -404,6 +403,114 @@ internal fun prepareInlineLatex(source: String): Pair<String, List<InlineLatex>>
         out.append(source[i++])
     }
     return out.toString() to math
+}
+
+private data class MarkdownFence(val marker: Char, val length: Int)
+
+private fun openingFence(line: String): MarkdownFence? {
+    val indent = line.takeWhile { it == ' ' }.length
+    if (indent > 3 || indent == line.length) return null
+    val marker = line[indent]
+    if (marker != '`' && marker != '~') return null
+    val length = line.runLength(indent, marker)
+    if (length < 3) return null
+    val suffix = line.substring(indent + length)
+    if (marker == '`' && '`' in suffix) return null
+    return MarkdownFence(marker, length)
+}
+
+private fun closesFence(line: String, fence: MarkdownFence): Boolean {
+    val indent = line.takeWhile { it == ' ' }.length
+    if (indent > 3 || line.getOrNull(indent) != fence.marker) return false
+    val length = line.runLength(indent, fence.marker)
+    return length >= fence.length && line.substring(indent + length).isBlank()
+}
+
+/** Regions whose contents are syntax/code rather than visible Markdown text. */
+private fun markdownProtectedCharacters(source: String): BooleanArray {
+    val protected = BooleanArray(source.length)
+    var fence: MarkdownFence? = null
+    var lineStart = 0
+    while (lineStart < source.length) {
+        val lineEnd = source.indexOf('\n', lineStart).takeIf { it >= 0 } ?: source.length
+        val line = source.substring(lineStart, lineEnd)
+        val activeFence = fence
+        val newFence = if (activeFence == null) openingFence(line) else null
+        val indentedCode = activeFence == null && newFence == null &&
+            (line.startsWith("    ") || line.startsWith('\t'))
+        if (activeFence != null || newFence != null || indentedCode) {
+            for (index in lineStart until minOf(lineEnd + 1, source.length)) protected[index] = true
+        }
+        fence = when {
+            activeFence != null && closesFence(line, activeFence) -> null
+            activeFence != null -> activeFence
+            newFence != null -> newFence
+            else -> null
+        }
+        lineStart = lineEnd + 1
+    }
+
+    var i = 0
+    while (i < source.length) {
+        if (protected[i]) {
+            i++
+            continue
+        }
+        if (source[i] == '`') {
+            val length = source.runLength(i, '`')
+            val close = source.findClosingCodeSpan(i + length, length, protected)
+            if (close >= 0) {
+                for (index in i until close + length) protected[index] = true
+                i = close + length
+                continue
+            }
+        }
+        if (source[i] == ']' && source.getOrNull(i + 1) == '(') {
+            val close = findLinkDestinationClose(source, i + 1, source.length)
+            if (close != null) {
+                for (index in i + 1..close) protected[index] = true
+                i = close + 1
+                continue
+            }
+        }
+        if (source[i] == '<') {
+            val close = source.indexOf('>', i + 1)
+            if (close >= 0) {
+                for (index in i..close) protected[index] = true
+                i = close + 1
+                continue
+            }
+        }
+        i++
+    }
+    return protected
+}
+
+private fun String.indexOfUnprotected(needle: String, from: Int, protected: BooleanArray): Int {
+    var index = indexOf(needle, from)
+    while (index >= 0 && protected[index]) index = indexOf(needle, index + needle.length)
+    return index
+}
+
+private fun String.findClosingCodeSpan(from: Int, length: Int, protected: BooleanArray): Int {
+    var index = indexOf('`', from)
+    while (index >= 0) {
+        val runLength = runLength(index, '`')
+        if (!protected[index] && runLength == length) return index
+        index = indexOf('`', index + runLength)
+    }
+    return -1
+}
+
+private fun String.findInlineDollarCloseUnprotected(from: Int, protected: BooleanArray): Int {
+    var index = from
+    while (index < length) {
+        if (this[index] == '$' && !protected[index] && !isEscaped(this, index) && getOrNull(index + 1) != '$') {
+            return index
+        }
+        index++
+    }
+    return -1
 }
 
 private fun String.runLength(start: Int, char: Char): Int {

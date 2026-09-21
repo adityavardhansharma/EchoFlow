@@ -13,6 +13,7 @@ internal class StreamingTextPacer {
     private var started = false
     private val graphemes = BreakIterator.getCharacterInstance(Locale.ROOT)
     private var boundaryText = ""
+    private var lastEmitted = 0
 
     fun advance(text: String, frameNanos: Long): Int {
         val previous = lastFrame
@@ -25,6 +26,7 @@ internal class StreamingTextPacer {
             speed = BASE_SPEED
             bufferedSeconds = 0.0
             started = false
+            lastEmitted = 0
         }
         if (position < text.length) {
             if (!started) {
@@ -43,13 +45,17 @@ internal class StreamingTextPacer {
             speed += (BASE_SPEED - speed) * (1.0 - exp(-dt / SPEED_RESPONSE_SECONDS))
         }
         val candidate = position.toInt()
-        if (candidate <= 0 || candidate >= text.length) return candidate
+        if (candidate <= 0 || candidate >= text.length) return emit(candidate)
         if (boundaryText != text) {
             boundaryText = text
             graphemes.setText(text)
         }
-        return if (graphemes.isBoundary(candidate)) candidate else graphemes.preceding(candidate).coerceAtLeast(0)
+        val boundary = if (graphemes.isBoundary(candidate)) candidate else graphemes.preceding(candidate).coerceAtLeast(0)
+        return emit(boundary)
     }
+
+    /** A newly arrived combining mark may move a grapheme boundary, but visible text never retracts. */
+    private fun emit(candidate: Int): Int = candidate.coerceAtLeast(lastEmitted).also { lastEmitted = it }
 
     fun resume() {
         lastFrame = null
