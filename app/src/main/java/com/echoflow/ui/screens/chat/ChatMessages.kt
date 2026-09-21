@@ -32,6 +32,7 @@ import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -69,6 +70,8 @@ internal fun MessagesPane(
 ) {
     val listState = rememberLazyListState()
     val viewport = remember { Any() }
+    var initialPositioned by remember { mutableStateOf(false) }
+    var initialRevealEligible by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -87,15 +90,48 @@ internal fun MessagesPane(
             }
         }
     }
+    val atBottom by remember {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            val last = layout.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            last.index >= layout.totalItemsCount - 1 &&
+                last.offset + last.size <= layout.viewportEndOffset + 8
+        }
+    }
+    // A fresh pane should open at the latest persisted turn, but this runs only once. It never
+    // participates in streaming updates or the streaming-to-persisted handoff.
+    LaunchedEffect(messages.isNotEmpty()) {
+        if (!initialPositioned && messages.isNotEmpty()) {
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+            if (!initialPositioned) {
+                val index = listState.layoutInfo.totalItemsCount - 1
+                if (index >= 0) runCatching { listState.scrollToItem(index) }
+                initialPositioned = true
+            }
+        }
+    }
+    // Preserve the user's choice while the request is waiting for its first visible segment. A
+    // reveal is allowed only if they were still at the bottom when the stream began and remained
+    // there; after the first segment, no automatic scrolling occurs at all.
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming) return@LaunchedEffect
+        initialRevealEligible = atBottom
+        snapshotFlow { listState.isScrollInProgress to atBottom }.collect { (scrolling, bottom) ->
+            if (scrolling && !bottom) initialRevealEligible = false
+        }
+    }
     // Reveal the beginning of a new response once, but never follow its growing content. Keeping
     // this keyed only to stream start/content appearance prevents completion and persistence from
     // moving the user's viewport.
     LaunchedEffect(isStreaming, segments.isNotEmpty()) {
-        if (isStreaming && segments.isNotEmpty()) {
+        if (isStreaming && segments.isNotEmpty() && initialRevealEligible) {
             withFrameNanos { }
             // The streaming row is appended after all persisted/research rows.
             val index = listState.layoutInfo.totalItemsCount - 1
-            if (index >= 0) runCatching { listState.scrollToItem(index) }
+            if (initialRevealEligible && index >= 0) {
+                runCatching { listState.scrollToItem(index) }
+                initialRevealEligible = false
+            }
         }
     }
     LazyColumn(
