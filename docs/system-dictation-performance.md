@@ -21,6 +21,10 @@ avoidable work; it does not establish the number of dropped frames on a phone.
   root again; external focus always has a recovery path through live windows.
 - Window handoffs, IME bounds and structural editor removal remain observable.
   Recording also has a 500 ms reconciliation fallback for silent host changes.
+- Android 13+ uses the accessibility InputMethod connection as the primary editor
+  signal and insertion path. Editor restarts retain a session id; switching editors
+  invalidates it, so virtual-node churn no longer hides the bubble or prevents safe
+  caret insertion. Older releases retain node discovery and ACTION_PASTE.
 - Configuration uses a small read-only STT snapshot on IO instead of building the
   full provider configuration. Backing preference listeners work across UI and
   service repository instances. Microphone/overlay AppOps changes invalidate

@@ -57,27 +57,42 @@ internal object SystemDictationPermissions {
 internal fun shouldPasteDictation(sameNode: Boolean, eligible: Boolean, targetRefreshed: Boolean, uninterrupted: Boolean) =
     sameNode && eligible && targetRefreshed && uninterrupted
 
-internal fun eligibleDictationField(node: AccessibilityNodeInfo, ownPackage: String): Boolean {
-    val variation = node.inputType and android.text.InputType.TYPE_MASK_VARIATION
-    val inputClass = node.inputType and android.text.InputType.TYPE_MASK_CLASS
-    val secret = node.isPassword ||
+internal fun shouldCommitDictation(recordedEditor: Long, currentEditor: Long?, uninterrupted: Boolean) =
+    recordedEditor == currentEditor && uninterrupted
+
+internal fun secretDictationInput(inputType: Int, password: Boolean = false): Boolean {
+    val variation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+    val inputClass = inputType and android.text.InputType.TYPE_MASK_CLASS
+    return password ||
         (inputClass == android.text.InputType.TYPE_CLASS_TEXT && variation in listOf(
             android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
             android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
             android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
-        (inputClass == android.text.InputType.TYPE_CLASS_NUMBER && variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD)
-    return node.isEditable && node.isEnabled && node.isVisibleToUser && node.isFocused &&
-        !secret && node.packageName?.toString()?.let { it.isNotBlank() && it != ownPackage } == true
+        (inputClass == android.text.InputType.TYPE_CLASS_NUMBER &&
+            variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD)
 }
 
+internal fun eligibleDictationEditor(inputType: Int, editorPackage: String, ownPackage: String): Boolean =
+    editorPackage.isNotBlank() && editorPackage != ownPackage && !secretDictationInput(inputType)
 
-/** Copy first, then ask for a freshly validated target. Failed paste leaves the copied result intact. */
-internal fun deliverDictation(context: Context, transcript: String, pasteTarget: () -> AccessibilityNodeInfo?) {
+internal fun eligibleDictationField(node: AccessibilityNodeInfo, ownPackage: String): Boolean {
+    return node.isEditable && node.isEnabled && node.isVisibleToUser && node.isFocused &&
+        !secretDictationInput(node.inputType, node.isPassword) &&
+        node.packageName?.toString()?.let { it.isNotBlank() && it != ownPackage } == true
+}
+
+/** Always retain a recoverable result if the host rejects either insertion mechanism. */
+internal fun copyDictation(context: Context, transcript: String) {
     val clip = ClipData.newPlainText("Dictation", transcript)
     // Android owns its clipboard affordance; suppress the transcript preview as sensitive data.
     if (Build.VERSION.SDK_INT >= 33) clip.description.extras = android.os.PersistableBundle().apply {
         putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
     }
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+}
+
+/** Copy first, then ask for a freshly validated target. Failed paste leaves the copied result intact. */
+internal fun deliverDictation(context: Context, transcript: String, pasteTarget: () -> AccessibilityNodeInfo?) {
+    copyDictation(context, transcript)
     pasteTarget()?.performAction(AccessibilityNodeInfo.ACTION_PASTE)
 }
