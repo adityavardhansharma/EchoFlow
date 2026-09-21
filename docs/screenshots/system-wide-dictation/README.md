@@ -10,13 +10,16 @@ The service uses `AudioWavRecorder`, `SpeechToTextTranscriber`, `SttCatalog`, an
 same selected model, key resolution, mode, and Hinglish preference as chat. The
 recorder enforces a shared microphone owner across both entry points.
 
-Successful transcription overwrites the clipboard as a recoverable fallback. On
-Android 13+, insertion uses the active accessibility InputConnection only if the
+On Android 13+, insertion uses the active accessibility InputConnection only if the
 editor session captured at recording start is still current. This inserts at the
-caret and replaces only the active selection. Android 12 and older retain the
-accessibility paste path: the captured node must refresh, remain eligible, match the
-currently focused node, and never have lost focus. Android may display its own
-clipboard affordance; EchoFlow marks the clip sensitive to suppress the preview.
+caret and replaces only the active selection without changing the clipboard. A
+dispatch exception, missing connection, or changed editor leaves the transcript on
+the clipboard as a recoverable fallback. Android's accessibility InputConnection
+does not report whether the receiving editor accepted a dispatched commit. Android
+12 and older retain the copy-first accessibility paste path: the captured node must
+refresh, remain eligible, match the currently focused node, and never have lost
+focus. Android may display its own clipboard affordance; EchoFlow marks the clip
+sensitive to suppress the preview.
 
 ## Device checks
 

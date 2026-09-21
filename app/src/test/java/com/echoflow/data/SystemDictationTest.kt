@@ -148,6 +148,20 @@ class SystemDictationTest {
         assertEquals(listOf(android.view.accessibility.AccessibilityNodeInfo.ACTION_PASTE), shadow.performedActions)
         node.recycle()
     }
+    @Test fun `successful direct insertion leaves the clipboard unchanged`() {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Old", "old content"))
+        assertTrue(deliverDirectDictation(context, "dictated words") { true })
+        assertEquals("old content", clipboard.primaryClip!!.getItemAt(0).text.toString())
+    }
+    @Test fun `failed or throwing direct insertion copies the transcript`() {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Old", "old content"))
+        assertFalse(deliverDirectDictation(context, "rejected words") { false })
+        assertEquals("rejected words", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        assertFalse(deliverDirectDictation(context, "exception words") { error("editor died") })
+        assertEquals("exception words", clipboard.primaryClip!!.getItemAt(0).text.toString())
+    }
     @Test fun `missing target and rejected paste both retain the new clipboard`() {
         val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Old", "old content"))
