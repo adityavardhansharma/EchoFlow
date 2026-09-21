@@ -76,7 +76,8 @@ class MemoryTools(
     }
     private val generation = settings.generation
     private val accessRevision = settings.accessRevision
-    private var calls = 0
+    private var searchCalls = 0
+    private var saveCalls = 0
     /** Scoped to this response; enforced at schema creation and execution. Saving is independent. */
     var recallAllowed: Boolean = true
     private val saved = mutableSetOf<String>()
@@ -97,7 +98,11 @@ class MemoryTools(
         if (name == "search_memory" && !recallAllowed)
             return "Personal memory retrieval is unavailable for this turn. Answer using the supplied conversation and other available sources."
         if (!permitted()) return "Memory is disabled."
-        if (++calls > 4) return "Memory tool limit reached. Answer with the context already available."
+        if (name == "search_memory") {
+            if (++searchCalls > 4) return "Memory search limit reached. Answer with the context already available."
+        } else if (++saveCalls > 4) {
+            return "Memory save limit reached. Answer with the context already available."
+        }
         val data = try { JSONObject(args) } catch (_: Exception) { return "Invalid JSON arguments." }
         val query = (data.opt(if (name == "search_memory") "query" else "content") as? String)?.trim()
             ?: return "Supply a text value."
@@ -179,7 +184,7 @@ class MemoryTools(
         val values = facts.map { it.text.trim() }.filter { it.isNotBlank() && MemoryPrivacy.redact(it) == it }
             .filterNot(MemoryPolicy::isAssistantMetaMemory)
             .distinctBy(MemoryPolicy::normalize).filterNot { it in saved }.take(3)
-        if (values.isEmpty() || !permittedToLearn(session) || ++calls > 4) return FactSaveResult(false)
+        if (values.isEmpty() || !permittedToLearn(session) || ++saveCalls > 4) return FactSaveResult(false)
         val id = UUID.randomUUID().toString()
         emit(StreamChunk.MemoryActivity(id, "Learning ${values.size} ${if (values.size == 1) "fact" else "facts"}…", true))
         return try {

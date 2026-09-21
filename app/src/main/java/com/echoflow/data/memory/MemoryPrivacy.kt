@@ -15,7 +15,9 @@ object MemoryPrivacy {
         // A bare "Basic" is also ordinary prose. HTTP Basic credentials decode
         // to a user:password pair; do not erase phrases such as "basic knowledge".
         val withoutBasic = basicCredentials.replace(text) { match ->
-            val decoded = runCatching { java.util.Base64.getDecoder().decode(match.groupValues[1]) }.getOrNull()
+            val decoded = runCatching {
+                android.util.Base64.decode(match.groupValues[1], android.util.Base64.DEFAULT)
+            }.getOrNull()
             if (decoded?.contains(':'.code.toByte()) == true) "[credential redacted]" else match.value
         }
         return patterns.fold(withoutBasic) { value, pattern -> pattern.replace(value, "[credential redacted]") }
