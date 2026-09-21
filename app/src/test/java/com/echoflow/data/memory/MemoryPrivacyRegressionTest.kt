@@ -3,7 +3,10 @@ package com.echoflow.data.memory
 import com.echoflow.data.jev.JevClient
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class MemoryPrivacyRegressionTest {
     @Test fun `basic prose and ordinary references to tokens remain intact`() {
         val text = "Explain basic knowledge and token counting."
