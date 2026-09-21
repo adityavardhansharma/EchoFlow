@@ -342,6 +342,7 @@ internal fun SettingsHomePage(
     val dataAgentEnabled by viewModel.dataAgentEnabled.collectAsState()
     val dataAgentEngine by viewModel.dataAgentEngine.collectAsState()
     val browserFlowEnabled by viewModel.browserFlowEnabled.collectAsState()
+    val systemWideDictation by viewModel.systemWideDictation.collectAsState()
     val echoAdviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
     val echoFusionEnabled by viewModel.echoFusionEnabled.collectAsState()
     val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
@@ -409,6 +410,7 @@ internal fun SettingsHomePage(
         echoAgentEnabled,
         jevEnabledHome,
         browserFlowEnabled,
+        systemWideDictation,
         customProviderConfig.ollamaEnabled,
         customProviderConfig.openAiCompatibleEnabled,
     ).count { it }

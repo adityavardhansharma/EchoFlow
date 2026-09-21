@@ -200,8 +200,9 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
         }
 
         Spacer(Modifier.height(Spacing.xl))
-        PageSection("Beta", "Experimental · may break · uses Firecrawl credits while open")
+        PageSection("Beta", "Experimental features · may break")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SystemDictationRow(viewModel, index = 0, count = 4)
             SettingsNavRow(
                 icon = Icons.Default.Language,
                 polygon = MaterialShapes.Cookie4Sided,
@@ -209,7 +210,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = browserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 3,
+                index = 1, count = 4,
                 onClick = { onOpen(PageBrowserFlow) },
             )
             SettingsNavRow(
@@ -219,7 +220,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = jevSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 3,
+                index = 2, count = 4,
                 onClick = { onOpen(PageJev) },
             )
             SettingsNavRow(
@@ -229,7 +230,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = "Supermemory · EchoBrain",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 2, count = 3,
+                index = 3, count = 4,
                 onClick = { onOpen(PageMemory) },
             )
         }
