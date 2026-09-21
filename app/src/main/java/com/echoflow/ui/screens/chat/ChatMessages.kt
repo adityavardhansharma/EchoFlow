@@ -21,10 +21,13 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.GeneratedVideo
+import com.echoflow.data.PersistedSegment
 import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ResearchJson
 import com.echoflow.data.ResearchRef
 import com.echoflow.data.ResearchRun
+import com.echoflow.data.ToolEventJson
+import com.echoflow.ui.ChatResponsePolicy
 import com.echoflow.ui.StreamRevealState
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.ResearchTimeline
@@ -46,7 +49,7 @@ internal fun MessagesPane(
     messages: List<ChatMessage>,
     isStreaming: Boolean,
     segments: List<StreamSegment>,
-    handoffMessageId: String? = null,
+    activeMessageId: String? = null,
     revealState: StreamRevealState? = null,
     statusNote: String?,
     progressLoading: Boolean,
@@ -73,14 +76,15 @@ internal fun MessagesPane(
     var initialPositioned by remember { mutableStateOf(false) }
     var initialRevealEligible by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(revealState, lifecycleOwner) {
+    LaunchedEffect(revealState, activeMessageId, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             revealState?.beginViewport(viewport)
             try {
                 // Register while waiting for the first chunk too, so a one-burst response gets
                 // a reveal. A reply scrolled out of view must never hold up persistence.
                 snapshotFlow {
-                    listState.layoutInfo.visibleItemsInfo.any { it.key == "streaming" }
+                    activeMessageId != null &&
+                        listState.layoutInfo.visibleItemsInfo.any { it.key == activeMessageId }
                 }.collect { visible ->
                     if (visible) revealState?.attachViewport(viewport)
                     else revealState?.detachViewport(viewport)
@@ -140,26 +144,49 @@ internal fun MessagesPane(
         verticalArrangement = Arrangement.spacedBy(Spacing.l),
         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = topInset, bottom = bottomInset),
     ) {
-        items(messages, key = { it.id }) { msg ->
-            val versionTotal = if (msg.role == "assistant") ReplyVersions.count(msg) else 1
-            MessageBubble(
-                msg,
-                onCopy = { text -> onCopy(text) },
-                onArtifactOpen = onArtifactOpen,
-                onResearchOpen = onResearchOpen,
-                onResearchRetry = onResearchRetry,
-                observeResearchRun = observeResearchRun,
-                observeVideo = observeVideo,
-                observeArtifactVersions = observeArtifactVersions,
-                canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
-                onEditUserMessage = onEditUserMessage,
-                replyVersionIndex = if (msg.role == "assistant") {
-                    replyVersionIndexFor(msg.id, versionTotal)
-                } else {
-                    0
-                },
-                onReplyVersionChange = onReplyVersionChange,
-            )
+        val timelineMessages = buildList {
+            messages.forEach { add(ChatTimelineMessage(it.id, it)) }
+            if (
+                activeMessageId != null &&
+                segments.isNotEmpty() &&
+                messages.none { it.id == activeMessageId }
+            ) {
+                add(ChatTimelineMessage(activeMessageId, null))
+            }
+        }
+        items(
+            items = timelineMessages,
+            key = { it.id },
+            contentType = { it.message?.role ?: "assistant" },
+        ) { row ->
+            val message = row.message
+            if (message?.role == "user") {
+                MessageBubble(
+                    message,
+                    onCopy = onCopy,
+                    canEditUserMessage = canEditMessages && message.id == lastUserMessageId,
+                    onEditUserMessage = onEditUserMessage,
+                )
+            } else {
+                val versionTotal = message?.let(ReplyVersions::count) ?: 1
+                StableAssistantMessage(
+                    messageId = row.id,
+                    persistedMessage = message,
+                    liveSegments = if (row.id == activeMessageId) segments else emptyList(),
+                    statusNote = statusNote,
+                    streamActive = isStreaming && row.id == activeMessageId,
+                    revealState = revealState.takeIf { row.id == activeMessageId },
+                    onCopy = onCopy,
+                    onArtifactOpen = onArtifactOpen,
+                    onResearchOpen = onResearchOpen,
+                    onResearchRetry = onResearchRetry,
+                    observeResearchRun = observeResearchRun,
+                    observeVideo = observeVideo,
+                    observeArtifactVersions = observeArtifactVersions,
+                    replyVersionIndex = message?.let { replyVersionIndexFor(it.id, versionTotal) } ?: 0,
+                    onReplyVersionChange = onReplyVersionChange,
+                )
+            }
         }
         researchRun?.let { run ->
             item(key = "research") {
@@ -188,18 +215,190 @@ internal fun MessagesPane(
                 item { ThinkingRow() }
             }
         }
-        val persistedHandoffVisible = handoffMessageId != null && messages.any { it.id == handoffMessageId }
-        if (segments.isNotEmpty() && !persistedHandoffVisible) item(key = "streaming") {
-            key(revealState) {
-                StreamingAssistantBubble(
-                    segments = segments,
-                    statusNote = statusNote,
-                    isStreaming = isStreaming,
-                    revealState = revealState,
-                    onArtifactOpen = onArtifactOpen,
-                    observeArtifactVersions = observeArtifactVersions,
+    }
+}
+
+private data class ChatTimelineMessage(
+    val id: String,
+    val message: ChatMessage?,
+)
+
+/**
+ * One assistant composition for the complete live-to-persisted lifecycle. The final live segment
+ * tree is retained while this item remains mounted, so Markdown/LaTeX state, measured height and
+ * the LazyColumn anchor survive the Room handoff unchanged.
+ */
+@Composable
+private fun StableAssistantMessage(
+    messageId: String,
+    persistedMessage: ChatMessage?,
+    liveSegments: List<StreamSegment>,
+    statusNote: String?,
+    streamActive: Boolean,
+    revealState: StreamRevealState?,
+    onCopy: (String) -> Unit,
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit,
+    onResearchOpen: (ResearchRef) -> Unit,
+    onResearchRetry: (ResearchRef) -> Unit,
+    observeResearchRun: (String) -> Flow<ResearchRun?>,
+    observeVideo: (String) -> Flow<GeneratedVideo?>,
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>>,
+    replyVersionIndex: Int,
+    onReplyVersionChange: (messageId: String, index: Int) -> Unit,
+) {
+    var retainedSegments by remember(messageId) { mutableStateOf<List<StreamSegment>>(emptyList()) }
+    if (liveSegments.isNotEmpty()) {
+        SideEffect {
+            retainedSegments = liveSegments
+        }
+    }
+
+    val displayedSegments = liveSegments.ifEmpty { retainedSegments }
+    val versionCount = persistedMessage?.let(ReplyVersions::count) ?: 1
+    val latestVersion = (versionCount - 1).coerceAtLeast(0)
+    val keepMountedLiveTree = displayedSegments.isNotEmpty() &&
+        (persistedMessage == null || replyVersionIndex == latestVersion)
+    val selectedMessage = persistedMessage?.let { ReplyVersions.display(it, replyVersionIndex) }
+    val persistedSegments = remember(selectedMessage?.segmentsJson) {
+        ToolEventJson.segmentsFromJson(selectedMessage?.segmentsJson)
+    }
+    val settled = remember(displayedSegments, persistedSegments, streamActive) {
+        if (!streamActive && selectedMessage != null) {
+            settleStreamPresentation(displayedSegments, persistedSegments)
+        } else {
+            SettledStreamPresentation(displayedSegments)
+        }
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        if (keepMountedLiveTree) {
+            StreamingAssistantBubble(
+                segments = settled.segments,
+                statusNote = if (streamActive) statusNote else null,
+                isStreaming = streamActive,
+                revealState = revealState,
+                onArtifactOpen = onArtifactOpen,
+                observeVideo = observeVideo,
+                observeArtifactVersions = observeArtifactVersions,
+                terminalText = settled.terminalText,
+                stopped = settled.stopped,
+                onCopy = persistedMessage?.let { message ->
+                    { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) }
+                }.takeIf { !streamActive },
+            )
+            if (!streamActive && persistedMessage != null) {
+                AssistantAnswerActions(
+                    message = persistedMessage,
+                    replyVersionIndex = replyVersionIndex,
+                    onReplyVersionChange = onReplyVersionChange,
+                    onCopy = onCopy,
                 )
+            }
+        } else if (persistedMessage != null) {
+            MessageBubble(
+                persistedMessage,
+                onCopy = onCopy,
+                onArtifactOpen = onArtifactOpen,
+                onResearchOpen = onResearchOpen,
+                onResearchRetry = onResearchRetry,
+                observeResearchRun = observeResearchRun,
+                observeVideo = observeVideo,
+                observeArtifactVersions = observeArtifactVersions,
+                replyVersionIndex = replyVersionIndex,
+                onReplyVersionChange = onReplyVersionChange,
+            )
+        }
+    }
+}
+
+private data class SettledStreamPresentation(
+    val segments: List<StreamSegment>,
+    val terminalText: List<String> = emptyList(),
+    val stopped: Boolean = false,
+)
+
+/**
+ * Reconciles the mounted streaming tree with the durable terminal snapshot. Text blocks keep
+ * their existing nodes, while process cards receive their settled payloads and transient cards
+ * that persistence deliberately rejected disappear. Persist-only notices are returned separately
+ * so they can be appended without replacing the already-mounted Markdown/LaTeX composition.
+ */
+private fun settleStreamPresentation(
+    liveSegments: List<StreamSegment>,
+    persistedSegments: List<PersistedSegment>,
+): SettledStreamPresentation {
+    val remaining = persistedSegments.groupBy(PersistedSegment::type)
+        .mapValues { (_, segments) -> ArrayDeque(segments) }
+        .toMutableMap()
+    fun take(type: String): PersistedSegment? = remaining[type]?.removeFirstOrNull()
+
+    val normalized = ChatResponsePolicy.normalizeForPersistence(liveSegments)
+    val settled = normalized.mapNotNull { segment ->
+        when (segment) {
+            is StreamSegment.Memory -> take("memory")?.let { durable ->
+                segment.copy(label = durable.text.orEmpty().ifBlank { segment.label }, active = false)
+            }
+            is StreamSegment.Text -> take("text")?.let { segment }
+            is StreamSegment.Reasoning -> take("reasoning")?.let { segment }
+            is StreamSegment.Search -> take("search")?.let { durable ->
+                segment.copy(
+                    query = durable.query.orEmpty().ifBlank { segment.query },
+                    sources = durable.sources.orEmpty(),
+                    active = false,
+                )
+            }
+            is StreamSegment.Advisor -> take("advisor")?.advisor?.let { durable ->
+                segment.copy(
+                    advisorName = durable.advisorName,
+                    advisorModel = durable.advisorModel,
+                    prompt = durable.prompt,
+                    advice = durable.advice,
+                    active = false,
+                )
+            }
+            is StreamSegment.Fusion -> take("fusion")?.fusion?.let { durable ->
+                segment.copy(
+                    panelName = durable.panelName,
+                    models = durable.models,
+                    analysis = durable,
+                    active = false,
+                )
+            }
+            is StreamSegment.AgentRun -> null
+            is StreamSegment.Subagent -> take("subagent")?.subagent?.let { durable ->
+                segment.copy(
+                    taskName = durable.taskName,
+                    taskDescription = durable.taskDescription,
+                    workerModel = durable.workerModel,
+                    outcome = durable.outcome,
+                    error = durable.error,
+                    active = false,
+                )
+            }
+            is StreamSegment.Artifact -> take("artifact")?.artifact?.let { durable ->
+                segment.copy(
+                    artifactId = durable.artifactId,
+                    title = durable.title,
+                    artifactType = durable.type,
+                    version = durable.version,
+                    building = false,
+                )
+            }
+            is StreamSegment.Image -> take("image")?.image?.let { durable ->
+                segment.copy(
+                    imageId = durable.imageId,
+                    filePath = durable.filePath,
+                    generating = false,
+                )
+            }
+            is StreamSegment.Video -> take("video")?.video?.let { durable ->
+                segment.copy(filePath = durable.filePath ?: segment.filePath)
             }
         }
     }
+    return SettledStreamPresentation(
+        segments = settled,
+        terminalText = remaining["text"].orEmpty().mapNotNull { it.text?.takeIf(String::isNotBlank) },
+        stopped = persistedSegments.any { it.type == "stopped" },
+    )
 }

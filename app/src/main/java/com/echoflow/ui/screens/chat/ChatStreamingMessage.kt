@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ArtifactVersion
+import com.echoflow.data.GeneratedVideo
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -39,6 +40,7 @@ import com.echoflow.ui.components.ArtifactCard
 import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.MarkdownText
+import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.theme.Spacing
@@ -92,11 +94,18 @@ internal fun StreamingAssistantBubble(
     isStreaming: Boolean,
     revealState: StreamRevealState? = null,
     onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
+    observeVideo: (String) -> Flow<GeneratedVideo?> = { flowOf(null) },
     observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
+    terminalText: List<String> = emptyList(),
+    stopped: Boolean = false,
+    onCopy: (() -> Unit)? = null,
 ) {
+    val lastGeneratedMediaIndex = segments.indexOfLast {
+        (it is StreamSegment.Image && it.filePath != null) || it is StreamSegment.Video
+    }
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BrandMark(size = 26.dp, animated = true)
+            BrandMark(size = 26.dp, animated = isStreaming)
             Spacer(Modifier.width(Spacing.s))
             Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
@@ -181,18 +190,22 @@ internal fun StreamingAssistantBubble(
                             pattern = segment.pattern,
                             previousImagePath = segment.previousImagePath,
                             animate = true,
+                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
                     is StreamSegment.Video -> {
+                        val durable by remember(segment.videoId) { observeVideo(segment.videoId) }
+                            .collectAsState(initial = null)
                         com.echoflow.ui.components.GeneratedVideoSegment(
                             videoId = segment.videoId,
-                            filePath = segment.filePath,
+                            filePath = durable?.filePath ?: segment.filePath,
                             pattern = segment.pattern,
-                            aspectRatio = segment.aspectRatio,
-                            status = segment.status,
-                            animate = true,
-                            errorMessage = segment.error,
+                            aspectRatio = durable?.aspectRatio ?: segment.aspectRatio,
+                            status = durable?.status ?: segment.status,
+                            animate = segment.filePath == null,
+                            errorMessage = durable?.error ?: segment.error,
+                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
@@ -205,6 +218,17 @@ internal fun StreamingAssistantBubble(
                     }
                 }
             }
+        }
+
+        terminalText.forEach { text ->
+            if (text.isNotBlank()) {
+                Spacer(Modifier.height(Spacing.s))
+                RichMarkdown(text, Modifier.fillMaxWidth())
+            }
+        }
+        if (stopped) {
+            Spacer(Modifier.height(Spacing.s))
+            StoppedNotice()
         }
 
         statusNote?.let { note ->
