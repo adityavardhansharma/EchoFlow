@@ -10,11 +10,13 @@ The service uses `AudioWavRecorder`, `SpeechToTextTranscriber`, `SttCatalog`, an
 same selected model, key resolution, mode, and Hinglish preference as chat. The
 recorder enforces a shared microphone owner across both entry points.
 
-Successful transcription overwrites the clipboard. Accessibility paste is attempted
-only if the node captured at start still refreshes, remains eligible, matches the
-currently focused node, and focus has not left it. Failure leaves the clipboard
-alone; there is no transcript UI. Android may display its own clipboard affordance;
-EchoFlow marks the clip sensitive to suppress the system transcript preview.
+Successful transcription overwrites the clipboard as a recoverable fallback. On
+Android 13+, insertion uses the active accessibility InputConnection only if the
+editor session captured at recording start is still current. This inserts at the
+caret and replaces only the active selection. Android 12 and older retain the
+accessibility paste path: the captured node must refresh, remain eligible, match the
+currently focused node, and never have lost focus. Android may display its own
+clipboard affordance; EchoFlow marks the clip sensitive to suppress the preview.
 
 ## Device checks
 
@@ -30,8 +32,9 @@ EchoFlow marks the clip sensitive to suppress the system transcript preview.
 - Reopen a focused field after a completed session: remembered edge and vertical
   position survive. Rotation keeps the circle within system-bar bounds.
 - With a real configured STT key: verify insertion at the selection/caret without
-  replacing the rest of the field; changing fields during transcription must leave
-  the result on the clipboard and never paste into the new field.
+  replacing the rest of the field in native, Compose, WebView and rich editors,
+  including ChatGPT, Claude and WhatsApp. Changing fields during transcription must
+  leave the result on the clipboard and never insert into the new field.
 
 Unit coverage in `SystemDictationTest` checks setup outcomes, repository default-off,
 revocation on recreation, cross-instance auto-off observation, field eligibility,
@@ -56,7 +59,8 @@ UIAutomator temporarily suppresses/unbinds accessibility services, which also
 correctly turns this feature off. After setup, these checks used shell input and
 screenshots rather than UIAutomator hierarchy dumps.
 
-A placeholder key was used for UI/recording checks; no successful live cloud
-transcription is claimed. Unit tests cover delivery ordering, ACTION_PASTE only,
-clipboard fallback, target eligibility/identity decisions, and microphone exclusion;
-existing STT tests cover the reused provider request logic.
+A placeholder key was used for the original UI/recording checks; no successful live
+cloud transcription was claimed in that run. Unit tests cover modern editor-session
+identity, secret-field exclusion, legacy ACTION_PASTE, clipboard fallback, target
+eligibility/identity decisions, and microphone exclusion; existing STT tests cover
+the reused provider request logic.

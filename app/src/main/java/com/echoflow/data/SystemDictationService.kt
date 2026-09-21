@@ -1,6 +1,7 @@
 package com.echoflow.data
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.InputMethod
 import android.app.KeyguardManager
 import android.app.AppOpsManager
 import android.content.BroadcastReceiver
@@ -17,6 +18,8 @@ import android.os.Trace
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.echoflow.R
@@ -32,6 +35,9 @@ class SystemDictationService : AccessibilityService() {
     private val transcriber = SpeechToTextTranscriber()
     private var phase = DictationPhase.Idle
     private var target: AccessibilityNodeInfo? = null
+    private var targetEditorGeneration: Long? = null
+    private val editorTracker = DictationEditorTracker()
+    private var editorInputMethod: SystemDictationInputMethod? = null
     private var uninterrupted = false
     private var session: Job? = null
     private var cap: Job? = null
@@ -64,6 +70,30 @@ class SystemDictationService : AccessibilityService() {
         }
     }
     private var receiverRegistered = false
+
+    /** Android 13+ exposes the active editor's real InputConnection to accessibility services. */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onCreateInputMethod(): InputMethod =
+        SystemDictationInputMethod(this, ::onEditorStarted, ::onEditorFinished).also {
+            editorInputMethod = it
+        }
+
+    private fun onEditorStarted(info: EditorInfo, restarting: Boolean) {
+        editorTracker.start(info.packageName.orEmpty(), info.inputType, restarting)
+        editorChanged()
+    }
+
+    private fun onEditorFinished() {
+        editorTracker.finish()
+        editorChanged()
+    }
+
+    private fun editorChanged() {
+        if (targetEditorGeneration != null &&
+            editorTracker.current?.generation != targetEditorGeneration) uninterrupted = false
+        focusRevision++
+        queueReconcile()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -150,18 +180,61 @@ class SystemDictationService : AccessibilityService() {
         if (!systemWideEnabled || !prerequisitesReady) return
         val revision = focusRevision
         val captureGeneration = generation
-        val node = focusedField()
+        val editor = activeModernEditor()
+        val node = if (editor == null) focusedField() else {
+            updateKeyboardTop()
+            null
+        }
         if (!systemWideEnabled || revision != focusRevision || captureGeneration != generation) {
             node?.recycle()
             return
         }
-        if (target != null && node != target) uninterrupted = false
-        if (node == null) bubble.hide() else bubble.show(phase)
+        val sameModernTarget = targetEditorGeneration?.let { it == editor?.generation }
+        val sameLegacyTarget = target?.let { it == node }
+        if (target != null && sameLegacyTarget != true) uninterrupted = false
+        if (targetEditorGeneration != null && sameModernTarget != true) uninterrupted = false
+        if (editor == null && node == null) bubble.hide() else bubble.show(phase)
         node?.recycle()
         // Do not leave a hidden microphone running when the user leaves the text box.
-        if (node == null && phase == DictationPhase.Recording) {
+        val recordingTargetPresent = when {
+            targetEditorGeneration != null -> sameModernTarget == true
+            target != null -> sameLegacyTarget == true
+            else -> false
+        }
+        if (!recordingTargetPresent && phase == DictationPhase.Recording) {
             uninterrupted = false
             transcribe()
+        }
+    }
+
+    private fun activeModernEditor(): DictationEditorSession? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        if (!getSystemService(PowerManager::class.java).isInteractive ||
+            getSystemService(KeyguardManager::class.java).isKeyguardLocked) return null
+        val editor = editorTracker.current ?: return null
+        if (!eligibleDictationEditor(editor.inputType, editor.packageName, packageName) ||
+            editor.packageName == homePackage) return null
+        return editor.takeIf { editorInputMethod?.hasActiveConnection() == true }
+    }
+
+    /** Modern editor detection avoids node traversal, but still keeps the bubble above the IME. */
+    private suspend fun updateKeyboardTop() {
+        var keyboardTop: Int? = null
+        try {
+            withContext(Dispatchers.IO) {
+                val visibleWindows = windows
+                try {
+                    keyboardTop = visibleWindows.filter { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+                        .mapNotNull { keyboard ->
+                            val bounds = Rect()
+                            keyboard.getBoundsInScreen(bounds)
+                            bounds.top.takeIf { !bounds.isEmpty }
+                        }.minOrNull()
+                } finally { visibleWindows.forEach { it.recycle() } }
+            }
+            bubble.setKeyboardTop(keyboardTop)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
         }
     }
 
@@ -239,14 +312,22 @@ class SystemDictationService : AccessibilityService() {
                 val config = withContext(Dispatchers.IO) { settings.getDictationConfiguration() }
                 if (!config.ready) { disable(); return@launch }
                 val revision = focusRevision
-                val field = focusedField() ?: return@launch
+                val editor = activeModernEditor()
+                val field = if (editor == null) focusedField() else null
+                if (editor == null && field == null) return@launch
                 if (!systemWideEnabled || beforeStart != generation || revision != focusRevision) {
-                    field.recycle()
+                    field?.recycle()
                     return@launch
                 }
                 generation++
                 val captureGeneration = generation
-                target = field
+                if (editor != null) {
+                    targetEditorGeneration = editor.generation
+                    target = null
+                } else {
+                    targetEditorGeneration = null
+                    target = field
+                }
                 uninterrupted = true
                 model = config.model
                 key = config.key
@@ -327,6 +408,18 @@ class SystemDictationService : AccessibilityService() {
     }
 
     private suspend fun deliver(transcript: String) {
+        val rememberedEditor = targetEditorGeneration
+        if (rememberedEditor != null) {
+            val thisGeneration = generation
+            val current = activeModernEditor()
+            if (!systemWideEnabled || thisGeneration != generation) return
+            copyDictation(this, transcript)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                shouldCommitDictation(rememberedEditor, current?.generation, uninterrupted)) {
+                commitModern(transcript)
+            }
+            return
+        }
         // Own the copy across suspension: abort() may recycle the session target meanwhile.
         val remembered = target?.let { AccessibilityNodeInfo.obtain(it) }
         val thisGeneration = generation
@@ -343,6 +436,11 @@ class SystemDictationService : AccessibilityService() {
                         valid, uninterrupted && revision == focusRevision)) remembered else null
             }
         } finally { current?.recycle(); remembered?.recycle() }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun commitModern(transcript: String) {
+        runCatching { editorInputMethod?.commit(transcript) }
     }
 
     private fun foreground(text: String) {
@@ -369,7 +467,12 @@ class SystemDictationService : AccessibilityService() {
         Log.w("SystemDictation", "Transcription failed", diagnostic)
     }
 
-    private fun clearTarget() { target?.recycle(); target = null; uninterrupted = false }
+    private fun clearTarget() {
+        target?.recycle()
+        target = null
+        targetEditorGeneration = null
+        uninterrupted = false
+    }
     private fun abort() {
         generation++
         cap?.cancel(); cap = null

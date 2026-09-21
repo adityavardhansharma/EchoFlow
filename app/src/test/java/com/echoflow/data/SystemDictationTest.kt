@@ -63,6 +63,37 @@ class SystemDictationTest {
         // Leaving and returning to the original box cannot revive the captured target.
         assertFalse(shouldPasteDictation(true, true, true, false))
     }
+    @Test fun `modern insertion requires the same uninterrupted editor session`() {
+        assertTrue(shouldCommitDictation(7, 7, true))
+        assertFalse(shouldCommitDictation(7, 8, true))
+        assertFalse(shouldCommitDictation(7, null, true))
+        assertFalse(shouldCommitDictation(7, 7, false))
+    }
+    @Test fun `editor restarts retain identity but editor switches invalidate it`() {
+        val tracker = DictationEditorTracker()
+        val first = tracker.start("chat.app", android.text.InputType.TYPE_CLASS_TEXT, restarting = false)
+        val restarted = tracker.start("chat.app", android.text.InputType.TYPE_CLASS_TEXT, restarting = true)
+        assertEquals(first.generation, restarted.generation)
+        val second = tracker.start("chat.app", android.text.InputType.TYPE_CLASS_TEXT, restarting = false)
+        assertNotEquals(first.generation, second.generation)
+        tracker.finish()
+        assertNull(tracker.current)
+        val afterFinish = tracker.start("chat.app", android.text.InputType.TYPE_CLASS_TEXT, restarting = true)
+        assertNotEquals(second.generation, afterFinish.generation)
+    }
+    @Test fun `modern editor eligibility excludes own blank and secret editors`() {
+        val text = android.text.InputType.TYPE_CLASS_TEXT
+        val externalPackage = "chat.app"
+        val ownPackage = "com.echoflow"
+        assertTrue(eligibleDictationEditor(text, externalPackage, ownPackage))
+        assertFalse(eligibleDictationEditor(text, "", ownPackage))
+        assertFalse(eligibleDictationEditor(text, ownPackage, ownPackage))
+        assertFalse(eligibleDictationEditor(text or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            externalPackage, ownPackage))
+        val numericSecret = android.text.InputType.TYPE_CLASS_NUMBER or
+            android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        assertFalse(eligibleDictationEditor(numericSecret, externalPackage, ownPackage))
+    }
     @Test fun `only visible focused external editable non secret fields qualify`() {
         val node = android.view.accessibility.AccessibilityNodeInfo.obtain().apply {
             packageName = "other.app"
