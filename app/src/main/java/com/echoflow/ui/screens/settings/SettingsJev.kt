@@ -54,36 +54,6 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             onToggle = viewModel::saveJevEnabled,
         )
         Spacer(Modifier.height(Spacing.m))
-        FormCard {
-            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                "Jev reads your latest message and recent conversation to choose whether to recall " +
-                    "personal memory, answer without retrieval, or let your model decide. " +
-                    "Uncertain choices also go to your model. A skip decision disables memory search " +
-                    "for that reply; a recall decision retrieves before answering and lets your model " +
-                    "retry or refine the search if evidence is missing. Saving useful " +
-                    "facts stays available independently. Jev also checks for explicit save requests " +
-                    "and a need for current web information. If Jev is unavailable, normal chat behaviour resumes.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                "Cloud chats only: on-device models, Ollama and OpenAI-compatible endpoints never " +
-                    "call Jev. TypeSafe receives your message (up to 6,000 characters) and up to four " +
-                    "preceding messages (up to 1,500 characters each). These excerpts may include " +
-                    "personal facts or project details mentioned in the conversation. Attachments, " +
-                    "reasoning and tool payloads are excluded, and recognized credentials are redacted. " +
-                    "The key is stored only on this phone. " +
-                    "Jev is optional and off by default. If you enabled the earlier prompt-only version, " +
-                    "turn Jev on again here to allow this recent-conversation sharing.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
         PageSection("TypeSafe API key", "From console.typesafe.ai · stored only on this phone")
         var keyInput by remember(savedKey) { mutableStateOf("") }
         var keyVisible by remember { mutableStateOf(false) }
@@ -131,6 +101,36 @@ internal fun JevPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Remove key") }
             }
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        FormCard {
+            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Jev reads your latest message and recent conversation to choose whether to recall " +
+                    "personal memory, answer without retrieval, or let your model decide. " +
+                    "Uncertain choices also go to your model. A skip decision disables memory search " +
+                    "for that reply; a recall decision retrieves before answering and lets your model " +
+                    "retry or refine the search if evidence is missing. Saving useful " +
+                    "facts stays available independently. Jev also checks for explicit save requests " +
+                    "and a need for current web information. If Jev is unavailable, normal chat behaviour resumes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Cloud chats only: on-device models, Ollama and OpenAI-compatible endpoints never " +
+                    "call Jev. TypeSafe receives your message (up to 6,000 characters) and up to four " +
+                    "preceding messages (up to 1,500 characters each). These excerpts may include " +
+                    "personal facts or project details mentioned in the conversation. Attachments, " +
+                    "reasoning and tool payloads are excluded, and recognized credentials are redacted. " +
+                    "The key is stored only on this phone. " +
+                    "Jev is optional and off by default. If you enabled the earlier prompt-only version, " +
+                    "turn Jev on again here to allow this recent-conversation sharing.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
