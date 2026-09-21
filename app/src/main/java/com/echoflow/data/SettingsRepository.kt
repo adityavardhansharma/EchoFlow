@@ -63,7 +63,9 @@ class SettingsRepository(context: Context) {
         val model = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvamKey.isBlank())
             SttCatalog.DEFAULT_MODEL_ID else SttCatalog.resolve(stored).id
         val key = if (model == SttCatalog.SARVAM_MODEL_ID) sarvamKey else getApiKeyDirect()
-        return DictationConfiguration(model, key, getSttModeDirect() == SttMode.Cloud,
+        // System-wide dictation remains cloud-backed while on-device transcription is only a
+        // settings preview. Switching that preview must not disable the user's system-wide opt-in.
+        return DictationConfiguration(model, key,
             model == SttCatalog.SARVAM_MODEL_ID && getSarvamHinglishEnabledDirect())
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)

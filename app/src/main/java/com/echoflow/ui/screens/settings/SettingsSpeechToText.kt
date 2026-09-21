@@ -374,11 +374,11 @@ internal fun SystemDictationRow(viewModel: SettingsViewModel, index: Int, count:
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val enabled by viewModel.systemWideDictation.collectAsState()
-    val mode by viewModel.sttMode.collectAsState()
     val model by viewModel.sttCloudModel.collectAsState()
     val key by viewModel.apiKey.collectAsState()
     val config by viewModel.customProviderConfig.collectAsState()
-    val ready = mode == SttMode.Cloud && SttCatalog.apiKey(model, key, config).isNotBlank()
+    // System-wide dictation is cloud-backed independently of the on-device preview tab.
+    val ready = SttCatalog.apiKey(model, key, config).isNotBlank()
     var step by rememberSaveable { mutableIntStateOf(0) }
     var launchedStep by rememberSaveable { mutableIntStateOf(0) }
     val setup = remember(viewModel) { SystemDictationSetup(viewModel::saveSystemWideDictation) }
@@ -445,7 +445,7 @@ internal fun SystemDictationRow(viewModel: SettingsViewModel, index: Int, count:
                     "Turn on to use dictation across your device, outside EchoFlow too.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!ready) Text("Requires Cloud mode and the selected provider’s API key.",
+                if (!ready) Text("Requires the selected cloud provider’s API key.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (step != 0) Text("Complete permission setup to enable.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -78,7 +78,13 @@ class DictationConfigurationTest {
         assertEquals(SttCatalog.SARVAM_MODEL_ID, prefs.getString("stt_cloud_model", null))
         repository.saveApiKey("")
         assertFalse(repository.getDictationConfiguration().ready)
-        prefs.edit().putString("stt_mode", SttMode.OnDevice.storageKey).putBoolean("sarvam_enabled", true).commit()
-        assertFalse(repository.getDictationConfiguration().ready)
+    }
+
+    @Test fun `on device preview does not disable cloud backed system dictation`() {
+        val repository = SettingsRepository(context)
+        repository.saveApiKey("openrouter-test")
+        repository.saveSttMode(SttMode.OnDevice)
+
+        assertTrue(repository.getDictationConfiguration().ready)
     }
 }
