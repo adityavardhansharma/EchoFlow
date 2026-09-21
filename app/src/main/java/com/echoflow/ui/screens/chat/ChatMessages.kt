@@ -46,7 +46,7 @@ internal fun MessagesPane(
     messages: List<ChatMessage>,
     isStreaming: Boolean,
     segments: List<StreamSegment>,
-    handoffMessageId: String? = null,
+    activeMessageId: String? = null,
     revealState: StreamRevealState? = null,
     statusNote: String?,
     progressLoading: Boolean,
@@ -73,14 +73,15 @@ internal fun MessagesPane(
     var initialPositioned by remember { mutableStateOf(false) }
     var initialRevealEligible by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(revealState, lifecycleOwner) {
+    LaunchedEffect(revealState, activeMessageId, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             revealState?.beginViewport(viewport)
             try {
                 // Register while waiting for the first chunk too, so a one-burst response gets
                 // a reveal. A reply scrolled out of view must never hold up persistence.
                 snapshotFlow {
-                    listState.layoutInfo.visibleItemsInfo.any { it.key == "streaming" }
+                    activeMessageId != null &&
+                        listState.layoutInfo.visibleItemsInfo.any { it.key == activeMessageId }
                 }.collect { visible ->
                     if (visible) revealState?.attachViewport(viewport)
                     else revealState?.detachViewport(viewport)
@@ -140,26 +141,49 @@ internal fun MessagesPane(
         verticalArrangement = Arrangement.spacedBy(Spacing.l),
         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = topInset, bottom = bottomInset),
     ) {
-        items(messages, key = { it.id }) { msg ->
-            val versionTotal = if (msg.role == "assistant") ReplyVersions.count(msg) else 1
-            MessageBubble(
-                msg,
-                onCopy = { text -> onCopy(text) },
-                onArtifactOpen = onArtifactOpen,
-                onResearchOpen = onResearchOpen,
-                onResearchRetry = onResearchRetry,
-                observeResearchRun = observeResearchRun,
-                observeVideo = observeVideo,
-                observeArtifactVersions = observeArtifactVersions,
-                canEditUserMessage = canEditMessages && msg.role == "user" && msg.id == lastUserMessageId,
-                onEditUserMessage = onEditUserMessage,
-                replyVersionIndex = if (msg.role == "assistant") {
-                    replyVersionIndexFor(msg.id, versionTotal)
-                } else {
-                    0
-                },
-                onReplyVersionChange = onReplyVersionChange,
-            )
+        val timelineMessages = buildList {
+            messages.forEach { add(ChatTimelineMessage(it.id, it)) }
+            if (
+                activeMessageId != null &&
+                segments.isNotEmpty() &&
+                messages.none { it.id == activeMessageId }
+            ) {
+                add(ChatTimelineMessage(activeMessageId, null))
+            }
+        }
+        items(
+            items = timelineMessages,
+            key = { it.id },
+            contentType = { it.message?.role ?: "assistant" },
+        ) { row ->
+            val message = row.message
+            if (message?.role == "user") {
+                MessageBubble(
+                    message,
+                    onCopy = onCopy,
+                    canEditUserMessage = canEditMessages && message.id == lastUserMessageId,
+                    onEditUserMessage = onEditUserMessage,
+                )
+            } else {
+                val versionTotal = message?.let(ReplyVersions::count) ?: 1
+                StableAssistantMessage(
+                    messageId = row.id,
+                    persistedMessage = message,
+                    liveSegments = if (row.id == activeMessageId) segments else emptyList(),
+                    statusNote = statusNote,
+                    streamActive = isStreaming && row.id == activeMessageId,
+                    revealState = revealState.takeIf { row.id == activeMessageId },
+                    onCopy = onCopy,
+                    onArtifactOpen = onArtifactOpen,
+                    onResearchOpen = onResearchOpen,
+                    onResearchRetry = onResearchRetry,
+                    observeResearchRun = observeResearchRun,
+                    observeVideo = observeVideo,
+                    observeArtifactVersions = observeArtifactVersions,
+                    replyVersionIndex = message?.let { replyVersionIndexFor(it.id, versionTotal) } ?: 0,
+                    onReplyVersionChange = onReplyVersionChange,
+                )
+            }
         }
         researchRun?.let { run ->
             item(key = "research") {
@@ -188,18 +212,86 @@ internal fun MessagesPane(
                 item { ThinkingRow() }
             }
         }
-        val persistedHandoffVisible = handoffMessageId != null && messages.any { it.id == handoffMessageId }
-        if (segments.isNotEmpty() && !persistedHandoffVisible) item(key = "streaming") {
-            key(revealState) {
-                StreamingAssistantBubble(
-                    segments = segments,
-                    statusNote = statusNote,
-                    isStreaming = isStreaming,
-                    revealState = revealState,
-                    onArtifactOpen = onArtifactOpen,
-                    observeArtifactVersions = observeArtifactVersions,
+    }
+}
+
+private data class ChatTimelineMessage(
+    val id: String,
+    val message: ChatMessage?,
+)
+
+/**
+ * One assistant composition for the complete live-to-persisted lifecycle. The final live segment
+ * tree is retained while this item remains mounted, so Markdown/LaTeX state, measured height and
+ * the LazyColumn anchor survive the Room handoff unchanged.
+ */
+@Composable
+private fun StableAssistantMessage(
+    messageId: String,
+    persistedMessage: ChatMessage?,
+    liveSegments: List<StreamSegment>,
+    statusNote: String?,
+    streamActive: Boolean,
+    revealState: StreamRevealState?,
+    onCopy: (String) -> Unit,
+    onArtifactOpen: (artifactId: String, version: Int) -> Unit,
+    onResearchOpen: (ResearchRef) -> Unit,
+    onResearchRetry: (ResearchRef) -> Unit,
+    observeResearchRun: (String) -> Flow<ResearchRun?>,
+    observeVideo: (String) -> Flow<GeneratedVideo?>,
+    observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>>,
+    replyVersionIndex: Int,
+    onReplyVersionChange: (messageId: String, index: Int) -> Unit,
+) {
+    var retainedSegments by remember(messageId) { mutableStateOf<List<StreamSegment>>(emptyList()) }
+    var retainedStatusNote by remember(messageId) { mutableStateOf<String?>(null) }
+    if (liveSegments.isNotEmpty()) {
+        SideEffect {
+            retainedSegments = liveSegments
+            retainedStatusNote = statusNote
+        }
+    }
+
+    val displayedSegments = liveSegments.ifEmpty { retainedSegments }
+    val versionCount = persistedMessage?.let(ReplyVersions::count) ?: 1
+    val latestVersion = (versionCount - 1).coerceAtLeast(0)
+    val keepMountedLiveTree = displayedSegments.isNotEmpty() &&
+        (persistedMessage == null || replyVersionIndex == latestVersion)
+
+    Column(Modifier.fillMaxWidth()) {
+        if (keepMountedLiveTree) {
+            StreamingAssistantBubble(
+                segments = displayedSegments,
+                statusNote = if (streamActive) statusNote else retainedStatusNote,
+                isStreaming = streamActive,
+                revealState = revealState,
+                onArtifactOpen = onArtifactOpen,
+                observeArtifactVersions = observeArtifactVersions,
+                onCopy = persistedMessage?.let { message ->
+                    { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) }
+                }.takeIf { !streamActive },
+            )
+            if (!streamActive && persistedMessage != null) {
+                AssistantAnswerActions(
+                    message = persistedMessage,
+                    replyVersionIndex = replyVersionIndex,
+                    onReplyVersionChange = onReplyVersionChange,
+                    onCopy = onCopy,
                 )
             }
+        } else if (persistedMessage != null) {
+            MessageBubble(
+                persistedMessage,
+                onCopy = onCopy,
+                onArtifactOpen = onArtifactOpen,
+                onResearchOpen = onResearchOpen,
+                onResearchRetry = onResearchRetry,
+                observeResearchRun = observeResearchRun,
+                observeVideo = observeVideo,
+                observeArtifactVersions = observeArtifactVersions,
+                replyVersionIndex = replyVersionIndex,
+                onReplyVersionChange = onReplyVersionChange,
+            )
         }
     }
 }

@@ -93,10 +93,14 @@ internal fun StreamingAssistantBubble(
     revealState: StreamRevealState? = null,
     onArtifactOpen: (artifactId: String, version: Int) -> Unit = { _, _ -> },
     observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>> = { flowOf(emptyList()) },
+    onCopy: (() -> Unit)? = null,
 ) {
+    val lastGeneratedMediaIndex = segments.indexOfLast {
+        (it is StreamSegment.Image && it.filePath != null) || it is StreamSegment.Video
+    }
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BrandMark(size = 26.dp, animated = true)
+            BrandMark(size = 26.dp, animated = isStreaming)
             Spacer(Modifier.width(Spacing.s))
             Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
@@ -181,6 +185,7 @@ internal fun StreamingAssistantBubble(
                             pattern = segment.pattern,
                             previousImagePath = segment.previousImagePath,
                             animate = true,
+                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }
@@ -193,6 +198,7 @@ internal fun StreamingAssistantBubble(
                             status = segment.status,
                             animate = true,
                             errorMessage = segment.error,
+                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
                         )
                         Spacer(Modifier.height(Spacing.s))
                     }

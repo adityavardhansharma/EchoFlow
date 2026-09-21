@@ -83,8 +83,6 @@ internal fun MessageBubble(
             },
         )
     } else {
-        val versionCount = ReplyVersions.count(message)
-        val displayMessage = ReplyVersions.display(message, replyVersionIndex)
         // ChatGPT / Claude style: no bubble, full content width.
         Column(modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -114,29 +112,47 @@ internal fun MessageBubble(
             }
 
             if (!streaming) {
-                val segments = ToolEventJson.segmentsFromJson(displayMessage.segmentsJson)
-                val lastGeneratedMediaIndex = segments.indexOfLast { segment ->
-                    (segment.type == "image" && segment.image != null) ||
-                        (segment.type == "video" && segment.video != null)
-                }
-                AnswerActionBar(
-                    versionIndex = replyVersionIndex,
-                    versionCount = versionCount,
-                    onPreviousVersion = {
-                        onReplyVersionChange(message.id, (replyVersionIndex - 1).coerceAtLeast(0))
-                    },
-                    onNextVersion = {
-                        onReplyVersionChange(
-                            message.id,
-                            (replyVersionIndex + 1).coerceAtMost(versionCount - 1),
-                        )
-                    },
-                    onCopy = { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) },
-                    showCopy = lastGeneratedMediaIndex == -1,
+                AssistantAnswerActions(
+                    message = message,
+                    replyVersionIndex = replyVersionIndex,
+                    onReplyVersionChange = onReplyVersionChange,
+                    onCopy = onCopy,
                 )
             }
         }
     }
+}
+
+/** Completion controls shared by an ordinary persisted row and a just-finished live row. */
+@Composable
+internal fun AssistantAnswerActions(
+    message: ChatMessage,
+    replyVersionIndex: Int,
+    onReplyVersionChange: (messageId: String, index: Int) -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    val versionCount = ReplyVersions.count(message)
+    val displayMessage = ReplyVersions.display(message, replyVersionIndex)
+    val segments = ToolEventJson.segmentsFromJson(displayMessage.segmentsJson)
+    val lastGeneratedMediaIndex = segments.indexOfLast { segment ->
+        (segment.type == "image" && segment.image != null) ||
+            (segment.type == "video" && segment.video != null)
+    }
+    AnswerActionBar(
+        versionIndex = replyVersionIndex,
+        versionCount = versionCount,
+        onPreviousVersion = {
+            onReplyVersionChange(message.id, (replyVersionIndex - 1).coerceAtLeast(0))
+        },
+        onNextVersion = {
+            onReplyVersionChange(
+                message.id,
+                (replyVersionIndex + 1).coerceAtMost(versionCount - 1),
+            )
+        },
+        onCopy = { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) },
+        showCopy = lastGeneratedMediaIndex == -1,
+    )
 }
 
 @Composable

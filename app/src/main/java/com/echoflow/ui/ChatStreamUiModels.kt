@@ -7,11 +7,11 @@ import com.echoflow.data.ResearchStep
 import com.echoflow.data.SearchSource
 
 internal data class ActiveStreamState(
+    val messageId: String,
     val segments: List<StreamSegment> = emptyList(),
     val statusNote: String? = null,
     val progressLoading: Boolean = false,
     val isLocal: Boolean = false,
-    val handoffMessageId: String? = null,
     val revealState: StreamRevealState? = null,
 )
 

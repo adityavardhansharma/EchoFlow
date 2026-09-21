@@ -368,9 +368,9 @@ class ChatViewModel(
         streams[chatId]?.revealState
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    /** Persisted message that is replacing the transient row, if the handoff has started. */
-    val streamHandoffMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.handoffMessageId
+    /** Stable identity shared by the live row and its eventual persisted message. */
+    val activeStreamMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
+        streams[chatId]?.messageId
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -1157,9 +1157,15 @@ class ChatViewModel(
         }
     }
 
-    private fun beginStreamHandoff(chatId: String, messageId: String) {
-        val active = _activeStreams.value[chatId] ?: return
-        setStreamState(chatId, active.copy(handoffMessageId = messageId))
+    /** Wait until the data source actually consumed by the visible chat contains the durable row. */
+    private suspend fun awaitAssistantVisible(chatId: String, messageId: String) {
+        if (_currentChatThreadId.value == chatId) {
+            currentMessages.first { messages -> messages.any { it.id == messageId } }
+        } else {
+            chatRepository.messagesForChat(chatId).first { messages ->
+                messages.any { it.id == messageId }
+            }
+        }
     }
 
     /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
@@ -1545,6 +1551,9 @@ class ChatViewModel(
             }
             val streamJob = coroutineContext[Job]
             streamJob?.let { streamJobs[chatId] = it }
+            // Allocate the durable assistant identity before any transient UI appears. The same ID
+            // keys the live row and the Room message, so completion never replaces the list item.
+            val assistantMessageId = UUID.randomUUID().toString()
 
             // Carried into the new assistant row so prior answers survive regeneration.
             var archivedReplyVersionsJson: String? = null
@@ -1604,6 +1613,7 @@ class ChatViewModel(
                 setStreamState(
                     chatId,
                     ActiveStreamState(
+                        messageId = assistantMessageId,
                         segments = emptyList(),
                         statusNote = null,
                         progressLoading = true,
@@ -1985,6 +1995,7 @@ class ChatViewModel(
             setStreamState(
                 chatId,
                 ActiveStreamState(
+                    messageId = assistantMessageId,
                     segments = emptyList(),
                     statusNote = null,
                     progressLoading = true,
@@ -1995,7 +2006,6 @@ class ChatViewModel(
 
             val segments = mutableListOf<StreamSegment>()
             var statusNote: String? = null
-            val assistantMessageId = UUID.randomUUID().toString()
             var assistantPersisted = false
             // Echo Adviser/Fusion are cost-heavy and can take a while; label the keep-alive
             // notification and ping the user when they finish in the background (like research).
@@ -2033,6 +2043,7 @@ class ChatViewModel(
                         setStreamState(
                             chatId,
                             ActiveStreamState(
+                                messageId = assistantMessageId,
                                 segments = segments.toList(),
                                 statusNote = statusNote,
                                 progressLoading = false,
@@ -2108,7 +2119,6 @@ class ChatViewModel(
                 ) {
                     throw IllegalStateException("The model returned no response. Try again.")
                 }
-                beginStreamHandoff(chatId, assistantMessageId)
                 withContext(NonCancellable) {
                     assistantPersisted = persistAssistantMessage(
                         chatId, segments, interrupted = null,
@@ -2118,11 +2128,7 @@ class ChatViewModel(
                     )
                 }
                 if (assistantPersisted) {
-                    // Room may publish on a later frame. Keep the transient row until this exact
-                    // persisted replacement is observable; the UI suppresses one when both exist.
-                    chatRepository.messagesForChat(chatId).first { messages ->
-                        messages.any { it.id == assistantMessageId }
-                    }
+                    awaitAssistantVisible(chatId, assistantMessageId)
                     // Do not expose an idle composer while the active-job guard still points at
                     // this turn. A later turn may replace the map entry while background work runs.
                     clearStreamIfOwned(chatId, streamJob)
@@ -2174,12 +2180,13 @@ class ChatViewModel(
                 // The persist runs under NonCancellable so it isn't skipped by the cancellation.
                 if (!assistantPersisted) {
                     withContext(NonCancellable) {
-                        persistAssistantMessage(
+                        assistantPersisted = persistAssistantMessage(
                             chatId, segments, interrupted = null, stopped = true,
                             replyVersionsJson = archivedReplyVersionsJson,
                             messageId = assistantMessageId,
                             jevJson = pendingJevJson,
                         )
+                        if (assistantPersisted) awaitAssistantVisible(chatId, assistantMessageId)
                     }
                 }
                 if (editingUserId != null) _editingUserMessageId.value = null
@@ -2200,13 +2207,14 @@ class ChatViewModel(
                         }
                         _editingUserMessageId.value = editingUserId
                     } else {
-                        persistAssistantMessage(
+                        assistantPersisted = persistAssistantMessage(
                             chatId,
                             segments,
                             interrupted = e.message,
                             messageId = assistantMessageId,
                             jevJson = pendingJevJson,
                         )
+                        if (assistantPersisted) awaitAssistantVisible(chatId, assistantMessageId)
                     }
                 }
                 if (echoLabel != null) {
