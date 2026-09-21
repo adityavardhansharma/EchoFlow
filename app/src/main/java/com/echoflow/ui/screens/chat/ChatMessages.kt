@@ -21,10 +21,13 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.GeneratedVideo
+import com.echoflow.data.PersistedSegment
 import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ResearchJson
 import com.echoflow.data.ResearchRef
 import com.echoflow.data.ResearchRun
+import com.echoflow.data.ToolEventJson
+import com.echoflow.ui.ChatResponsePolicy
 import com.echoflow.ui.StreamRevealState
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.ResearchTimeline
@@ -244,11 +247,9 @@ private fun StableAssistantMessage(
     onReplyVersionChange: (messageId: String, index: Int) -> Unit,
 ) {
     var retainedSegments by remember(messageId) { mutableStateOf<List<StreamSegment>>(emptyList()) }
-    var retainedStatusNote by remember(messageId) { mutableStateOf<String?>(null) }
     if (liveSegments.isNotEmpty()) {
         SideEffect {
             retainedSegments = liveSegments
-            retainedStatusNote = statusNote
         }
     }
 
@@ -257,16 +258,30 @@ private fun StableAssistantMessage(
     val latestVersion = (versionCount - 1).coerceAtLeast(0)
     val keepMountedLiveTree = displayedSegments.isNotEmpty() &&
         (persistedMessage == null || replyVersionIndex == latestVersion)
+    val selectedMessage = persistedMessage?.let { ReplyVersions.display(it, replyVersionIndex) }
+    val persistedSegments = remember(selectedMessage?.segmentsJson) {
+        ToolEventJson.segmentsFromJson(selectedMessage?.segmentsJson)
+    }
+    val settled = remember(displayedSegments, persistedSegments, streamActive) {
+        if (!streamActive && selectedMessage != null) {
+            settleStreamPresentation(displayedSegments, persistedSegments)
+        } else {
+            SettledStreamPresentation(displayedSegments)
+        }
+    }
 
     Column(Modifier.fillMaxWidth()) {
         if (keepMountedLiveTree) {
             StreamingAssistantBubble(
-                segments = displayedSegments,
-                statusNote = if (streamActive) statusNote else retainedStatusNote,
+                segments = settled.segments,
+                statusNote = if (streamActive) statusNote else null,
                 isStreaming = streamActive,
                 revealState = revealState,
                 onArtifactOpen = onArtifactOpen,
+                observeVideo = observeVideo,
                 observeArtifactVersions = observeArtifactVersions,
+                terminalText = settled.terminalText,
+                stopped = settled.stopped,
                 onCopy = persistedMessage?.let { message ->
                     { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) }
                 }.takeIf { !streamActive },
@@ -294,4 +309,96 @@ private fun StableAssistantMessage(
             )
         }
     }
+}
+
+private data class SettledStreamPresentation(
+    val segments: List<StreamSegment>,
+    val terminalText: List<String> = emptyList(),
+    val stopped: Boolean = false,
+)
+
+/**
+ * Reconciles the mounted streaming tree with the durable terminal snapshot. Text blocks keep
+ * their existing nodes, while process cards receive their settled payloads and transient cards
+ * that persistence deliberately rejected disappear. Persist-only notices are returned separately
+ * so they can be appended without replacing the already-mounted Markdown/LaTeX composition.
+ */
+private fun settleStreamPresentation(
+    liveSegments: List<StreamSegment>,
+    persistedSegments: List<PersistedSegment>,
+): SettledStreamPresentation {
+    val remaining = persistedSegments.groupBy(PersistedSegment::type)
+        .mapValues { (_, segments) -> ArrayDeque(segments) }
+        .toMutableMap()
+    fun take(type: String): PersistedSegment? = remaining[type]?.removeFirstOrNull()
+
+    val normalized = ChatResponsePolicy.normalizeForPersistence(liveSegments)
+    val settled = normalized.mapNotNull { segment ->
+        when (segment) {
+            is StreamSegment.Memory -> take("memory")?.let { durable ->
+                segment.copy(label = durable.text.orEmpty().ifBlank { segment.label }, active = false)
+            }
+            is StreamSegment.Text -> take("text")?.let { segment }
+            is StreamSegment.Reasoning -> take("reasoning")?.let { segment }
+            is StreamSegment.Search -> take("search")?.let { durable ->
+                segment.copy(
+                    query = durable.query.orEmpty().ifBlank { segment.query },
+                    sources = durable.sources.orEmpty(),
+                    active = false,
+                )
+            }
+            is StreamSegment.Advisor -> take("advisor")?.advisor?.let { durable ->
+                segment.copy(
+                    advisorName = durable.advisorName,
+                    advisorModel = durable.advisorModel,
+                    prompt = durable.prompt,
+                    advice = durable.advice,
+                    active = false,
+                )
+            }
+            is StreamSegment.Fusion -> take("fusion")?.fusion?.let { durable ->
+                segment.copy(
+                    panelName = durable.panelName,
+                    models = durable.models,
+                    analysis = durable,
+                    active = false,
+                )
+            }
+            is StreamSegment.AgentRun -> null
+            is StreamSegment.Subagent -> take("subagent")?.subagent?.let { durable ->
+                segment.copy(
+                    taskName = durable.taskName,
+                    taskDescription = durable.taskDescription,
+                    workerModel = durable.workerModel,
+                    outcome = durable.outcome,
+                    error = durable.error,
+                    active = false,
+                )
+            }
+            is StreamSegment.Artifact -> take("artifact")?.artifact?.let { durable ->
+                segment.copy(
+                    artifactId = durable.artifactId,
+                    title = durable.title,
+                    artifactType = durable.type,
+                    version = durable.version,
+                    building = false,
+                )
+            }
+            is StreamSegment.Image -> take("image")?.image?.let { durable ->
+                segment.copy(
+                    imageId = durable.imageId,
+                    filePath = durable.filePath,
+                    generating = false,
+                )
+            }
+            is StreamSegment.Video -> take("video")?.video?.let { durable ->
+                segment.copy(filePath = durable.filePath ?: segment.filePath)
+            }
+        }
+    }
+    return SettledStreamPresentation(
+        segments = settled,
+        terminalText = remaining["text"].orEmpty().mapNotNull { it.text?.takeIf(String::isNotBlank) },
+        stopped = persistedSegments.any { it.type == "stopped" },
+    )
 }

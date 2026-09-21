@@ -33,6 +33,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class ChatViewModel(
     application: Application,
@@ -1157,14 +1158,25 @@ class ChatViewModel(
         }
     }
 
-    /** Wait until the data source actually consumed by the visible chat contains the durable row. */
+    /**
+     * Keep the transient row until Room has published its durable replacement. The first wait is
+     * pinned to the originating chat so navigation cannot switch the observed flow underneath us;
+     * the second only covers the currently visible state and exits if the user navigates away.
+     * Both are bounded so cleanup can never be trapped inside a NonCancellable stop handler.
+     */
     private suspend fun awaitAssistantVisible(chatId: String, messageId: String) {
-        if (_currentChatThreadId.value == chatId) {
-            currentMessages.first { messages -> messages.any { it.id == messageId } }
-        } else {
+        val persisted = withTimeoutOrNull(ASSISTANT_HANDOFF_TIMEOUT_MS) {
             chatRepository.messagesForChat(chatId).first { messages ->
                 messages.any { it.id == messageId }
             }
+            true
+        } ?: false
+        if (!persisted || _currentChatThreadId.value != chatId) return
+
+        withTimeoutOrNull(ASSISTANT_HANDOFF_TIMEOUT_MS) {
+            combine(_currentChatThreadId, currentMessages) { currentChatId, messages ->
+                currentChatId != chatId || messages.any { it.id == messageId }
+            }.first { it }
         }
     }
 
@@ -2610,6 +2622,7 @@ class ChatViewModel(
 
         private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
         private const val STREAM_UI_EMIT_MS = 33L
+        private const val ASSISTANT_HANDOFF_TIMEOUT_MS = 5_000L
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */
         private const val MAX_FRAME_IMAGE_BYTES = 4 * 1024 * 1024
