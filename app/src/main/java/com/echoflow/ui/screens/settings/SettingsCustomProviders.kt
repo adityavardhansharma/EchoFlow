@@ -184,18 +184,8 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = agentSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 6,
+                index = 3, count = 5,
                 onClick = { onOpen(PageEchoAgent) },
-            )
-            SettingsNavRow(
-                icon = Icons.Default.Tune,
-                polygon = MaterialShapes.Cookie6Sided,
-                title = "Jev Router",
-                subtitle = jevSubtitle,
-                container = MaterialTheme.colorScheme.secondaryContainer,
-                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 6,
-                onClick = { onOpen(PageJev) },
             )
             SettingsNavRow(
                 icon = Icons.Default.Language,
@@ -204,7 +194,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = "Ollama · OpenAI-compatible",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 5, count = 6,
+                index = 4, count = 5,
                 onClick = { onOpen(PageCustomProvider) },
             )
         }
@@ -219,8 +209,28 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = browserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 1,
+                index = 0, count = 3,
                 onClick = { onOpen(PageBrowserFlow) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Tune,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Jev Router",
+                subtitle = jevSubtitle,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 1, count = 3,
+                onClick = { onOpen(PageJev) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Memory,
+                polygon = MaterialShapes.Cookie6Sided,
+                title = "Memory",
+                subtitle = "Supermemory · EchoBrain",
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                index = 2, count = 3,
+                onClick = { onOpen(PageMemory) },
             )
         }
 
