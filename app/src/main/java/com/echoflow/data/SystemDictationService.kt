@@ -413,10 +413,10 @@ class SystemDictationService : AccessibilityService() {
             val thisGeneration = generation
             val current = activeModernEditor()
             if (!systemWideEnabled || thisGeneration != generation) return
-            copyDictation(this, transcript)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                shouldCommitDictation(rememberedEditor, current?.generation, uninterrupted)) {
-                commitModern(transcript)
+            deliverDirectDictation(this, transcript) {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    shouldCommitDictation(rememberedEditor, current?.generation, uninterrupted) &&
+                    commitModern(transcript)
             }
             return
         }
@@ -439,9 +439,7 @@ class SystemDictationService : AccessibilityService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun commitModern(transcript: String) {
-        runCatching { editorInputMethod?.commit(transcript) }
-    }
+    private fun commitModern(transcript: String): Boolean = editorInputMethod?.commit(transcript) == true
 
     private fun foreground(text: String) {
         SystemDictationPermissions.ensureNotificationChannel(this)

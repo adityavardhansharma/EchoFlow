@@ -52,6 +52,8 @@ internal class SystemDictationInputMethod(
         if (!currentInputStarted) return false
         val connection = currentInputConnection ?: return false
         connection.commitText(text, 1, null)
+        // AccessibilityInputConnection.commitText returns void. Reaching this point means the
+        // request was dispatched; Android exposes no editor-acceptance result to this service.
         return true
     }
 }

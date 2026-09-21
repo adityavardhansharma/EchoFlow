@@ -91,6 +91,13 @@ internal fun copyDictation(context: Context, transcript: String) {
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
 }
 
+/** Prefer clipboard-free editor insertion; retain the transcript only when dispatch fails. */
+internal fun deliverDirectDictation(context: Context, transcript: String, insert: () -> Boolean): Boolean {
+    val inserted = try { insert() } catch (_: Exception) { false }
+    if (!inserted) copyDictation(context, transcript)
+    return inserted
+}
+
 /** Copy first, then ask for a freshly validated target. Failed paste leaves the copied result intact. */
 internal fun deliverDictation(context: Context, transcript: String, pasteTarget: () -> AccessibilityNodeInfo?) {
     copyDictation(context, transcript)
