@@ -525,10 +525,12 @@ internal class InlineParser(private val source: String) {
             consider(indexOfDoubleDollar(cursor, end), "doubleDollarMath")
             consider(indexOfDollar(cursor, end), "dollarMath")
             consider(source.indexOf("**", cursor).takeIf { it < end } ?: -1, "bold")
+            consider(findUnderscoreDelimiter(source, cursor, end, 2, opening = true), "underscoreBold")
             consider(source.indexOf("~~", cursor).takeIf { it < end } ?: -1, "strike")
             consider(source.indexOf("`", cursor).takeIf { it < end } ?: -1, "code")
             consider(source.indexOf("[", cursor).takeIf { it < end } ?: -1, "link")
             consider(indexOfItalic(source, cursor).takeIf { it < end } ?: -1, "italic")
+            consider(findUnderscoreDelimiter(source, cursor, end, 1, opening = true), "underscoreItalic")
 
             if (nextIdx == -1) {
                 nodes.add(InlineNode.Text(source.substring(cursor, end)))
@@ -591,6 +593,16 @@ internal class InlineParser(private val source: String) {
                         cursor = nextIdx + 2
                     }
                 }
+                "underscoreBold" -> {
+                    val close = findUnderscoreDelimiter(source, nextIdx + 2, end, 2, opening = false)
+                    if (close >= 0) {
+                        nodes.add(InlineNode.Span(SpanStyle(fontWeight = FontWeight.Bold), parseRange(nextIdx + 2, close)))
+                        cursor = close + 2
+                    } else {
+                        nodes.add(InlineNode.Text("__"))
+                        cursor = nextIdx + 2
+                    }
+                }
                 "strike" -> {
                     val close = source.indexOf("~~", nextIdx + 2).takeIf { it in 0 until end }
                     if (close != null) {
@@ -608,6 +620,16 @@ internal class InlineParser(private val source: String) {
                         cursor = close + 1
                     } else {
                         nodes.add(InlineNode.Text("*"))
+                        cursor = nextIdx + 1
+                    }
+                }
+                "underscoreItalic" -> {
+                    val close = findUnderscoreDelimiter(source, nextIdx + 1, end, 1, opening = false)
+                    if (close >= 0) {
+                        nodes.add(InlineNode.Span(SpanStyle(fontStyle = FontStyle.Italic), parseRange(nextIdx + 1, close)))
+                        cursor = close + 1
+                    } else {
+                        nodes.add(InlineNode.Text("_"))
                         cursor = nextIdx + 1
                     }
                 }
@@ -682,3 +704,37 @@ internal class InlineParser(private val source: String) {
         return -1
     }
 }
+
+/** CommonMark-style underscore flanking, including the no-intraword-emphasis rule. */
+internal fun findUnderscoreDelimiter(
+    text: String,
+    from: Int,
+    end: Int = text.length,
+    length: Int,
+    opening: Boolean,
+): Int {
+    var index = text.indexOf("_".repeat(length), from)
+    while (index >= 0 && index + length <= end) {
+        val isPartOfLongerRun = text.getOrNull(index - 1) == '_' || text.getOrNull(index + length) == '_'
+        if (!isPartOfLongerRun) {
+            val before = text.getOrNull(index - 1)
+            val after = text.getOrNull(index + length)
+            val beforeSpace = before == null || before.isWhitespace()
+            val afterSpace = after == null || after.isWhitespace()
+            val beforePunctuation = before?.let(::isMarkdownPunctuation) == true
+            val afterPunctuation = after?.let(::isMarkdownPunctuation) == true
+            val leftFlanking = !afterSpace && (!afterPunctuation || beforeSpace || beforePunctuation)
+            val rightFlanking = !beforeSpace && (!beforePunctuation || afterSpace || afterPunctuation)
+            val valid = if (opening) {
+                leftFlanking && (!rightFlanking || beforePunctuation)
+            } else {
+                rightFlanking && (!leftFlanking || afterPunctuation)
+            }
+            if (valid) return index
+        }
+        index = text.indexOf("_".repeat(length), index + length)
+    }
+    return -1
+}
+
+private fun isMarkdownPunctuation(char: Char): Boolean = !char.isLetterOrDigit() && !char.isWhitespace()

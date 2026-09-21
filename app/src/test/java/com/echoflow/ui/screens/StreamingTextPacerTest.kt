@@ -32,6 +32,17 @@ class StreamingTextPacerTest {
         assertEquals(text.length, previous)
     }
 
+    @Test fun `reveal never splits a combining grapheme`() {
+        val pacer = StreamingTextPacer()
+        val text = "Cafe\u0301 noir ".repeat(30)
+        for (frame in 0..300) {
+            val shown = pacer.advance(text, frame * 16_666_667L)
+            if (shown in 1 until text.length) {
+                assertFalse("combining mark must stay with its base", text[shown].category == CharCategory.NON_SPACING_MARK)
+            }
+        }
+    }
+
     @Test fun `resuming does not turn elapsed background time into reveal credit`() {
         val pacer = StreamingTextPacer()
         val text = "a".repeat(1000)

@@ -66,7 +66,6 @@ import com.hrm.latex.renderer.model.LatexTheme
  */
 @Composable
 fun RichMarkdown(text: String, modifier: Modifier = Modifier) {
-    // Delegate to the single renderer so finished messages look exactly like the streamed reveal.
     MarkdownText(text = text, modifier = modifier)
 }
 
@@ -77,14 +76,7 @@ fun MarkdownText(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     style: TextStyle = MaterialTheme.typography.bodyLarge
 ) {
-    val cache = remember { StreamingMarkdownCache() }
-    val blocks = remember(text) { cache.parse(text) }
-    val linkColor = MaterialTheme.colorScheme.primary
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (block in blocks) {
-            MarkdownBlockContent(block, textColor, linkColor, style)
-        }
-    }
+    GfmLatexMarkdown(text = text, modifier = modifier, textColor = textColor, style = style)
 }
 
 /** Completed blocks retain their identity while only the trailing block grows. */

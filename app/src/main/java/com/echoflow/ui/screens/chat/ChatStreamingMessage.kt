@@ -250,8 +250,11 @@ internal fun SmoothStreamingText(
                         snapshotFlow { target }.first { it.length != shown }
                         pacer.resume()
                         do {
-                            withFrameNanos { frame -> shown = pacer.advance(target, frame) }
-                            revealState?.report(reader, segmentIndex, shown)
+                            val next = withFrameNanos { frame -> pacer.advance(target, frame) }
+                            if (next != shown) {
+                                shown = next
+                                revealState?.report(reader, segmentIndex, shown)
+                            }
                         } while (shown != target.length)
                     }
                 }

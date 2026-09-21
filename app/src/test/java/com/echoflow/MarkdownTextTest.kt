@@ -3,12 +3,47 @@ package com.echoflow
 import com.echoflow.ui.components.MarkdownBlock
 import com.echoflow.ui.components.markdownToPlainText
 import com.echoflow.ui.components.parseMarkdownBlocks
+import com.echoflow.ui.components.prepareGfmLatex
+import com.echoflow.ui.components.prepareInlineLatex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownTextTest {
+
+    @Test
+    fun gfmAndLatexRemainInOneMarkdownSegment() {
+        val segments = prepareGfmLatex(
+            "1. _Blade Runner 2049_ — **Problem:** evaluate ${'$'}\\frac{8}{2}${'$'} ([IMDb](https://imdb.com))."
+        )
+
+        val markdown = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+        assertTrue(markdown.source.contains("_Blade Runner 2049_"))
+        assertTrue(markdown.source.contains("**Problem:**"))
+        assertTrue(markdown.source.contains("[IMDb](https://imdb.com)"))
+        assertEquals("\\frac{8}{2}", markdown.math.single().latex)
+        assertFalse(markdown.source.contains("${'$'}\\frac{8}{2}${'$'}"))
+    }
+
+    @Test
+    fun displayLatexSplitsWithoutChangingSurroundingGfm() {
+        val segments = prepareGfmLatex(
+            "## Result\n\n_Lead_\n\n${'$'}${'$'}\n\\int_0^1 x dx\n${'$'}${'$'}\n\n- **Done**"
+        )
+
+        assertEquals(3, segments.size)
+        assertTrue((segments[0] as com.echoflow.ui.components.GfmLatexSegment.Markdown).source.contains("_Lead_"))
+        assertEquals("\\int_0^1 x dx", (segments[1] as com.echoflow.ui.components.GfmLatexSegment.DisplayMath).latex)
+        assertTrue((segments[2] as com.echoflow.ui.components.GfmLatexSegment.Markdown).source.contains("- **Done**"))
+    }
+
+    @Test
+    fun latexMarkersInsideCodeAreNotExtracted() {
+        val (source, math) = prepareInlineLatex("Use `price = ${'$'}5` and ```sh\necho ${'$'}HOME\n```")
+        assertTrue(math.isEmpty())
+        assertEquals("Use `price = ${'$'}5` and ```sh\necho ${'$'}HOME\n```", source)
+    }
 
     @Test
     fun parsesDollarDisplayMathBlock() {
@@ -88,6 +123,14 @@ class MarkdownTextTest {
             val x = 1
             """.trimIndent(),
             plain,
+        )
+    }
+
+    @Test
+    fun markdownToPlainTextHandlesGfmUnderscoreEmphasisWithoutTouchingIdentifiers() {
+        assertEquals(
+            "Dune: Part Two and Blade Runner 2049; keep file_name intact.",
+            markdownToPlainText("_Dune: Part Two_ and __Blade Runner 2049__; keep file_name intact."),
         )
     }
 
