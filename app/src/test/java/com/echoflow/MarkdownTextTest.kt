@@ -110,6 +110,24 @@ class MarkdownTextTest {
     }
 
     @Test
+    fun indentedCodeBelongingToAListKeepsLatexLiteral() {
+        val markdown = "1. Item one\n\n       val formula = ${'$'}x${'$'}"
+        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+
+        assertEquals(markdown, segment.source)
+        assertTrue(segment.math.isEmpty())
+    }
+
+    @Test
+    fun topLevelIndentedListMarkerRemainsCode() {
+        val markdown = "    - literal ${'$'}x${'$'}"
+        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
+
+        assertEquals(markdown, segment.source)
+        assertTrue(segment.math.isEmpty())
+    }
+
+    @Test
     fun ordinaryAngleBracketsDoNotSuppressMathButTagsAndAutolinksDo() {
         val markdown = "a < ${'$'}x${'$'} > b <https://example.test/${'$'}y${'$'}> <u data-v='${'$'}z${'$'}'>under</u>"
         val (prepared, math) = prepareInlineLatex(markdown)

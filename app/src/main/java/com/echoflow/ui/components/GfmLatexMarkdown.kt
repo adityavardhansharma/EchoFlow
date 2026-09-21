@@ -439,16 +439,21 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
     val protected = BooleanArray(source.length)
     var fence: MarkdownFence? = null
     var previousBlank = true
-    var inList = false
+    var listContentIndent: Int? = null
     var lineStart = 0
     while (lineStart < source.length) {
         val lineEnd = source.indexOf('\n', lineStart).takeIf { it >= 0 } ?: source.length
         val line = source.substring(lineStart, lineEnd)
         val activeFence = fence
         val newFence = if (activeFence == null) openingFence(line) else null
+        val listIndent = markdownListIndent(line)
+        val newListContentIndent = listIndent?.takeIf {
+            it.marker <= 3 || (listContentIndent != null && it.marker >= listContentIndent)
+        }?.content
+        val codeIndent = (listContentIndent?.plus(4) ?: 4)
         val indentedCode = activeFence == null && newFence == null &&
-            previousBlank && !inList &&
-            (line.startsWith("    ") || line.startsWith('\t'))
+            previousBlank && newListContentIndent == null &&
+            line.leadingIndentColumns() >= codeIndent
         if (activeFence != null || newFence != null || indentedCode) {
             for (index in lineStart until minOf(lineEnd + 1, source.length)) protected[index] = true
         }
@@ -458,13 +463,12 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
             newFence != null -> newFence
             else -> null
         }
-        val startsListItem = MARKDOWN_LIST_ITEM.matches(line)
-        inList = when {
-            activeFence != null || newFence != null -> inList
-            startsListItem -> true
-            line.isBlank() -> inList
-            inList && line.firstOrNull()?.isWhitespace() == true -> true
-            else -> false
+        listContentIndent = when {
+            activeFence != null || newFence != null -> listContentIndent
+            newListContentIndent != null -> newListContentIndent
+            line.isBlank() -> listContentIndent
+            listContentIndent != null && line.leadingIndentColumns() >= listContentIndent -> listContentIndent
+            else -> null
         }
         previousBlank = line.isBlank()
         lineStart = lineEnd + 1
@@ -506,7 +510,7 @@ private fun markdownProtectedCharacters(source: String): BooleanArray {
     return protected
 }
 
-private val MARKDOWN_LIST_ITEM = Regex("""^ {0,3}(?:[*+-]|\d+[.)])\s+.*$""")
+private val MARKDOWN_LIST_ITEM = Regex("""^([ \t]*)([*+-]|\d{1,9}[.)])([ \t]{1,4}).*$""")
 private val HTML_TAG = Regex("""</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\s*/?>""")
 private val URI_AUTOLINK = Regex("""<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>""")
 private val EMAIL_AUTOLINK = Regex("""<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?>""")
@@ -518,6 +522,36 @@ private fun isHtmlTagOrAutolink(candidate: String): Boolean =
         (candidate.startsWith("<!--") && candidate.endsWith("-->")) ||
         (candidate.startsWith("<?") && candidate.endsWith("?>")) ||
         (candidate.startsWith("<!") && candidate.endsWith('>'))
+
+private data class MarkdownListIndent(val marker: Int, val content: Int)
+
+private fun markdownListIndent(line: String): MarkdownListIndent? {
+    val match = MARKDOWN_LIST_ITEM.matchEntire(line) ?: return null
+    val markerColumn = match.groupValues[1].leadingIndentColumns()
+    val markerEnd = markerColumn + match.groupValues[2].length
+    val contentColumn = match.groupValues[3].endIndentColumn(markerEnd)
+    return MarkdownListIndent(marker = markerColumn, content = contentColumn)
+}
+
+private fun String.leadingIndentColumns(): Int {
+    var columns = 0
+    for (char in this) {
+        when (char) {
+            ' ' -> columns++
+            '\t' -> columns += 4 - (columns % 4)
+            else -> return columns
+        }
+    }
+    return columns
+}
+
+private fun String.endIndentColumn(startColumn: Int): Int {
+    var columns = startColumn
+    for (char in this) {
+        columns += if (char == '\t') 4 - (columns % 4) else 1
+    }
+    return columns
+}
 
 private fun String.findAngleConstructEnd(start: Int): Int {
     if (startsWith("<!--", start)) return indexOf("-->", start + 4).let { if (it < 0) -1 else it + 2 }
