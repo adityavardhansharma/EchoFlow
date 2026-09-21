@@ -200,8 +200,9 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
         }
 
         Spacer(Modifier.height(Spacing.xl))
-        PageSection("Beta", "Experimental · may break · uses Firecrawl credits while open")
+        PageSection("Beta", "Experimental features · may break")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+            SystemDictationRow(viewModel)
             SettingsNavRow(
                 icon = Icons.Default.Language,
                 polygon = MaterialShapes.Cookie4Sided,

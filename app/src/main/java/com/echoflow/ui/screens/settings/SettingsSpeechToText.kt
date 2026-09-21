@@ -104,9 +104,6 @@ internal fun SpeechToTextPage(
         )
         Spacer(Modifier.height(Spacing.xl))
 
-        SystemDictationRow(viewModel)
-        Spacer(Modifier.height(Spacing.xl))
-
         val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
         AnimatedContent(
             targetState = mode,
@@ -373,7 +370,7 @@ private fun SttOnDeviceSection() {
 
 /** Only the permission walk belongs to composition. The OS service owns everything after setup. */
 @Composable
-private fun SystemDictationRow(viewModel: SettingsViewModel) {
+internal fun SystemDictationRow(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val enabled by viewModel.systemWideDictation.collectAsState()
