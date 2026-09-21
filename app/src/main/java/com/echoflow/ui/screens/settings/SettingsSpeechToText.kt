@@ -370,7 +370,7 @@ private fun SttOnDeviceSection() {
 
 /** Only the permission walk belongs to composition. The OS service owns everything after setup. */
 @Composable
-internal fun SystemDictationRow(viewModel: SettingsViewModel) {
+internal fun SystemDictationRow(viewModel: SettingsViewModel, index: Int, count: Int) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val enabled by viewModel.systemWideDictation.collectAsState()
@@ -436,7 +436,7 @@ internal fun SystemDictationRow(viewModel: SettingsViewModel) {
             lifecycle.removeObserver(observer)
         }
     }
-    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer,
+    Surface(shape = groupedItemShape(index, count), color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
