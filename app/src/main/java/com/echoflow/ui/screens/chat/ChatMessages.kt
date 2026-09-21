@@ -32,14 +32,13 @@ import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
 /**
  * The scrolling message list for one conversation. Owns its own [LazyListState] so each chat keeps
  * its scroll position and a switch (via the parent key()) doesn't inherit the previous chat's
- * offset. Keeps the stick-to-bottom behaviour (respects manual scroll, follows streaming).
+ * offset. Streaming never programmatically changes this list's position; the user's viewport
+ * remains stable until they choose to scroll.
  */
 @Composable
 internal fun MessagesPane(
@@ -69,7 +68,6 @@ internal fun MessagesPane(
     canEditMessages: Boolean = true,
 ) {
     val listState = rememberLazyListState()
-    var autoFollow by remember { mutableStateOf(true) }
     val viewport = remember { Any() }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, lifecycleOwner) {
@@ -89,40 +87,15 @@ internal fun MessagesPane(
             }
         }
     }
-    val atBottom by remember {
-        derivedStateOf {
-            val li = listState.layoutInfo
-            val last = li.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
-            last.index >= li.totalItemsCount - 1 && (last.offset + last.size) <= li.viewportEndOffset + 8
-        }
-    }
-    LaunchedEffect(atBottom, listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) autoFollow = atBottom
-    }
-    LaunchedEffect(messages.size, progressLoading) {
-        if (autoFollow) {
-            val idx = listState.layoutInfo.totalItemsCount - 1
-            if (idx >= 0) runCatching { listState.scrollToItem(idx, Int.MAX_VALUE) }
-        }
-    }
-    LaunchedEffect(autoFollow, isStreaming, progressLoading) {
-        if (autoFollow && (isStreaming || progressLoading)) {
-            snapshotFlow {
-                val layout = listState.layoutInfo
-                layout.totalItemsCount to layout.visibleItemsInfo.lastOrNull()?.size
-            }.distinctUntilChanged().collect {
-                // Coalesce multiple measurements into the next frame, then follow only when the
-                // final row actually gained height. Per-frame scrollToItem caused needless layout
-                // work even while streamed characters stayed on the same visual line.
-                withFrameNanos { }
-                // Keep this emission pending while another scroll is settling. If the user moves
-                // away from the bottom, autoFollow changes and cancels this effect instead.
-                snapshotFlow { listState.isScrollInProgress }.first { !it }
-                if (autoFollow) {
-                    val idx = listState.layoutInfo.totalItemsCount - 1
-                    if (idx >= 0) runCatching { listState.scrollToItem(idx, Int.MAX_VALUE) }
-                }
-            }
+    // Reveal the beginning of a new response once, but never follow its growing content. Keeping
+    // this keyed only to stream start/content appearance prevents completion and persistence from
+    // moving the user's viewport.
+    LaunchedEffect(isStreaming, segments.isNotEmpty()) {
+        if (isStreaming && segments.isNotEmpty()) {
+            withFrameNanos { }
+            // The streaming row is appended after all persisted/research rows.
+            val index = listState.layoutInfo.totalItemsCount - 1
+            if (index >= 0) runCatching { listState.scrollToItem(index) }
         }
     }
     LazyColumn(
