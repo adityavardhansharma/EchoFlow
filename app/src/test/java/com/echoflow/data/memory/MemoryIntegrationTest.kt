@@ -78,6 +78,42 @@ class MemoryIntegrationTest {
         assertEquals("Memory is disabled.", tools.execute("search_memory", """{"query":"project"}""") {})
         assertTrue(requests.isEmpty())
     }
+
+    @Test fun `skip suppresses every schema and execution but preserves saving`() = runBlocking {
+        val tools = MemoryTools(context, "chat", false, settings(), api {
+            """{"memories":[{"id":"saved","memory":"I prefer concise answers"}]}"""
+        }).apply { recallAllowed = false }
+        listOf("openai", "claude", "gemini", "responses").forEach { format ->
+            val schemas = tools.schemas(format).toString()
+            assertFalse(schemas.contains("search_memory"))
+            assertTrue(schemas.contains("remember_memory"))
+        }
+        val events = mutableListOf<StreamChunk>()
+        assertTrue(tools.execute("search_memory", """{"query":"project"}""") { events += it }.contains("unavailable"))
+        assertTrue(events.isEmpty())
+        assertTrue(requests.isEmpty())
+        assertTrue(tools.execute("remember_memory", """{"content":"I prefer concise answers"}""") {}.contains("successfully"))
+        assertEquals(1, requests.size)
+    }
+
+    @Test fun `failed or empty recall can be retried within the budget`() = runBlocking {
+        var attempts = 0
+        val client = api {
+            attempts++
+            if (attempts == 1) throw java.io.IOException("offline")
+            if (attempts == 2) """{"results":[]}"""
+            else """{"results":[{"id":"m1","memory":"Daniel likes hiking"}]}"""
+        }
+        val tools = MemoryTools(context, "chat", false, settings(), client)
+        repeat(2) {
+            tools.execute("search_memory", """{"query":"Daniel interests"}""") {}
+            assertTrue(tools.recallAllowed)
+            assertTrue(tools.schemas().toString().contains("search_memory"))
+        }
+        val result = tools.execute("search_memory", """{"query":"Daniel outdoor activities"}""") {}
+        assertTrue(result.contains("Daniel likes hiking"))
+        assertEquals(3, attempts)
+    }
     @Test fun `billing credits are not inferred from token counts`() {
         assertNull(SupermemoryClient.findCredits(JSONObject("""{"usage":{"tokens":{"used":200,"limit":500}}}""")))
         val credit = SupermemoryClient.findCredits(JSONObject("""{"features":[{"id":"usd_credits","used":2,"limit":20}]}"""))

@@ -25,8 +25,9 @@ class MemoryTools(
     the answer. The available sources are this visible conversation, personal memory from earlier chats,
     and web search for current, public or externally verifiable information.
 
-    Search memory whenever prior knowledge about the user could change what should be included, excluded,
-    ranked, recommended, explained or asked next. Relevant personal context includes identity, preferences,
+    Retrieve missing personal evidence when it would materially improve what is included, excluded,
+    ranked, recommended, explained or asked next. Personalizing tone alone does not justify retrieval.
+    Relevant personal context includes identity, preferences,
     relationships, experiences, consumed or owned items, constraints, projects, goals, decisions and prior
     discussions. This applies even when the request is phrased generally and does not say "my" or
     "remember". You MUST call search_memory before answering direct personal questions, references to
@@ -65,7 +66,7 @@ class MemoryTools(
     is available; use Settings > Memory.
 """
         val functions: List<Map<String, Any>> = listOf(
-            definition("search_memory", "Search persistent memory for user-specific facts or earlier-conversation context. Call when personal history could change an answer, recommendation, ranking, exclusion or decision, including identity, preferences, experiences, consumed items, constraints, people, projects and prior discussions. Do not call for self-contained requests or facts visible in this chat.", "query"),
+            definition("search_memory", "Retrieve missing user-specific facts or earlier-conversation context when they would materially improve an answer, recommendation or decision. Includes preferences, experiences, constraints, people and projects. Do not retrieve solely to personalize tone, for self-contained requests, or for facts already visible in this chat.", "query"),
             definition("remember_memory", "Save a concise, durable, user-authored personal fact for future conversations. Use for explicit remember requests and clearly stated durable facts; never save assistant claims, guesses, temporary details or secrets.", "content"),
         )
         private fun definition(name: String, description: String, argument: String): Map<String, Any> = mapOf(
@@ -75,14 +76,18 @@ class MemoryTools(
     }
     private val generation = settings.generation
     private val accessRevision = settings.accessRevision
-    private var calls = 0
+    private var searchCalls = 0
+    private var saveCalls = 0
+    /** Scoped to this response; enforced at schema creation and execution. Saving is independent. */
+    var recallAllowed: Boolean = true
     private val saved = mutableSetOf<String>()
     private fun permitted() = settings.connected && settings.recall && settings.generation == generation && settings.accessRevision == accessRevision &&
         (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
     private fun permittedToLearn(session: MemorySession) = settings.permits(session) &&
         settings.accessRevision == accessRevision && (!(local || settings.includesLocal(chatId)) || settings.allowLocal)
     fun handles(name: String) = name == "search_memory" || name == "remember_memory"
-    fun schemas(format: String = "openai"): List<Map<String, Any>> = functions.map { fn -> when (format) {
+    fun schemas(format: String = "openai"): List<Map<String, Any>> = functions
+        .filter { recallAllowed || it["name"] != "search_memory" }.map { fn -> when (format) {
         "claude" -> mapOf("name" to fn.getValue("name"), "description" to fn.getValue("description"), "input_schema" to fn.getValue("parameters"))
         "gemini" -> fn
         "responses" -> fn + ("type" to "function")
@@ -90,8 +95,14 @@ class MemoryTools(
     } }
     suspend fun execute(name: String, args: String, emit: suspend (StreamChunk) -> Unit): String {
         if (!handles(name)) return "Unknown memory tool."
+        if (name == "search_memory" && !recallAllowed)
+            return "Personal memory retrieval is unavailable for this turn. Answer using the supplied conversation and other available sources."
         if (!permitted()) return "Memory is disabled."
-        if (++calls > 4) return "Memory tool limit reached. Answer with the context already available."
+        if (name == "search_memory") {
+            if (++searchCalls > 4) return "Memory search limit reached. Answer with the context already available."
+        } else if (++saveCalls > 4) {
+            return "Memory save limit reached. Answer with the context already available."
+        }
         val data = try { JSONObject(args) } catch (_: Exception) { return "Invalid JSON arguments." }
         val query = (data.opt(if (name == "search_memory") "query" else "content") as? String)?.trim()
             ?: return "Supply a text value."
@@ -173,7 +184,7 @@ class MemoryTools(
         val values = facts.map { it.text.trim() }.filter { it.isNotBlank() && MemoryPrivacy.redact(it) == it }
             .filterNot(MemoryPolicy::isAssistantMetaMemory)
             .distinctBy(MemoryPolicy::normalize).filterNot { it in saved }.take(3)
-        if (values.isEmpty() || !permittedToLearn(session) || ++calls > 4) return FactSaveResult(false)
+        if (values.isEmpty() || !permittedToLearn(session) || ++saveCalls > 4) return FactSaveResult(false)
         val id = UUID.randomUUID().toString()
         emit(StreamChunk.MemoryActivity(id, "Learning ${values.size} ${if (values.size == 1) "fact" else "facts"}…", true))
         return try {
