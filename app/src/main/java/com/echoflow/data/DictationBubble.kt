@@ -18,7 +18,7 @@ import kotlin.math.sin
 
 internal enum class DictationPhase { Idle, Recording, Transcribing }
 
-/** Exactly one 48dp non-focusable window. WindowManager never gets a fullscreen touch surface. */
+/** Exactly one 40dp non-focusable window. WindowManager never gets a fullscreen touch surface. */
 internal class DictationBubble(
     private val context: Context,
     private val settings: SettingsRepository,
@@ -27,7 +27,7 @@ internal class DictationBubble(
 ) {
     private val manager = context.getSystemService(WindowManager::class.java)
     private val density get() = context.resources.displayMetrics.density
-    private val size get() = (48 * density).toInt()
+    private val size get() = (40 * density).toInt()
     private val edgeGap get() = (8 * density).toInt()
     private var keyboardTop: Int? = null
     private var shownPhase = DictationPhase.Idle
