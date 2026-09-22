@@ -110,4 +110,10 @@ class SttCatalogTest {
             SttCatalog.resolve("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b").id,
         )
     }
+
+    @Test fun `bad request fallback uses Muse except when Muse uses Grok`() {
+        assertEquals(SttCatalog.MUSE_MODEL_ID, SttCatalog.fallbackForBadRequest(SttCatalog.MAI_MODEL_ID))
+        assertEquals(SttCatalog.MUSE_MODEL_ID, SttCatalog.fallbackForBadRequest("openai/gpt-transcribe"))
+        assertEquals(SttCatalog.GROK_MODEL_ID, SttCatalog.fallbackForBadRequest(SttCatalog.MUSE_MODEL_ID))
+    }
 }

@@ -232,20 +232,40 @@ class SpeechToTextTranscriber(
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(IllegalStateException("No OpenRouter key"))
             }
-            val payload = SttPayloads.requestBody(
-                modelId,
-                Base64.encodeToString(wav, Base64.NO_WRAP),
-            )
-            val body = SttPayloads.encode(payload).toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("https://openrouter.ai/api/v1/audio/transcriptions")
-                .header("Authorization", "Bearer $apiKey")
-                .header("HTTP-Referer", "https://echoflow.app")
-                .header("X-Title", "EchoFlow")
-                .post(body)
-                .build()
+            val wavBase64 = Base64.encodeToString(wav, Base64.NO_WRAP)
             runCatching {
-                val (code, text) = executeCancellable(request)
+                // This plan belongs only to this recording. It never changes the saved selection,
+                // and a later recording starts from the selected model's primary request again.
+                val attempts = if (modelId == SttCatalog.MAI_MODEL_ID) {
+                    listOf(
+                        OpenRouterSttAttempt(modelId),
+                        OpenRouterSttAttempt(modelId, transcribeStyle = null),
+                        OpenRouterSttAttempt(SttCatalog.MUSE_MODEL_ID),
+                        OpenRouterSttAttempt(SttCatalog.GROK_MODEL_ID),
+                    )
+                } else {
+                    listOf(
+                        OpenRouterSttAttempt(modelId),
+                        OpenRouterSttAttempt(SttCatalog.fallbackForBadRequest(modelId)),
+                    )
+                }
+                var code = 0
+                var text = ""
+                for ((index, attempt) in attempts.withIndex()) {
+                    val response = executeCancellable(
+                        SttPayloads.request(
+                            apiKey = apiKey,
+                            modelId = attempt.modelId,
+                            wavBase64 = wavBase64,
+                            transcribeStyle = attempt.transcribeStyle,
+                        ),
+                    )
+                    code = response.first
+                    text = response.second
+                    // Only an explicit request-validation failure is safe to retry. Ambiguous
+                    // transport and server failures may already have processed the recording.
+                    if (code != 400 || index == attempts.lastIndex) break
+                }
                 if (code !in 200..299) {
                     error(ProviderHttpSupport.errorMessage("Dictation", code, text))
                 }
@@ -302,6 +322,11 @@ class SpeechToTextTranscriber(
         }
 }
 
+private data class OpenRouterSttAttempt(
+    val modelId: String,
+    val transcribeStyle: String? = SttPayloads.DEFAULT_TRANSCRIBE_STYLE,
+)
+
 /**
  * The JSON posted to `/audio/transcriptions` and the two response shapes we accept.
  * Kept separate from the HTTP client so the default model id and the `{ "text": ... }`
@@ -316,7 +341,7 @@ internal object SttPayloads {
     fun requestBody(
         modelId: String,
         wavBase64: String,
-        transcribeStyle: String = DEFAULT_TRANSCRIBE_STYLE,
+        transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
     ): Map<String, Any> = buildMap {
         put("model", modelId)
         put("input_audio", mapOf(
@@ -325,7 +350,7 @@ internal object SttPayloads {
         ))
         // Dictation is intended to produce text that can be edited and sent immediately.
         // MAI exposes this through Azure's provider-specific enhanced-mode options.
-        if (modelId == SttCatalog.MAI_MODEL_ID) {
+        if (modelId == SttCatalog.MAI_MODEL_ID && transcribeStyle != null) {
             put("provider", mapOf(
                 "options" to mapOf(
                     "azure" to mapOf(
@@ -339,6 +364,22 @@ internal object SttPayloads {
     }
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
+
+    fun request(
+        apiKey: String,
+        modelId: String,
+        wavBase64: String,
+        transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
+    ): Request = Request.Builder()
+        .url("https://openrouter.ai/api/v1/audio/transcriptions")
+        .header("Authorization", "Bearer $apiKey")
+        .header("HTTP-Referer", "https://echoflow.app")
+        .header("X-Title", "EchoFlow")
+        .post(
+            encode(requestBody(modelId, wavBase64, transcribeStyle))
+                .toRequestBody("application/json".toMediaType()),
+        )
+        .build()
 
     fun parseSarvamTranscript(body: String): String = parseSarvamResult(body).text
 
