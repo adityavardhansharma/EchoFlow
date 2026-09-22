@@ -308,9 +308,16 @@ class SpeechToTextTranscriber(
  * parse can be asserted without opening a socket.
  */
 internal object SttPayloads {
+    const val DEFAULT_TRANSCRIBE_STYLE = "simple"
+    const val CLEAN_TRANSCRIBE_STYLE = "clean"
+
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
-    fun requestBody(modelId: String, wavBase64: String): Map<String, Any> = buildMap {
+    fun requestBody(
+        modelId: String,
+        wavBase64: String,
+        transcribeStyle: String = DEFAULT_TRANSCRIBE_STYLE,
+    ): Map<String, Any> = buildMap {
         put("model", modelId)
         put("input_audio", mapOf(
             "data" to wavBase64,
@@ -323,7 +330,7 @@ internal object SttPayloads {
                 "options" to mapOf(
                     "azure" to mapOf(
                         "enhancedMode" to mapOf(
-                            "modelOptions" to mapOf("transcribeStyle" to "clean"),
+                            "modelOptions" to mapOf("transcribeStyle" to transcribeStyle),
                         ),
                     ),
                 ),

@@ -21,9 +21,20 @@ class SttRequestTest {
         assertEquals("dGVzdA==", audio["data"])
     }
 
-    @Test fun `encoded body carries the MAI Transcribe model id and clean style`() {
+    @Test fun `encoded body defaults MAI Transcribe to simple style`() {
         val json = SttPayloads.encode(SttPayloads.requestBody(SttCatalog.DEFAULT_MODEL_ID, "dGVzdA=="))
         assertTrue(json.contains("\"model\":\"microsoft/mai-transcribe-2\""))
+        assertTrue(json.contains("\"transcribeStyle\":\"${SttPayloads.DEFAULT_TRANSCRIBE_STYLE}\""))
+    }
+
+    @Test fun `clean style remains available as an explicit option`() {
+        val json = SttPayloads.encode(
+            SttPayloads.requestBody(
+                SttCatalog.DEFAULT_MODEL_ID,
+                "dGVzdA==",
+                SttPayloads.CLEAN_TRANSCRIBE_STYLE,
+            ),
+        )
         assertTrue(json.contains("\"transcribeStyle\":\"clean\""))
     }
 
