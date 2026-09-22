@@ -32,9 +32,20 @@ class SttRequestTest {
         assertEquals("dGVzdA==", audio["data"])
     }
 
-    @Test fun `encoded body carries the MAI Transcribe model id and clean style`() {
+    @Test fun `encoded body defaults MAI Transcribe to simple style`() {
         val json = SttPayloads.encode(SttPayloads.requestBody(SttCatalog.DEFAULT_MODEL_ID, "dGVzdA=="))
         assertTrue(json.contains("\"model\":\"microsoft/mai-transcribe-2\""))
+        assertTrue(json.contains("\"transcribeStyle\":\"${SttPayloads.DEFAULT_TRANSCRIBE_STYLE}\""))
+    }
+
+    @Test fun `clean style remains available as an explicit option`() {
+        val json = SttPayloads.encode(
+            SttPayloads.requestBody(
+                SttCatalog.DEFAULT_MODEL_ID,
+                "dGVzdA==",
+                SttPayloads.CLEAN_TRANSCRIBE_STYLE,
+            ),
+        )
         assertTrue(json.contains("\"transcribeStyle\":\"clean\""))
     }
 
@@ -42,7 +53,7 @@ class SttRequestTest {
         val body = SttPayloads.requestBody(
             SttCatalog.MAI_MODEL_ID,
             "dGVzdA==",
-            includeMaiCleanStyle = false,
+            transcribeStyle = null,
         )
 
         assertEquals(SttCatalog.MAI_MODEL_ID, body["model"])
@@ -67,12 +78,12 @@ class SttRequestTest {
         assertNull(SttPayloads.parseTranscript("not-json"))
     }
 
-    @Test fun `HTTP 400 retries MAI without clean style before changing models`() = runTest {
+    @Test fun `HTTP 400 retries MAI without provider options before changing models`() = runTest {
         val models = mutableListOf<String>()
-        val cleanStyles = mutableListOf<Boolean>()
+        val simpleStyles = mutableListOf<Boolean>()
         val client = client { request ->
             models += request.modelId()
-            cleanStyles += request.usesMaiCleanStyle()
+            simpleStyles += request.usesMaiSimpleStyle()
             if (models.size == 1) response(request, """{"error":{"message":"bad request"}}""", 400)
             else response(request, """{"text":"plain MAI worked"}""")
         }
@@ -82,15 +93,15 @@ class SttRequestTest {
 
         assertEquals("plain MAI worked", result.getOrThrow())
         assertEquals(listOf(SttCatalog.MAI_MODEL_ID, SttCatalog.MAI_MODEL_ID), models)
-        assertEquals(listOf(true, false), cleanStyles)
+        assertEquals(listOf(true, false), simpleStyles)
     }
 
-    @Test fun `each recording starts MAI with clean style again`() = runTest {
-        val cleanStyles = mutableListOf<Boolean>()
+    @Test fun `each recording starts MAI with simple style again`() = runTest {
+        val simpleStyles = mutableListOf<Boolean>()
         var calls = 0
         val client = client { request ->
             calls++
-            cleanStyles += request.usesMaiCleanStyle()
+            simpleStyles += request.usesMaiSimpleStyle()
             if (calls == 1) response(request, """{"error":{"message":"bad request"}}""", 400)
             else response(request, """{"text":"worked"}""")
         }
@@ -105,15 +116,15 @@ class SttRequestTest {
             transcriber.transcribe("router-key", SttCatalog.MAI_MODEL_ID, ByteArray(100)).getOrThrow(),
         )
 
-        assertEquals(listOf(true, false, true), cleanStyles)
+        assertEquals(listOf(true, false, true), simpleStyles)
     }
 
     @Test fun `repeated MAI HTTP 400s fall back through Muse and Grok`() = runTest {
         val models = mutableListOf<String>()
-        val cleanStyles = mutableListOf<Boolean>()
+        val simpleStyles = mutableListOf<Boolean>()
         val client = client { request ->
             models += request.modelId()
-            cleanStyles += request.usesMaiCleanStyle()
+            simpleStyles += request.usesMaiSimpleStyle()
             if (models.size < 4) response(request, """{"error":{"message":"bad request"}}""", 400)
             else response(request, """{"text":"grok worked"}""")
         }
@@ -131,7 +142,7 @@ class SttRequestTest {
             ),
             models,
         )
-        assertEquals(listOf(true, false, false, false), cleanStyles)
+        assertEquals(listOf(true, false, false, false), simpleStyles)
     }
 
     @Test fun `HTTP 400 retries Muse transcription once with Grok`() = runTest {
@@ -167,7 +178,7 @@ class SttRequestTest {
         return Regex("\\\"model\\\":\\\"([^\\\"]+)\\\"").find(bodyText())!!.groupValues[1]
     }
 
-    private fun Request.usesMaiCleanStyle(): Boolean = bodyText().contains("\"transcribeStyle\":\"clean\"")
+    private fun Request.usesMaiSimpleStyle(): Boolean = bodyText().contains("\"transcribeStyle\":\"simple\"")
 
     private fun Request.bodyText(): String = Buffer().also { body!!.writeTo(it) }.readUtf8()
 

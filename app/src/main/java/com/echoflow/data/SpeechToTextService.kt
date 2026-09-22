@@ -238,8 +238,8 @@ class SpeechToTextTranscriber(
                 // and a later recording starts from the selected model's primary request again.
                 val attempts = if (modelId == SttCatalog.MAI_MODEL_ID) {
                     listOf(
-                        OpenRouterSttAttempt(modelId, includeMaiCleanStyle = true),
-                        OpenRouterSttAttempt(modelId, includeMaiCleanStyle = false),
+                        OpenRouterSttAttempt(modelId),
+                        OpenRouterSttAttempt(modelId, transcribeStyle = null),
                         OpenRouterSttAttempt(SttCatalog.MUSE_MODEL_ID),
                         OpenRouterSttAttempt(SttCatalog.GROK_MODEL_ID),
                     )
@@ -257,7 +257,7 @@ class SpeechToTextTranscriber(
                             apiKey = apiKey,
                             modelId = attempt.modelId,
                             wavBase64 = wavBase64,
-                            includeMaiCleanStyle = attempt.includeMaiCleanStyle,
+                            transcribeStyle = attempt.transcribeStyle,
                         ),
                     )
                     code = response.first
@@ -324,7 +324,7 @@ class SpeechToTextTranscriber(
 
 private data class OpenRouterSttAttempt(
     val modelId: String,
-    val includeMaiCleanStyle: Boolean = false,
+    val transcribeStyle: String? = SttPayloads.DEFAULT_TRANSCRIBE_STYLE,
 )
 
 /**
@@ -333,12 +333,15 @@ private data class OpenRouterSttAttempt(
  * parse can be asserted without opening a socket.
  */
 internal object SttPayloads {
+    const val DEFAULT_TRANSCRIBE_STYLE = "simple"
+    const val CLEAN_TRANSCRIBE_STYLE = "clean"
+
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
     fun requestBody(
         modelId: String,
         wavBase64: String,
-        includeMaiCleanStyle: Boolean = true,
+        transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
     ): Map<String, Any> = buildMap {
         put("model", modelId)
         put("input_audio", mapOf(
@@ -347,12 +350,12 @@ internal object SttPayloads {
         ))
         // Dictation is intended to produce text that can be edited and sent immediately.
         // MAI exposes this through Azure's provider-specific enhanced-mode options.
-        if (modelId == SttCatalog.MAI_MODEL_ID && includeMaiCleanStyle) {
+        if (modelId == SttCatalog.MAI_MODEL_ID && transcribeStyle != null) {
             put("provider", mapOf(
                 "options" to mapOf(
                     "azure" to mapOf(
                         "enhancedMode" to mapOf(
-                            "modelOptions" to mapOf("transcribeStyle" to "clean"),
+                            "modelOptions" to mapOf("transcribeStyle" to transcribeStyle),
                         ),
                     ),
                 ),
@@ -366,14 +369,14 @@ internal object SttPayloads {
         apiKey: String,
         modelId: String,
         wavBase64: String,
-        includeMaiCleanStyle: Boolean = true,
+        transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
     ): Request = Request.Builder()
         .url("https://openrouter.ai/api/v1/audio/transcriptions")
         .header("Authorization", "Bearer $apiKey")
         .header("HTTP-Referer", "https://echoflow.app")
         .header("X-Title", "EchoFlow")
         .post(
-            encode(requestBody(modelId, wavBase64, includeMaiCleanStyle))
+            encode(requestBody(modelId, wavBase64, transcribeStyle))
                 .toRequestBody("application/json".toMediaType()),
         )
         .build()
