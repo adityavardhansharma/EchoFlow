@@ -67,6 +67,8 @@ data class SttModel(
 
 object SttCatalog {
     const val MAI_MODEL_ID = "microsoft/mai-transcribe-2"
+    const val MUSE_MODEL_ID = "meta/muse-voice-transcribe-1.0"
+    const val GROK_MODEL_ID = "x-ai/grok-stt-1.0"
     const val SARVAM_MODEL_ID = "saaras:v4"
     val SARVAM_MODEL = SttModel(
         id = SARVAM_MODEL_ID,
@@ -103,7 +105,7 @@ object SttCatalog {
             costTierOverride = SttCostTier.Moderate,
         ),
         SttModel(
-            id = "meta/muse-voice-transcribe-1.0",
+            id = MUSE_MODEL_ID,
             name = "Muse Transcribe",
             provider = "Meta",
             // OpenRouter lists $0.18/hour.
@@ -121,7 +123,7 @@ object SttCatalog {
             usdPerMinute = 0.0045,
         ),
         SttModel(
-            id = "x-ai/grok-stt-1.0",
+            id = GROK_MODEL_ID,
             name = "Grok STT 1.0",
             provider = "xAI",
             // OpenRouter lists $0.10/hour.
@@ -150,6 +152,10 @@ object SttCatalog {
     )
 
     const val DEFAULT_MODEL_ID = MAI_MODEL_ID
+
+    /** One-shot recovery route for OpenRouter request-validation failures. */
+    fun fallbackForBadRequest(modelId: String): String =
+        if (modelId == MUSE_MODEL_ID) GROK_MODEL_ID else MUSE_MODEL_ID
 
     fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
 
