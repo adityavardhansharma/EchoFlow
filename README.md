@@ -1,120 +1,215 @@
 <div align="center">
-<img src="logo1.png" alt="EchoFlow" width="88" />
+  <img src="logo1.png" alt="EchoFlow" width="88" />
 
-# EchoFlow
+  # EchoFlow
 
-### A privacy-first Android AI workspace
+  ### Your AI workspace for Android
 
-Two surfaces — Chat for conversation, Imagine for images and video. Local models, custom endpoints, web search, deep research, agents, artifacts. No backend, no account, no telemetry.
+  Chat with the models you choose — on your phone, in the cloud, or on your own network.
 
-[![Release](https://img.shields.io/github/v/release/adityavardhansharma/EchoFlow?style=flat-square&color=000000&label=release)](https://github.com/adityavardhansharma/EchoFlow/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-000000?style=flat-square)](LICENSE.txt)
-[![Platform](https://img.shields.io/badge/platform-Android%2024%2B-000000?style=flat-square)](#)
-[![Kotlin](https://img.shields.io/badge/kotlin-2.x-000000?style=flat-square)](#)
+  [![Release](https://img.shields.io/github/v/release/adityavardhansharma/EchoFlow?style=flat-square&color=000000&label=release)](https://github.com/adityavardhansharma/EchoFlow/releases/latest)
+  [![License](https://img.shields.io/badge/license-MIT-000000?style=flat-square)](LICENSE.txt)
+  [![Platform](https://img.shields.io/badge/platform-Android%2024%2B-000000?style=flat-square)](#)
 
-**[Download the latest APK →](https://github.com/adityavardhansharma/EchoFlow/releases/latest)**
-
+  **[Download the latest APK →](https://github.com/adityavardhansharma/EchoFlow/releases/latest)**
 </div>
 
-<br/>
+## What is EchoFlow?
 
-## What it is
+EchoFlow is a native Android app for chatting with AI and turning conversations into useful work. Bring your own cloud API keys, connect to a model running on your laptop or home server, or download a model and run it directly on your phone.
 
-EchoFlow is a native Android app for talking to AI models — your way. There's no EchoFlow server sitting in the middle: you bring your own API keys, point it at your own Ollama box, or skip the network entirely and run a model on your phone. Nothing you type gets logged anywhere except your own device.
+EchoFlow has no EchoFlow backend, account, or telemetry. Your conversations, settings, and API keys are stored locally on your device. When you use a cloud or network model, the relevant request goes directly to the provider or endpoint you configured.
 
-It started as a chat app and grew into a small workspace: web search, background research, structured data extraction, a controllable browser, generated documents, and a few ways to make multiple models work together.
+## Choose where your model runs
 
-## Why people use it
+### On-device models — models running on your phone
 
-| | |
-|---|---|
-| **Nothing leaves your control** | No EchoFlow backend, no account, no analytics. Conversations, keys, and settings live on your device. |
-| **Any model you want** | OpenRouter, OpenAI, Claude, Gemini, Cerebras, Sarvam, a local Ollama server, any OpenAI-compatible endpoint, or fully offline on-device models. |
-| **More than chat** | Web search, deep research with citations, structured data extraction, browser automation, and document generation, built around whichever model you're using. |
-| **Models working together** | Have one model consult a stronger one mid-answer, run several models in parallel and let a judge synthesize the results, or hand a model its own tools and a worker to delegate to. |
+Run supported language models locally on Android using LiteRT-LM, MediaPipe GenAI, or llama.cpp support. Once a model is downloaded, it can generate responses without an API key or internet connection.
+
+- Browse the built-in catalog of mobile-ready models.
+- Search Hugging Face for supported model files.
+- Import your own `.task` or `.litertlm` model files.
+- Use Hugging Face access tokens for gated models.
+- Keep local-model conversations on the device when cloud access is disabled.
+
+On-device inference depends on the model, phone hardware, available memory, and Android version. Local models may be slower or less capable than large cloud models, but they are useful when privacy or offline access matters most.
+
+### Cloud models — provider APIs
+
+Connect your own API keys for cloud models from the model and provider settings. Supported integrations include:
+
+- OpenRouter
+- OpenAI
+- Anthropic Claude
+- Google Gemini
+- Cerebras
+- xAI
+- Sarvam
+
+Provider model lists can be fetched where supported, and you can enter a model ID manually when a provider exposes a model that is not in the catalog. Attachments and tool support depend on the selected provider and model.
+
+### Network models — models running on your network
+
+Use a model hosted on another computer and reach it from your phone over Wi-Fi or any reachable network endpoint.
+
+- **Ollama** — connect to an Ollama server by base URL and select its models.
+- **OpenAI-compatible endpoints** — connect to LM Studio, Jan, vLLM, LocalAI, or another compatible server.
+- Configure the endpoint and credentials in **Settings → Echo Labs → Custom API Endpoint**.
+
+This lets a phone act as the chat client while inference runs on a desktop, workstation, NAS, or home server that you control.
+
+## Chat
+
+The main Chat surface supports:
+
+- Streaming responses and model switching.
+- Markdown, code blocks, syntax highlighting, and LaTeX.
+- Images, PDFs, documents, and other supported attachments.
+- Voice input and dictation inside EchoFlow.
+- Web search, citations, and tool-enabled conversations.
+- Separate conversation history for each chat.
+- Local, cloud, and network-hosted models in the same app.
+
+## Workspaces and creative tools
+
+### Projects
+
+Projects are durable workspaces for a specific subject or task. A project can contain:
+
+- Multiple related chats.
+- Shared project instructions.
+- Uploaded documents and files.
+- A focused home for continuing work over time.
+
+### Artifacts
+
+Ask a model to create and revise useful output instead of leaving everything as plain chat text. Artifacts can be opened in their own workspace, previewed or read, inspected as source, and revisited through version history.
+
+Use Artifacts for model-generated pages, reports, documents, and other self-contained work products.
+
+### Imagine
+
+Imagine is a separate surface for image and video generation. Describe what you want, choose a model and format, then refine the result conversationally.
+
+- Generate and edit images.
+- Generate short videos where supported by the selected model.
+- Choose supported aspect ratios, shapes, and generation options.
+- Keep generated media organized separately from chat history.
+
+See [docs/modes.md](docs/modes.md) and [docs/video-generation.md](docs/video-generation.md) for implementation details.
+
+## Research and web tools
+
+### Web search
+
+Search can be enabled per message or configured as a default. Available search providers include:
+
+- EchoCrawl
+- OpenRouter search
+- Exa
+- Parallel
+- Firecrawl
+
+Some providers work with any selected model, while provider-native search is limited to compatible cloud models.
+
+### Deep Research
+
+Deep Research runs a longer, background investigation and returns a structured, cited report. Progress is visible in the app, and interrupted work can be recovered when the app is opened again.
+
+### Data Agent
+
+The Data Agent is designed for structured answers from pages and files — for example prices, specifications, contacts, or other repeated fields — instead of an unstructured paragraph.
+
+### Browser Flow
+
+Browser Flow gives chat access to a live remote browser session. The model can navigate and interact with pages while EchoFlow shows the session and asks for confirmation before sensitive actions such as entering a new domain or sending information.
+
+## Models working together
+
+EchoFlow can use more than one model for a task:
+
+- **Echo Adviser** — ask a stronger or specialized advisor model for help during a difficult answer.
+- **Echo Fusion** — send a prompt to multiple models and have a judge compare and synthesize their responses.
+- **Echo Agents** — give a model search and fetch tools plus a worker model for delegated subtasks.
+
+These capabilities are most useful with tool-capable cloud or network models. Availability and cost depend on the providers and models you configure.
+
+## EchoOCR
+
+EchoFlow includes document and file extraction for project files and attachments. **EchoOCR** identifies content extracted from scanned or image-based documents so it can be read, searched, and brought into a conversation.
+
+Supported file handling can include plain-text reading, document parsing, PDF extraction, spreadsheet and structured-file workflows, and on-device OCR where applicable. The exact result depends on the file type and extraction path.
+
+## Echo Labs beta features
+
+Echo Labs contains experimental and advanced features that are still being developed.
+
+### System-wide dictation — beta
+
+System-wide dictation lets you dictate into other Android apps, not only EchoFlow. Enable it under **Settings → Echo Labs → System-wide dictation** and grant the Android accessibility/input permission requested by the app.
+
+It uses the configured dictation provider and model independently from the chat model. Because it operates across the device and depends on Android permissions, it is currently labelled **beta**.
+
+### Memory — beta
+
+Memory is an optional, bring-your-own-key feature under **Settings → Echo Labs → Memory**. When enabled, eligible conversations can contribute lasting preferences, facts, and project context to your connected memory service.
+
+- Memory is opt-in.
+- You can control whether memory is used in conversations.
+- Local-model chats stay on the device when cloud memory access is disabled.
+- The app does not automatically upload chats without the relevant consent and settings.
+- Never store passwords, API keys, or other secrets in memory-enabled conversations.
+
+Memory is currently labelled **beta** because its controls, providers, and learning behavior are still evolving.
+
+## Privacy and control
+
+- No EchoFlow account is required.
+- No EchoFlow server sits between you and your configured model provider.
+- API keys are configured in the app and stored locally.
+- On-device models can work offline after download.
+- Network and cloud requests are controlled by the providers and endpoints you enable.
+- Local chat history and workspace data are stored on the device.
+
+Always review the privacy, retention, and billing policies of any cloud, search, memory, or hosted-model provider you connect.
 
 ## Quick start
 
-```text
-1. Install the APK from Releases.
-2. Open Settings and connect a model:
-     - Models           -> OpenRouter & on-device
-     - Custom           -> OpenAI, Claude, Gemini, Cerebras, Sarvam, xAI
-     - Anything else    -> Echo Labs -> Custom API Endpoint
-3. Start chatting.
-```
+1. Install the [latest APK](https://github.com/adityavardhansharma/EchoFlow/releases/latest).
+2. Open **Settings → Models**.
+3. Choose one of:
+   - **On-device** to download a model for your phone.
+   - **Cloud models** to configure OpenRouter or another supported provider.
+   - **Echo Labs → Custom API Endpoint** to connect Ollama or an OpenAI-compatible server.
+4. Select a model and start a chat.
 
-No keys are required just to install and look around — on-device models work fully offline.
+No API key is needed to explore the app or run a downloaded on-device model.
 
-## Connecting a model
+## Build from source
 
-| Provider | Where to set it up | Attachments |
-|---|---|---|
-| OpenRouter | Settings → Models | Images/PDFs, depending on the model |
-| OpenAI · Claude · Gemini · Cerebras · xAI | Settings → Custom | Images and PDFs (Cerebras: Gemma-family images only) |
-| Sarvam | Settings → Custom → Sarvam | Text chat with Sarvam 105B; Saaras v4 dictation |
-| Ollama (local/LAN) | Echo Labs → Custom API Endpoint → Ollama API | Per-model toggle |
-| OpenAI-compatible (LM Studio, Jan, vLLM, LocalAI…) | Echo Labs → Custom API Endpoint | Per-model toggle |
-| On-device (LiteRT / MediaPipe) | Settings → Models → On-device | `.litertlm` models only |
+EchoFlow is a single-module Kotlin and Jetpack Compose Android app.
 
-Enable Sarvam and save your API key under **Settings → Custom → Sarvam**. `sarvam-105b` is preselected for the chat model picker. To use its speech recognition, choose **Saaras v4** under **Settings → Dictation**. Dictation uses the selected provider’s key independently of the chat model; longer recordings are split to fit Sarvam’s 30-second request limit.
+Requirements:
 
-Web search (Exa, Parallel, Firecrawl) and OpenRouter's own server-side search work across every provider above except where noted.
+- JDK 21
+- Android SDK with the platform required by `compileSdk` in `app/build.gradle.kts`
+- Android SDK platform-tools and compatible build-tools
 
-## What you can do with it
-
-**Chat** — streaming responses, markdown, code highlighting, reasoning traces, citations, and model switching mid-conversation. Chat and Imagine keep separate histories; conversations that predate the split stay in Chat.
-
-**Web search** — toggle it per message or set a default. OpenRouter's search only works with OpenRouter models; Exa, Parallel, and Firecrawl work with anything.
-
-**Deep research** — a background mode for questions that need real investigation. Runs notify you of progress, survive interruption, and come back as a cited report with sections and tables.
-
-**Data Agent** — point it at a page or task and get structured output (prices, specs, contacts) instead of prose, with a visible credit budget.
-
-**Browser Flow** — a live browser session that chat can drive across multiple turns, with confirmation prompts before it visits a new domain or sends anything.
-
-**Artifacts** — generate and revise self-contained pages, reports, and documents, versioned as you iterate.
-
-**Imagine** — a separate surface for making things. Describe an image and edit it conversationally ("make the sky purple"), or describe a short clip and get it back as video. Shape, model and audio live beside the prompt; results are presented as a contact sheet rather than a chat log. Rendering a clip takes minutes, so it keeps going with the app closed and picks itself back up if the app is killed mid-render — you choose the shape, the model chooses the length. See [docs/modes.md](docs/modes.md) and [docs/video-generation.md](docs/video-generation.md).
-
-**Echo Adviser** — let your model call in a stronger or more specialized model mid-answer when it's stuck.
-
-**Echo Fusion** — run several models on the same prompt and have a judge model compare and merge their answers.
-
-**Echo Agents** — give a model its own search/fetch tools plus a cheaper worker model to delegate sub-tasks to.
-
-## Running models on-device
-
-EchoFlow can run models entirely offline using LiteRT-LM and MediaPipe:
-
-- A curated catalog of mobile-ready models
-- Hugging Face search for `.task` and `.litertlm` files
-- Importing your own model files
-- Token support for gated Hugging Face models
-- No internet connection or API key required once a model is downloaded
-
-## Built with
-
-Kotlin and Jetpack Compose (Material 3 Expressive), targeting Android 24+. Networking via OkHttp/Retrofit, persistence via Room, on-device inference via LiteRT-LM and MediaPipe GenAI, search and research via Exa/Parallel/Firecrawl/OpenRouter, markdown rendering via a custom Compose renderer.
-
-```text
-app/src/main/java/com/echoflow
-├── data           # Room entities/DAOs, provider services, settings, research, agents, browser, artifacts, image/video generation, local models
-├── ui             # ViewModels and feature state controllers
-├── ui/components  # cards, reports, markdown, browser/data/research result UI
-├── ui/screens     # chat/, imagine/, projects/, settings/ feature packages
-└── ui/theme       # color, shape, motion
-```
-
-See [Architecture](docs/architecture.md) for feature ownership and [Contributing](CONTRIBUTING.md) for setup and verification.
-
-## Building from source
+Build a debug APK:
 
 ```bash
-./gradlew assembleDebug
+./gradlew :app:assembleDebug
 ```
 
-No keys are needed to build — everything is configured at runtime in Settings.
+Run unit tests:
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+No API keys are required to build the project. Runtime provider keys are entered in the app or supplied through the local development configuration described in [`.env.example`](.env.example).
+
+See [docs/architecture.md](docs/architecture.md) for the codebase structure and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and verification guidance.
 
 ## License
 
