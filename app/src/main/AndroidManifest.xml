@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Send/stop haptics. Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Speech to text: record the composer dictation. Runtime-prompted the first time. -->
@@ -89,6 +90,15 @@
             android:name=".data.DeepResearchForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <receiver android:name=".data.ScheduleRecoveryReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Hands a project file to the user's default viewer (Open as PDF/Word/…). Files live in
              private storage, so we grant a per-open read URI rather than exposing app storage. -->

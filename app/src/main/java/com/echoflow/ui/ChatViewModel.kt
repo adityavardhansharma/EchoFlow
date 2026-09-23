@@ -83,7 +83,7 @@ class ChatViewModel(
     private val customProviderService = CustomProviderService(application)
     private val customProviderFlowRouter = CustomProviderFlowRouter(customProviderService)
     private val webSearchService = WebSearchService()
-    private val localLlmService = LocalLlmService(application)
+    private val localLlmService = ScheduleLocalRuntime.service(application)
     private val localSearchProtocol = LocalSearchProtocol(localLlmService, webSearchService)
     private val chatRepository = ChatRepository(
         chatDao = chatDao,
@@ -2610,11 +2610,6 @@ class ChatViewModel(
     // -------------------------------------------------------------------------------
     // Local model + client search: prompt-based tool protocol
     // -------------------------------------------------------------------------------
-
-    override fun onCleared() {
-        localLlmService.releaseAll()
-        super.onCleared()
-    }
 
     companion object {
         /** What may be handed forward as a reference or a first frame. */

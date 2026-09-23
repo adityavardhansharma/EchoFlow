@@ -29,6 +29,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echoflow.data.DeepResearchForegroundService
 import com.echoflow.data.ReplyNotifications
+import com.echoflow.data.ScheduleManager
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.ChatDrawerContent
@@ -71,6 +72,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             if (appGraph.database.researchRunDao().getInterrupted().isNotEmpty()) {
                 DeepResearchForegroundService.resume(applicationContext)
+            }
+            try {
+                ScheduleManager(applicationContext).reconcile(replaceQueued = true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "Could not repair scheduled work", e)
             }
         }
 

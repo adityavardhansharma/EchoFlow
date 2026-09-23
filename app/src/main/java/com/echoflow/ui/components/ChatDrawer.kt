@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -76,6 +77,7 @@ fun ChatDrawerContent(
     onSettingsClicked: () -> Unit,
     onProjectsClicked: () -> Unit = {},
     onArtifactsClicked: () -> Unit = {},
+    onSchedulesClicked: () -> Unit = {},
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -160,6 +162,13 @@ fun ChatDrawerContent(
                 label = "Artifacts",
                 onClick = { onArtifactsClicked(); onCloseDrawer?.invoke() },
                 modifier = Modifier.testTag("drawer_artifacts_entry"),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            DrawerDestinationRow(
+                icon = Icons.Default.Schedule,
+                label = "Schedules",
+                onClick = { onSchedulesClicked(); onCloseDrawer?.invoke() },
+                modifier = Modifier.testTag("drawer_schedules_entry"),
             )
         }
 
