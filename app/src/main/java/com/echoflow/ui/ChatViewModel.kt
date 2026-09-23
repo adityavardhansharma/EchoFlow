@@ -1497,7 +1497,10 @@ class ChatViewModel(
             val artifactSystemPrompt = if (artifactMode) {
                 val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
                 val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
-                SystemPrompts.buildArtifact(isLocal, offline, prior)
+                val prompt = SystemPrompts.buildArtifact(isLocal, offline, prior)
+                if (customProvider == "sarvam") {
+                    prompt + "\n\nSarvam artifact override: Reason separately if needed; the final answer must contain only the required complete <echo:artifact> block with the artifact body inside it. Omit the introductory prose required above, and put no thoughts, code fences, or other text outside the block."
+                } else prompt
             } else null
 
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
