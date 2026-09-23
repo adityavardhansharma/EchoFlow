@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel) {
     var activeTab by remember { mutableStateOf("chat") }
+    var schedulesOpen by remember { mutableStateOf(false) }
     var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
@@ -36,7 +37,8 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
                 onStartPageConsumed = { settingsStartPage = null },
             )
         } else {
-            AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" }) {
+            AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" },
+                onSchedulesClicked = { schedulesOpen = true }) {
                 settingsStartPage = PageWebSearch
                 activeTab = "settings"
             }
@@ -73,6 +75,16 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
             // The hub owns its own back stepping: home → list → closed (see ProjectsHubScreen).
             com.echoflow.ui.screens.projects.ProjectsHubScreen(chatViewModel = chatViewModel)
         }
+        if (schedulesOpen) {
+            com.echoflow.ui.screens.schedules.SchedulesScreen(
+                settingsViewModel = settingsViewModel,
+                onClose = { schedulesOpen = false },
+                onOpenChat = { chatId ->
+                    schedulesOpen = false
+                    chatViewModel.openThreadFromNotification(chatId)
+                },
+            )
+        }
         // The artifact workspace is the top-most overlay: opening a tile from the gallery slides it
         // up *over* the still-mounted gallery (one continuous flow), and closing it reveals the
         // gallery again rather than flashing the chat behind it.
@@ -91,6 +103,7 @@ fun AdaptiveChatWorkspace(
     chatViewModel: ChatViewModel,
     settingsViewModel: SettingsViewModel,
     onSettingsClicked: () -> Unit,
+    onSchedulesClicked: () -> Unit = {},
     onOpenWebSearchSettings: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -119,6 +132,7 @@ fun AdaptiveChatWorkspace(
                         onSettingsClicked = onSettingsClicked,
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
+                        onSchedulesClicked = onSchedulesClicked,
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )
@@ -151,6 +165,7 @@ fun AdaptiveChatWorkspace(
                         onSettingsClicked = onSettingsClicked,
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
+                        onSchedulesClicked = onSchedulesClicked,
                         onCloseDrawer = { scope.launch { drawerState.close() } },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
