@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Artifact::class, ArtifactVersion::class,
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class,
-        Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class
+        Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
+        ScheduleTask::class, ScheduleRun::class
     ],
-    version = 27, // v27: Jev router classification per assistant message
+    version = 28, // v28: scheduled tasks and occurrence history
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun generatedVideoDao(): GeneratedVideoDao
     abstract fun projectDao(): ProjectDao
     abstract fun projectDocumentDao(): ProjectDocumentDao
+    abstract fun scheduleDao(): ScheduleDao
 
     companion object {
         @Volatile
@@ -477,6 +479,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS schedules (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, instruction TEXT NOT NULL, modelId TEXT NOT NULL, status TEXT NOT NULL, unit TEXT NOT NULL, interval INTEGER NOT NULL, anchorAt INTEGER NOT NULL, zoneId TEXT NOT NULL, nextRunAt INTEGER, revision INTEGER NOT NULL, needsWeb INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_schedules_status ON schedules(status)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_schedules_nextRunAt ON schedules(nextRunAt)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS schedule_runs (id TEXT NOT NULL PRIMARY KEY, taskId TEXT NOT NULL, scheduledAt INTEGER NOT NULL, status TEXT NOT NULL, startedAt INTEGER, finishedAt INTEGER, resultChatId TEXT, error TEXT, FOREIGN KEY(taskId) REFERENCES schedules(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_schedule_runs_taskId ON schedule_runs(taskId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_schedule_runs_status ON schedule_runs(status)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -511,6 +524,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_24_25,
                     MIGRATION_25_26,
                     MIGRATION_26_27,
+                    MIGRATION_27_28,
                 )
                 .build()
                 INSTANCE = instance

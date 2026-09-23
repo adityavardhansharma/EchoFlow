@@ -129,5 +129,12 @@ class DatabaseUpgradeTest {
         database.openHelper.readableDatabase.query(
             "SELECT hiddenFromGallery FROM artifacts LIMIT 0"
         ).use { /* queryable => the additive column landed */ }
+
+        database.openHelper.readableDatabase.query(
+            "SELECT id, nextRunAt FROM schedules LIMIT 0"
+        ).use { /* v28: schedules are available after the chained migration */ }
+        database.openHelper.readableDatabase.query(
+            "SELECT id, taskId, status FROM schedule_runs LIMIT 0"
+        ).use { /* v28: occurrence history is available */ }
     }
 }
