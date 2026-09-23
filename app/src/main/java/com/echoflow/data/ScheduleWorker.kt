@@ -18,7 +18,6 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.echoflow.MainActivity
 import com.echoflow.R
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -77,6 +76,7 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     "Current scheduled occurrence: ${java.util.Date(at)}.",
                 runId = runId,
                 searchQuery = if (task.needsWeb) task.instruction else null,
+                localWaitTimeoutMillis = 5 * 60_000L,
             )
             val chatId = manager.saveAnswer(runId, task, answer)
             resultChatId = chatId
@@ -122,6 +122,19 @@ class ScheduleWarmupWorker(context: Context, params: WorkerParameters) : Corouti
     }
 }
 
+/** A periodic repair is needed even when a one-time task has no next occurrence. */
+class ScheduleRecoveryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = try {
+        ScheduleManager(applicationContext).reconcile()
+        Result.success()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("ScheduleRecovery", "Could not repair scheduled work", e)
+        Result.retry()
+    }
+}
+
 internal object ScheduleNotifications {
     private const val CHANNEL = "echo_schedules"
 
@@ -154,16 +167,19 @@ internal object ScheduleNotifications {
             PackageManager.PERMISSION_GRANTED) return
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         ensureChannel(context)
+        // WorkManager cancels the foreground ID after doWork returns. Completion must
+        // use a different namespace so it survives that cleanup (including failed runs).
+        val completionId = (id and 0x00ff_ffff) or 0x3500_0000
         val intent = Intent(context, MainActivity::class.java).apply {
             if (chatId != null) putExtra(ReplyNotifications.EXTRA_OPEN_CHAT, chatId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        val pending = PendingIntent.getActivity(context, id, intent,
+        val pending = PendingIntent.getActivity(context, completionId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.logo).setContentTitle(title).setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(pending).setAutoCancel(true).build()
-        runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
+        runCatching { NotificationManagerCompat.from(context).notify(completionId, notification) }
     }
 }

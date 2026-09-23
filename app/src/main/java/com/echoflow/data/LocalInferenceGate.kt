@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 
 /**
@@ -7,9 +8,8 @@ import kotlinx.coroutines.sync.Mutex
  * compete for the same RAM and accelerators), while cloud requests remain unlimited. A single
  * gate object replaces scattered "is something local running?" flag checks.
  *
- * Non-queuing by design: a second local request fails fast with [LocalInferenceBusy]
- * (matching the app's existing "the on-device model is still responding" behaviour)
- * instead of silently waiting behind a minutes-long generation.
+ * Interactive requests fail fast with [LocalInferenceBusy]. Background schedules may
+ * opt into a bounded, cancellable wait before starting any inference.
  */
 class LocalInferenceGate {
     private val mutex = Mutex()
@@ -19,14 +19,23 @@ class LocalInferenceGate {
         private set
 
     /**
-     * Runs [block] holding the gate. Throws [LocalInferenceBusy] immediately when another
-     * local task holds it. The gate is released on success, failure and cancellation alike.
+     * Runs [block] holding the gate. Only acquisition is bounded by [waitTimeoutMillis];
+     * inference itself is not restarted or timed out. The gate is released on cancellation too.
      */
-    suspend fun <T> withExclusive(label: String, block: suspend () -> T): T {
+    suspend fun <T> withExclusive(
+        label: String,
+        waitTimeoutMillis: Long = 0,
+        block: suspend () -> T,
+    ): T {
+        require(waitTimeoutMillis >= 0)
+        var remaining = waitTimeoutMillis
         // No owner token: Mutex.tryLock(owner) THROWS on a repeat acquisition by the same
         // owner instead of returning false, which would turn "busy" into a crash.
-        if (!mutex.tryLock()) {
-            throw LocalInferenceBusy(currentHolder ?: "another on-device task")
+        while (!mutex.tryLock()) {
+            if (remaining <= 0) throw LocalInferenceBusy(currentHolder ?: "another on-device task")
+            val pause = minOf(250L, remaining)
+            delay(pause)
+            remaining -= pause
         }
         currentHolder = label
         try {

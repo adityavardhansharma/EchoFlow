@@ -6,7 +6,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import com.echoflow.data.ScheduleTask
-import com.echoflow.data.ScheduleDraft
 import com.echoflow.ui.theme.EchoFlowTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -39,7 +38,7 @@ class ScheduleEditorScreenshotTest {
             unit = ScheduleTask.DAY, interval = 2, anchorAt = anchor,
             zoneId = zone.id, nextRunAt = anchor, needsWeb = true,
         )
-        var saved: ScheduleDraft? = null
+        var saved: ScheduleTask? = null
         compose.setContent {
             EchoFlowTheme {
                 ScheduleEditor(sample, sample.modelId,
@@ -50,6 +49,8 @@ class ScheduleEditorScreenshotTest {
         compose.onNodeWithText("Repeat").performScrollTo()
         compose.onRoot().captureRoboImage("build/outputs/schedule-editor-wheels.png")
         compose.onNodeWithText("Save changes").performScrollTo().performClick()
+        assertEquals(anchor, saved?.anchorAt)
+        assertEquals(zone.id, saved?.zoneId)
         assertEquals(2, saved?.interval)
         assertEquals(ScheduleTask.DAY, saved?.unit)
     }

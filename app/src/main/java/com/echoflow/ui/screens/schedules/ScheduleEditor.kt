@@ -32,7 +32,6 @@ import com.echoflow.data.*
 import com.echoflow.ui.screens.chat.ModelPickerSheet
 import com.echoflow.ui.theme.Spacing
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -46,7 +45,7 @@ internal fun ScheduleEditor(
     models: List<Pair<String, String>>,
     localModels: List<Pair<String, String>>,
     onBack: () -> Unit,
-    onSave: (ScheduleDraft) -> Unit,
+    onSave: (ScheduleTask) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -293,7 +292,10 @@ internal fun ScheduleEditor(
                     }
                 }
                 Spacer(Modifier.height(Spacing.m))
-                val preview = runCatching { current.copy(modelId = chosenModel).toTask(original?.id ?: "preview") }
+                val preview = remember(current, chosenModel, original) {
+                    runCatching { current.copy(modelId = chosenModel).resolve(original) }
+                }
+                val schedulingAgain = original?.status == ScheduleTask.COMPLETED && current.unit == ScheduleTask.ONCE
                 Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                     Column(Modifier.fillMaxWidth().padding(Spacing.m)) {
                         Text("What will happen", style = MaterialTheme.typography.titleMedium,
@@ -322,13 +324,17 @@ internal fun ScheduleEditor(
                     }
                 }
                 Spacer(Modifier.height(Spacing.xl))
-                Button(onClick = { onSave(current.copy(modelId = chosenModel)) },
+                Button(onClick = { preview.getOrNull()?.let(onSave) },
                     enabled = preview.isSuccess && chosenModel.isNotBlank() &&
                         current.title.isNotBlank() && current.instruction.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                     Icon(Icons.Default.Check, null)
                     Spacer(Modifier.width(Spacing.s))
-                    Text(if (original == null) "Create schedule" else "Save changes")
+                    Text(when {
+                        original == null -> "Create schedule"
+                        schedulingAgain -> "Schedule again"
+                        else -> "Save changes"
+                    })
                 }
                 Spacer(Modifier.height(Spacing.xl))
             }
@@ -338,18 +344,6 @@ internal fun ScheduleEditor(
 
 private fun String.withClock(hour: Int, minute: Int): String =
     take(10).takeIf { it.length == 10 }?.let { "$it ${"%02d:%02d".format(hour, minute)}" } ?: this
-
-private fun ScheduleTask.toDraft(): ScheduleDraft {
-    val calendar = Calendar.getInstance(TimeZone.getTimeZone(zoneId)).apply { timeInMillis = anchorAt }
-    return ScheduleDraft(
-        title = title, instruction = instruction, unit = unit, interval = interval,
-        hour = calendar.get(Calendar.HOUR_OF_DAY), minute = calendar.get(Calendar.MINUTE),
-        weekday = calendar.get(Calendar.DAY_OF_WEEK), monthDay = calendar.get(Calendar.DAY_OF_MONTH),
-        onceDate = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone(zoneId)
-        }.format(Date(anchorAt)), modelId = modelId, needsWeb = needsWeb,
-    )
-}
 
 @Composable
 private fun WheelPicker(

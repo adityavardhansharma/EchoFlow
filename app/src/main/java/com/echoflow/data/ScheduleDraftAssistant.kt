@@ -22,8 +22,37 @@ data class ScheduleDraft(
     val needsWeb: Boolean = false,
     val assumption: String = "",
 ) {
-    fun toTask(id: String = UUID.randomUUID().toString(), now: Long = System.currentTimeMillis()): ScheduleTask {
-        val zone = TimeZone.getDefault()
+    /** Resolve once for both the preview and the save action. Keep an existing cadence. */
+    fun resolve(
+        original: ScheduleTask? = null,
+        id: String = original?.id ?: UUID.randomUUID().toString(),
+        now: Long = System.currentTimeMillis(),
+    ): ScheduleTask {
+        val previous = original?.toDraft()
+        val sameTiming = previous != null && unit == previous.unit && interval == previous.interval && when (unit) {
+            ScheduleTask.HOUR -> true
+            ScheduleTask.DAY -> hour == previous.hour && minute == previous.minute
+            ScheduleTask.WEEK -> weekday == previous.weekday && hour == previous.hour && minute == previous.minute
+            ScheduleTask.MONTH -> monthDay == previous.monthDay && hour == previous.hour && minute == previous.minute
+            ScheduleTask.ONCE -> onceDate == previous.onceDate
+            else -> false
+        }
+        val task = if (sameTiming) original!!.copy(
+            title = title.trim(), instruction = instruction.trim(), modelId = modelId, needsWeb = needsWeb,
+        ) else toTask(id, now, original?.zoneId ?: TimeZone.getDefault().id)
+        val status = if (original?.status == ScheduleTask.COMPLETED && unit == ScheduleTask.ONCE) {
+            ScheduleTask.ACTIVE
+        } else original?.status ?: ScheduleTask.ACTIVE
+        require(unit != ScheduleTask.ONCE || task.anchorAt > now) { "Pick a future time." }
+        return task.copy(status = status, nextRunAt = if (status == ScheduleTask.ACTIVE) ScheduleTime.next(task, now) else null)
+    }
+
+    fun toTask(
+        id: String = UUID.randomUUID().toString(),
+        now: Long = System.currentTimeMillis(),
+        zoneId: String = TimeZone.getDefault().id,
+    ): ScheduleTask {
+        val zone = TimeZone.getTimeZone(zoneId)
         val calendar = Calendar.getInstance(zone).apply {
             timeInMillis = now
             set(Calendar.SECOND, 0)
@@ -76,6 +105,18 @@ data class ScheduleDraft(
             anchorAt = anchor, zoneId = zone.id, nextRunAt = anchor, needsWeb = needsWeb,
         )
     }
+}
+
+fun ScheduleTask.toDraft(): ScheduleDraft {
+    val calendar = Calendar.getInstance(TimeZone.getTimeZone(zoneId)).apply { timeInMillis = anchorAt }
+    return ScheduleDraft(
+        title = title, instruction = instruction, unit = unit, interval = interval,
+        hour = calendar.get(Calendar.HOUR_OF_DAY), minute = calendar.get(Calendar.MINUTE),
+        weekday = calendar.get(Calendar.DAY_OF_WEEK), monthDay = calendar.get(Calendar.DAY_OF_MONTH),
+        onceDate = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone(zoneId)
+        }.format(java.util.Date(anchorAt)), modelId = modelId, needsWeb = needsWeb,
+    )
 }
 
 sealed interface ScheduleProposal {

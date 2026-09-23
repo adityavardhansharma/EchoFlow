@@ -40,6 +40,7 @@ class ScheduleModelRunner(private val context: Context) {
         systemPrompt: String,
         runId: String = UUID.randomUUID().toString(),
         searchQuery: String? = null,
+        localWaitTimeoutMillis: Long = 0,
     ): String {
         val provider = searchQuery?.let { activeSearchProvider(modelId) }
         val serverWebSearch = provider == "openrouter"
@@ -83,7 +84,7 @@ class ScheduleModelRunner(private val context: Context) {
             val model = localModel!!
             val engine = ScheduleLocalRuntime.service(context)
             require(engine.modelFileExists(model)) { "The selected on-device model file is missing." }
-            ScheduleLocalRuntime.gate.withExclusive("a scheduled task") {
+            ScheduleLocalRuntime.gate.withExclusive("a scheduled task", localWaitTimeoutMillis) {
                 engine.generate(model, runId, history, prompt, params).collect { chunk ->
                     if (chunk is StreamChunk.Content) output.append(chunk.text)
                 }
