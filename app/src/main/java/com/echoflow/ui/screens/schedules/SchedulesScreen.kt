@@ -41,7 +41,6 @@ import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.screens.chat.ModelPickerSheet
 import com.echoflow.ui.theme.Spacing
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -96,19 +95,10 @@ fun SchedulesScreen(
                 initialModel = editorTask?.modelId ?: selectedModel,
                 models = models, localModels = localEntries,
                 onBack = goBack,
-                onSave = { draft ->
+                onSave = { task ->
                     scope.launch {
                         runCatching {
-                            val task = draft.toTask(editorTask?.id ?: java.util.UUID.randomUUID().toString())
-                            val original = editorTask
-                            val sameTiming = original != null && original.unit == draft.unit &&
-                                original.interval == draft.interval && original.toPickerSignature() ==
-                                task.toPickerSignature()
-                            manager.save(task.copy(
-                                status = original?.status ?: ScheduleTask.ACTIVE,
-                                anchorAt = if (sameTiming) original!!.anchorAt else task.anchorAt,
-                                zoneId = if (sameTiming) original!!.zoneId else task.zoneId,
-                            ))
+                            manager.save(task)
                         }.onSuccess { creating = false; editorTask = null; filter = it.status }
                             .onFailure { screenError = it.message ?: "Couldn't save this schedule." }
                     }
@@ -240,7 +230,8 @@ private fun ScheduleCard(
                 Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Task actions") }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() },
+                        DropdownMenuItem(text = { Text(if (task.status == ScheduleTask.COMPLETED &&
+                            task.unit == ScheduleTask.ONCE) "Schedule again" else "Edit") }, onClick = { menuOpen = false; onEdit() },
                             leadingIcon = { Icon(Icons.Default.Edit, null) })
                         if (running) DropdownMenuItem(text = { Text("Stop this run") },
                             onClick = { menuOpen = false; onStopRun() },
@@ -316,15 +307,4 @@ private fun formatTime(epoch: Long): String =
 private fun scheduleLabel(task: ScheduleTask): String = when (task.unit) {
     ScheduleTask.ONCE -> "One time"
     else -> "Every ${task.interval} ${task.unit}${if (task.interval == 1) "" else "s"}"
-}
-
-private fun ScheduleTask.toPickerSignature(): String {
-    val c = Calendar.getInstance(java.util.TimeZone.getTimeZone(zoneId)).apply { timeInMillis = anchorAt }
-    return when (unit) {
-        ScheduleTask.HOUR -> "hour"
-        ScheduleTask.DAY -> "${c.get(Calendar.HOUR_OF_DAY)}:${c.get(Calendar.MINUTE)}"
-        ScheduleTask.WEEK -> "${c.get(Calendar.DAY_OF_WEEK)}:${c.get(Calendar.HOUR_OF_DAY)}:${c.get(Calendar.MINUTE)}"
-        ScheduleTask.MONTH -> "${c.get(Calendar.DAY_OF_MONTH)}:${c.get(Calendar.HOUR_OF_DAY)}:${c.get(Calendar.MINUTE)}"
-        else -> anchorAt.toString()
-    }
 }

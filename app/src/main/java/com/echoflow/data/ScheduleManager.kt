@@ -3,6 +3,8 @@ package com.echoflow.data
 import android.content.Context
 import androidx.room.withTransaction
 import androidx.work.BackoffPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.OneTimeWorkRequestBuilder
@@ -28,6 +30,7 @@ class ScheduleManager(private val context: Context) {
         require(draft.title.isNotBlank() && draft.instruction.isNotBlank() && draft.modelId.isNotBlank())
         require(draft.interval in 1..999)
         require(draft.unit in setOf(ScheduleTask.ONCE, ScheduleTask.HOUR, ScheduleTask.DAY, ScheduleTask.WEEK, ScheduleTask.MONTH))
+        ensureRecovery()
         val saved = database.withTransaction {
             val old = dao.task(draft.id)
             val now = System.currentTimeMillis()
@@ -88,8 +91,9 @@ class ScheduleManager(private val context: Context) {
 
     /** Repairs work after a crash, reboot, package replacement, or a failed enqueue. */
     suspend fun reconcile(replaceQueued: Boolean = false) {
+        ensureRecovery()
         val now = System.currentTimeMillis()
-        dao.interruptedRuns().filter { (it.startedAt ?: now) < now - 30 * 60_000L }.forEach {
+        dao.interruptedRuns().filter { (it.startedAt ?: now) < now - INTERRUPTED_RUN_GRACE_MS }.forEach {
             val infos = workInfos("schedule:${it.id}")
             if (infos.any { info -> info.state == WorkInfo.State.RUNNING }) return@forEach
             database.withTransaction {
@@ -130,6 +134,7 @@ class ScheduleManager(private val context: Context) {
 
     /** Claims an occurrence atomically; only one worker may perform a model request. */
     suspend fun claim(taskId: String, at: Long, revision: Long, manual: Boolean, runId: String): ScheduleTask? {
+        ensureRecovery()
         return database.withTransaction {
             val task = dao.task(taskId) ?: return@withTransaction null
             if (!manual && (task.status != ScheduleTask.ACTIVE || task.revision != revision || task.nextRunAt != at)) {
@@ -209,6 +214,16 @@ class ScheduleManager(private val context: Context) {
         return chatId
     }
 
+    // Register before committing a schedule or claim so a process death cannot leave Room
+    // waiting for an app launch to repair it. KEEP never postpones the existing watchdog.
+    private suspend fun ensureRecovery() {
+        work.enqueueUniquePeriodicWork(
+            RECOVERY_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<ScheduleRecoveryWorker>(15, TimeUnit.MINUTES)
+                .setInitialDelay(15, TimeUnit.MINUTES).build(),
+        ).await()
+    }
+
     private suspend fun enqueueNext(task: ScheduleTask, replaceQueued: Boolean = false) {
         if (task.status != ScheduleTask.ACTIVE) return
         val next = task.nextRunAt ?: return
@@ -250,6 +265,8 @@ class ScheduleManager(private val context: Context) {
     }
 
     companion object {
+        internal const val RECOVERY_WORK_NAME = "schedule-recovery"
+        internal const val INTERRUPTED_RUN_GRACE_MS = 30 * 60_000L
         const val MAX_LATENESS_MS = 60 * 60_000L
         fun occurrenceId(taskId: String, at: Long, revision: Long): String =
             UUID.nameUUIDFromBytes("$taskId:$at:$revision".toByteArray(Charsets.UTF_8)).toString()
