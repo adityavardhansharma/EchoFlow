@@ -73,7 +73,13 @@ class MainActivity : ComponentActivity() {
             if (appGraph.database.researchRunDao().getInterrupted().isNotEmpty()) {
                 DeepResearchForegroundService.resume(applicationContext)
             }
-            ScheduleManager(applicationContext).reconcile()
+            try {
+                ScheduleManager(applicationContext).reconcile(replaceQueued = true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "Could not repair scheduled work", e)
+            }
         }
 
         setContent {

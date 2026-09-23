@@ -10,6 +10,7 @@ import com.echoflow.data.ScheduleDraft
 import com.echoflow.ui.theme.EchoFlowTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import java.util.Calendar
 import java.util.TimeZone
 import org.junit.Rule
 import org.junit.Test
@@ -26,13 +27,17 @@ class ScheduleEditorScreenshotTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun review_wheels() {
-        val anchor = System.currentTimeMillis() + 3 * 86_400_000L
+        val zone = TimeZone.getTimeZone("UTC")
+        val anchor = Calendar.getInstance(zone).apply {
+            clear()
+            set(2040, Calendar.JUNE, 3, 9, 0, 0)
+        }.timeInMillis
         val sample = ScheduleTask(
             id = "sample", title = "Morning briefing",
             instruction = "Summarize the latest technology news",
             modelId = "openai/gpt-4o", status = ScheduleTask.ACTIVE,
             unit = ScheduleTask.DAY, interval = 2, anchorAt = anchor,
-            zoneId = TimeZone.getDefault().id, nextRunAt = anchor, needsWeb = true,
+            zoneId = zone.id, nextRunAt = anchor, needsWeb = true,
         )
         var saved: ScheduleDraft? = null
         compose.setContent {

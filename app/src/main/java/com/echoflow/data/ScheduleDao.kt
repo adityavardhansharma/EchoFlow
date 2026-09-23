@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -18,7 +19,7 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedules WHERE status = 'active'")
     suspend fun activeTasks(): List<ScheduleTask>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun saveTask(task: ScheduleTask)
 
     @Query("DELETE FROM schedules WHERE id = :id")

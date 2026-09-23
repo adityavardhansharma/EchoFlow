@@ -139,6 +139,7 @@ internal fun ScheduleEditor(
                                 if (message.isEmpty() || busy) return@IconButton
                                 input = ""
                                 turns = turns + (true to message)
+                                error = null
                                 busy = true
                                 scope.launch {
                                     val transcript = turns.joinToString("\n") { (user, text) ->

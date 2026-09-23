@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
-/** One app-scoped local engine is shared by schedule creation, warm-up and due runs. */
+/** One process-scoped local engine is shared by chat, schedule creation, warm-up and due runs. */
 object ScheduleLocalRuntime {
     val gate = LocalInferenceGate()
     @Volatile private var service: LocalLlmService? = null
@@ -69,19 +69,10 @@ class ScheduleModelRunner(private val context: Context) {
             content = userText, createdAt = System.currentTimeMillis(),
         ))
         val local = modelId.startsWith("local/")
-        val params = if (local) {
-            val model = AppDatabase.getDatabase(context).localModelDao().getLocalModelById(modelId)
-                ?: error("The selected on-device model is no longer installed.")
-            InferenceLimits.coerce(
-                settings.getInferenceParamsDirect(true),
-                ModelCapabilities(
-                    (model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName))
-                        .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
-                    InferenceLimits.LOCAL_TOP_K_MAX,
-                ),
-                InferenceLimits.LOCAL_DEFAULTS,
-            )
-        } else InferenceLimits.coerce(
+        val localModel = if (local) AppDatabase.getDatabase(context).localModelDao()
+            .getLocalModelById(modelId) ?: error("The selected on-device model is no longer installed.")
+            else null
+        val params = if (localModel != null) localParams(localModel) else InferenceLimits.coerce(
             settings.getInferenceParamsDirect(false),
             ModelCapabilities(0, InferenceLimits.CLOUD_TOP_K_MAX),
             InferenceLimits.CLOUD_DEFAULTS,
@@ -89,7 +80,7 @@ class ScheduleModelRunner(private val context: Context) {
         val output = StringBuilder()
         var sourcesFound = false
         if (local) {
-            val model = AppDatabase.getDatabase(context).localModelDao().getLocalModelById(modelId)!!
+            val model = localModel!!
             val engine = ScheduleLocalRuntime.service(context)
             require(engine.modelFileExists(model)) { "The selected on-device model file is missing." }
             ScheduleLocalRuntime.gate.withExclusive("a scheduled task") {
@@ -120,12 +111,22 @@ class ScheduleModelRunner(private val context: Context) {
     suspend fun prewarm(modelId: String) {
         val model = AppDatabase.getDatabase(context).localModelDao().getLocalModelById(modelId)
             ?: return
-        val params = settings.getInferenceParamsDirect(true)
+        val params = localParams(model)
         if (ScheduleLocalRuntime.gate.isBusy) return
         ScheduleLocalRuntime.gate.withExclusive("scheduled model warm-up") {
             withContext(Dispatchers.IO) { ScheduleLocalRuntime.service(context).prewarm(model, params) }
         }
     }
+
+    private fun localParams(model: LocalModel): InferenceParams = InferenceLimits.coerce(
+        settings.getInferenceParamsDirect(true),
+        ModelCapabilities(
+            (model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName))
+                .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
+            InferenceLimits.LOCAL_TOP_K_MAX,
+        ),
+        InferenceLimits.LOCAL_DEFAULTS,
+    )
 
     private fun cloudFlow(
         modelId: String,

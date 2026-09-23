@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -39,7 +40,15 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val notificationId = (runId.hashCode() and 0x00ff_ffff) or 0x3400_0000
         var resultChatId: String? = null
         try {
-            setForeground(ScheduleNotifications.running(applicationContext, notificationId, task.title))
+            try {
+                setForeground(ScheduleNotifications.running(applicationContext, notificationId, task.title))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Android may deny foreground promotion from the background. Ordinary work can
+                // still complete; the run history records any later model failure.
+                Log.w("ScheduleWorker", "Continuing without foreground service", e)
+            }
             val answer = ScheduleModelRunner(applicationContext).complete(
                 modelId = task.modelId,
                 userText = task.instruction,

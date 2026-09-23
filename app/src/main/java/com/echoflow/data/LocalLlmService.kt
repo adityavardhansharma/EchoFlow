@@ -189,7 +189,7 @@ class LocalLlmService(private val context: Context) {
         LocalLlmRuntime.MEDIAPIPE -> continueMediaPipe()
     }
 
-    /** Frees all engines and sessions (model switch away from local, or ViewModel cleared). */
+    /** Frees all engines and sessions when the application releases its shared local runtime. */
     fun releaseAll() {
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }

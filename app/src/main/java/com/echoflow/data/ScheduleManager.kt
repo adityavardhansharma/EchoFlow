@@ -4,12 +4,15 @@ import android.content.Context
 import androidx.room.withTransaction
 import androidx.work.BackoffPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.WorkInfo
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import androidx.work.await
 
 /** Room owns the schedule; WorkManager is a replaceable wake-up mechanism. */
@@ -49,7 +52,17 @@ class ScheduleManager(private val context: Context) {
         if (status == ScheduleTask.COMPLETED) stopCurrentRun(id)
     }
 
-    suspend fun delete(id: String) = dao.deleteTask(id)
+    suspend fun delete(id: String) {
+        stopCurrentRun(id)
+        dao.task(id)?.let { task ->
+            task.nextRunAt?.let { at ->
+                val runId = occurrenceId(id, at, task.revision)
+                work.cancelUniqueWork("schedule:$runId").await()
+                work.cancelUniqueWork("schedule-warm:$runId").await()
+            }
+        }
+        dao.deleteTask(id)
+    }
 
     suspend fun runNow(taskId: String) {
         val task = dao.task(taskId) ?: return
@@ -74,11 +87,18 @@ class ScheduleManager(private val context: Context) {
     }
 
     /** Repairs work after a crash, reboot, package replacement, or a failed enqueue. */
-    suspend fun reconcile() {
+    suspend fun reconcile(replaceQueued: Boolean = false) {
         val now = System.currentTimeMillis()
         dao.interruptedRuns().filter { (it.startedAt ?: now) < now - 30 * 60_000L }.forEach {
-            dao.updateRun(it.copy(status = ScheduleRun.FAILED, finishedAt = now,
-                error = "Interrupted before completion. The run was not replayed to avoid duplicate actions."))
+            val infos = workInfos("schedule:${it.id}")
+            if (infos.any { info -> info.state == WorkInfo.State.RUNNING }) return@forEach
+            database.withTransaction {
+                val run = dao.run(it.id) ?: return@withTransaction
+                if (run.status == ScheduleRun.RUNNING) dao.updateRun(run.copy(
+                    status = ScheduleRun.FAILED, finishedAt = now,
+                    error = "Interrupted before completion. The run was not replayed to avoid duplicate actions.",
+                ))
+            }
         }
         dao.activeTasks().forEach { task ->
             val next = task.nextRunAt
@@ -101,9 +121,9 @@ class ScheduleManager(private val context: Context) {
                             nextRunAt = following, updatedAt = now,
                         ))
                     }
-                    dao.task(task.id)?.let { enqueueNext(it) }
+                    dao.task(task.id)?.let { enqueueNext(it, replaceQueued) }
                 }
-                else -> enqueueNext(task)
+                else -> enqueueNext(task, replaceQueued)
             }
         }
     }
@@ -189,29 +209,44 @@ class ScheduleManager(private val context: Context) {
         return chatId
     }
 
-    private suspend fun enqueueNext(task: ScheduleTask) {
+    private suspend fun enqueueNext(task: ScheduleTask, replaceQueued: Boolean = false) {
         if (task.status != ScheduleTask.ACTIVE) return
         val next = task.nextRunAt ?: return
-        enqueue(task, next, manual = false)
+        enqueue(task, next, manual = false, replaceQueued = replaceQueued)
     }
 
-    private suspend fun enqueue(task: ScheduleTask, at: Long, manual: Boolean) {
+    private suspend fun enqueue(task: ScheduleTask, at: Long, manual: Boolean,
+        replaceQueued: Boolean = false) {
         val runId = if (manual) UUID.randomUUID().toString() else occurrenceId(task.id, at, task.revision)
+        val workName = "schedule:$runId"
+        if (replaceQueued && workInfos(workName)
+                .any { it.state == WorkInfo.State.RUNNING }) return
         val request = OneTimeWorkRequestBuilder<ScheduleWorker>()
             .setInputData(workDataOf("taskId" to task.id, "scheduledAt" to at,
                 "revision" to task.revision, "manual" to manual, "runId" to runId))
             .setInitialDelay(if (manual) 0L else (at - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        work.enqueueUniqueWork("schedule:$runId", ExistingWorkPolicy.KEEP, request).await()
+        val policy = if (replaceQueued) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+        work.enqueueUniqueWork(workName, policy, request).await()
         if (!manual && task.modelId.startsWith("local/") && at - System.currentTimeMillis() > 5 * 60_000L) {
             val warm = OneTimeWorkRequestBuilder<ScheduleWarmupWorker>()
                 .setInputData(workDataOf("taskId" to task.id, "scheduledAt" to at,
                     "revision" to task.revision))
                 .setInitialDelay((at - System.currentTimeMillis() - 5 * 60_000L).coerceAtLeast(0), TimeUnit.MILLISECONDS)
                 .build()
-            work.enqueueUniqueWork("schedule-warm:$runId", ExistingWorkPolicy.KEEP, warm).await()
+            val warmName = "schedule-warm:$runId"
+            if (!replaceQueued || workInfos(warmName)
+                    .none { it.state == WorkInfo.State.RUNNING }) {
+                work.enqueueUniqueWork(warmName, policy, warm).await()
+            }
+        } else if (replaceQueued) {
+            work.cancelUniqueWork("schedule-warm:$runId").await()
         }
+    }
+
+    private suspend fun workInfos(name: String): List<WorkInfo> = withContext(Dispatchers.IO) {
+        work.getWorkInfosForUniqueWork(name).get()
     }
 
     companion object {

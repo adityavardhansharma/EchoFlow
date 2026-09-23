@@ -140,8 +140,14 @@ fun SchedulesScreen(
                                         runCatching { manager.setStatus(task.id, status) }
                                             .onFailure { screenError = it.message ?: "Couldn't update this schedule." }
                                     } },
-                                    onRunNow = { scope.launch { manager.runNow(task.id) } },
-                                    onStopRun = { scope.launch { manager.stopCurrentRun(task.id) } },
+                                    onRunNow = { scope.launch {
+                                        runCatching { manager.runNow(task.id) }
+                                            .onFailure { screenError = it.message ?: "Couldn't start this run." }
+                                    } },
+                                    onStopRun = { scope.launch {
+                                        runCatching { manager.stopCurrentRun(task.id) }
+                                            .onFailure { screenError = it.message ?: "Couldn't stop this run." }
+                                    } },
                                     onOpenChat = onOpenChat,
                                 )
                             }
@@ -158,7 +164,7 @@ fun SchedulesScreen(
         }
     }
     screenError?.let { message -> AlertDialog(
-        onDismissRequest = { screenError = null }, title = { Text("Schedule not saved") },
+        onDismissRequest = { screenError = null }, title = { Text("Schedule error") },
         text = { Text(message) }, confirmButton = { TextButton(onClick = { screenError = null }) { Text("OK") } },
     ) }
 }
