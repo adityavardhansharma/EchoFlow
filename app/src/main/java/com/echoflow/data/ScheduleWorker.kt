@@ -33,22 +33,41 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val manager = ScheduleManager(applicationContext)
         if (!manual && at > System.currentTimeMillis()) return Result.retry()
         manager.reconcile()
+        val pendingTask = AppDatabase.getDatabase(applicationContext).scheduleDao().task(taskId)
+            ?: return Result.success()
+        if (!manual && (pendingTask.status != ScheduleTask.ACTIVE ||
+                pendingTask.revision != revision || pendingTask.nextRunAt != at)) {
+            return Result.success()
+        }
+        val notificationId = (runId.hashCode() and 0x00ff_ffff) or 0x3400_0000
+        try {
+            setForeground(ScheduleNotifications.running(applicationContext, notificationId, pendingTask.title))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("ScheduleWorker", "Could not start foreground work", e)
+            if (runAttemptCount < MAX_FOREGROUND_ATTEMPTS - 1 &&
+                (manual || System.currentTimeMillis() - at <= ScheduleManager.MAX_LATENESS_MS)) {
+                return Result.retry()
+            }
+            // Foreground access is required for potentially long model inference. Record a
+            // terminal failure only after retries; no model request has started yet.
+            val task = manager.claim(taskId, at, revision, manual, runId)
+            if (task != null) {
+                val reason = "Android could not start background model execution. Try running this task while EchoFlow is open."
+                manager.finish(runId, null, reason)
+                ScheduleNotifications.finished(applicationContext, notificationId, task.title, reason, null)
+                return Result.failure()
+            }
+            manager.reconcile()
+            return Result.success()
+        }
         val task = manager.claim(taskId, at, revision, manual, runId) ?: run {
             manager.reconcile()
             return Result.success()
         }
-        val notificationId = (runId.hashCode() and 0x00ff_ffff) or 0x3400_0000
         var resultChatId: String? = null
         try {
-            try {
-                setForeground(ScheduleNotifications.running(applicationContext, notificationId, task.title))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Android may deny foreground promotion from the background. Ordinary work can
-                // still complete; the run history records any later model failure.
-                Log.w("ScheduleWorker", "Continuing without foreground service", e)
-            }
             val answer = ScheduleModelRunner(applicationContext).complete(
                 modelId = task.modelId,
                 userText = task.instruction,
@@ -74,6 +93,10 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 reason, null)
             return Result.failure()
         }
+    }
+
+    private companion object {
+        const val MAX_FOREGROUND_ATTEMPTS = 6
     }
 }
 
