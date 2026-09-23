@@ -32,7 +32,7 @@ class EchoFlowAppGraph(application: Application) {
     private val modelDownloadManager =
         ModelDownloadManager(application.applicationContext, database.localModelDao())
     // One gate app-wide: only one on-device LLM generation runs at a time.
-    private val localInferenceGate = LocalInferenceGate()
+    private val localInferenceGate = com.echoflow.data.ScheduleLocalRuntime.gate
 
     init {
         // On-device image generation left its model bundles on disk — potentially several GB

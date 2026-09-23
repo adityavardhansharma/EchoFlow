@@ -114,6 +114,17 @@ class LocalLlmService(private val context: Context) {
 
     fun modelFileExists(model: LocalModel): Boolean = modelFile(model).exists()
 
+    /** Best-effort preparation. Due runs use the same load path if Android kills this process. */
+    suspend fun prewarm(model: LocalModel, params: InferenceParams) = setupMutex.withLock {
+        if (generating.get() || !modelFileExists(model)) return@withLock
+        val maxTokens = effectiveMaxTokens(model, params)
+        when (LocalLlmPrompting.runtimeFor(model)) {
+            LocalLlmRuntime.LITERT -> ensureLitertEngine(model, maxTokens)
+            LocalLlmRuntime.MEDIAPIPE -> ensureMpEngine(model, maxTokens, maxOf(64, params.topK))
+            LocalLlmRuntime.GGUF -> ensureGgufEngine(model, maxTokens)
+        }
+    }
+
     private fun effectiveMaxTokens(model: LocalModel, params: InferenceParams): Int =
         LocalLlmPrompting.effectiveMaxTokens(model, params)
 
