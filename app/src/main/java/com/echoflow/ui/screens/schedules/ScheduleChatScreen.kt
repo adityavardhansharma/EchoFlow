@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -65,6 +66,7 @@ import com.echoflow.ui.screens.chat.ModelPickerSheet
 import com.echoflow.ui.screens.chat.SendButton
 import com.echoflow.ui.theme.Spacing
 import java.util.Calendar
+import java.util.TimeZone
 
 /**
  * A schedule is a conversation. It is created by describing it, changed by asking — or by
@@ -174,7 +176,7 @@ fun ScheduleChatScreen(
                         items(messages, key = { it.id }) { message ->
                             ScheduleMessage(message, saved?.zoneId, use24h, onCopy = { clipboard.setText(AnnotatedString(it)) })
                         }
-                        if (running) item(key = "running") { RunningPill(onStop = vm::stopRun) }
+                        if (running) item(key = "running") { RunningReply(onStop = vm::stopRun) }
                         streaming?.let { text -> item(key = "streaming") { StreamingReply(text) } }
                     }
                 }
@@ -297,81 +299,113 @@ private fun ScheduleChatTopBar(
     }
 }
 
+/**
+ * Every answer — a run's or a reply's — is an ordinary EchoFlow message under the EchoFlow mark.
+ * A run is introduced by a thin timeline line saying which occurrence produced it; lifecycle
+ * events (paused, resumed, ended, missed) are the same quiet line, never a bubble.
+ */
 @Composable
 private fun ScheduleMessage(message: ChatMessage, zoneId: String?, use24h: Boolean, onCopy: (String) -> Unit) {
     val event = ScheduleEvent.parse(message.scheduleEvent)
+    val zone = zoneId ?: TimeZone.getDefault().id
     when {
         event == null -> MessageBubble(message = message, onCopy = onCopy)
-        event.type == ScheduleEvent.RUN -> RunAnswer(message, event, zoneId, use24h)
-        event.type == ScheduleEvent.EDITS -> Column {
+        event.type == ScheduleEvent.RUN -> Column(Modifier.fillMaxWidth()) {
+            val at = event.scheduledAt ?: message.createdAt
+            TimelineLine("Scheduled run · ${stamp(at, zone, use24h)}") { tint -> ScheduleMark(size = 16.dp, tint = tint) }
+            Spacer(Modifier.height(Spacing.m))
             MessageBubble(message = message, onCopy = onCopy)
-            FlowRow(Modifier.padding(top = Spacing.s), horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        }
+        event.type == ScheduleEvent.EDITS -> Column(Modifier.fillMaxWidth()) {
+            MessageBubble(message = message, onCopy = onCopy)
+            FlowRow(Modifier.padding(top = Spacing.xs), horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 event.items.forEach { EditChip(it) }
             }
         }
-        else -> EventPill(message.content, event.type)
+        else -> {
+            val problem = event.type == ScheduleEvent.RUN_FAILED || event.type == ScheduleEvent.MISSED
+            TimelineLine(eventLabel(message, event, zone, use24h), problem) { tint ->
+                val icon = eventIcon(event.type)
+                if (icon != null) Icon(icon, null, Modifier.size(16.dp), tint = tint) else ScheduleMark(size = 16.dp, tint = tint)
+            }
+        }
     }
 }
 
-/** A run's answer: the chat's answer layout, headed by which occurrence produced it. */
+private fun eventIcon(type: String): ImageVector? = when (type) {
+    ScheduleEvent.PAUSED -> Icons.Default.Pause
+    ScheduleEvent.RESUMED -> Icons.Default.PlayArrow
+    ScheduleEvent.ENDED -> Icons.Default.EventBusy
+    ScheduleEvent.CREATED -> Icons.Default.EventAvailable
+    ScheduleEvent.SAVED -> Icons.Default.Check
+    ScheduleEvent.RUN_STARTED -> Icons.Default.Bolt
+    ScheduleEvent.RUN_FAILED, ScheduleEvent.MISSED -> Icons.Default.ErrorOutline
+    else -> null
+}
+
+/** Short words for states that need no explanation; the stored sentence stays for the model. */
+private fun eventLabel(message: ChatMessage, event: ScheduleEvent, zone: String, use24h: Boolean): String = when (event.type) {
+    ScheduleEvent.PAUSED -> "Paused · ${stamp(message.createdAt, zone, use24h)}"
+    ScheduleEvent.ENDED -> "Ended · ${stamp(message.createdAt, zone, use24h)}"
+    else -> message.content.trim().removeSuffix(".")
+}
+
+/** "2:41 AM" for today, otherwise "Thu, Sep 24 · 2:41 AM". */
+private fun stamp(at: Long, zone: String, use24h: Boolean): String {
+    val tz = TimeZone.getTimeZone(zone)
+    val then = Calendar.getInstance(tz).apply { timeInMillis = at }
+    val today = Calendar.getInstance(tz)
+    val sameDay = then.get(Calendar.YEAR) == today.get(Calendar.YEAR) && then.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
+    return if (sameDay) ScheduleText.time(then.get(Calendar.HOUR_OF_DAY), then.get(Calendar.MINUTE), use24h)
+    else ScheduleText.occurrence(at, zone, use24h)
+}
+
+/** A hairline, a small glyph and a few words: the schedule noting something between turns. */
 @Composable
-private fun RunAnswer(message: ChatMessage, event: ScheduleEvent, zoneId: String?, use24h: Boolean) {
+private fun TimelineLine(text: String, problem: Boolean = false, icon: @Composable (Color) -> Unit) {
     val colors = MaterialTheme.colorScheme
-    val at = event.scheduledAt ?: message.createdAt
-    val zone = zoneId ?: java.util.TimeZone.getDefault().id
-    val clock = Calendar.getInstance(java.util.TimeZone.getTimeZone(zone)).apply { timeInMillis = at }
-    Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(Spacing.base)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ScheduleMark(size = 28.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
-                Spacer(Modifier.width(Spacing.s))
-                Text("Run · ${ScheduleText.occurrence(at, zone, use24h)}", style = MaterialTheme.typography.labelLarge, color = colors.tertiary)
-            }
-            Spacer(Modifier.height(Spacing.m))
-            RichMarkdown(message.content)
+    val tint = if (problem) colors.error else colors.onSurfaceVariant
+    val rule = colors.outlineVariant.copy(alpha = 0.6f)
+    Row(Modifier.fillMaxWidth().padding(vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+        HorizontalDivider(Modifier.weight(1f), color = rule)
+        Row(Modifier.padding(horizontal = Spacing.m).widthIn(max = 300.dp), verticalAlignment = Alignment.CenterVertically) {
+            icon(tint)
+            Spacer(Modifier.width(6.dp))
+            Text(text, style = MaterialTheme.typography.labelMedium, color = tint, textAlign = TextAlign.Center)
         }
+        HorizontalDivider(Modifier.weight(1f), color = rule)
     }
 }
 
 @Composable
 private fun EditChip(label: String) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-        Row(Modifier.padding(start = Spacing.s, end = Spacing.m, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-            Spacer(Modifier.width(Spacing.xs))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-        }
-    }
-}
-
-/** Lifecycle lines sit centred and quiet, like the system speaking between turns. */
-@Composable
-private fun EventPill(text: String, type: String) {
     val colors = MaterialTheme.colorScheme
-    val problem = type == ScheduleEvent.RUN_FAILED || type == ScheduleEvent.MISSED
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Surface(shape = CircleShape, color = if (problem) colors.errorContainer else colors.surfaceContainerHigh) {
-            Row(Modifier.padding(horizontal = Spacing.m, vertical = Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                val tint = if (problem) colors.onErrorContainer else colors.onSurfaceVariant
-                if (problem) Icon(Icons.Default.ErrorOutline, null, Modifier.size(16.dp), tint = tint)
-                else ScheduleMark(size = 16.dp, tint = tint)
-                Spacer(Modifier.width(Spacing.s))
-                Text(text, style = MaterialTheme.typography.labelMedium, color = tint, textAlign = TextAlign.Center)
-            }
+    Surface(shape = CircleShape, color = colors.secondaryContainer) {
+        Row(Modifier.padding(start = Spacing.s, end = Spacing.m, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Check, null, Modifier.size(14.dp), tint = colors.onSecondaryContainer)
+            Spacer(Modifier.width(Spacing.xs))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = colors.onSecondaryContainer)
         }
     }
 }
 
+/** A run in progress looks like EchoFlow writing a reply, with a way to stop it. */
 @Composable
-private fun RunningPill(onStop: () -> Unit) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
-            Row(Modifier.padding(start = Spacing.s, end = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-                LoadingIndicator(Modifier.size(32.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text("Running now", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                TextButton(onClick = onStop) { Text("Stop") }
-            }
+private fun RunningReply(onStop: () -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BrandMark(size = 26.dp, animated = true)
+            Spacer(Modifier.width(Spacing.s))
+            Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(Spacing.xs))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LoadingIndicator(Modifier.size(28.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text("Running this schedule…", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            TextButton(onClick = onStop) { Text("Stop") }
         }
     }
 }
