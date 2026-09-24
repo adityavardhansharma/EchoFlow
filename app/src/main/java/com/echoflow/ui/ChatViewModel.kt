@@ -665,9 +665,9 @@ class ChatViewModel(
         _artifactsGalleryOpen.value = false
     }
 
-    fun createProject(name: String, onCreated: ((String) -> Unit)? = null) {
+    fun createProject(name: String, colorIndex: Int = 0, onCreated: ((String) -> Unit)? = null) {
         viewModelScope.launch {
-            val id = projectManager.createProject(name)
+            val id = projectManager.createProject(name, colorIndex)
             onCreated?.invoke(id)
         }
     }

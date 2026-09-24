@@ -12,7 +12,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,17 +24,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MediumExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,75 +82,88 @@ internal fun ProjectFilesScreen(
         if (uris.isNotEmpty()) onAdd(uris)
     }
 
+    val listState = rememberLazyListState()
+    val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    val hasContent = documents.isNotEmpty() || queued > 0
+
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            ProjectHeader(onBack = onBack) {
-                Text("Files", style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    filesHeaderSubtitle(documents, queued),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            // A file that couldn't be added is reported here, on the screen that raised it — not
-            // on the chat surface behind the hub, where the user would never see it.
-            var bannerMessage by remember { mutableStateOf("") }
-            if (fileError != null) bannerMessage = fileError
-            AnimatedVisibility(
-                visible = fileError != null,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                // Keep ErrorBanner composed (and its last message) through the exit
-                // transition — `fileError?.let` removed it the moment the error cleared.
-                ErrorBanner(bannerMessage, onDismiss = onClearFileError)
-            }
-            if (documents.isEmpty() && queued == 0) {
-                FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(Spacing.base, Spacing.l, Spacing.base, 104.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+        ProjectPageScaffold(
+            title = "Files",
+            subtitle = filesHeaderSubtitle(documents, queued),
+            onBack = onBack,
+            floatingActionButton = {
+                if (hasContent) {
+                    MediumExtendedFloatingActionButton(
+                        text = { Text("Add files") },
+                        icon = { Icon(Icons.Default.Add, null) },
+                        onClick = { picker.launch(arrayOf("*/*")) },
+                        expanded = fabExpanded,
+                    )
+                }
+            },
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                // A file that couldn't be added is reported here, on the screen that raised it —
+                // not on the chat surface behind the hub, where the user would never see it.
+                var bannerMessage by remember { mutableStateOf("") }
+                if (fileError != null) bannerMessage = fileError
+                AnimatedVisibility(
+                    visible = fileError != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
                 ) {
-                    if (queued > 0) {
-                        item(key = "queued-batch") {
-                            QueuedFilesRow(
-                                count = queued,
-                                modifier = Modifier.padding(bottom = if (documents.isEmpty()) 0.dp else Spacing.s),
+                    // Keep ErrorBanner composed (and its last message) through the exit
+                    // transition — `fileError?.let` removed it the moment the error cleared.
+                    ErrorBanner(bannerMessage, onDismiss = onClearFileError)
+                }
+                if (!hasContent) {
+                    FilesEmptyState(onAdd = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxSize())
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 128.dp),
+                    ) {
+                        item(key = "purpose") {
+                            FilesPurposeNote(Modifier.padding(bottom = Spacing.l))
+                        }
+                        if (queued > 0) {
+                            item(key = "queued-batch") {
+                                QueuedFilesRow(
+                                    count = queued,
+                                    modifier = Modifier.padding(bottom = Spacing.l),
+                                )
+                            }
+                        }
+                        if (documents.isNotEmpty()) {
+                            item(key = "attached-label") {
+                                ProjectSectionHeader("Attached", count = documents.size)
+                            }
+                        }
+                        itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
+                            DocumentRow(
+                                document = doc,
+                                shape = groupedItemShape(index, documents.size),
+                                modelReadsFiles = modelReadsFiles,
+                                onOpenExternal = {
+                                    if (!ProjectFileOpener.openExternally(context, doc)) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "No app can open this file",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                                onOpenMarkdown = { openedDocId = doc.id },
+                                onRemove = { onRemove(doc) },
+                                modifier = Modifier.padding(bottom = 3.dp).animateItem(),
                             )
                         }
-                    }
-                    itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
-                        DocumentRow(
-                            document = doc,
-                            shape = groupedItemShape(index, documents.size),
-                            modelReadsFiles = modelReadsFiles,
-                            onOpenExternal = {
-                                if (!ProjectFileOpener.openExternally(context, doc)) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "No app can open this file",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            },
-                            onOpenMarkdown = { openedDocId = doc.id },
-                            onRemove = { onRemove(doc) },
-                            modifier = Modifier.animateItem(),
-                        )
                     }
                 }
             }
         }
-        if (documents.isNotEmpty() || queued > 0) {
-            FloatingActionButton(
-                onClick = { picker.launch(arrayOf("*/*")) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.base),
-            ) { Icon(Icons.Default.Add, "Add files") }
-        }
-        // The Markdown reader slides up over the whole list when a file is opened as Markdown.
+        // The Markdown reader slides up over the whole page when a file is opened as Markdown.
         if (openedDoc != null) {
             ProjectDocumentReaderScreen(
                 document = openedDoc,
@@ -158,11 +173,41 @@ internal fun ProjectFilesScreen(
     }
 }
 
+/**
+ * A quiet line above the list saying what these files are for. Tonal and compact so it informs
+ * without competing with the files themselves.
+ */
+@Composable
+private fun FilesPurposeNote(modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Info, null,
+                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(Spacing.m))
+            Text(
+                "Every chat in this project can draw on these files as background knowledge.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
 @Composable
 private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
     Surface(
-        shape = groupedItemShape(0, 1),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = modifier
             .fillMaxWidth()
             .semantics {
@@ -170,21 +215,19 @@ private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
             },
     ) {
         Row(
-            Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    Icons.Default.Description,
-                    null,
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                LoadingIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
             Spacer(Modifier.width(Spacing.m))
@@ -192,13 +235,14 @@ private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
                 Text(
                     if (count == 1) "1 file queued" else "$count files queued",
                     style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "Waiting…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Waiting to be read…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                 )
             }
         }

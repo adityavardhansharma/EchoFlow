@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,6 +58,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ExtractionStatus
@@ -117,14 +119,21 @@ internal fun DocumentRow(
                 ),
         ) {
             Row(
-                Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+                Modifier
+                    .heightIn(min = 68.dp)
+                    .padding(start = Spacing.base, end = Spacing.xs, top = Spacing.m, bottom = Spacing.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // The leading badge names the file's kind at a glance (PDF, sheet, slides…) and
+                // swaps to a loading indicator while the file is being read; a file that couldn't
+                // be read wears the error container so it stands out in the list.
+                val badgeColor = if (hintIsError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+                val badgeContent = if (hintIsError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
                 Box(
                     Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(badgeColor)
                         .then(
                             when (document.status) {
                                 ExtractionStatus.EXTRACTING ->
@@ -143,22 +152,28 @@ internal fun DocumentRow(
                     ) { busy ->
                         if (busy) {
                             LoadingIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(26.dp),
+                                color = badgeContent,
                             )
                         } else {
                             Icon(
-                                Icons.Default.Description,
+                                kindIcon(kind),
                                 null,
-                                Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                Modifier.size(22.dp),
+                                tint = badgeContent,
                             )
                         }
                     }
                 }
-                Spacer(Modifier.width(Spacing.m))
+                Spacer(Modifier.width(Spacing.base))
                 Column(Modifier.weight(1f)) {
-                    Text(document.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        document.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     AnimatedContent(
                         targetState = hint,
                         transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
@@ -172,7 +187,7 @@ internal fun DocumentRow(
                                     append(currentHint)
                                 }
                             },
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.bodySmall,
                             color = if (hintIsError) {
                                 MaterialTheme.colorScheme.error
                             } else {
