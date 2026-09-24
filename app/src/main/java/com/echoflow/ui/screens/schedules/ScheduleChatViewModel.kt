@@ -91,7 +91,7 @@ class ScheduleChatViewModel(
     private var latestSaved: ScheduleTask? = null
     val savedState: StateFlow<ScheduleTask?> = manager.task(scheduleId).map { task ->
         latestSaved = task
-        if (task?.threadId != null && _threadId.value == null) _threadId.value = task.threadId
+        followThread(task)
         task
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -120,7 +120,7 @@ class ScheduleChatViewModel(
             manager.taskNow(scheduleId)?.let { task ->
                 latestSaved = task
                 if (_draft.value == null) _model.value = task.modelId
-                if (_threadId.value == null) _threadId.value = task.threadId
+                followThread(task)
             }
         }
     }
@@ -268,6 +268,20 @@ class ScheduleChatViewModel(
     }
 
     // --------------------------------------------------------------------------------------
+
+    /**
+     * The schedule's conversation is the one its task points at. That can change under us: if the
+     * person deletes the conversation from the drawer, the next run (or Run now) starts a fresh one
+     * and re-points the task. This view model outlives the screen, so without following the task it
+     * would keep showing the deleted, empty thread while the answer landed in the new one.
+     */
+    private fun followThread(task: ScheduleTask?) {
+        val id = task?.threadId ?: return
+        if (_threadId.value != id) {
+            _threadId.value = id
+            persistDraft()
+        }
+    }
 
     private suspend fun ensureThread(title: String): String {
         _threadId.value?.takeIf { database.chatDao().getThreadById(it) != null }?.let { return it }
