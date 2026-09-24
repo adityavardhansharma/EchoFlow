@@ -3,6 +3,8 @@
 package com.echoflow.ui.screens.schedules
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -31,7 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.theme.Spacing
 
-/** The shared frame for schedule pickers: title, live readout, content, and one clear action. */
+/**
+ * The shared frame for schedule pickers: title, live readout, content, and one clear action.
+ * Scrolls, so the time picker and its buttons stay reachable in short windows such as landscape.
+ */
 @Composable
 internal fun ScheduleSheet(
     title: String,
@@ -47,7 +52,8 @@ internal fun ScheduleSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = Spacing.xl).navigationBarsPadding(),
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.xl).navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
