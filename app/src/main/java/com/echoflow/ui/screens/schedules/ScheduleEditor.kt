@@ -84,7 +84,7 @@ internal fun ScheduleEditor(
                     val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
                         timeZone = TimeZone.getTimeZone("UTC")
                     }.format(Date(epoch))
-                    draft = draft?.copy(onceDate = "$day ${"%02d:%02d".format(draft?.hour ?: 9, draft?.minute ?: 0)}")
+                    draft = draft?.copy(onceDate = day)
                 }
                 showDatePicker = false
             }) { Text("Use date") } },
@@ -170,7 +170,7 @@ internal fun ScheduleEditor(
                         },
                     )
                     if (turns.isNotEmpty() && error != null) TextButton(onClick = {
-                        draft = ScheduleDraft(instruction = turns.first { it.first }.second, modelId = chosenModel)
+                        draft = ScheduleDraft(title = "New schedule", instruction = turns.first { it.first }.second, modelId = chosenModel)
                         error = null
                     }) { Text("Continue manually") }
                 }
@@ -234,7 +234,7 @@ internal fun ScheduleEditor(
                             ScheduleTask.WEEK -> {
                                 Text("Day of week", style = MaterialTheme.typography.labelLarge)
                                 WheelPicker(listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"),
-                                    current.weekday - 1, { draft = current.copy(weekday = it + 1) },
+                                    (current.weekdays.firstOrNull() ?: 2) - 1, { draft = current.copy(weekdays = setOf(it + 1)) },
                                     Modifier.fillMaxWidth(), "Day of week")
                             }
                             ScheduleTask.MONTH -> {
@@ -276,19 +276,6 @@ internal fun ScheduleEditor(
                                     }, Modifier.weight(.8f), "AM or PM")
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Use web when available", style = MaterialTheme.typography.bodyLarge)
-                                Text(when {
-                                    !current.needsWeb -> "Turn on when current information matters for this task"
-                                    searchReady -> "Use your active search provider when it runs"
-                                    else -> "No usable search provider is active. The task will still run without web results."
-                                },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(current.needsWeb, { draft = current.copy(needsWeb = it) })
-                        }
                     }
                 }
                 Spacer(Modifier.height(Spacing.m))
@@ -304,13 +291,9 @@ internal fun ScheduleEditor(
                         Text(
                             "EchoFlow will use $modelLabel to: ${current.instruction.trim()} " +
                                 "${if (current.unit == ScheduleTask.ONCE) "This runs once. " else "It repeats every ${current.interval} ${current.unit}${if (current.interval == 1) "" else "s"}. "}" +
-                                "${if (current.needsWeb) "It will use web results when available and clearly mark unverified current information otherwise. " else ""}" +
                                 "The answer will be saved as a conversation and you’ll get a notification when it finishes.",
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        if (current.assumption.isNotBlank()) Text("Assumption: ${current.assumption}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = .8f))
                         Spacer(Modifier.height(Spacing.s))
                         preview.onSuccess { task ->
                             ScheduleTime.preview(task).forEach { at ->
@@ -342,8 +325,8 @@ internal fun ScheduleEditor(
     }
 }
 
-private fun String.withClock(hour: Int, minute: Int): String =
-    take(10).takeIf { it.length == 10 }?.let { "$it ${"%02d:%02d".format(hour, minute)}" } ?: this
+@Suppress("UNUSED_PARAMETER")
+private fun String.withClock(hour: Int, minute: Int): String = take(10)
 
 @Composable
 private fun WheelPicker(

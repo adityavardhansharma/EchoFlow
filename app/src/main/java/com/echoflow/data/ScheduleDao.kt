@@ -16,6 +16,12 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedules WHERE id = :id")
     suspend fun task(id: String): ScheduleTask?
 
+    @Query("SELECT * FROM schedules WHERE id = :id")
+    fun observeTask(id: String): Flow<ScheduleTask?>
+
+    @Query("SELECT * FROM schedules WHERE threadId = :threadId LIMIT 1")
+    suspend fun taskForThread(threadId: String): ScheduleTask?
+
     @Query("SELECT * FROM schedules WHERE status = 'active'")
     suspend fun activeTasks(): List<ScheduleTask>
 

@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
         ScheduleTask::class, ScheduleRun::class
     ],
-    version = 28, // v28: scheduled tasks and occurrence history
+    version = 29, // v29: schedule conversations, weekday sets and end dates
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -490,6 +490,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Schedules become conversations. Every column is additive; `weekdays` defaults to 0,
+         * which [ScheduleTime] reads as "the anchor's weekday", so v28 weekly schedules keep
+         * running unchanged. Chats written by v28 runs are tagged with their schedule so the
+         * drawer can mark them — the only backfill, and it copies an existing link.
+         */
+        internal val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE schedules ADD COLUMN weekdays INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE schedules ADD COLUMN endAt INTEGER")
+                db.execSQL("ALTER TABLE schedules ADD COLUMN threadId TEXT")
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN scheduleId TEXT")
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN scheduleEvent TEXT")
+                db.execSQL(
+                    "UPDATE chat_threads SET scheduleId = (SELECT taskId FROM schedule_runs " +
+                        "WHERE schedule_runs.resultChatId = chat_threads.id LIMIT 1) " +
+                        "WHERE id IN (SELECT resultChatId FROM schedule_runs WHERE resultChatId IS NOT NULL)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -525,6 +546,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_25_26,
                     MIGRATION_26_27,
                     MIGRATION_27_28,
+                    MIGRATION_28_29,
                 )
                 .build()
                 INSTANCE = instance
