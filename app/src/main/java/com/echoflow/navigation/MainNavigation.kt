@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel) {
     var activeTab by remember { mutableStateOf("chat") }
-    var schedulesOpen by remember { mutableStateOf(false) }
+    var scheduleRoute by remember { mutableStateOf<com.echoflow.ui.screens.schedules.ScheduleRoute?>(null) }
     var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
@@ -38,7 +38,7 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
             )
         } else {
             AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" },
-                onSchedulesClicked = { schedulesOpen = true }) {
+                onSchedulesClicked = { scheduleRoute = com.echoflow.ui.screens.schedules.ScheduleRoute.Home }) {
                 settingsStartPage = PageWebSearch
                 activeTab = "settings"
             }
@@ -75,13 +75,14 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
             // The hub owns its own back stepping: home → list → closed (see ProjectsHubScreen).
             com.echoflow.ui.screens.projects.ProjectsHubScreen(chatViewModel = chatViewModel)
         }
-        if (schedulesOpen) {
+        scheduleRoute?.let { route ->
             com.echoflow.ui.screens.schedules.SchedulesScreen(
                 settingsViewModel = settingsViewModel,
-                onClose = { schedulesOpen = false },
-                onOpenChat = { chatId ->
-                    schedulesOpen = false
-                    chatViewModel.openThreadFromNotification(chatId)
+                route = route,
+                onRouteChange = { scheduleRoute = it },
+                onManageModels = {
+                    scheduleRoute = null
+                    activeTab = "settings"
                 },
             )
         }
