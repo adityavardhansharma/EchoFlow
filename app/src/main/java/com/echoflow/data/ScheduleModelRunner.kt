@@ -3,10 +3,10 @@ package com.echoflow.data
 import android.content.Context
 import com.echoflow.ui.CustomProviderFlowRouter
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.fold
 import kotlinx.coroutines.withContext
 
 /** One process-scoped local engine is shared by chat, schedule creation, warm-up and due runs. */
@@ -19,95 +19,91 @@ object ScheduleLocalRuntime {
     }
 }
 
+/**
+ * How a schedule may reach the web for a given model. There is no per-schedule switch: the
+ * model decides whether a run needs current information, and this decides only what it can use.
+ */
+sealed interface ScheduleWebAccess {
+    /** No usable provider is configured; the model is told so and must not fabricate current facts. */
+    data object None : ScheduleWebAccess
+    /** OpenRouter's server-side search, which the model invokes on its own. */
+    data object Server : ScheduleWebAccess
+    /** A client-side provider EchoFlow calls when the model asks via the `web_search` tool. */
+    data class Client(val provider: String) : ScheduleWebAccess
+}
+
 /** Headless text generation through the same providers and sampler settings as chat. */
 class ScheduleModelRunner(private val context: Context) {
     private val settings = SettingsRepository(context.applicationContext)
 
     /** Schedules respect the active search setting; a saved but disabled provider stays off. */
-    fun activeSearchProvider(modelId: String): String? {
+    fun activeSearchProvider(modelId: String): String? = when (val access = webAccess(modelId)) {
+        ScheduleWebAccess.None -> null
+        ScheduleWebAccess.Server -> "openrouter"
+        is ScheduleWebAccess.Client -> access.provider
+    }
+
+    fun webAccess(modelId: String): ScheduleWebAccess {
         val provider = settings.getWebSearchProviderDirect()
         return when {
             provider == "openrouter" && !modelId.startsWith("local/") &&
-                !modelId.startsWith("custom/") && settings.getApiKeyDirect().isNotBlank() -> provider
-            ClientSearchProviders.isReady(provider, settings.getSearchApiKeyDirect(provider)) -> provider
-            else -> null
+                !modelId.startsWith("custom/") &&
+                settings.getApiKeyDirect().isNotBlank() -> ScheduleWebAccess.Server
+            ClientSearchProviders.isReady(provider, settings.getSearchApiKeyDirect(provider)) -> ScheduleWebAccess.Client(provider)
+            else -> ScheduleWebAccess.None
         }
     }
 
+    suspend fun search(provider: String, query: String): List<SearchSource> =
+        WebSearchService().search(provider, settings.getSearchApiKeyDirect(provider), query)
+
+    /**
+     * Streams the visible text deltas of one completion. [history] is the whole conversation,
+     * oldest first; the local path shares the process-wide engine and its exclusive gate.
+     */
+    fun stream(
+        modelId: String,
+        history: List<ChatMessage>,
+        systemPrompt: String,
+        runId: String = UUID.randomUUID().toString(),
+        serverWebSearch: Boolean = false,
+        localWaitTimeoutMillis: Long = 0,
+    ): Flow<String> = flow {
+        val localModel = if (modelId.startsWith("local/")) AppDatabase.getDatabase(context).localModelDao()
+            .getLocalModelById(modelId) ?: error("The selected on-device model is no longer installed.")
+            else null
+        if (localModel != null) {
+            val engine = ScheduleLocalRuntime.service(context)
+            require(engine.modelFileExists(localModel)) { "The selected on-device model file is missing." }
+            ScheduleLocalRuntime.gate.withExclusive("a scheduled task", localWaitTimeoutMillis) {
+                engine.generate(localModel, runId, history, systemPrompt, localParams(localModel)).collect { chunk ->
+                    if (chunk is StreamChunk.Content) emit(chunk.text)
+                }
+            }
+        } else {
+            val params = InferenceLimits.coerce(
+                settings.getInferenceParamsDirect(false),
+                ModelCapabilities(0, InferenceLimits.CLOUD_TOP_K_MAX),
+                InferenceLimits.CLOUD_DEFAULTS,
+            )
+            cloudFlow(modelId, history, systemPrompt, params, serverWebSearch).collect { chunk ->
+                if (chunk is StreamChunk.Content) emit(chunk.text)
+            }
+        }
+    }
+
+    /** One-shot completion of a single prompt. */
     suspend fun complete(
         modelId: String,
         userText: String,
         systemPrompt: String,
         runId: String = UUID.randomUUID().toString(),
-        searchQuery: String? = null,
         localWaitTimeoutMillis: Long = 0,
-    ): String {
-        val provider = searchQuery?.let { activeSearchProvider(modelId) }
-        val serverWebSearch = provider == "openrouter"
-        var searchUnavailable = searchQuery != null && provider == null
-        val searchContext = if (searchQuery != null && provider != null && !serverWebSearch) {
-            val sources = try {
-                WebSearchService().search(provider, settings.getSearchApiKeyDirect(provider), searchQuery)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                emptyList()
-            }
-            if (sources.isEmpty()) searchUnavailable = true
-            sources.take(8).mapIndexed { index, source ->
-                "[${index + 1}] ${source.title}\n${source.url}\n${source.snippet.orEmpty().take(1000)}"
-            }.joinToString("\n\n").takeIf { it.isNotBlank() }
-        } else null
-        val prompt = if (serverWebSearch) {
-            "$systemPrompt\n\nSearch the web for current information before answering. Cite source URLs. If search returns no evidence, say that current information could not be verified."
-        } else if (searchContext != null) {
-            "$systemPrompt\n\nCurrent search results supplied by EchoFlow. Base current claims on these results and cite their URLs. If they do not support a claim, say so.\n\n$searchContext"
-        } else if (searchUnavailable) {
-            "$systemPrompt\n\nWeb search is unavailable for this run. Complete the task using only available context. Do not invent current facts, listings, prices, or sources. Say clearly when current information could not be verified."
-        } else systemPrompt
-        val history = listOf(ChatMessage(
-            id = UUID.randomUUID().toString(), chatId = runId, role = "user",
-            content = userText, createdAt = System.currentTimeMillis(),
-        ))
-        val local = modelId.startsWith("local/")
-        val localModel = if (local) AppDatabase.getDatabase(context).localModelDao()
-            .getLocalModelById(modelId) ?: error("The selected on-device model is no longer installed.")
-            else null
-        val params = if (localModel != null) localParams(localModel) else InferenceLimits.coerce(
-            settings.getInferenceParamsDirect(false),
-            ModelCapabilities(0, InferenceLimits.CLOUD_TOP_K_MAX),
-            InferenceLimits.CLOUD_DEFAULTS,
-        )
-        val output = StringBuilder()
-        var sourcesFound = false
-        if (local) {
-            val model = localModel!!
-            val engine = ScheduleLocalRuntime.service(context)
-            require(engine.modelFileExists(model)) { "The selected on-device model file is missing." }
-            ScheduleLocalRuntime.gate.withExclusive("a scheduled task", localWaitTimeoutMillis) {
-                engine.generate(model, runId, history, prompt, params).collect { chunk ->
-                    if (chunk is StreamChunk.Content) output.append(chunk.text)
-                }
-            }
-        } else {
-            cloudFlow(modelId, history, prompt, params, serverWebSearch).collect { chunk ->
-                if (chunk is StreamChunk.Content) output.append(chunk.text)
-                if (chunk is StreamChunk.SearchSources && chunk.sources.isNotEmpty()) sourcesFound = true
-            }
-        }
-        if (serverWebSearch && !sourcesFound) {
-            searchUnavailable = true
-            output.clear()
-            val offlinePrompt = "$systemPrompt\n\nWeb search returned no sources. Complete the task using only available context. Do not invent current facts, listings, prices, or sources. Say clearly when current information could not be verified."
-            cloudFlow(modelId, history, offlinePrompt, params, false).collect { chunk ->
-                if (chunk is StreamChunk.Content) output.append(chunk.text)
-            }
-        }
-        val answer = output.toString().trim().ifBlank { error("The model returned no answer.") }
-        return if (searchUnavailable) {
-            "Web search was unavailable for this run. Current information could not be verified.\n\n$answer"
-        } else answer
-    }
+    ): String = stream(
+        modelId, listOf(message("user", userText, runId)), systemPrompt, runId,
+        localWaitTimeoutMillis = localWaitTimeoutMillis,
+    ).fold(StringBuilder()) { acc, delta -> acc.append(delta) }.toString().trim()
+        .ifBlank { error("The model returned no answer.") }
 
     suspend fun prewarm(modelId: String) {
         val model = AppDatabase.getDatabase(context).localModelDao().getLocalModelById(modelId)
@@ -156,5 +152,10 @@ class ScheduleModelRunner(private val context: Context) {
             settings.getApiKeyDirect(), modelId, history, prompt, params = params,
             serverWebSearch = serverWebSearch,
         )
+    }
+
+    companion object {
+        fun message(role: String, content: String, chatId: String = "schedule", at: Long = System.currentTimeMillis()) =
+            ChatMessage(id = UUID.randomUUID().toString(), chatId = chatId, role = role, content = content, createdAt = at)
     }
 }

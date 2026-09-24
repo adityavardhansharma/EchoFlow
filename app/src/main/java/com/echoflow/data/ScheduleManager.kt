@@ -24,7 +24,12 @@ class ScheduleManager(private val context: Context) {
     private val work = WorkManager.getInstance(context.applicationContext)
 
     val tasks: Flow<List<ScheduleTask>> = dao.observeTasks()
+    val runningTaskIds: Flow<List<String>> = dao.observeRunningTaskIds()
     fun runs(taskId: String): Flow<List<ScheduleRun>> = dao.observeRuns(taskId)
+    fun task(id: String): Flow<ScheduleTask?> = dao.observeTask(id)
+    suspend fun taskNow(id: String): ScheduleTask? = dao.task(id)
+    suspend fun taskForThread(threadId: String): ScheduleTask? = dao.taskForThread(threadId)
+    private val use24h get() = android.text.format.DateFormat.is24HourFormat(context)
 
     suspend fun save(draft: ScheduleTask): ScheduleTask {
         require(draft.title.isNotBlank() && draft.instruction.isNotBlank() && draft.modelId.isNotBlank())
@@ -42,18 +47,67 @@ class ScheduleManager(private val context: Context) {
                 title = draft.title.trim(), instruction = draft.instruction.trim(),
                 nextRunAt = next, revision = (old?.revision ?: -1) + 1,
                 createdAt = old?.createdAt ?: now, updatedAt = now,
-            ).also { dao.saveTask(it) }
+                threadId = draft.threadId ?: old?.threadId,
+            ).also { task ->
+                dao.saveTask(task)
+                // The conversation is named after its schedule and follows renames.
+                task.threadId?.let { database.chatDao().setTitle(it, task.title) }
+            }
         }
         enqueueNext(saved)
         return saved
     }
 
-    suspend fun setStatus(id: String, status: String) {
+    suspend fun setStatus(id: String, status: String): ScheduleTask? {
         require(status in setOf(ScheduleTask.ACTIVE, ScheduleTask.PAUSED, ScheduleTask.COMPLETED))
-        val old = dao.task(id) ?: return
-        save(old.copy(status = status))
+        val old = dao.task(id) ?: return null
+        if (old.status == status) return old
+        val saved = save(old.copy(status = status))
         if (status == ScheduleTask.COMPLETED) stopCurrentRun(id)
+        when (status) {
+            ScheduleTask.PAUSED -> post(saved, "Paused. Nothing runs until you resume.", ScheduleEvent(ScheduleEvent.PAUSED))
+            ScheduleTask.COMPLETED -> post(saved, "Ended. Earlier answers stay here.", ScheduleEvent(ScheduleEvent.ENDED))
+            else -> post(saved, "Resumed" + (saved.nextRunAt?.let {
+                " · next run ${ScheduleText.occurrence(it, saved.zoneId, use24h)}"
+            } ?: "") + ".", ScheduleEvent(ScheduleEvent.RESUMED))
+        }
+        return saved
     }
+
+    /**
+     * The conversation a schedule lives in, created on demand: v28 schedules have none, and a
+     * person may delete it from the drawer while the schedule keeps running.
+     */
+    suspend fun ensureThread(taskId: String): String? = database.withTransaction {
+        val task = dao.task(taskId) ?: return@withTransaction null
+        task.threadId?.takeIf { database.chatDao().getThreadById(it) != null }?.let { return@withTransaction it }
+        val now = System.currentTimeMillis()
+        val id = UUID.randomUUID().toString()
+        database.chatDao().insertThread(ChatThread(id, task.title, now, now, scheduleId = task.id))
+        dao.saveTask(task.copy(threadId = id))
+        id
+    }
+
+    /** Appends a schedule-authored row to its conversation and floats it up the drawer. */
+    suspend fun post(task: ScheduleTask, content: String, event: ScheduleEvent, at: Long = System.currentTimeMillis()): String? {
+        val threadId = ensureThread(task.id) ?: return null
+        database.messageDao().insertMessage(ChatMessage(
+            id = UUID.randomUUID().toString(), chatId = threadId, role = "assistant",
+            content = content, createdAt = at, scheduleEvent = event.toJson(),
+        ))
+        database.chatDao().touchUpdatedAt(threadId, at)
+        return threadId
+    }
+
+    /** Recent run answers (oldest first) so a run can avoid repeating itself. */
+    suspend fun recentAnswers(task: ScheduleTask, limit: Int = 2): List<Pair<Long, String>> {
+        val threadId = task.threadId ?: return emptyList()
+        return dao.recentRunAnswers(threadId, limit).reversed().map { message ->
+            (ScheduleEvent.parse(message.scheduleEvent)?.scheduledAt ?: message.createdAt) to message.content
+        }
+    }
+
+    suspend fun runNumber(taskId: String): Int = dao.succeededRuns(taskId) + 1
 
     suspend fun delete(id: String) {
         stopCurrentRun(id)
@@ -64,6 +118,7 @@ class ScheduleManager(private val context: Context) {
                 work.cancelUniqueWork("schedule-warm:$runId").await()
             }
         }
+        dao.unlinkThreads(id)
         dao.deleteTask(id)
     }
 
@@ -86,13 +141,17 @@ class ScheduleManager(private val context: Context) {
             }
         }
         work.cancelUniqueWork("schedule:${current.id}").await()
-        dao.task(taskId)?.let { enqueueNext(it) }
+        dao.task(taskId)?.let {
+            post(it, "You stopped this run.", ScheduleEvent(ScheduleEvent.RUN_FAILED, runId = current.id, scheduledAt = current.scheduledAt))
+            enqueueNext(it)
+        }
     }
 
     /** Repairs work after a crash, reboot, package replacement, or a failed enqueue. */
     suspend fun reconcile(replaceQueued: Boolean = false) {
         ensureRecovery()
         val now = System.currentTimeMillis()
+        val missed = mutableListOf<Pair<ScheduleTask, Long>>()
         dao.interruptedRuns().filter { (it.startedAt ?: now) < now - INTERRUPTED_RUN_GRACE_MS }.forEach {
             val infos = workInfos("schedule:${it.id}")
             if (infos.any { info -> info.state == WorkInfo.State.RUNNING }) return@forEach
@@ -119,6 +178,7 @@ class ScheduleManager(private val context: Context) {
                         if (fresh.revision != task.revision || fresh.nextRunAt != next) return@withTransaction
                         dao.insertRun(ScheduleRun(occurrenceId(task.id, next, task.revision), task.id,
                             next, ScheduleRun.MISSED, finishedAt = now, error = "Device was unavailable at the scheduled time."))
+                        missed += fresh to next
                         val following = ScheduleTime.next(fresh, now)
                         dao.saveTask(fresh.copy(
                             status = if (following == null) ScheduleTask.COMPLETED else fresh.status,
@@ -129,6 +189,10 @@ class ScheduleManager(private val context: Context) {
                 }
                 else -> enqueueNext(task, replaceQueued)
             }
+        }
+        missed.forEach { (task, at) ->
+            runCatching { post(task, "Missed the ${ScheduleText.occurrence(at, task.zoneId, use24h)} run — the phone wasn't available to run it.",
+                ScheduleEvent(ScheduleEvent.MISSED, scheduledAt = at)) }
         }
     }
 
@@ -185,22 +249,30 @@ class ScheduleManager(private val context: Context) {
             }
         }
         dao.run(runId)?.let { run -> dao.task(run.taskId)?.let {
+            if (run.status == ScheduleRun.FAILED) runCatching {
+                post(it, "This run didn't finish: ${run.error ?: "unknown error"}",
+                    ScheduleEvent(ScheduleEvent.RUN_FAILED, runId = run.id, scheduledAt = run.scheduledAt))
+            }
             runCatching { enqueueNext(it) }
         } }
     }
 
-    /** Persist the answer and history link in the same transaction. */
+    /**
+     * Posts the answer into the schedule's conversation and completes the run in one transaction,
+     * so a run is never marked done without its answer (or vice versa).
+     */
     suspend fun saveAnswer(runId: String, task: ScheduleTask, answer: String): String {
         val now = System.currentTimeMillis()
-        val chatId = UUID.randomUUID().toString()
+        val chatId = ensureThread(task.id) ?: error("The schedule no longer exists")
         database.withTransaction {
             val run = dao.run(runId) ?: error("Run no longer exists")
             require(run.status == ScheduleRun.RUNNING)
-            database.chatDao().insertThread(ChatThread(chatId, task.title, now, now))
             database.messageDao().insertMessage(ChatMessage(
-                UUID.randomUUID().toString(), chatId, "user", task.instruction, now))
-            database.messageDao().insertMessage(ChatMessage(
-                UUID.randomUUID().toString(), chatId, "assistant", answer, now + 1))
+                id = UUID.randomUUID().toString(), chatId = chatId, role = "assistant", content = answer,
+                createdAt = now, scheduleEvent = ScheduleEvent(ScheduleEvent.RUN, runId = runId,
+                    scheduledAt = run.scheduledAt).toJson(),
+            ))
+            database.chatDao().touchUpdatedAt(chatId, now)
             dao.updateRun(run.copy(status = ScheduleRun.SUCCEEDED, finishedAt = now,
                 resultChatId = chatId))
             val latest = dao.task(task.id)

@@ -51,4 +51,19 @@ interface ScheduleDao {
 
     @Query("SELECT * FROM schedule_runs WHERE taskId = :taskId AND status = 'running' ORDER BY startedAt DESC LIMIT 1")
     suspend fun runningForTask(taskId: String): ScheduleRun?
+
+    /** Ids of schedules with a run in progress, for the home list's live indicators. */
+    @Query("SELECT DISTINCT taskId FROM schedule_runs WHERE status = 'running'")
+    fun observeRunningTaskIds(): Flow<List<String>>
+
+    @Query("SELECT COUNT(*) FROM schedule_runs WHERE taskId = :taskId AND status = 'succeeded'")
+    suspend fun succeededRuns(taskId: String): Int
+
+    /** The newest run answers in a schedule's conversation, newest first. */
+    @Query("SELECT * FROM chat_messages WHERE chatId = :threadId AND scheduleEvent LIKE '%\"type\":\"run\"%' ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recentRunAnswers(threadId: String, limit: Int): List<ChatMessage>
+
+    /** A deleted schedule leaves its conversations behind as ordinary chats. */
+    @Query("UPDATE chat_threads SET scheduleId = NULL WHERE scheduleId = :taskId")
+    suspend fun unlinkThreads(taskId: String)
 }

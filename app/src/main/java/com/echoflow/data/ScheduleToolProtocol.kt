@@ -60,7 +60,7 @@ object ScheduleToolProtocol {
         return out.replace(Regex("\n{3,}"), "\n\n").trim()
     }
 
-    fun result(name: String, payload: JSONObject): String = "<tool_result name=\"$name\">$payload</tool_result>"
+    fun result(name: String, payload: String): String = "<tool_result name=\"$name\">$payload</tool_result>"
 
     /** The user-role turn that carries results back, worded so no model mistakes it for the person. */
     fun resultsTurn(results: List<String>): String =
