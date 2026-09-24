@@ -19,14 +19,23 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -45,8 +54,6 @@ import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.screens.settings.ConnectedToggleRow
 import com.echoflow.ui.theme.Spacing
-import java.util.Calendar
-import java.util.TimeZone
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -136,6 +143,15 @@ private fun SchedulesHome(
     val scope = rememberCoroutineScope()
     var filter by rememberSaveableFilter()
     var showInfo by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<ScheduleTask?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val act: (suspend () -> Unit) -> Unit = { block ->
+        scope.launch {
+            try { block() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { snackbar.showSnackbar(e.message ?: "Something went wrong.") }
+        }
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
 
@@ -151,10 +167,26 @@ private fun SchedulesHome(
     val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     if (showInfo) HowSchedulesWork(onDismiss = { showInfo = false })
+    deleting?.let { task ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            icon = { Icon(Icons.Default.DeleteOutline, null) },
+            title = { Text("Delete “${task.title}”?") },
+            text = { Text("It stops for good. Its conversation and earlier answers stay in your chats.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    act { manager.delete(task.id); ScheduleDraftStore(context.applicationContext).clear(task.id) }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text("Schedules") },
@@ -240,9 +272,10 @@ private fun SchedulesHome(
                         task = task, index = index, count = visible.size, now = now, use24h = use24h,
                         running = task.id in running,
                         onClick = { onOpen(task) },
-                        onToggle = { active ->
-                            scope.launch { runCatching { manager.setStatus(task.id, if (active) ScheduleTask.ACTIVE else ScheduleTask.PAUSED) } }
-                        },
+                        onRunNow = { act { manager.runNow(task.id) } },
+                        onStopRun = { act { manager.stopCurrentRun(task.id) } },
+                        onStatus = { status -> act { manager.setStatus(task.id, status) } },
+                        onDelete = { deleting = task },
                         modifier = Modifier.padding(bottom = 2.dp).animateItem(),
                     )
                 }
@@ -256,32 +289,39 @@ private fun rememberSaveableFilter() = androidx.compose.runtime.saveable.remembe
 
 private fun label(name: String, count: Int?) = if (count == null || count == 0) name else "$name $count"
 
-/** The next thing that will happen, big enough to read at a glance: a watch set to it and a countdown. */
+/** The next thing that will happen, big enough to read at a glance: what, and how soon. */
 @Composable
 private fun UpNextCard(task: ScheduleTask, now: Long, use24h: Boolean, running: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val at = task.nextRunAt ?: return
-    val clock = Calendar.getInstance(TimeZone.getTimeZone(task.zoneId)).apply { timeInMillis = at }
-    Surface(onClick = onClick, shape = RoundedCornerShape(32.dp), color = colors.primaryContainer, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(Spacing.l), verticalAlignment = Alignment.CenterVertically) {
-            WatchDial(
-                clock.get(Calendar.HOUR_OF_DAY), clock.get(Calendar.MINUTE), Modifier.size(112.dp),
-                window = ScheduleText.shortDay(clock.get(Calendar.DAY_OF_WEEK)).uppercase(),
-            )
-            Spacer(Modifier.width(Spacing.l))
-            Column(Modifier.weight(1f)) {
-                Text(if (running) "RUNNING NOW" else "UP NEXT", style = MaterialTheme.typography.labelMedium, color = colors.onPrimaryContainer.copy(alpha = 0.8f))
-                Text(task.title, style = MaterialTheme.typography.titleLarge, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(Spacing.xs))
-                Text(ScheduleText.relative(at, now, task.zoneId).replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.headlineSmall, color = colors.primary)
-                Text(ScheduleText.occurrence(at, task.zoneId, use24h), style = MaterialTheme.typography.bodyMedium, color = colors.onPrimaryContainer)
+    Surface(onClick = onClick, shape = RoundedCornerShape(28.dp), color = colors.primaryContainer, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    if (running) LoadingIndicator(Modifier.size(40.dp), color = colors.onPrimaryContainer)
+                    else ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
+                }
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f)) {
+                    Text(if (running) "Running now" else "Up next", style = MaterialTheme.typography.labelLarge,
+                        color = colors.onPrimaryContainer.copy(alpha = 0.8f))
+                    Text(task.title, style = MaterialTheme.typography.titleMedium, color = colors.onPrimaryContainer,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
+            Spacer(Modifier.height(Spacing.base))
+            Text(ScheduleText.relative(at, now, task.zoneId).replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.headlineMedium, color = colors.onPrimaryContainer)
+            Text(ScheduleText.occurrence(at, task.zoneId, use24h), style = MaterialTheme.typography.bodyMedium,
+                color = colors.onPrimaryContainer.copy(alpha = 0.8f))
         }
     }
 }
 
-/** One schedule in the grouped list: its own watch mark, name, cadence, when next — and a pause switch. */
+/**
+ * One schedule in the grouped list: its mark, name, cadence and when next. Everything it can do —
+ * run now, pause or resume, end, delete — is in its menu, the same one its conversation has.
+ */
 @Composable
 private fun ScheduleRow(
     task: ScheduleTask,
@@ -291,7 +331,10 @@ private fun ScheduleRow(
     use24h: Boolean,
     running: Boolean,
     onClick: () -> Unit,
-    onToggle: (Boolean) -> Unit,
+    onRunNow: () -> Unit,
+    onStopRun: () -> Unit,
+    onStatus: (String) -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -303,30 +346,49 @@ private fun ScheduleRow(
         task.nextRunAt != null -> "Next ${ScheduleText.relative(task.nextRunAt, now, task.zoneId)}"
         else -> null
     }
+    val active = task.status == ScheduleTask.ACTIVE
     Surface(
         onClick = onClick,
         shape = groupedItemShape(index, count, large = 28.dp, small = 6.dp),
         color = colors.surfaceContainer,
         modifier = modifier.fillMaxWidth().semantics { contentDescription = "${task.title}, ${ScheduleText.cadence(draft, use24h)}${detail?.let { ", $it" } ?: ""}" },
     ) {
-        Row(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                if (running) LoadingIndicator(Modifier.size(48.dp), color = colors.tertiary)
-                else ScheduleMark(size = 44.dp, hour = draft.hour, minute = draft.minute,
-                    tint = if (task.status == ScheduleTask.ACTIVE) colors.onSecondaryContainer else colors.onSurfaceVariant,
-                    container = if (task.status == ScheduleTask.ACTIVE) colors.secondaryContainer else colors.surfaceContainerHighest)
+        Row(Modifier.padding(start = Spacing.base, end = Spacing.xs, top = Spacing.m, bottom = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                if (running) LoadingIndicator(Modifier.size(44.dp), color = colors.primary)
+                else ScheduleMark(size = 44.dp,
+                    tint = if (active) colors.onSecondaryContainer else colors.onSurfaceVariant,
+                    container = if (active) colors.secondaryContainer else colors.surfaceContainerHighest)
             }
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(task.title, style = MaterialTheme.typography.titleMedium, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(summary(draft, use24h), style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (detail != null) Text(detail, style = MaterialTheme.typography.labelMedium,
-                    color = if (running) colors.tertiary else colors.primary)
+                    color = if (running || active) colors.primary else colors.onSurfaceVariant)
             }
-            if (task.status != ScheduleTask.COMPLETED) {
-                Spacer(Modifier.width(Spacing.s))
-                Switch(checked = task.status == ScheduleTask.ACTIVE, onCheckedChange = onToggle,
-                    modifier = Modifier.semantics { contentDescription = if (task.status == ScheduleTask.ACTIVE) "Pause ${task.title}" else "Resume ${task.title}" })
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Actions for ${task.title}") }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(20.dp)) {
+                    fun item(label: String, icon: ImageVector, error: Boolean = false, action: () -> Unit) = @Composable {
+                        DropdownMenuItem(
+                            text = { Text(label, color = if (error) colors.error else Color.Unspecified) },
+                            leadingIcon = { Icon(icon, null, tint = if (error) colors.error else LocalContentColor.current) },
+                            onClick = { menu = false; action() },
+                        )
+                    }
+                    if (running) item("Stop this run", Icons.Default.Stop, action = onStopRun)()
+                    else if (task.status != ScheduleTask.COMPLETED) item("Run now", Icons.Default.Bolt, action = onRunNow)()
+                    when (task.status) {
+                        ScheduleTask.ACTIVE -> item("Pause", Icons.Default.Pause) { onStatus(ScheduleTask.PAUSED) }()
+                        ScheduleTask.PAUSED -> item("Resume", Icons.Default.PlayArrow) { onStatus(ScheduleTask.ACTIVE) }()
+                        else -> item("Restart", Icons.Default.RestartAlt) { onStatus(ScheduleTask.ACTIVE) }()
+                    }
+                    if (task.status != ScheduleTask.COMPLETED) item("End schedule", Icons.Default.EventBusy) { onStatus(ScheduleTask.COMPLETED) }()
+                    HorizontalDivider(Modifier.padding(vertical = Spacing.xs))
+                    item("Delete", Icons.Default.DeleteOutline, error = true, action = onDelete)()
+                }
             }
         }
     }
@@ -335,7 +397,6 @@ private fun ScheduleRow(
 /** No schedules yet: show what the feature is for, with ideas that start a conversation. */
 @Composable
 private fun FirstSchedule(modifier: Modifier, onNew: (String) -> Unit) {
-    val now = remember { Calendar.getInstance() }
     val colors = MaterialTheme.colorScheme
     LazyColumn(
         modifier.fillMaxSize(),
@@ -343,8 +404,8 @@ private fun FirstSchedule(modifier: Modifier, onNew: (String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item {
-            WatchDial(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), Modifier.padding(top = Spacing.l).size(184.dp), sweepSeconds = true)
-            Spacer(Modifier.height(Spacing.xl))
+            ScheduleMark(Modifier.padding(top = Spacing.xl), size = 72.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
+            Spacer(Modifier.height(Spacing.l))
             Text("Let EchoFlow keep time for you", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, color = colors.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text("Briefings, reminders, practice and check-ins that arrive on their own — set up in a conversation.",
@@ -382,7 +443,7 @@ private fun HowSchedulesWork(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.xl).navigationBarsPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ScheduleMark(size = 40.dp, tint = MaterialTheme.colorScheme.onPrimaryContainer, container = MaterialTheme.colorScheme.primaryContainer)
+                ScheduleMark(size = 40.dp, tint = MaterialTheme.colorScheme.onSecondaryContainer, container = MaterialTheme.colorScheme.secondaryContainer)
                 Spacer(Modifier.width(Spacing.m))
                 Text("How schedules work", style = MaterialTheme.typography.headlineSmall)
             }

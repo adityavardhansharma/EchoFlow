@@ -77,8 +77,6 @@ fun ChatDrawerContent(
     onProjectsClicked: () -> Unit = {},
     onArtifactsClicked: () -> Unit = {},
     onSchedulesClicked: () -> Unit = {},
-    /** When the next schedule runs ("in 2 h"), shown quietly beside Schedules. */
-    schedulesHint: String? = null,
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -175,7 +173,6 @@ fun ChatDrawerContent(
                 leading = {
                     com.echoflow.ui.screens.schedules.ScheduleMark(size = 20.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 },
-                trailing = schedulesHint,
                 onClick = { onSchedulesClicked(); onCloseDrawer?.invoke() },
                 modifier = Modifier.testTag("drawer_schedules_entry"),
             )
@@ -463,7 +460,6 @@ private fun DrawerDestinationRow(
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     leading: (@Composable () -> Unit)? = null,
-    trailing: String? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scale by pressScale(interaction)
@@ -489,13 +485,6 @@ private fun DrawerDestinationRow(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            if (trailing != null) {
-                Text(
-                    trailing,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }

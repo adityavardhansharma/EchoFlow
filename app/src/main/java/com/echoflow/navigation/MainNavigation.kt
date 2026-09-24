@@ -14,8 +14,6 @@ import com.echoflow.ui.screens.chat.ChatScreen
 import com.echoflow.ui.screens.settings.PageWebSearch
 import com.echoflow.ui.screens.settings.SettingsScreen
 import com.echoflow.data.ScheduleManager
-import com.echoflow.data.ScheduleTask
-import com.echoflow.data.ScheduleText
 import com.echoflow.ui.screens.schedules.ScheduleRoute
 import kotlinx.coroutines.launch
 
@@ -58,9 +56,6 @@ fun MainNavigationHub(
             } else chatViewModel.selectThread(id)
         }
     }
-    val tasks by scheduleManager.tasks.collectAsState(initial = emptyList())
-    val schedulesHint = tasks.filter { it.status == ScheduleTask.ACTIVE }.mapNotNull { it.nextRunAt }.minOrNull()
-        ?.let { ScheduleText.relative(it) }
     var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
@@ -82,7 +77,6 @@ fun MainNavigationHub(
             AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" },
                 onSchedulesClicked = { scheduleRoute = ScheduleRoute.Home },
                 onThreadSelected = openThread,
-                schedulesHint = schedulesHint,
                 onOpenSchedule = { id ->
                     scope.launch {
                         scheduleManager.taskNow(id)?.let { scheduleRoute = ScheduleRoute.Conversation(it.id, it.threadId) }
@@ -155,7 +149,6 @@ fun AdaptiveChatWorkspace(
     onSettingsClicked: () -> Unit,
     onSchedulesClicked: () -> Unit = {},
     onThreadSelected: (String) -> Unit = chatViewModel::selectThread,
-    schedulesHint: String? = null,
     onOpenSchedule: (String) -> Unit = {},
     onOpenWebSearchSettings: () -> Unit = {},
 ) {
@@ -186,8 +179,7 @@ fun AdaptiveChatWorkspace(
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         onSchedulesClicked = onSchedulesClicked,
-                        schedulesHint = schedulesHint,
-                        searchQuery = query,
+                                searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )
                 }
@@ -220,8 +212,7 @@ fun AdaptiveChatWorkspace(
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         onSchedulesClicked = onSchedulesClicked,
-                        schedulesHint = schedulesHint,
-                        onCloseDrawer = { scope.launch { drawerState.close() } },
+                                onCloseDrawer = { scope.launch { drawerState.close() } },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )

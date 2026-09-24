@@ -82,6 +82,21 @@ object ScheduleText {
         }
     }
 
+    /**
+     * When the next run is, short enough for a title bar: "in 40 min", "tomorrow · 8:00 AM",
+     * "Fri, Sep 25 · 8:00 AM" — never the relative word and the full date together.
+     */
+    fun upcoming(at: Long, zoneId: String, use24h: Boolean, now: Long = System.currentTimeMillis(), locale: Locale = Locale.getDefault()): String {
+        val soon = relative(at, now, zoneId)
+        val calendar = Calendar.getInstance(TimeZone.getTimeZone(zoneId)).apply { timeInMillis = at }
+        val clock = time(calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), use24h, locale)
+        return when {
+            soon == "today" || soon == "tomorrow" -> "$soon · $clock"
+            soon == "now" || (soon.startsWith("in ") && !soon.endsWith("days")) -> soon
+            else -> occurrence(at, zoneId, use24h, locale)
+        }
+    }
+
     fun shortDay(day: Int, locale: Locale = Locale.getDefault()): String = DateFormatSymbols(locale).shortWeekdays[day]
     fun longDay(day: Int, locale: Locale = Locale.getDefault()): String = DateFormatSymbols(locale).weekdays[day]
     /** One-letter labels for the day toggles; narrow forms collide (T/T, S/S) but read correctly in order. */

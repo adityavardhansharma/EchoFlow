@@ -49,13 +49,13 @@ class ScheduleScreenshotTest {
         compose.onRoot().captureRoboImage("$out/$name.png")
     }
 
-    @Test fun watchDialAndMarks() = capture("watch-dial", dark = false) {
+    @Test fun marks() = capture("marks", dark = false) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            WatchDial(7, 30, Modifier.size(260.dp), window = "MON")
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ScheduleMark(size = 44.dp, hour = 7, minute = 30, container = MaterialTheme.colorScheme.secondaryContainer,
+                ScheduleMark(size = 20.dp)
+                ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.secondaryContainer,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                ScheduleMark(size = 44.dp, hour = 21, minute = 0, container = MaterialTheme.colorScheme.tertiaryContainer,
+                ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.tertiaryContainer,
                     tint = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
@@ -69,15 +69,15 @@ class ScheduleScreenshotTest {
         }
     }
 
-    @Test fun scheduleCardCollapsedWithUnsavedChanges() = capture("card-unsaved", dark = false) {
-        ScheduleCard(draft, isNew = false, dirty = true, problem = null, nextRun = "Thu, Sep 24 · 7:30 AM",
-            use24h = false, expanded = false, onExpandedChange = {}, onEdit = {}, onSave = {}, onDiscard = {},
+    @Test fun scheduleCardWithUnsavedChanges() = capture("card-unsaved", dark = false) {
+        ScheduleCard(draft, isNew = false, dirty = true, problem = null, status = ScheduleTask.ACTIVE, use24h = false,
+            onOpen = {}, onSave = {}, onDiscard = {}, onResume = {},
             modifier = Modifier.fillMaxWidth().padding(16.dp))
     }
 
-    @Test fun scheduleCardExpanded() = capture("card-expanded", dark = true) {
-        ScheduleCard(draft, isNew = false, dirty = false, problem = null, nextRun = "Thu, Sep 24 · 7:30 AM",
-            use24h = false, expanded = true, onExpandedChange = {}, onEdit = {}, onSave = {}, onDiscard = {},
+    @Test fun scheduleCardPaused() = capture("card-paused", dark = true) {
+        ScheduleCard(draft, isNew = false, dirty = false, problem = null, status = ScheduleTask.PAUSED, use24h = false,
+            onOpen = {}, onSave = {}, onDiscard = {}, onResume = {},
             modifier = Modifier.fillMaxWidth().padding(16.dp))
     }
 }
