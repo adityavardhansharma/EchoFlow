@@ -45,17 +45,25 @@ class MainActivity : ComponentActivity() {
 
     // A chat id to open, set when launched/resumed from a reply-ready notification tap.
     private val openChatRequest = MutableStateFlow<String?>(null)
+    // A schedule to open, from a finished-run notification. Wins over the chat extra it also carries.
+    private val openScheduleRequest = MutableStateFlow<String?>(null)
+
+    private fun readOpenRequest(intent: Intent?) {
+        val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
+        if (schedule != null) openScheduleRequest.value = schedule
+        else intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
+        readOpenRequest(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        openChatRequest.value = intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)
+        readOpenRequest(intent)
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
         // foreground-service progress notification to appear in the status bar.
@@ -132,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainNavigationHub(chatVm, settingsVm)
+                    val pendingSchedule by openScheduleRequest.collectAsState()
+                    MainNavigationHub(chatVm, settingsVm, pendingSchedule) { openScheduleRequest.value = null }
                 }
             }
         }

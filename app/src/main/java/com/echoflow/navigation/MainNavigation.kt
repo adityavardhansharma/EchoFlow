@@ -13,12 +13,49 @@ import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.chat.ChatScreen
 import com.echoflow.ui.screens.settings.PageWebSearch
 import com.echoflow.ui.screens.settings.SettingsScreen
+import com.echoflow.data.ScheduleManager
+import com.echoflow.data.ScheduleTask
+import com.echoflow.data.ScheduleText
+import com.echoflow.ui.screens.schedules.ScheduleRoute
 import kotlinx.coroutines.launch
 
 @Composable
-fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsViewModel) {
+fun MainNavigationHub(
+    chatViewModel: ChatViewModel,
+    settingsViewModel: SettingsViewModel,
+    pendingScheduleId: String? = null,
+    onPendingScheduleConsumed: () -> Unit = {},
+) {
     var activeTab by remember { mutableStateOf("chat") }
-    var scheduleRoute by remember { mutableStateOf<com.echoflow.ui.screens.schedules.ScheduleRoute?>(null) }
+    var scheduleRoute by remember { mutableStateOf<ScheduleRoute?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scheduleManager = remember(context) { ScheduleManager(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    // A finished-run notification opens that schedule's conversation, over whatever is showing.
+    LaunchedEffect(pendingScheduleId) {
+        val id = pendingScheduleId ?: return@LaunchedEffect
+        val task = scheduleManager.taskNow(id)
+        if (task != null) {
+            activeTab = "chat"
+            scheduleRoute = ScheduleRoute.Conversation(task.id, task.threadId)
+        }
+        onPendingScheduleConsumed()
+    }
+    // Schedule conversations open in their own screen; everything else is an ordinary chat.
+    // A chat written by a v28 run carries the schedule's mark but is not its conversation.
+    val openThread: (String) -> Unit = { id ->
+        scope.launch {
+            val thread = chatViewModel.filteredThreads.value.firstOrNull { it.id == id }
+            val scheduleId = thread?.scheduleId
+            val task = scheduleId?.let { scheduleManager.taskNow(it) }
+            if (scheduleId != null && (task == null || task.threadId == id)) {
+                scheduleRoute = ScheduleRoute.Conversation(scheduleId, id)
+            } else chatViewModel.selectThread(id)
+        }
+    }
+    val tasks by scheduleManager.tasks.collectAsState(initial = emptyList())
+    val schedulesHint = tasks.filter { it.status == ScheduleTask.ACTIVE }.mapNotNull { it.nextRunAt }.minOrNull()
+        ?.let { ScheduleText.relative(it) }
     var settingsStartPage by remember { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
@@ -38,7 +75,14 @@ fun MainNavigationHub(chatViewModel: ChatViewModel, settingsViewModel: SettingsV
             )
         } else {
             AdaptiveChatWorkspace(chatViewModel, settingsViewModel, { activeTab = "settings" },
-                onSchedulesClicked = { scheduleRoute = com.echoflow.ui.screens.schedules.ScheduleRoute.Home }) {
+                onSchedulesClicked = { scheduleRoute = ScheduleRoute.Home },
+                onThreadSelected = openThread,
+                schedulesHint = schedulesHint,
+                onOpenSchedule = { id ->
+                    scope.launch {
+                        scheduleManager.taskNow(id)?.let { scheduleRoute = ScheduleRoute.Conversation(it.id, it.threadId) }
+                    }
+                }) {
                 settingsStartPage = PageWebSearch
                 activeTab = "settings"
             }
@@ -105,6 +149,9 @@ fun AdaptiveChatWorkspace(
     settingsViewModel: SettingsViewModel,
     onSettingsClicked: () -> Unit,
     onSchedulesClicked: () -> Unit = {},
+    onThreadSelected: (String) -> Unit = chatViewModel::selectThread,
+    schedulesHint: String? = null,
+    onOpenSchedule: (String) -> Unit = {},
     onOpenWebSearchSettings: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -124,7 +171,7 @@ fun AdaptiveChatWorkspace(
                         currentThreadId = selectedId,
                         renderingChatIds = renderingChatIds,
                         otherModeMatchCount = otherModeMatches,
-                        onThreadSelected = chatViewModel::selectThread,
+                        onThreadSelected = onThreadSelected,
                         onNewChatClicked = chatViewModel::startNewChat,
                         onDeleteThread = chatViewModel::deleteThread,
                         onRenameThread = chatViewModel::renameThread,
@@ -134,13 +181,14 @@ fun AdaptiveChatWorkspace(
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         onSchedulesClicked = onSchedulesClicked,
+                        schedulesHint = schedulesHint,
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
                     )
                 }
                 VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
                 Box(Modifier.weight(1f)) {
-                    ChatScreen(chatViewModel, settingsViewModel, {}, onSettingsClicked, onOpenWebSearchSettings)
+                    ChatScreen(chatViewModel, settingsViewModel, {}, onSettingsClicked, onOpenWebSearchSettings, onOpenSchedule)
                 }
             }
         } else {
@@ -157,7 +205,7 @@ fun AdaptiveChatWorkspace(
                         currentThreadId = selectedId,
                         renderingChatIds = renderingChatIds,
                         otherModeMatchCount = otherModeMatches,
-                        onThreadSelected = chatViewModel::selectThread,
+                        onThreadSelected = onThreadSelected,
                         onNewChatClicked = chatViewModel::startNewChat,
                         onDeleteThread = chatViewModel::deleteThread,
                         onRenameThread = chatViewModel::renameThread,
@@ -167,6 +215,7 @@ fun AdaptiveChatWorkspace(
                         onProjectsClicked = chatViewModel::openProjectsHub,
                         onArtifactsClicked = chatViewModel::openArtifactsGallery,
                         onSchedulesClicked = onSchedulesClicked,
+                        schedulesHint = schedulesHint,
                         onCloseDrawer = { scope.launch { drawerState.close() } },
                         searchQuery = query,
                         onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
@@ -174,7 +223,7 @@ fun AdaptiveChatWorkspace(
                 }
             }) {
                 ChatScreen(chatViewModel, settingsViewModel,
-                    { scope.launch { drawerState.open() } }, onSettingsClicked, onOpenWebSearchSettings)
+                    { scope.launch { drawerState.open() } }, onSettingsClicked, onOpenWebSearchSettings, onOpenSchedule)
             }
         }
     }

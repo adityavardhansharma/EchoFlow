@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.AppMode
@@ -49,8 +50,12 @@ fun ChatScreen(
     onMenuClicked: () -> Unit,
     onSettingsClicked: () -> Unit,
     onOpenWebSearchSettings: () -> Unit = {},
+    onOpenSchedule: (scheduleId: String) -> Unit = {},
 ) {
     val mode by chatViewModel.appMode.collectAsState()
+    val currentThreadId by chatViewModel.currentChatThreadId.collectAsState()
+    val threads by chatViewModel.allThreads.collectAsState()
+    val scheduleThread = threads.firstOrNull { it.id == currentThreadId }?.takeIf { it.scheduleId != null }
     val renderingModes by chatViewModel.renderingModes.collectAsState()
     val errorMessage by chatViewModel.errorMessage.collectAsState()
 
@@ -103,6 +108,16 @@ fun ChatScreen(
                 onNewChat = { chatViewModel.startNewChat() },
             )
 
+            // A chat a schedule produced says so under the title bar, one tap from its schedule.
+            AnimatedVisibility(
+                visible = scheduleThread != null && errorMessage == null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset - 12.dp),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                scheduleThread?.scheduleId?.let { id -> FromSchedulePill { onOpenSchedule(id) } }
+            }
+
             // Errors belong to the app, not to a surface: a failure raised in one mode should
             // still be readable if the user has already switched away from it.
             AnimatedVisibility(
@@ -113,6 +128,20 @@ fun ChatScreen(
             ) {
                 errorMessage?.let { ErrorBanner(it) { chatViewModel.clearError() } }
             }
+        }
+    }
+}
+
+@Composable
+private fun FromSchedulePill(onClick: () -> Unit) {
+    androidx.compose.material3.Surface(onClick = onClick, shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
+        androidx.compose.foundation.layout.Row(
+            Modifier.padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.echoflow.ui.screens.schedules.ScheduleMark(size = 16.dp, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+            androidx.compose.material3.Text("From a schedule · Open", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
         }
     }
 }

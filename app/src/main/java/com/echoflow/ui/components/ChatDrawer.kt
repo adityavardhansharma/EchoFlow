@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -78,6 +77,8 @@ fun ChatDrawerContent(
     onProjectsClicked: () -> Unit = {},
     onArtifactsClicked: () -> Unit = {},
     onSchedulesClicked: () -> Unit = {},
+    /** When the next schedule runs ("in 2 h"), shown quietly beside Schedules. */
+    schedulesHint: String? = null,
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -110,7 +111,12 @@ fun ChatDrawerContent(
             onDismissRequest = { threadToDelete = null },
             icon = { Icon(Icons.Default.DeleteOutline, null) },
             title = { Text("Delete conversation?") },
-            text = { Text("This conversation will be permanently removed. This can't be undone.") },
+            text = {
+                Text(
+                    if (thread.scheduleId != null) "This conversation will be permanently removed. The schedule itself keeps running and starts a new conversation with its next answer."
+                    else "This conversation will be permanently removed. This can't be undone.",
+                )
+            },
             confirmButton = { TextButton(onClick = { onDeleteThread(thread); threadToDelete = null }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { threadToDelete = null }) { Text("Cancel") } },
         )
@@ -165,8 +171,11 @@ fun ChatDrawerContent(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             DrawerDestinationRow(
-                icon = Icons.Default.Schedule,
                 label = "Schedules",
+                leading = {
+                    com.echoflow.ui.screens.schedules.ScheduleMark(size = 20.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                trailing = schedulesHint,
                 onClick = { onSchedulesClicked(); onCloseDrawer?.invoke() },
                 modifier = Modifier.testTag("drawer_schedules_entry"),
             )
@@ -449,10 +458,12 @@ private fun pressScale(
  */
 @Composable
 private fun DrawerDestinationRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: String? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scale by pressScale(interaction)
@@ -469,13 +480,22 @@ private fun DrawerDestinationRow(
             Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (leading != null) leading()
+            else if (icon != null) Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(Spacing.m))
             Text(
                 label,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
             )
+            if (trailing != null) {
+                Text(
+                    trailing,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
