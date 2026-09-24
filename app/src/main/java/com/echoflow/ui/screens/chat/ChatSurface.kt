@@ -444,7 +444,7 @@ internal fun ChatSurface(
     val messageBottomInset = if (inputHeightPx > 0) with(density) { inputHeightPx.toDp() } else 96.dp
     Box(Modifier.fillMaxSize()) {
         if (messages.isEmpty() && !isStreaming && !progressLoading) {
-            EmptyState { textInput = it }
+            EmptyState(topInset = topBarInset, bottomInset = messageBottomInset)
         } else {
             // key() gives each conversation a fresh MessagesPane (own scroll state), so switching
             // opens at the bottom with no inherited-offset jump. bottomInset keeps the last

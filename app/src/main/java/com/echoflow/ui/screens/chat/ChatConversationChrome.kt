@@ -1,10 +1,9 @@
 
-@file:OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 
 package com.echoflow.ui.screens.chat
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -15,19 +14,12 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.AppMode
-import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.ModeSwitch
-import com.echoflow.ui.theme.BrandShapes
-import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
-import com.echoflow.ui.theme.rememberMorph
-import com.echoflow.ui.theme.rememberMorphProgress
 
 /**
  * The floating top bar: place on the left, **identity** in the middle, action on the right.
@@ -90,51 +82,6 @@ internal fun ErrorBanner(message: String, onDismiss: () -> Unit) {
             Spacer(Modifier.width(Spacing.m))
             Text(message, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = MaterialTheme.colorScheme.onErrorContainer) }
-        }
-    }
-}
-
-@Composable
-internal fun EmptyState(onSuggestion: (String) -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Haloed, morphing hero — a strong colored focal point.
-        Box(contentAlignment = Alignment.Center) {
-            val morph = rememberMorph(BrandShapes.heroStart, BrandShapes.heroEnd)
-            val progress by rememberMorphProgress(3400)
-            Box(
-                Modifier.size(150.dp).clip(MorphPolygonShape(morph, progress)).background(MaterialTheme.colorScheme.primaryContainer),
-            )
-            BrandMark(size = 84.dp, animated = true, iconScale = 0.42f)
-        }
-        Spacer(Modifier.height(Spacing.xl))
-        Text(
-            "How can I help\nyou today?",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.xl))
-
-        data class Sug(val icon: ImageVector, val label: String, val prompt: String, val container: Color, val onContainer: Color)
-        val cs = MaterialTheme.colorScheme
-        val suggestions = listOf(
-            Sug(Icons.Default.Lightbulb, "Explain", "Explain quantum computing in simple terms", cs.primaryContainer, cs.onPrimaryContainer),
-            Sug(Icons.Default.Edit, "Write", "Write an email asking for a deadline extension", cs.secondaryContainer, cs.onSecondaryContainer),
-            Sug(Icons.Default.Map, "Plan", "Plan a 3-day itinerary for Tokyo", cs.tertiaryContainer, cs.onTertiaryContainer),
-            Sug(Icons.Default.Code, "Code", "Write a Python script to rename files in a folder", cs.surfaceContainerHigh, cs.onSurface),
-        )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(Spacing.s, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            suggestions.forEach { s ->
-                AssistPill(s.icon, s.label, s.container, s.onContainer) { onSuggestion(s.prompt) }
-            }
         }
     }
 }
