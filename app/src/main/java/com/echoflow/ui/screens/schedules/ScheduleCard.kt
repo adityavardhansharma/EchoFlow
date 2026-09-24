@@ -2,37 +2,37 @@
 
 package com.echoflow.ui.screens.schedules
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -46,10 +46,7 @@ import com.echoflow.data.ScheduleDays
 import com.echoflow.data.ScheduleDraft
 import com.echoflow.data.ScheduleTask
 import com.echoflow.data.ScheduleText
-import com.echoflow.ui.screens.settings.ConnectedToggleRow
-import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.Spacing
-import com.echoflow.ui.theme.rememberMorph
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -57,11 +54,12 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * The schedule, docked above the composer like a live object in the conversation.
+ * The schedule, docked above the composer: one line with the mark, the name and the cadence.
  *
- * Collapsed it is one line — a watch mark showing the time, the name and the cadence — plus Save
- * the moment anything differs from what is scheduled. Expanded it is the whole schedule, editable
- * by hand. Model tool calls land here as they happen, so chat and card never disagree.
+ * Tapping it opens [ScheduleEditorSheet]. What the card offers on the right follows the state:
+ * Discard and Save/Create while something is unsaved (a hand-made draft can always be thrown
+ * away), Resume while paused, otherwise a pencil that says "tap to edit". Everything else a
+ * schedule can do lives in the title bar's menu.
  */
 @Composable
 internal fun ScheduleCard(
@@ -69,103 +67,162 @@ internal fun ScheduleCard(
     isNew: Boolean,
     dirty: Boolean,
     problem: String?,
-    nextRun: String?,
-    use24h: Boolean,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    onEdit: ((ScheduleDraft) -> ScheduleDraft) -> Unit,
+    status: String?,
+    onOpen: () -> Unit,
     onSave: () -> Unit,
     onDiscard: () -> Unit,
+    onResume: () -> Unit,
+    use24h: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val canSave = dirty && problem == null
+    val resting = status == ScheduleTask.PAUSED || status == ScheduleTask.COMPLETED
+    val line = when {
+        dirty && problem != null -> problem
+        dirty && !isNew -> "Unsaved · " + summary(draft, use24h)
+        status == ScheduleTask.PAUSED -> "Paused · " + summary(draft, use24h)
+        status == ScheduleTask.COMPLETED -> "Ended · " + summary(draft, use24h)
+        else -> summary(draft, use24h)
+    }
     Surface(
-        modifier = modifier.fillMaxWidth().animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(28.dp),
+        onClick = onOpen,
+        modifier = modifier.fillMaxWidth().semantics { contentDescription = "${draft.title.ifBlank { "Untitled schedule" }}, $line. Tap to edit." },
+        shape = RoundedCornerShape(24.dp),
         color = colors.surfaceContainerHigh,
-        tonalElevation = 2.dp,
     ) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().clickable(onClickLabel = if (expanded) "Collapse schedule" else "Edit schedule") {
-                    onExpandedChange(!expanded)
-                }.padding(start = Spacing.m, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
-                Spacer(Modifier.width(Spacing.m))
-                Column(Modifier.weight(1f)) {
-                    Text(draft.title.ifBlank { "Untitled schedule" }, style = MaterialTheme.typography.titleSmall,
-                        color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        when {
-                            problem != null && dirty -> problem
-                            else -> summary(draft, use24h)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (problem != null && dirty) colors.error else colors.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                AnimatedVisibility(dirty, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (!isNew) IconButton(onClick = onDiscard) { Icon(Icons.AutoMirrored.Filled.Undo, "Discard changes") }
+        Row(
+            Modifier.heightIn(min = 64.dp).padding(start = Spacing.m, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ScheduleMark(
+                size = 40.dp,
+                tint = if (resting && !dirty) colors.onSurfaceVariant else colors.onSecondaryContainer,
+                container = if (resting && !dirty) colors.surfaceContainerHighest else colors.secondaryContainer,
+            )
+            Spacer(Modifier.width(Spacing.m))
+            Column(Modifier.weight(1f)) {
+                Text(draft.title.ifBlank { "Untitled schedule" }, style = MaterialTheme.typography.titleSmall,
+                    color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(line, style = MaterialTheme.typography.bodySmall,
+                    color = if (dirty && problem != null) colors.error else colors.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(Spacing.s))
+            AnimatedContent(
+                targetState = when {
+                    dirty -> CardAction.Save
+                    status == ScheduleTask.PAUSED -> CardAction.Resume
+                    else -> CardAction.Edit
+                },
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "card-action",
+            ) { action ->
+                when (action) {
+                    CardAction.Save -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onDiscard) {
+                            Icon(Icons.Default.Close, if (isNew) "Discard draft" else "Discard changes", tint = colors.onSurfaceVariant)
+                        }
                         Button(onClick = onSave, enabled = canSave, contentPadding = PaddingValues(horizontal = Spacing.base)) {
                             Text(if (isNew) "Create" else "Save")
                         }
                     }
-                }
-                if (!dirty) {
-                    val turn by animateFloatAsState(if (expanded) 180f else 0f, label = "card-chevron")
-                    Icon(Icons.Default.ExpandMore, null, Modifier.padding(Spacing.s).rotate(turn), tint = colors.onSurfaceVariant)
-                }
-            }
-            AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                Column(
-                    Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())
-                        .padding(start = Spacing.base, end = Spacing.base, bottom = Spacing.base),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.base),
-                ) {
-                    CardEditor(draft, use24h, nextRun, onEdit)
-                    if (!dirty) TextButton(onClick = { onExpandedChange(false) }, modifier = Modifier.align(Alignment.End)) {
-                        Icon(Icons.Default.ExpandLess, null, Modifier.size(18.dp))
+                    CardAction.Resume -> FilledTonalButton(onClick = onResume, contentPadding = PaddingValues(start = Spacing.m, end = Spacing.base)) {
+                        Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(Spacing.xs))
-                        Text("Done")
+                        Text("Resume")
                     }
+                    CardAction.Edit -> Icon(Icons.Outlined.Edit, null, Modifier.padding(Spacing.m).size(20.dp), tint = colors.onSurfaceVariant)
                 }
             }
         }
     }
 }
 
+private enum class CardAction { Save, Resume, Edit }
+
 internal fun summary(draft: ScheduleDraft, use24h: Boolean): String = buildString {
     append(ScheduleText.cadence(draft, use24h))
     ScheduleText.until(draft.endDate)?.let { append(" · ").append(it) }
 }
 
+/**
+ * Editing a schedule by hand: a full-height sheet with Close and Save/Create in its header.
+ * Closing keeps the changes as a draft on the docked card, so nothing is lost and nothing is
+ * saved by accident.
+ */
 @Composable
-private fun CardEditor(
+internal fun ScheduleEditorSheet(
+    draft: ScheduleDraft,
+    isNew: Boolean,
+    dirty: Boolean,
+    problem: String?,
+    nextRun: String?,
+    use24h: Boolean,
+    onEdit: ((ScheduleDraft) -> ScheduleDraft) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.surfaceContainerLow,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = Spacing.s, end = Spacing.l, bottom = Spacing.m),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close") }
+                Spacer(Modifier.width(Spacing.xs))
+                Column(Modifier.weight(1f)) {
+                    Text(if (isNew) "New schedule" else "Edit schedule", style = MaterialTheme.typography.titleLarge, color = colors.onSurface)
+                    Text(
+                        when {
+                            dirty && problem != null -> problem
+                            dirty -> if (isNew) "Not scheduled yet" else "Unsaved changes"
+                            else -> "All changes saved"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (dirty && problem != null) colors.error else colors.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Button(onClick = onSave, enabled = dirty && problem == null) { Text(if (isNew) "Create" else "Save") }
+            }
+            HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.6f))
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).imePadding()
+                    .padding(horizontal = Spacing.l).padding(top = Spacing.l, bottom = Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+            ) {
+                ScheduleFields(draft, use24h, nextRun, onEdit)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScheduleFields(
     draft: ScheduleDraft,
     use24h: Boolean,
     nextRun: String?,
     onEdit: ((ScheduleDraft) -> ScheduleDraft) -> Unit,
 ) {
     var sheet by remember { mutableStateOf<String?>(null) }
-    val colors = MaterialTheme.colorScheme
 
-    FieldLabel("Name")
-    PlainField(draft.title, { v -> onEdit { it.copy(title = v) } }, "Morning brief", singleLine = true)
-    FieldLabel("What should happen")
-    PlainField(draft.instruction, { v -> onEdit { it.copy(instruction = v) } },
-        "Summarize the top tech news in five bullets…", singleLine = false)
+    Section("Name") {
+        PlainField(draft.title, { v -> onEdit { it.copy(title = v) } }, "Morning brief", singleLine = true)
+    }
+    Section("What should happen") {
+        PlainField(draft.instruction, { v -> onEdit { it.copy(instruction = v) } },
+            "Summarize the top tech news in five bullets…", singleLine = false)
+    }
 
-    FieldLabel("Repeat")
-    ConnectedToggleRow(
-        options = listOf(ScheduleTask.ONCE to "Once", ScheduleTask.HOUR to "Hour", ScheduleTask.DAY to "Day",
-            ScheduleTask.WEEK to "Week", ScheduleTask.MONTH to "Month"),
-        selected = draft.unit,
-        onSelect = { unit ->
+    Section("Repeats") {
+        RepeatSelector(draft.unit) { unit ->
             onEdit {
                 val today = Calendar.getInstance()
                 it.copy(
@@ -174,50 +231,51 @@ private fun CardEditor(
                     onceDate = if (unit == ScheduleTask.ONCE && it.onceDate.isBlank()) isoDay(today.timeInMillis) else it.onceDate,
                 )
             }
-        },
-    )
-    if (draft.unit != ScheduleTask.ONCE) {
-        val unitName = when (draft.unit) { ScheduleTask.HOUR -> "hour"; ScheduleTask.DAY -> "day"; ScheduleTask.WEEK -> "week"; else -> "month" }
-        ValueRow(Icons.Default.Repeat, "Every", if (draft.interval == 1) "Every $unitName" else "Every ${draft.interval} ${unitName}s") { sheet = "interval" }
-    }
-    when (draft.unit) {
-        ScheduleTask.WEEK -> {
-            FieldLabel("On")
-            DayToggles(draft.weekdays) { days -> onEdit { it.copy(weekdays = days) } }
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                listOf("Weekdays" to ScheduleDays.WEEKDAYS, "Weekends" to ScheduleDays.WEEKEND, "Every day" to ScheduleDays.EVERY_DAY)
-                    .forEach { (label, days) ->
-                        FilterChip(selected = draft.weekdays == days, onClick = { onEdit { it.copy(weekdays = days) } }, label = { Text(label) })
-                    }
+        }
+        if (draft.unit != ScheduleTask.ONCE) {
+            ValueRow(Icons.Default.Repeat, "Interval", intervalLabel(draft.unit, draft.interval)) { sheet = "interval" }
+        }
+        when (draft.unit) {
+            ScheduleTask.WEEK -> {
+                DayToggles(draft.weekdays) { days -> onEdit { it.copy(weekdays = days) } }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    listOf("Weekdays" to ScheduleDays.WEEKDAYS, "Weekends" to ScheduleDays.WEEKEND, "Every day" to ScheduleDays.EVERY_DAY)
+                        .forEach { (label, days) ->
+                            FilterChip(selected = draft.weekdays == days, onClick = { onEdit { it.copy(weekdays = days) } }, label = { Text(label) })
+                        }
+                }
             }
+            ScheduleTask.MONTH -> ValueRow(Icons.Default.CalendarMonth, "Day of month", "The ${ScheduleText.ordinal(draft.monthDay)}") { sheet = "monthDay" }
+            ScheduleTask.ONCE -> ValueRow(Icons.Default.CalendarMonth, "Date", dateLabel(draft.onceDate) ?: "Pick a date") { sheet = "date" }
         }
-        ScheduleTask.MONTH -> ValueRow(Icons.Default.CalendarMonth, "On", "The ${ScheduleText.ordinal(draft.monthDay)} of the month") { sheet = "monthDay" }
-        ScheduleTask.ONCE -> ValueRow(Icons.Default.CalendarMonth, "Date", dateLabel(draft.onceDate) ?: "Pick a date") { sheet = "date" }
     }
 
-    if (draft.unit == ScheduleTask.HOUR) {
-        ValueRow(null, "At minute", ":%02d past each hour".format(draft.minute)) { sheet = "minute" }
-    } else {
-        ValueRow(Icons.Default.AccessTime, "Time", ScheduleText.time(draft.hour, draft.minute, use24h)) { sheet = "time" }
-    }
-    if (nextRun != null) {
-        Text("Next run · $nextRun", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-            modifier = Modifier.padding(start = Spacing.base).offset(y = -Spacing.s))
+    Section("Time") {
+        if (draft.unit == ScheduleTask.HOUR) {
+            ValueRow(Icons.Default.AccessTime, "Minute", ":%02d past each hour".format(draft.minute)) { sheet = "minute" }
+        } else {
+            ValueRow(Icons.Default.AccessTime, "At", ScheduleText.time(draft.hour, draft.minute, use24h)) { sheet = "time" }
+        }
+        if (nextRun != null) {
+            Text("Next run · $nextRun", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.xs))
+        }
     }
 
-    FieldLabel("Ends")
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-        FilterChip(selected = draft.endDate == null, onClick = { onEdit { it.copy(endDate = null) } }, label = { Text("Never") })
-        listOf("1 week" to (Calendar.WEEK_OF_YEAR to 1), "4 weeks" to (Calendar.WEEK_OF_YEAR to 4),
-            "3 months" to (Calendar.MONTH to 3), "1 year" to (Calendar.YEAR to 1)).forEach { (label, span) ->
-            val end = endAfter(span.first, span.second)
-            FilterChip(selected = draft.endDate == end, onClick = { onEdit { it.copy(endDate = end) } }, label = { Text(label) })
+    Section("Ends") {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            FilterChip(selected = draft.endDate == null, onClick = { onEdit { it.copy(endDate = null) } }, label = { Text("Never") })
+            val spans = listOf("1 week" to (Calendar.WEEK_OF_YEAR to 1), "4 weeks" to (Calendar.WEEK_OF_YEAR to 4),
+                "3 months" to (Calendar.MONTH to 3), "1 year" to (Calendar.YEAR to 1))
+            spans.forEach { (label, span) ->
+                val end = endAfter(span.first, span.second)
+                FilterChip(selected = draft.endDate == end, onClick = { onEdit { it.copy(endDate = end) } }, label = { Text(label) })
+            }
+            val custom = draft.endDate != null && spans.none { (_, span) -> endAfter(span.first, span.second) == draft.endDate }
+            FilterChip(selected = custom, onClick = { sheet = "end" },
+                leadingIcon = { Icon(Icons.Default.CalendarMonth, null, Modifier.size(FilterChipDefaults.IconSize)) },
+                label = { Text(if (custom) dateLabel(draft.endDate!!)?.let { "Until $it" } ?: "Pick date" else "Pick date") })
         }
-        val custom = draft.endDate != null && listOf(Calendar.WEEK_OF_YEAR to 1, Calendar.WEEK_OF_YEAR to 4, Calendar.MONTH to 3, Calendar.YEAR to 1)
-            .none { endAfter(it.first, it.second) == draft.endDate }
-        FilterChip(selected = custom, onClick = { sheet = "end" },
-            leadingIcon = { Icon(Icons.Default.CalendarMonth, null, Modifier.size(FilterChipDefaults.IconSize)) },
-            label = { Text(if (custom) dateLabel(draft.endDate!!)?.let { "Until $it" } ?: "Pick date" else "Pick date") })
     }
 
     when (sheet) {
@@ -226,10 +284,8 @@ private fun CardEditor(
         }
         "minute" -> ScheduleNumberSheet("Minute past the hour", 0..59, draft.minute, { "%02d".format(it) }, { ":%02d".format(it) },
             onDismiss = { sheet = null }) { m -> onEdit { it.copy(minute = m) }; sheet = null }
-        "interval" -> ScheduleNumberSheet("Repeat every", 1..60, draft.interval, Int::toString, { n ->
-            val unit = when (draft.unit) { ScheduleTask.HOUR -> "hour"; ScheduleTask.DAY -> "day"; ScheduleTask.WEEK -> "week"; else -> "month" }
-            if (n == 1) "Every $unit" else "Every $n ${unit}s"
-        }, onDismiss = { sheet = null }) { n -> onEdit { it.copy(interval = n) }; sheet = null }
+        "interval" -> ScheduleNumberSheet("Repeat every", 1..60, draft.interval, Int::toString, { n -> intervalLabel(draft.unit, n) },
+            onDismiss = { sheet = null }) { n -> onEdit { it.copy(interval = n) }; sheet = null }
         "monthDay" -> ScheduleNumberSheet("Day of the month", 1..31, draft.monthDay, Int::toString, { "The ${ScheduleText.ordinal(it)}" },
             onDismiss = { sheet = null }) { d -> onEdit { it.copy(monthDay = d) }; sheet = null }
         "date" -> DateSheet(draft.onceDate, onDismiss = { sheet = null }) { d -> onEdit { it.copy(onceDate = d) }; sheet = null }
@@ -237,18 +293,58 @@ private fun CardEditor(
     }
 }
 
-/** Seven day toggles that bloom from a circle into a cookie when chosen. The last day can't be cleared. */
+private fun intervalLabel(unit: String, n: Int): String {
+    val name = when (unit) { ScheduleTask.HOUR -> "hour"; ScheduleTask.DAY -> "day"; ScheduleTask.WEEK -> "week"; else -> "month" }
+    return if (n == 1) "Every $name" else "Every $n ${name}s"
+}
+
+/** A labelled group of fields; every section shares the same label style and inner spacing. */
+@Composable
+private fun Section(label: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = Spacing.xs))
+        content()
+    }
+}
+
+/**
+ * Once / Hour / Day / Week / Month as one segmented track. Equal segments and short labels with no
+ * check glyph, so no label is ever clipped, even on a narrow phone.
+ */
+@Composable
+private fun RepeatSelector(selected: String, onSelect: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val options = listOf(ScheduleTask.ONCE to "Once", ScheduleTask.HOUR to "Hour", ScheduleTask.DAY to "Day",
+        ScheduleTask.WEEK to "Week", ScheduleTask.MONTH to "Month")
+    Surface(shape = CircleShape, color = colors.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Spacing.xs).selectableGroup()) {
+            options.forEach { (value, label) ->
+                val on = value == selected
+                val container by animateColorAsState(if (on) colors.primary else Color.Transparent, label = "repeat-container")
+                val content by animateColorAsState(if (on) colors.onPrimary else colors.onSurfaceVariant, label = "repeat-content")
+                Box(
+                    Modifier.weight(1f).height(44.dp).clip(CircleShape).background(container)
+                        .selectable(selected = on, role = Role.RadioButton) { onSelect(value) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1, softWrap = false)
+                }
+            }
+        }
+    }
+}
+
+/** Seven round day toggles. The last chosen day can't be cleared. */
 @Composable
 private fun DayToggles(selected: Set<Int>, onChange: (Set<Int>) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         ScheduleDays.ORDER.forEach { day ->
             val on = day in selected
-            val progress by animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), label = "day")
-            val morph = rememberMorph(MaterialShapes.Circle, MaterialShapes.Cookie9Sided)
+            val container by animateColorAsState(if (on) colors.primary else colors.surfaceContainerHighest, label = "day-container")
             Box(
-                Modifier.size(40.dp).clip(MorphPolygonShape(morph, progress))
-                    .background(if (on) colors.primary else colors.surfaceContainerHighest)
+                Modifier.size(40.dp).clip(CircleShape).background(container)
                     .clickable(role = Role.Checkbox) {
                         val next = if (on) selected - day else selected + day
                         if (next.isNotEmpty()) onChange(next)
@@ -264,25 +360,21 @@ private fun DayToggles(selected: Set<Int>, onChange: (Set<Int>) -> Unit) {
 }
 
 @Composable
-private fun ValueRow(icon: androidx.compose.ui.graphics.vector.ImageVector?, label: String, value: String, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest,
+private fun ValueRow(icon: ImageVector, label: String, value: String, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = colors.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth().semantics { role = Role.Button }) {
-        Row(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
-            if (icon != null) {
-                Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(Spacing.m))
-            }
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.weight(1f))
-            Text(value, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        Row(Modifier.heightIn(min = 56.dp).padding(start = Spacing.base, end = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(20.dp), tint = colors.primary)
+            Spacer(Modifier.width(Spacing.m))
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+            Spacer(Modifier.width(Spacing.m))
+            Text(value, style = MaterialTheme.typography.titleSmall, color = colors.onSurface,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+            Icon(Icons.Default.ChevronRight, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
         }
     }
-}
-
-@Composable
-private fun FieldLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = Spacing.xs).offset(y = Spacing.s))
 }
 
 @Composable
@@ -296,8 +388,8 @@ private fun PlainField(value: String, onChange: (String) -> Unit, placeholder: S
         colors = TextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
         ),
         textStyle = MaterialTheme.typography.bodyLarge,
         modifier = Modifier.fillMaxWidth(),

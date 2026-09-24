@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,7 +63,6 @@ import com.echoflow.ui.screens.chat.ErrorBanner
 import com.echoflow.ui.screens.chat.MessageBubble
 import com.echoflow.ui.screens.chat.ModelPickerSheet
 import com.echoflow.ui.screens.chat.SendButton
-import com.echoflow.ui.screens.chat.ShapedIconButton
 import com.echoflow.ui.theme.Spacing
 import java.util.Calendar
 
@@ -98,7 +100,7 @@ fun ScheduleChatScreen(
         ?: modelId.substringAfterLast('/').ifBlank { "Choose a model" }
 
     var input by rememberSaveable(scheduleId) { mutableStateOf(seed) }
-    var cardExpanded by rememberSaveable(scheduleId) { mutableStateOf(false) }
+    var editing by rememberSaveable(scheduleId) { mutableStateOf(false) }
     var pickingModel by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -114,6 +116,21 @@ fun ScheduleChatScreen(
         onManage = { pickingModel = false; onManageModels() },
         onDismiss = { pickingModel = false },
     )
+    val startEditing = {
+        if (shown == null) vm.startManualDraft(input)
+        editing = true
+    }
+    if (editing) {
+        shown?.let { current ->
+            ScheduleEditorSheet(
+                draft = current, isNew = saved == null, dirty = dirty,
+                problem = preview?.exceptionOrNull()?.message, nextRun = nextRun, use24h = use24h,
+                onEdit = vm::edit,
+                onSave = { vm.saveFromCard(); editing = false },
+                onDismiss = { editing = false },
+            )
+        }
+    }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
         icon = { Icon(Icons.Default.DeleteOutline, null) },
@@ -128,13 +145,13 @@ fun ScheduleChatScreen(
             ScheduleChatTopBar(
                 title = shown?.title?.takeIf { it.isNotBlank() } ?: "New schedule",
                 subtitle = statusLine(saved, dirty, running, use24h),
-                hour = shown?.hour ?: 8, minute = shown?.minute ?: 10,
-                saved = saved, running = running,
+                saved = saved, running = running, hasDraft = draft != null,
                 onBack = onBack,
                 onRunNow = vm::runNowFromMenu,
                 onStopRun = vm::stopRun,
                 onStatus = vm::setStatusFromMenu,
-                onEdit = { cardExpanded = true },
+                onEdit = startEditing,
+                onDiscard = vm::discardFromCard,
                 onDelete = { confirmDelete = true },
             )
             error?.let { ErrorBanner(it, vm::clearError) }
@@ -173,19 +190,20 @@ fun ScheduleChatScreen(
                         ScheduleCard(
                             draft = current, isNew = saved == null, dirty = dirty,
                             problem = preview?.exceptionOrNull()?.message,
-                            nextRun = nextRun, use24h = use24h,
-                            expanded = cardExpanded, onExpandedChange = { cardExpanded = it },
-                            onEdit = vm::edit, onSave = { vm.saveFromCard(); cardExpanded = false },
+                            status = saved?.status, use24h = use24h,
+                            onOpen = { editing = true },
+                            onSave = vm::saveFromCard,
                             onDiscard = vm::discardFromCard,
+                            onResume = { vm.setStatusFromMenu(ScheduleTask.ACTIVE) },
                             modifier = Modifier.padding(bottom = Spacing.m),
                         )
                     }
                 }
                 ContextChipRow(Modifier.padding(start = Spacing.s, bottom = Spacing.s)) {
                     ModelPill(modelId = modelId, label = modelLabel, onClick = { pickingModel = true })
-                    if (shown == null && messages.isEmpty()) {
+                    if (shown == null) {
                         AssistChip(
-                            onClick = { vm.startManualDraft(input); cardExpanded = true },
+                            onClick = startEditing,
                             label = { Text("Set up by hand") },
                             leadingIcon = { Icon(Icons.Default.Tune, null, Modifier.size(AssistChipDefaults.IconSize)) },
                             shape = CircleShape,
@@ -207,47 +225,47 @@ fun ScheduleChatScreen(
 private fun statusLine(saved: ScheduleTask?, dirty: Boolean, running: Boolean, use24h: Boolean): String = when {
     running -> "Running now"
     saved == null -> "Draft · not scheduled yet"
-    saved.status == ScheduleTask.PAUSED -> "Paused" + if (dirty) " · unsaved changes" else ""
-    saved.status == ScheduleTask.COMPLETED -> "Ended" + if (dirty) " · unsaved changes" else ""
     dirty -> "Unsaved changes"
-    else -> saved.nextRunAt?.let { "Next ${ScheduleText.relative(it, zoneId = saved.zoneId)} · ${ScheduleText.occurrence(it, saved.zoneId, use24h)}" } ?: "Active"
+    saved.status == ScheduleTask.PAUSED -> "Paused"
+    saved.status == ScheduleTask.COMPLETED -> "Ended"
+    else -> saved.nextRunAt?.let { "Next run " + ScheduleText.upcoming(it, saved.zoneId, use24h) } ?: "Active"
 }
 
+/**
+ * Back, the schedule's mark, its name and state — and every action in one menu: edit, run now,
+ * pause or resume, end, delete. Nothing needs the card to be opened first.
+ */
 @Composable
 private fun ScheduleChatTopBar(
     title: String,
     subtitle: String,
-    hour: Int,
-    minute: Int,
     saved: ScheduleTask?,
     running: Boolean,
+    hasDraft: Boolean,
     onBack: () -> Unit,
     onRunNow: () -> Unit,
     onStopRun: () -> Unit,
     onStatus: (String) -> Unit,
     onEdit: () -> Unit,
+    onDiscard: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().padding(start = Spacing.m, end = Spacing.xs, top = Spacing.s, bottom = Spacing.s),
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = Spacing.s, end = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ShapedIconButton(
-            onClick = onBack, enabled = true, size = 44.dp,
-            restShape = MaterialShapes.Cookie4Sided, pressedShape = MaterialShapes.Cookie7Sided,
-            container = colors.primaryContainer,
-        ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", Modifier.size(20.dp), tint = colors.onPrimaryContainer) }
-        Spacer(Modifier.width(Spacing.m))
-        Box(contentAlignment = Alignment.Center) {
-            if (running) LoadingIndicator(Modifier.size(44.dp), color = colors.tertiary)
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+        Spacer(Modifier.width(Spacing.xs))
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            if (running) LoadingIndicator(Modifier.size(40.dp), color = colors.primary)
             else ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
         }
         Spacer(Modifier.width(Spacing.m))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.labelMedium,
-                color = if (running) colors.tertiary else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = if (running) colors.primary else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         var menu by remember { mutableStateOf(false) }
         Box {
@@ -260,10 +278,11 @@ private fun ScheduleChatTopBar(
                         onClick = { menu = false; action() },
                     )
                 }
-                item("Edit details", Icons.Default.EditCalendar, action = onEdit)()
+                item(if (saved == null && !hasDraft) "Set up by hand" else "Edit schedule", Icons.Outlined.Edit, action = onEdit)()
+                if (saved == null && hasDraft) item("Discard draft", Icons.Default.Close, action = onDiscard)()
                 if (saved != null) {
                     if (running) item("Stop this run", Icons.Default.Stop, action = onStopRun)()
-                    else if (saved.status != ScheduleTask.COMPLETED) item("Run now", Icons.Default.NotificationsActive, action = onRunNow)()
+                    else if (saved.status != ScheduleTask.COMPLETED) item("Run now", Icons.Default.Bolt, action = onRunNow)()
                     when (saved.status) {
                         ScheduleTask.ACTIVE -> item("Pause", Icons.Default.Pause) { onStatus(ScheduleTask.PAUSED) }()
                         ScheduleTask.PAUSED -> item("Resume", Icons.Default.PlayArrow) { onStatus(ScheduleTask.ACTIVE) }()

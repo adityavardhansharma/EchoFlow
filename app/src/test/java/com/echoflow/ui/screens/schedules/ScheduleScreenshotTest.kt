@@ -69,15 +69,15 @@ class ScheduleScreenshotTest {
         }
     }
 
-    @Test fun scheduleCardCollapsedWithUnsavedChanges() = capture("card-unsaved", dark = false) {
-        ScheduleCard(draft, isNew = false, dirty = true, problem = null, nextRun = "Thu, Sep 24 · 7:30 AM",
-            use24h = false, expanded = false, onExpandedChange = {}, onEdit = {}, onSave = {}, onDiscard = {},
+    @Test fun scheduleCardWithUnsavedChanges() = capture("card-unsaved", dark = false) {
+        ScheduleCard(draft, isNew = false, dirty = true, problem = null, status = ScheduleTask.ACTIVE, use24h = false,
+            onOpen = {}, onSave = {}, onDiscard = {}, onResume = {},
             modifier = Modifier.fillMaxWidth().padding(16.dp))
     }
 
-    @Test fun scheduleCardExpanded() = capture("card-expanded", dark = true) {
-        ScheduleCard(draft, isNew = false, dirty = false, problem = null, nextRun = "Thu, Sep 24 · 7:30 AM",
-            use24h = false, expanded = true, onExpandedChange = {}, onEdit = {}, onSave = {}, onDiscard = {},
+    @Test fun scheduleCardPaused() = capture("card-paused", dark = true) {
+        ScheduleCard(draft, isNew = false, dirty = false, problem = null, status = ScheduleTask.PAUSED, use24h = false,
+            onOpen = {}, onSave = {}, onDiscard = {}, onResume = {},
             modifier = Modifier.fillMaxWidth().padding(16.dp))
     }
 }
