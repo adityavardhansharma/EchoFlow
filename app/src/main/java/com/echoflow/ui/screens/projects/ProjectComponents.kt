@@ -90,13 +90,15 @@ import com.echoflow.ui.theme.rememberReducedMotion
  * The one frame every Projects page hangs off: a [LargeFlexibleTopAppBar] that collapses into a
  * compact bar as the content scrolls, a tonal back button and an optional FAB — the same chrome
  * Settings and Schedules wear, so the hub reads as part of the app rather than a bolted-on web view.
- * The body receives the scaffold padding and is expected to be a single scrolling container.
+ * [titleLeading] sets a mark (a project's medallion) beside the title in both bar states. The body
+ * receives the scaffold padding and is expected to be a single scrolling container.
  */
 @Composable
 internal fun ProjectPageScaffold(
     title: String,
     onBack: () -> Unit,
     subtitle: String? = null,
+    titleLeading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
@@ -107,7 +109,17 @@ internal fun ProjectPageScaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    if (titleLeading == null) {
+                        Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            titleLeading()
+                            Spacer(Modifier.width(Spacing.m))
+                            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                },
                 subtitle = subtitle?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
                 navigationIcon = {
                     FilledTonalIconButton(onClick = onBack) {
