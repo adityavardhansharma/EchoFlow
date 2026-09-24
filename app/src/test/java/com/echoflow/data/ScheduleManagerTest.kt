@@ -130,4 +130,22 @@ class ScheduleManagerTest {
         assertEquals(ScheduleRun.CANCELLED, dao.run(id)?.status)
     }
 
+    @Test fun runAnswersPostIntoTheSchedulesConversation() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val database = AppDatabase.getDatabase(context)
+        val task = oneTime(System.currentTimeMillis() - 1_000)
+        database.scheduleDao().saveTask(task)
+        val runId = ScheduleManager.occurrenceId(task.id, task.anchorAt, task.revision)
+        assertNotNull(manager.claim(task.id, task.anchorAt, task.revision, false, runId))
+        val threadId = manager.saveAnswer(runId, task, "Plan: three things")
+        assertEquals(threadId, database.scheduleDao().task(task.id)?.threadId)
+        assertEquals(task.id, database.chatDao().getThreadById(threadId)?.scheduleId)
+        val answer = database.messageDao().getMessagesForChatSync(threadId).single()
+        assertEquals(ScheduleEvent.RUN, ScheduleEvent.parse(answer.scheduleEvent)?.type)
+        assertEquals(listOf(task.anchorAt to "Plan: three things"), manager.recentAnswers(database.scheduleDao().task(task.id)!!))
+
+        manager.delete(task.id)
+        assertEquals(null, database.chatDao().getThreadById(threadId)?.scheduleId)
+    }
 }
