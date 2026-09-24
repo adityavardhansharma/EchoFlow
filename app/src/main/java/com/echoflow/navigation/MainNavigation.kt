@@ -24,6 +24,7 @@ fun MainNavigationHub(
     chatViewModel: ChatViewModel,
     settingsViewModel: SettingsViewModel,
     pendingScheduleId: String? = null,
+    pendingScheduleChatId: String? = null,
     onPendingScheduleConsumed: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf("chat") }
@@ -38,6 +39,10 @@ fun MainNavigationHub(
         if (task != null) {
             activeTab = "chat"
             scheduleRoute = ScheduleRoute.Conversation(task.id, task.threadId)
+        } else if (pendingScheduleChatId != null) {
+            activeTab = "chat"
+            scheduleRoute = null
+            chatViewModel.openThreadFromNotification(pendingScheduleChatId)
         }
         onPendingScheduleConsumed()
     }

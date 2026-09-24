@@ -47,10 +47,14 @@ class MainActivity : ComponentActivity() {
     private val openChatRequest = MutableStateFlow<String?>(null)
     // A schedule to open, from a finished-run notification. Wins over the chat extra it also carries.
     private val openScheduleRequest = MutableStateFlow<String?>(null)
+    private val scheduleChatFallback = MutableStateFlow<String?>(null)
 
     private fun readOpenRequest(intent: Intent?) {
         val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
-        if (schedule != null) openScheduleRequest.value = schedule
+        if (schedule != null) {
+            scheduleChatFallback.value = intent.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)
+            openScheduleRequest.value = schedule
+        }
         else intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
     }
 
@@ -141,7 +145,11 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val pendingSchedule by openScheduleRequest.collectAsState()
-                    MainNavigationHub(chatVm, settingsVm, pendingSchedule) { openScheduleRequest.value = null }
+                    val fallbackChat by scheduleChatFallback.collectAsState()
+                    MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
+                        openScheduleRequest.value = null
+                        scheduleChatFallback.value = null
+                    }
                 }
             }
         }

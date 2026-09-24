@@ -79,13 +79,17 @@ class ScheduleManager(private val context: Context) {
      * person may delete it from the drawer while the schedule keeps running.
      */
     suspend fun ensureThread(taskId: String): String? = database.withTransaction {
-        val task = dao.task(taskId) ?: return@withTransaction null
-        task.threadId?.takeIf { database.chatDao().getThreadById(it) != null }?.let { return@withTransaction it }
+        ensureThreadInTransaction(taskId)
+    }
+
+    private suspend fun ensureThreadInTransaction(taskId: String): String? {
+        val task = dao.task(taskId) ?: return null
+        task.threadId?.takeIf { database.chatDao().getThreadById(it) != null }?.let { return it }
         val now = System.currentTimeMillis()
         val id = UUID.randomUUID().toString()
         database.chatDao().insertThread(ChatThread(id, task.title, now, now, scheduleId = task.id))
         dao.saveTask(task.copy(threadId = id))
-        id
+        return id
     }
 
     /** Appends a schedule-authored row to its conversation and floats it up the drawer. */
@@ -136,7 +140,7 @@ class ScheduleManager(private val context: Context) {
             dao.updateRun(running.copy(status = ScheduleRun.CANCELLED,
                 finishedAt = now, error = "Stopped by you"))
             val task = dao.task(taskId)
-            if (task?.unit == ScheduleTask.ONCE && task.nextRunAt == null && task.status == ScheduleTask.ACTIVE) {
+            if (task != null && task.nextRunAt == null && task.status == ScheduleTask.ACTIVE) {
                 dao.saveTask(task.copy(status = ScheduleTask.COMPLETED, updatedAt = now))
             }
         }
@@ -168,7 +172,7 @@ class ScheduleManager(private val context: Context) {
             when {
                 next == null -> {
                     if (dao.runningForTask(task.id) != null) return@forEach
-                    if (task.unit == ScheduleTask.ONCE) {
+                    if (task.unit == ScheduleTask.ONCE || (task.endAt != null && task.endAt < now)) {
                         dao.saveTask(task.copy(status = ScheduleTask.COMPLETED, updatedAt = now))
                     } else save(task)
                 }
@@ -243,7 +247,7 @@ class ScheduleManager(private val context: Context) {
                 finishedAt = System.currentTimeMillis(), resultChatId = resultChatId, error = error,
             ))
             val task = dao.task(run.taskId)
-            if (task?.unit == ScheduleTask.ONCE && task.nextRunAt == null && task.status == ScheduleTask.ACTIVE) {
+            if (task != null && task.nextRunAt == null && task.status == ScheduleTask.ACTIVE) {
                 dao.saveTask(task.copy(status = ScheduleTask.COMPLETED,
                     updatedAt = System.currentTimeMillis()))
             }
@@ -263,8 +267,8 @@ class ScheduleManager(private val context: Context) {
      */
     suspend fun saveAnswer(runId: String, task: ScheduleTask, answer: String): String {
         val now = System.currentTimeMillis()
-        val chatId = ensureThread(task.id) ?: error("The schedule no longer exists")
-        database.withTransaction {
+        val chatId = database.withTransaction {
+            val chatId = ensureThreadInTransaction(task.id) ?: error("The schedule no longer exists")
             val run = dao.run(runId) ?: error("Run no longer exists")
             require(run.status == ScheduleRun.RUNNING)
             database.messageDao().insertMessage(ChatMessage(
@@ -276,9 +280,10 @@ class ScheduleManager(private val context: Context) {
             dao.updateRun(run.copy(status = ScheduleRun.SUCCEEDED, finishedAt = now,
                 resultChatId = chatId))
             val latest = dao.task(task.id)
-            if (latest?.unit == ScheduleTask.ONCE && latest.nextRunAt == null && latest.status == ScheduleTask.ACTIVE) {
+            if (latest != null && latest.nextRunAt == null && latest.status == ScheduleTask.ACTIVE) {
                 dao.saveTask(latest.copy(status = ScheduleTask.COMPLETED, updatedAt = now))
             }
+            chatId
         }
         // The result is already committed. A transient queue failure is repaired on the next
         // app start or boot; it must not turn a successful run into a reported failure.

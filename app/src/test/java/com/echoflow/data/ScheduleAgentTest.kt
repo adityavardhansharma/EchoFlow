@@ -28,11 +28,13 @@ class ScheduleAgentTest {
         assertTrue(seen[1].last().content.contains("<tool_result name=\"save_schedule\">{\"ok\":true}</tool_result>"))
     }
 
-    @Test fun theLastRoundNeverExecutesTools() = runBlocking {
+    @Test fun theLastRoundFailsInsteadOfReportingUnexecutedToolsAsSuccess() = runBlocking {
         val agent = ScheduleAgent(complete = { flowOf("Again <tool name=\"run_schedule_now\"/>") }, maxRounds = 2)
         var calls = 0
-        val reply = agent.run(emptyList(), execute = { calls++; "{}" })
+        val streamed = mutableListOf<String>()
+        val failure = runCatching { agent.run(emptyList(), execute = { calls++; "{}" }, onText = { streamed += it }) }.exceptionOrNull()
         assertEquals(1, calls)
-        assertEquals("Again\n\nAgain", reply.text)
+        assertTrue(failure?.message.orEmpty().contains("tool limit"))
+        assertEquals("", streamed.last())
     }
 }

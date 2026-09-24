@@ -148,4 +148,49 @@ class ScheduleManagerTest {
         manager.delete(task.id)
         assertEquals(null, database.chatDao().getThreadById(threadId)?.scheduleId)
     }
+
+    @Test fun finalRecurringRunCompletesAndDoesNotFailRecovery() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val dao = AppDatabase.getDatabase(context).scheduleDao()
+        val at = System.currentTimeMillis() - 1_000
+        val task = oneTime(at).copy(unit = ScheduleTask.DAY, endAt = at + 1_000)
+        dao.saveTask(task)
+        val runId = ScheduleManager.occurrenceId(task.id, at, task.revision)
+        assertNotNull(manager.claim(task.id, at, task.revision, false, runId))
+        assertNull(dao.task(task.id)?.nextRunAt)
+        manager.saveAnswer(runId, task, "Done")
+        assertEquals(ScheduleTask.COMPLETED, dao.task(task.id)?.status)
+        manager.reconcile()
+        assertEquals(ScheduleTask.COMPLETED, dao.task(task.id)?.status)
+    }
+
+    @Test fun failedFinalRecurringRunAlsoCompletes() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val dao = AppDatabase.getDatabase(context).scheduleDao()
+        val at = System.currentTimeMillis() - 1_000
+        val task = oneTime(at).copy(unit = ScheduleTask.DAY, endAt = at + 1_000)
+        dao.saveTask(task)
+        val runId = ScheduleManager.occurrenceId(task.id, at, task.revision)
+        assertNotNull(manager.claim(task.id, at, task.revision, false, runId))
+        manager.finish(runId, null, "Model failed")
+        assertEquals(ScheduleTask.COMPLETED, dao.task(task.id)?.status)
+    }
+
+    @Test fun deletedConversationIsRecreatedWhenSavingRunAnswer() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val database = AppDatabase.getDatabase(context)
+        val task = oneTime(System.currentTimeMillis() - 1_000)
+        database.scheduleDao().saveTask(task)
+        val runId = ScheduleManager.occurrenceId(task.id, task.anchorAt, task.revision)
+        assertNotNull(manager.claim(task.id, task.anchorAt, task.revision, false, runId))
+        val oldThread = manager.ensureThread(task.id)!!
+        database.chatDao().deleteThread(database.chatDao().getThreadById(oldThread)!!)
+        val newThread = manager.saveAnswer(runId, task, "Recovered answer")
+        assertNotEquals(oldThread, newThread)
+        assertEquals("Recovered answer", database.messageDao().getMessagesForChatSync(newThread).single().content)
+        assertEquals(ScheduleRun.SUCCEEDED, database.scheduleDao().run(runId)?.status)
+    }
 }

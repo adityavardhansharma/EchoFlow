@@ -33,8 +33,12 @@ class ScheduleAgent(
             val text = raw.toString()
             ScheduleToolProtocol.visible(text).takeIf { it.isNotBlank() }?.let(shown::add)
             val calls = ScheduleToolProtocol.calls(text)
-            // The last round never executes: a model still calling tools there is looping.
-            if (calls.isEmpty() || round == maxRounds - 1) break
+            if (calls.isEmpty()) break
+            // No tool call may be silently dropped while its prose is presented as success.
+            if (round == maxRounds - 1) {
+                onText("")
+                error("The schedule assistant reached its tool limit before finishing. Please try again.")
+            }
             val results = calls.map { call -> toolCalls++; ScheduleToolProtocol.result(call.name, execute(call)) }
             working += ScheduleModelRunner.message("assistant", text)
             working += ScheduleModelRunner.message("user", ScheduleToolProtocol.resultsTurn(results))
