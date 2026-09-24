@@ -5,7 +5,9 @@ package com.echoflow.ui.screens.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
@@ -13,7 +15,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.theme.BrandShapes
 import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.rememberMorph
@@ -86,43 +90,65 @@ internal fun EchoBrainSection(onUseSupermemory: () -> Unit) {
     }
 }
 
+/**
+ * The way into the library: a large tertiary card rather than one more settings row, because
+ * reviewing what's remembered is the thing people most often come here to do.
+ */
 @Composable
 internal fun MemoryLibrarySection(onMemories: () -> Unit) {
-    PageSection("Saved memories", "Review what's known, add a fact, or forget something")
-    SettingsNavRow(
-        icon = Icons.Default.Psychology,
-        polygon = MaterialShapes.Flower,
-        title = "My Memories",
-        subtitle = "Manage your Supermemory library",
-        container = MaterialTheme.colorScheme.tertiaryContainer,
-        onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-        index = 0,
-        count = 1,
+    val cs = MaterialTheme.colorScheme
+    Surface(
         onClick = onMemories,
-    )
-    Spacer(Modifier.height(Spacing.xl))
-    PageSection("How memory works")
-    FormCard {
-        MemoryExplanation(
-            "Supported conversations",
-            "Memory works in standard chats with tool-capable models. Local models and specialised modes may not support automatic recall.",
-        )
-        Spacer(Modifier.height(Spacing.l))
-        MemoryExplanation(
-            "You control what leaves your device",
-            "Chats used with local models while cloud memory is off are excluded from learning. Never store passwords or API keys.",
-        )
-        Spacer(Modifier.height(Spacing.l))
-        MemoryExplanation(
-            "Deleting chats and memories",
-            "Deleting a chat only removes its local copy. Manage already-uploaded source conversations in Supermemory.",
-        )
+        shape = RoundedCornerShape(28.dp),
+        color = cs.tertiaryContainer,
+        contentColor = cs.onTertiaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.l), verticalAlignment = Alignment.CenterVertically) {
+            MemoryMark(
+                Icons.Default.Inventory2, MaterialShapes.Flower,
+                container = cs.tertiary, onContainer = cs.onTertiary, size = 52.dp,
+            )
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text("My Memories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Browse, search, add or forget — plus your profile and suggestions",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onTertiaryContainer.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(cs.onTertiaryContainer.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(22.dp))
+            }
+        }
     }
 }
 
+/** The fine print, as questions that open in place. */
 @Composable
-private fun MemoryExplanation(title: String, detail: String) {
-    Text(title, style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(Spacing.xs))
-    Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun MemoryNotesSection() {
+    MemorySectionHeader("Good to know")
+    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+        MemoryFaqRow(
+            "Which chats use memory?",
+            "Memory works in standard chats with tool-capable models. Local models and specialised modes may not support automatic recall.",
+            index = 0, count = 3,
+        )
+        MemoryFaqRow(
+            "What leaves my device?",
+            "Chats used with local models while cloud memory is off are excluded from learning. Never store passwords or API keys.",
+            index = 1, count = 3,
+        )
+        MemoryFaqRow(
+            "What happens when I delete a chat?",
+            "Deleting a chat only removes its local copy. Manage already-uploaded source conversations in Supermemory.",
+            index = 2, count = 3,
+        )
+    }
 }

@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
@@ -69,17 +70,25 @@ internal fun MemoryPage(onBack: () -> Unit, onMemories: () -> Unit, vm: MemoryVi
                             onConnect = { vm.connect(key, space) },
                         )
                     } else {
-                        MemoryConversationSection(vm, onEnableLearning = { consent = true })
-                        Spacer(Modifier.height(Spacing.xl))
+                        MemoryAccountSection(vm)
+                        Spacer(Modifier.height(Spacing.m))
                         MemoryLibrarySection(onMemories)
                         Spacer(Modifier.height(Spacing.xl))
-                        MemoryAccountSection(vm)
-                        Spacer(Modifier.height(Spacing.s))
-                        TextButton(
+                        MemoryConversationSection(vm, onEnableLearning = { consent = true })
+                        Spacer(Modifier.height(Spacing.xl))
+                        MemoryNotesSection()
+                        Spacer(Modifier.height(Spacing.xl))
+                        OutlinedButton(
                             onClick = { disconnect = true },
                             enabled = !vm.busy,
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        ) { Text("Disconnect Supermemory") }
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            Icon(Icons.Default.LinkOff, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(Spacing.s))
+                            Text("Disconnect Supermemory")
+                        }
                     }
                 }
             }
