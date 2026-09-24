@@ -92,8 +92,7 @@ internal fun ScheduleCard(
                 }.padding(start = Spacing.m, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ScheduleMark(size = 40.dp, hour = draft.hour, minute = draft.minute,
-                    tint = colors.onPrimaryContainer, container = colors.primaryContainer)
+                ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
                 Spacer(Modifier.width(Spacing.m))
                 Column(Modifier.weight(1f)) {
                     Text(draft.title.ifBlank { "Untitled schedule" }, style = MaterialTheme.typography.titleSmall,

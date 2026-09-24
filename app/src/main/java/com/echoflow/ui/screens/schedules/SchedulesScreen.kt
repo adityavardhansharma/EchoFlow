@@ -312,7 +312,7 @@ private fun ScheduleRow(
         Row(Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 if (running) LoadingIndicator(Modifier.size(48.dp), color = colors.tertiary)
-                else ScheduleMark(size = 44.dp, hour = draft.hour, minute = draft.minute,
+                else ScheduleMark(size = 44.dp,
                     tint = if (task.status == ScheduleTask.ACTIVE) colors.onSecondaryContainer else colors.onSurfaceVariant,
                     container = if (task.status == ScheduleTask.ACTIVE) colors.secondaryContainer else colors.surfaceContainerHighest)
             }
@@ -382,7 +382,7 @@ private fun HowSchedulesWork(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.xl).navigationBarsPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ScheduleMark(size = 40.dp, tint = MaterialTheme.colorScheme.onPrimaryContainer, container = MaterialTheme.colorScheme.primaryContainer)
+                ScheduleMark(size = 40.dp, tint = MaterialTheme.colorScheme.onSecondaryContainer, container = MaterialTheme.colorScheme.secondaryContainer)
                 Spacer(Modifier.width(Spacing.m))
                 Text("How schedules work", style = MaterialTheme.typography.headlineSmall)
             }

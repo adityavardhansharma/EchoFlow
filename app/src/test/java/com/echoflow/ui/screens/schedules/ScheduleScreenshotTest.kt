@@ -53,9 +53,9 @@ class ScheduleScreenshotTest {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
             WatchDial(7, 30, Modifier.size(260.dp), window = "MON")
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ScheduleMark(size = 44.dp, hour = 7, minute = 30, container = MaterialTheme.colorScheme.secondaryContainer,
+                ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.secondaryContainer,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                ScheduleMark(size = 44.dp, hour = 21, minute = 0, container = MaterialTheme.colorScheme.tertiaryContainer,
+                ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.tertiaryContainer,
                     tint = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }

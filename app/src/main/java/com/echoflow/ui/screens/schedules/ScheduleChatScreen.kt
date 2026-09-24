@@ -238,7 +238,7 @@ private fun ScheduleChatTopBar(
         Spacer(Modifier.width(Spacing.m))
         Box(contentAlignment = Alignment.Center) {
             if (running) LoadingIndicator(Modifier.size(44.dp), color = colors.tertiary)
-            else ScheduleMark(size = 36.dp, hour = hour, minute = minute, tint = colors.onTertiaryContainer, container = colors.tertiaryContainer)
+            else ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
         }
         Spacer(Modifier.width(Spacing.m))
         Column(Modifier.weight(1f)) {
@@ -302,8 +302,7 @@ private fun RunAnswer(message: ChatMessage, event: ScheduleEvent, zoneId: String
     Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(Spacing.base)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ScheduleMark(size = 28.dp, hour = clock.get(Calendar.HOUR_OF_DAY), minute = clock.get(Calendar.MINUTE),
-                    tint = colors.onTertiaryContainer, container = colors.tertiaryContainer)
+                ScheduleMark(size = 28.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
                 Spacer(Modifier.width(Spacing.s))
                 Text("Run · ${ScheduleText.occurrence(at, zone, use24h)}", style = MaterialTheme.typography.labelLarge, color = colors.tertiary)
             }
