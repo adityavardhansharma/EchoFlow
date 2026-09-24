@@ -71,14 +71,14 @@ class MemoryScreenshotTest {
         compose.setContent { EchoFlowTheme { MemoryPage({}, {}, vm) } }
         compose.waitUntil(10_000) { vm.billing != null && !vm.busy }
         compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_account.png")
-        compose.onNodeWithText("My Memories →").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("My Memories").performScrollTo().assertIsEnabled()
     }
     @Test fun memory_library_dark() {
         val vm = connectedViewModel()
         compose.setContent { EchoFlowTheme(darkTheme = true) { MyMemoriesPage({}, vm) } }
         compose.waitUntil(10_000) { vm.memories.isNotEmpty() && !vm.busy }
         compose.onNodeWithText("Profile").assertIsDisplayed()
-        compose.onNodeWithText("SAVED MEMORIES").assertIsDisplayed()
+        compose.onNodeWithText("Saved memories").assertIsDisplayed()
         compose.onRoot().captureRoboImage("../docs/screenshots/memory/memory_library_dark.png")
     }
 }

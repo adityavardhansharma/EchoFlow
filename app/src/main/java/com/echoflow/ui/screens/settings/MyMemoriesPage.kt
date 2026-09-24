@@ -266,66 +266,39 @@ internal fun MyMemoriesPage(onBack: () -> Unit, vm: MemoryViewModel = viewModel(
         }
     }
 
-    if (editing) AlertDialog(onDismissRequest = { if (!vm.busy) editing = false },
-        title = { Text(if (editor == null) "Add a memory" else "Edit memory") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Keep it specific. Never include passwords or API keys.", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(draft, { draft = it.take(4000) }, modifier = Modifier.fillMaxWidth(), enabled = !vm.busy,
-                label = { Text("What should be remembered?") }, minLines = 3, maxLines = 8,
-                supportingText = { Text("${draft.length} / 4,000") })
-            vm.error?.let { MemoryBanner(it, MemoryTone.Error) }
-            if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        } },
-        confirmButton = { TextButton(onClick = { vm.save(editor?.id, draft) { editing = false } }, enabled = !vm.busy && draft.isNotBlank()) { Text("Save memory") } },
-        dismissButton = { TextButton(onClick = { editing = false }, enabled = !vm.busy) { Text("Cancel") } })
-
-    forgetting?.let { memory -> AlertDialog(onDismissRequest = { if (!vm.busy) forgetting = null },
-        title = { Text("Forget this memory?") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(memory.text, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            Text("It will no longer be an active memory. Supermemory can retain its history and sources; learning from those sources may recreate it. Manage source data in your dashboard for a more complete removal.", style = MaterialTheme.typography.bodySmall)
-            vm.error?.let { MemoryBanner(it, MemoryTone.Error) }
-        } },
-        confirmButton = { TextButton(onClick = { vm.forget(memory) { forgetting = null } }, enabled = !vm.busy) { Text("Forget memory", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(onClick = { forgetting = null }, enabled = !vm.busy) { Text("Cancel") } }) }
-
-    detail?.let { memory ->
-        ModalBottomSheet(onDismissRequest = { detail = null }) {
-            LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                item { Text("Memory details", style = MaterialTheme.typography.headlineSmall) }
-                item { SelectionContainer { Text(memory.text, style = MaterialTheme.typography.bodyLarge) } }
-                item { Text("Updated ${memoryDate(memory.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                item { HorizontalDivider(); Text("Sources", modifier = Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleSmall) }
-                if (memory.sources.isEmpty()) item { Text("No source information returned by Supermemory.", style = MaterialTheme.typography.bodyMedium) }
-                items(memory.sources) { source -> SelectionContainer { Text(source, style = MaterialTheme.typography.bodySmall) } }
-                if (memory.history.isNotEmpty()) {
-                    item { Text("Earlier versions", style = MaterialTheme.typography.titleSmall) }
-                    items(memory.history) { previous -> SelectionContainer { Text(previous, style = MaterialTheme.typography.bodyMedium) } }
-                }
-            }
-        }
-    }
-    vm.cleanupPlan?.takeUnless { it.isEmpty }?.let { plan ->
-        AlertDialog(
-            onDismissRequest = vm::dismissCleanup,
-            title = { Text("Clean up memories?") },
-            text = {
-                Text(buildString {
-                    append("This will forget ${plan.discard.size} low-quality ")
-                    append(if (plan.discard.size == 1) "memory" else "memories")
-                    append(". ")
-                    if (plan.duplicateGroups > 0) append("One copy from each of ${plan.duplicateGroups} duplicate groups will be kept. ")
-                    if (plan.metaMemories > 0) append("${plan.metaMemories} assistant-meta memories will be removed. ")
-                    append("Source conversations in Supermemory are not deleted and may recreate facts later.")
-                })
-            },
-            confirmButton = { TextButton(onClick = vm::applyCleanup, enabled = !vm.busy) { Text("Clean up") } },
-            dismissButton = { TextButton(onClick = vm::dismissCleanup) { Text("Cancel") } },
+    if (editing) {
+        MemoryEditorSheet(
+            isNew = editor == null,
+            draft = draft,
+            onDraftChange = { draft = it },
+            busy = vm.busy,
+            error = vm.error,
+            onSave = { vm.save(editor?.id, draft) { editing = false } },
+            onDismiss = { editing = false },
         )
     }
+    forgetting?.let { memory ->
+        ForgetMemoryDialog(
+            memory = memory,
+            busy = vm.busy,
+            error = vm.error,
+            onConfirm = { vm.forget(memory) { forgetting = null } },
+            onDismiss = { forgetting = null },
+        )
+    }
+    detail?.let { memory ->
+        MemoryDetailSheet(
+            memory = memory,
+            enabled = !vm.busy,
+            onEdit = { detail = null; edit(memory) },
+            onForget = { detail = null; vm.clearFeedback(); forgetting = memory },
+            onDismiss = { detail = null },
+        )
+    }
+    vm.cleanupPlan?.takeUnless { it.isEmpty }?.let { plan ->
+        CleanupDialog(plan, busy = vm.busy, onConfirm = vm::applyCleanup, onDismiss = vm::dismissCleanup)
+    }
 }
-
 
 /** The library search: a filled pill rather than an outlined form field, searching by meaning. */
 @Composable
