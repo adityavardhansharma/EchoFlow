@@ -55,7 +55,7 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
             if (task != null) {
                 val reason = "Android could not start background model execution. Try running this task while EchoFlow is open."
                 manager.finish(runId, null, reason)
-                ScheduleNotifications.finished(applicationContext, notificationId, task.title, reason, null)
+                ScheduleNotifications.finished(applicationContext, notificationId, task.title, reason, null, task.id)
                 return Result.failure()
             }
             manager.reconcile()
@@ -67,21 +67,39 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
         }
         var resultChatId: String? = null
         try {
-            val answer = ScheduleModelRunner(applicationContext).complete(
-                modelId = task.modelId,
-                userText = task.instruction,
-                systemPrompt = "You are completing a user-approved scheduled task. Follow its instruction. " +
-                    "For a reminder, write a concise useful reminder. State uncertainty honestly. " +
-                    "Do not claim to have checked external information unless results are provided. " +
-                    "Current scheduled occurrence: ${java.util.Date(at)}.",
-                runId = runId,
-                searchQuery = if (task.needsWeb) task.instruction else null,
-                localWaitTimeoutMillis = 5 * 60_000L,
-            )
+            val runner = ScheduleModelRunner(applicationContext)
+            val web = runner.webAccess(task.modelId)
+            val prompt = SchedulePrompts.run(SchedulePrompts.RunContext(
+                task = task, scheduledAt = at, runNumber = manager.runNumber(task.id), manual = manual,
+                previousAnswers = manager.recentAnswers(task),
+                web = web, use24h = android.text.format.DateFormat.is24HourFormat(applicationContext),
+            ))
+            var searches = 0
+            val agent = ScheduleAgent(complete = { history ->
+                runner.stream(task.modelId, history, prompt, runId,
+                    serverWebSearch = web == ScheduleWebAccess.Server,
+                    localWaitTimeoutMillis = 5 * 60_000L)
+            })
+            val reply = agent.run(listOf(ScheduleModelRunner.message("user", task.instruction, runId)), execute = { call ->
+                val query = call.arguments.optString("query").trim()
+                when {
+                    call.name != "web_search" || web !is ScheduleWebAccess.Client ->
+                        """{"ok":false,"error":"No such tool in this run. Answer now."}"""
+                    query.isBlank() -> """{"ok":false,"error":"Give a query."}"""
+                    ++searches > 3 -> """{"ok":false,"error":"Search limit reached. Answer now with what you have."}"""
+                    else -> try {
+                        org.json.JSONObject().put("ok", true)
+                            .put("results", formatSearchResultsForModel(runner.search(web.provider, query).take(6))).toString()
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                        org.json.JSONObject().put("ok", false).put("error", "Search failed: ${e.message}. Say that current information couldn't be checked.").toString()
+                    }
+                }
+            })
+            val answer = reply.text.ifBlank { error("The model returned no answer.") }
             val chatId = manager.saveAnswer(runId, task, answer)
             resultChatId = chatId
             ScheduleNotifications.finished(applicationContext, notificationId, task.title,
-                answer.take(160), chatId)
+                SchedulePrompts.preview(answer), chatId, task.id)
             return Result.success()
         } catch (e: CancellationException) {
             withContext(NonCancellable) { manager.finish(runId, resultChatId, "Stopped before completion") }
@@ -90,7 +108,7 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : CoroutineWork
             val reason = e.message ?: "The scheduled run could not finish."
             manager.finish(runId, resultChatId, reason)
             ScheduleNotifications.finished(applicationContext, notificationId, task.title,
-                reason, null)
+                reason, null, task.id)
             return Result.failure()
         }
     }
@@ -149,7 +167,7 @@ internal object ScheduleNotifications {
     fun running(context: Context, id: Int, title: String): ForegroundInfo {
         ensureChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.logo)
+            .setSmallIcon(R.drawable.ic_schedule_mark)
             .setContentTitle(title)
             .setContentText("Scheduled task is running")
             .setOngoing(true)
@@ -161,7 +179,10 @@ internal object ScheduleNotifications {
         } else ForegroundInfo(id, notification)
     }
 
-    fun finished(context: Context, id: Int, title: String, text: String, chatId: String?) {
+    /** Opens the schedule's conversation; MainActivity prefers it over the plain chat extra. */
+    const val EXTRA_OPEN_SCHEDULE = "open_schedule_id"
+
+    fun finished(context: Context, id: Int, title: String, text: String, chatId: String?, scheduleId: String? = null) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED) return
@@ -172,12 +193,13 @@ internal object ScheduleNotifications {
         val completionId = (id and 0x00ff_ffff) or 0x3500_0000
         val intent = Intent(context, MainActivity::class.java).apply {
             if (chatId != null) putExtra(ReplyNotifications.EXTRA_OPEN_CHAT, chatId)
+            if (scheduleId != null) putExtra(EXTRA_OPEN_SCHEDULE, scheduleId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(context, completionId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.logo).setContentTitle(title).setContentText(text)
+            .setSmallIcon(R.drawable.ic_schedule_mark).setContentTitle(title).setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(pending).setAutoCancel(true).build()
         runCatching { NotificationManagerCompat.from(context).notify(completionId, notification) }

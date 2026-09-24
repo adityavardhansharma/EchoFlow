@@ -34,6 +34,12 @@ data class ChatThread(
      * away, so the "set null on project delete" is done in code (see ProjectManager).
      */
     val projectId: String? = null,
+    /**
+     * The schedule this conversation came from: its home conversation, or (before v29) the one
+     * chat a single run wrote. Drives the schedule mark in the drawer and the title bar. Like
+     * [projectId], not a foreign key — deleting a schedule must never delete what it produced.
+     */
+    val scheduleId: String? = null,
 ) {
     val mode: AppMode get() = AppMode.fromStorage(kind)
     val isPinned: Boolean get() = pinnedAt != null
@@ -83,6 +89,12 @@ data class ChatMessage(
      * was off, ineligible (local chats), or the turn predates the feature.
      */
     val jevJson: String? = null,
+    /**
+     * In a schedule conversation, what this row records beyond plain chat, as JSON
+     * [ScheduleEvent]: a run's output, a lifecycle event (saved, paused, missed…) or the schedule
+     * edits a model reply made. Null for every ordinary message.
+     */
+    val scheduleEvent: String? = null,
 ) {
     /**
      * In-memory only. Extra files (project docs that still need the provider) attached to this

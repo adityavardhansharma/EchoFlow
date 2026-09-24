@@ -46,7 +46,7 @@ class ScheduleDraftTest {
     @Test fun completedOneTimeTaskBecomesActiveWhenScheduledAgain() {
         val original = task(ScheduleTask.ONCE, epoch("2026-09-22T09:00:00Z"))
             .copy(status = ScheduleTask.COMPLETED)
-        val resolved = original.toDraft().copy(onceDate = "2026-09-24 09:00")
+        val resolved = original.toDraft().copy(onceDate = "2026-09-24", hour = 9, minute = 0)
             .resolve(original, now = now)
         assertEquals(original.id, resolved.id)
         assertEquals(ScheduleTask.ACTIVE, resolved.status)
@@ -67,6 +67,38 @@ class ScheduleDraftTest {
             val resolved = original.toDraft().copy(hour = 14).resolve(original, now = now)
             assertEquals(status, resolved.status)
             assertNull(resolved.nextRunAt)
+        }
+    }
+
+    @Test fun weeklyDaySetRunsOnEachChosenDay() {
+        // 2026-09-23 is a Wednesday.
+        val fixed = ScheduleDraft(title = "Standup", instruction = "Prep notes", unit = ScheduleTask.WEEK,
+            weekdays = setOf(java.util.Calendar.MONDAY, java.util.Calendar.THURSDAY), hour = 8, modelId = "m")
+            .toTask(now = now, zoneId = "UTC")
+        assertEquals(epoch("2026-09-24T08:00:00Z"), fixed.anchorAt)
+        assertEquals(listOf(epoch("2026-09-24T08:00:00Z"), epoch("2026-09-28T08:00:00Z"), epoch("2026-10-01T08:00:00Z")),
+            ScheduleTime.preview(fixed, 3, from = now))
+    }
+
+    @Test fun endDateStopsTheScheduleAfterItsLastDay() {
+        val original = task(ScheduleTask.DAY, epoch("2026-09-24T09:00:00Z"))
+        val resolved = original.toDraft().copy(endDate = "2026-09-26").resolve(original, now = now)
+        assertEquals(epoch("2026-09-26T23:59:59.999Z"), resolved.endAt)
+        assertEquals(listOf(epoch("2026-09-24T09:00:00Z"), epoch("2026-09-25T09:00:00Z"), epoch("2026-09-26T09:00:00Z")),
+            ScheduleTime.preview(resolved, 5, from = now))
+        assertEquals("2026-09-26", resolved.toDraft().endDate)
+    }
+
+    @Test fun endDateBeforeTheFirstRunIsRejected() {
+        val original = task(ScheduleTask.DAY, epoch("2026-09-24T09:00:00Z"))
+        assertThrows(IllegalArgumentException::class.java) {
+            original.toDraft().copy(endDate = "2026-09-23").resolve(original, now = now)
+        }
+    }
+
+    @Test fun weeklyWithoutDaysIsRejected() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ScheduleDraft(title = "x", instruction = "y", unit = ScheduleTask.WEEK, modelId = "m").resolve(now = now)
         }
     }
 }

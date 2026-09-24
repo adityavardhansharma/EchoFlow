@@ -43,4 +43,41 @@ class ScheduleTimeTest {
         val start = epoch("UTC", 2026, 9, 23, 9)
         assertNull(ScheduleTime.next(ScheduleTask.ONCE, 1, start, "UTC", start))
     }
+
+    @Test fun weekdaySetSkipsTheWeekend() {
+        val mask = ScheduleDays.mask(ScheduleDays.WEEKDAYS)
+        val friday = epoch("UTC", 2026, 9, 25, 8)
+        assertEquals(epoch("UTC", 2026, 9, 28, 8),
+            ScheduleTime.next(ScheduleTask.WEEK, 1, friday, "UTC", friday, mask))
+    }
+
+    @Test fun fortnightlyDaySetOnlyRunsInOnWeeks() {
+        val mask = ScheduleDays.mask(setOf(Calendar.MONDAY, Calendar.THURSDAY))
+        val monday = epoch("UTC", 2026, 9, 21, 9)
+        val thursday = epoch("UTC", 2026, 9, 24, 9)
+        assertEquals(thursday, ScheduleTime.next(ScheduleTask.WEEK, 2, monday, "UTC", monday, mask))
+        assertEquals(epoch("UTC", 2026, 10, 5, 9),
+            ScheduleTime.next(ScheduleTask.WEEK, 2, monday, "UTC", thursday, mask))
+    }
+
+    @Test fun daySetKeepsLocalTimeAcrossDst() {
+        val mask = ScheduleDays.mask(setOf(Calendar.SATURDAY, Calendar.SUNDAY))
+        val saturday = epoch("Europe/Dublin", 2026, 3, 28, 9)
+        assertEquals(epoch("Europe/Dublin", 2026, 3, 29, 9),
+            ScheduleTime.next(ScheduleTask.WEEK, 1, saturday, "Europe/Dublin", saturday, mask))
+    }
+
+    @Test fun endAtIsAnInclusiveBound() {
+        val start = epoch("UTC", 2026, 9, 23, 9)
+        val end = epoch("UTC", 2026, 9, 24, 9)
+        assertEquals(end, ScheduleTime.next(ScheduleTask.DAY, 1, start, "UTC", start, endAt = end))
+        assertNull(ScheduleTime.next(ScheduleTask.DAY, 1, start, "UTC", end, endAt = end))
+    }
+
+    @Test fun dayNamesParseLoosely() {
+        assertEquals(Calendar.MONDAY, ScheduleDays.parse("Monday"))
+        assertEquals(Calendar.THURSDAY, ScheduleDays.parse("th"))
+        assertEquals(Calendar.SUNDAY, ScheduleDays.parse("SUN"))
+        assertNull(ScheduleDays.parse("x"))
+    }
 }

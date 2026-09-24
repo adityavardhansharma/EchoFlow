@@ -229,6 +229,7 @@ private fun ThreadRow(
     val description = buildString {
         append(thread.title)
         if (thread.isPinned) append(", pinned")
+        if (thread.scheduleId != null) append(", from a schedule")
         if (rendering) append(", video rendering")
     }
 
@@ -271,6 +272,12 @@ private fun ThreadRow(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
+            if (thread.scheduleId != null) {
+                Spacer(Modifier.width(Spacing.s))
+                com.echoflow.ui.screens.schedules.ScheduleMark(
+                    size = 14.dp, tint = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             if (thread.isPinned) {
                 Spacer(Modifier.width(Spacing.s))
                 Icon(

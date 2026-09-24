@@ -136,5 +136,17 @@ class DatabaseUpgradeTest {
         database.openHelper.readableDatabase.query(
             "SELECT id, taskId, status FROM schedule_runs LIMIT 0"
         ).use { /* v28: occurrence history is available */ }
+        database.openHelper.readableDatabase.query(
+            "SELECT weekdays, endAt, threadId FROM schedules LIMIT 0"
+        ).use { /* v29: weekday sets, end dates and conversation links */ }
+        database.openHelper.readableDatabase.query(
+            "SELECT scheduleId FROM chat_threads WHERE id = 'thread-1'"
+        ).use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(null, cursor.getString(0))
+        }
+        database.openHelper.readableDatabase.query(
+            "SELECT scheduleEvent FROM chat_messages LIMIT 0"
+        ).use { /* v29: schedule conversation events */ }
     }
 }
