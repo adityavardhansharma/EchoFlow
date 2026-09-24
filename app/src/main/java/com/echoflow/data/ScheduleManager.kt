@@ -63,10 +63,12 @@ class ScheduleManager(private val context: Context) {
         val old = dao.task(id) ?: return null
         if (old.status == status) return old
         val saved = save(old.copy(status = status))
-        if (status == ScheduleTask.COMPLETED) stopCurrentRun(id)
+        val stoppedRun = status == ScheduleTask.COMPLETED && stopCurrentRun(id, postEvent = false)
         when (status) {
             ScheduleTask.PAUSED -> post(saved, "Paused. Nothing runs until you resume.", ScheduleEvent(ScheduleEvent.PAUSED))
-            ScheduleTask.COMPLETED -> post(saved, "Ended. Earlier answers stay here.", ScheduleEvent(ScheduleEvent.ENDED))
+            ScheduleTask.COMPLETED -> post(saved,
+                if (stoppedRun) "You stopped this run and ended the schedule. Earlier answers stay here."
+                else "Ended. Earlier answers stay here.", ScheduleEvent(ScheduleEvent.ENDED))
             else -> post(saved, "Resumed" + (saved.nextRunAt?.let {
                 " · next run ${ScheduleText.occurrence(it, saved.zoneId, use24h)}"
             } ?: "") + ".", ScheduleEvent(ScheduleEvent.RESUMED))
@@ -131,8 +133,8 @@ class ScheduleManager(private val context: Context) {
         enqueue(task, System.currentTimeMillis(), manual = true)
     }
 
-    suspend fun stopCurrentRun(taskId: String) {
-        val current = dao.runningForTask(taskId) ?: return
+    suspend fun stopCurrentRun(taskId: String, postEvent: Boolean = true): Boolean {
+        val current = dao.runningForTask(taskId) ?: return false
         database.withTransaction {
             val running = dao.run(current.id) ?: return@withTransaction
             if (running.status != ScheduleRun.RUNNING) return@withTransaction
@@ -146,9 +148,10 @@ class ScheduleManager(private val context: Context) {
         }
         work.cancelUniqueWork("schedule:${current.id}").await()
         dao.task(taskId)?.let {
-            post(it, "You stopped this run.", ScheduleEvent(ScheduleEvent.RUN_FAILED, runId = current.id, scheduledAt = current.scheduledAt))
+            if (postEvent) post(it, "You stopped this run.", ScheduleEvent(ScheduleEvent.RUN_FAILED, runId = current.id, scheduledAt = current.scheduledAt))
             enqueueNext(it)
         }
+        return true
     }
 
     /** Repairs work after a crash, reboot, package replacement, or a failed enqueue. */
@@ -172,7 +175,7 @@ class ScheduleManager(private val context: Context) {
             when {
                 next == null -> {
                     if (dao.runningForTask(task.id) != null) return@forEach
-                    if (task.unit == ScheduleTask.ONCE || (task.endAt != null && task.endAt < now)) {
+                    if (task.unit == ScheduleTask.ONCE || ScheduleTime.next(task, now) == null) {
                         dao.saveTask(task.copy(status = ScheduleTask.COMPLETED, updatedAt = now))
                     } else save(task)
                 }

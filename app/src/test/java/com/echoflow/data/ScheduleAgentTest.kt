@@ -28,13 +28,27 @@ class ScheduleAgentTest {
         assertTrue(seen[1].last().content.contains("<tool_result name=\"save_schedule\">{\"ok\":true}</tool_result>"))
     }
 
-    @Test fun theLastRoundFailsInsteadOfReportingUnexecutedToolsAsSuccess() = runBlocking {
-        val agent = ScheduleAgent(complete = { flowOf("Again <tool name=\"run_schedule_now\"/>") }, maxRounds = 2)
+    @Test fun finalToolRoundGetsAnAnswerOnlyTurn() = runBlocking {
+        val rounds = ArrayDeque(listOf(
+            "Started <tool name=\"save_schedule\">{}</tool>",
+            "Done <tool name=\"run_schedule_now\">{}</tool>",
+            "The schedule was saved; the run was not started.",
+        ))
+        val histories = mutableListOf<List<ChatMessage>>()
+        val agent = ScheduleAgent(complete = { history ->
+            histories += history
+            flowOf(rounds.removeFirst())
+        }, maxRounds = 2)
         var calls = 0
-        val streamed = mutableListOf<String>()
-        val failure = runCatching { agent.run(emptyList(), execute = { calls++; "{}" }, onText = { streamed += it }) }.exceptionOrNull()
+        val reply = agent.run(emptyList(), execute = { calls++; "{}" })
         assertEquals(1, calls)
-        assertTrue(failure?.message.orEmpty().contains("tool limit"))
-        assertEquals("", streamed.last())
+        assertEquals("Started\n\nThe schedule was saved; the run was not started.", reply.text)
+        assertTrue(histories.last().last().content.contains("No more tools are available"))
+    }
+
+    @Test fun answerOnlyTurnFailsOnlyWhenItHasNoVisibleAnswer() = runBlocking {
+        val agent = ScheduleAgent(complete = { flowOf("<tool name=\"web_search\">{}</tool>") }, maxRounds = 1)
+        val failure = runCatching { agent.run(emptyList(), execute = { "{}" }) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains("no answer"))
     }
 }

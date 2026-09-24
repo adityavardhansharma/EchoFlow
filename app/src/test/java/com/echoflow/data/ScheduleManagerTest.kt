@@ -178,6 +178,38 @@ class ScheduleManagerTest {
         assertEquals(ScheduleTask.COMPLETED, dao.task(task.id)?.status)
     }
 
+    @Test fun recoveryCompletesInterruptedFinalRunBeforeEndOfDay() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val dao = AppDatabase.getDatabase(context).scheduleDao()
+        val now = System.currentTimeMillis()
+        val at = now - 3_600_000L
+        val task = oneTime(at).copy(unit = ScheduleTask.DAY, endAt = now + 3_600_000L,
+            nextRunAt = null)
+        dao.saveTask(task)
+        dao.insertRun(ScheduleRun("interrupted-final", task.id, at, ScheduleRun.RUNNING,
+            startedAt = now - ScheduleManager.INTERRUPTED_RUN_GRACE_MS - 1_000))
+        manager.reconcile()
+        assertEquals(ScheduleRun.FAILED, dao.run("interrupted-final")?.status)
+        assertEquals(ScheduleTask.COMPLETED, dao.task(task.id)?.status)
+    }
+
+    @Test fun endingDuringARunPostsOneCombinedEvent() = runBlocking {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val manager = ScheduleManager(context)
+        val database = AppDatabase.getDatabase(context)
+        val at = System.currentTimeMillis() - 1_000
+        val task = oneTime(at)
+        database.scheduleDao().saveTask(task)
+        val runId = ScheduleManager.occurrenceId(task.id, at, task.revision)
+        assertNotNull(manager.claim(task.id, at, task.revision, false, runId))
+        manager.setStatus(task.id, ScheduleTask.COMPLETED)
+        val threadId = database.scheduleDao().task(task.id)?.threadId!!
+        val events = database.messageDao().getMessagesForChatSync(threadId)
+        assertEquals(1, events.size)
+        assertTrue(events.single().content.contains("stopped this run and ended"))
+    }
+
     @Test fun deletedConversationIsRecreatedWhenSavingRunAnswer() = runBlocking {
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         val manager = ScheduleManager(context)

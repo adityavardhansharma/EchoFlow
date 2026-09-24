@@ -243,6 +243,17 @@ class ScheduleChatViewModel(
                 }
                 throw e
             } catch (e: Exception) {
+                val partial = _streaming.value.orEmpty()
+                if (partial.isNotBlank() || edits.isNotEmpty()) {
+                    database.messageDao().insertMessage(ChatMessage(
+                        UUID.randomUUID().toString(), threadId, "assistant",
+                        partial.ifBlank { "Changes were applied, but I couldn't finish the reply." },
+                        System.currentTimeMillis(),
+                        scheduleEvent = edits.takeIf { it.isNotEmpty() }
+                            ?.let { ScheduleEvent(ScheduleEvent.EDITS, it.distinct()).toJson() },
+                    ))
+                    syncThreadTitle(threadId)
+                }
                 _error.value = e.message ?: "The model couldn't reply. You can still edit the schedule on the card."
             } finally {
                 _streaming.value = null

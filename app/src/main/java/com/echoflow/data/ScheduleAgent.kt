@@ -31,14 +31,30 @@ class ScheduleAgent(
                 onText(join(shown, ScheduleToolProtocol.visible(raw.toString(), streaming = true)))
             }
             val text = raw.toString()
-            ScheduleToolProtocol.visible(text).takeIf { it.isNotBlank() }?.let(shown::add)
             val calls = ScheduleToolProtocol.calls(text)
-            if (calls.isEmpty()) break
-            // No tool call may be silently dropped while its prose is presented as success.
             if (round == maxRounds - 1) {
-                onText("")
-                error("The schedule assistant reached its tool limit before finishing. Please try again.")
+                if (calls.isNotEmpty()) {
+                    // Discard prose attached to unexecuted calls, then request one answer-only turn.
+                    onText(join(shown, ""))
+                    working += ScheduleModelRunner.message("assistant", text)
+                    working += ScheduleModelRunner.message("user",
+                        "Tool limit reached. No more tools are available. Answer now with what you have. " +
+                            "Do not claim that an unexecuted action succeeded.")
+                    val final = StringBuilder()
+                    complete(working).collect { delta ->
+                        final.append(delta)
+                        onText(join(shown, ScheduleToolProtocol.visible(final.toString(), streaming = true)))
+                    }
+                    val finalText = final.toString()
+                    val visible = ScheduleToolProtocol.visible(finalText)
+                    if (visible.isBlank()) error("The schedule assistant returned no answer after reaching its tool limit.")
+                    shown += visible + if (ScheduleToolProtocol.calls(finalText).isNotEmpty())
+                        "\n\nSome requested actions were not completed." else ""
+                    break
+                }
             }
+            ScheduleToolProtocol.visible(text).takeIf { it.isNotBlank() }?.let(shown::add)
+            if (calls.isEmpty()) break
             val results = calls.map { call -> toolCalls++; ScheduleToolProtocol.result(call.name, execute(call)) }
             working += ScheduleModelRunner.message("assistant", text)
             working += ScheduleModelRunner.message("user", ScheduleToolProtocol.resultsTurn(results))
