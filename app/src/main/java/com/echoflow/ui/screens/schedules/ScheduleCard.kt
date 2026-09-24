@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
@@ -197,19 +198,11 @@ private fun CardEditor(
     if (draft.unit == ScheduleTask.HOUR) {
         ValueRow(null, "At minute", ":%02d past each hour".format(draft.minute)) { sheet = "minute" }
     } else {
-        FieldLabel("Time")
-        Surface(onClick = { sheet = "time" }, shape = RoundedCornerShape(24.dp), color = colors.surfaceContainerHighest,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Time, ${ScheduleText.time(draft.hour, draft.minute, use24h)}. Tap to change." }) {
-            Row(Modifier.padding(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
-                WatchDial(draft.hour, draft.minute, Modifier.size(72.dp),
-                    window = if (draft.unit == ScheduleTask.WEEK && draft.weekdays.size == 1) ScheduleText.shortDay(draft.weekdays.first()).uppercase() else null)
-                Spacer(Modifier.width(Spacing.base))
-                Column(Modifier.weight(1f)) {
-                    Text(ScheduleText.time(draft.hour, draft.minute, use24h), style = MaterialTheme.typography.headlineMedium, color = colors.onSurface)
-                    if (nextRun != null) Text("Next · $nextRun", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                }
-            }
-        }
+        ValueRow(Icons.Default.AccessTime, "Time", ScheduleText.time(draft.hour, draft.minute, use24h)) { sheet = "time" }
+    }
+    if (nextRun != null) {
+        Text("Next run · $nextRun", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = Spacing.base).offset(y = -Spacing.s))
     }
 
     FieldLabel("Ends")

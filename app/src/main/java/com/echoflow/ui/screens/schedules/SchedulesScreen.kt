@@ -45,8 +45,6 @@ import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.screens.settings.ConnectedToggleRow
 import com.echoflow.ui.theme.Spacing
-import java.util.Calendar
-import java.util.TimeZone
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -256,27 +254,31 @@ private fun rememberSaveableFilter() = androidx.compose.runtime.saveable.remembe
 
 private fun label(name: String, count: Int?) = if (count == null || count == 0) name else "$name $count"
 
-/** The next thing that will happen, big enough to read at a glance: a watch set to it and a countdown. */
+/** The next thing that will happen, big enough to read at a glance: what, and how soon. */
 @Composable
 private fun UpNextCard(task: ScheduleTask, now: Long, use24h: Boolean, running: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val at = task.nextRunAt ?: return
-    val clock = Calendar.getInstance(TimeZone.getTimeZone(task.zoneId)).apply { timeInMillis = at }
-    Surface(onClick = onClick, shape = RoundedCornerShape(32.dp), color = colors.primaryContainer, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(Spacing.l), verticalAlignment = Alignment.CenterVertically) {
-            WatchDial(
-                clock.get(Calendar.HOUR_OF_DAY), clock.get(Calendar.MINUTE), Modifier.size(112.dp),
-                window = ScheduleText.shortDay(clock.get(Calendar.DAY_OF_WEEK)).uppercase(),
-            )
-            Spacer(Modifier.width(Spacing.l))
-            Column(Modifier.weight(1f)) {
-                Text(if (running) "RUNNING NOW" else "UP NEXT", style = MaterialTheme.typography.labelMedium, color = colors.onPrimaryContainer.copy(alpha = 0.8f))
-                Text(task.title, style = MaterialTheme.typography.titleLarge, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(Spacing.xs))
-                Text(ScheduleText.relative(at, now, task.zoneId).replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.headlineSmall, color = colors.primary)
-                Text(ScheduleText.occurrence(at, task.zoneId, use24h), style = MaterialTheme.typography.bodyMedium, color = colors.onPrimaryContainer)
+    Surface(onClick = onClick, shape = RoundedCornerShape(28.dp), color = colors.primaryContainer, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(Spacing.l)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    if (running) LoadingIndicator(Modifier.size(40.dp), color = colors.onPrimaryContainer)
+                    else ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
+                }
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f)) {
+                    Text(if (running) "Running now" else "Up next", style = MaterialTheme.typography.labelLarge,
+                        color = colors.onPrimaryContainer.copy(alpha = 0.8f))
+                    Text(task.title, style = MaterialTheme.typography.titleMedium, color = colors.onPrimaryContainer,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
+            Spacer(Modifier.height(Spacing.base))
+            Text(ScheduleText.relative(at, now, task.zoneId).replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.headlineMedium, color = colors.onPrimaryContainer)
+            Text(ScheduleText.occurrence(at, task.zoneId, use24h), style = MaterialTheme.typography.bodyMedium,
+                color = colors.onPrimaryContainer.copy(alpha = 0.8f))
         }
     }
 }
@@ -335,7 +337,6 @@ private fun ScheduleRow(
 /** No schedules yet: show what the feature is for, with ideas that start a conversation. */
 @Composable
 private fun FirstSchedule(modifier: Modifier, onNew: (String) -> Unit) {
-    val now = remember { Calendar.getInstance() }
     val colors = MaterialTheme.colorScheme
     LazyColumn(
         modifier.fillMaxSize(),
@@ -343,8 +344,8 @@ private fun FirstSchedule(modifier: Modifier, onNew: (String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item {
-            WatchDial(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), Modifier.padding(top = Spacing.l).size(184.dp), sweepSeconds = true)
-            Spacer(Modifier.height(Spacing.xl))
+            ScheduleMark(Modifier.padding(top = Spacing.xl), size = 72.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
+            Spacer(Modifier.height(Spacing.l))
             Text("Let EchoFlow keep time for you", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, color = colors.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text("Briefings, reminders, practice and check-ins that arrive on their own — set up in a conversation.",

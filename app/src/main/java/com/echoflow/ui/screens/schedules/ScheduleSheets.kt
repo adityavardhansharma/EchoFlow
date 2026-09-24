@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -19,6 +18,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,9 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.echoflow.data.ScheduleText
 import com.echoflow.ui.theme.Spacing
-import java.text.DateFormatSymbols
 
 /** The shared frame for schedule pickers: title, live readout, content, and one clear action. */
 @Composable
@@ -69,8 +68,8 @@ internal fun ScheduleSheet(
 }
 
 /**
- * Time of day: the watch face on top — wind it by dragging — and crown wheels underneath for
- * exact values. Both stay in step, so whichever the person reaches for, the other follows.
+ * Time of day: the standard Material time picker — the dial people already know from the Clock
+ * app — following the phone's 12/24-hour setting. The picker shows its own readout.
  */
 @Composable
 internal fun ScheduleTimeSheet(
@@ -80,38 +79,14 @@ internal fun ScheduleTimeSheet(
     onDismiss: () -> Unit,
     onConfirm: (hour: Int, minute: Int) -> Unit,
 ) {
-    var h by remember { mutableIntStateOf(hour) }
-    var m by remember { mutableIntStateOf(minute) }
-    val amPm = DateFormatSymbols().amPmStrings
+    val state = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = use24h)
     ScheduleSheet(
         title = "Time of day",
-        readout = ScheduleText.time(h, m, use24h),
+        readout = null,
         onDismiss = onDismiss,
-        onConfirm = { onConfirm(h, m) },
+        onConfirm = { onConfirm(state.hour, state.minute) },
     ) {
-        WatchDial(
-            hour = h, minute = m,
-            window = if (use24h) null else amPm[if (h >= 12) 1 else 0].uppercase(),
-            modifier = Modifier.widthIn(max = 260.dp).fillMaxWidth(0.72f),
-            onTimeChange = { nh, nm -> h = nh; m = nm },
-        )
-        Spacer(Modifier.height(Spacing.l))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            if (use24h) {
-                CrownWheel((0..23).map { "%02d".format(it) }, h, { h = it }, "Hour", cyclic = true)
-            } else {
-                CrownWheel((1..12).map(Int::toString), (h + 11) % 12, { index ->
-                    h = (index + 1) % 12 + if (h >= 12) 12 else 0
-                }, "Hour", cyclic = true)
-            }
-            Text(":", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            CrownWheel((0..59).map { "%02d".format(it) }, m, { m = it }, "Minute", cyclic = true)
-            if (!use24h) {
-                CrownWheel(amPm.toList(), if (h >= 12) 1 else 0, { index ->
-                    h = h % 12 + if (index == 1) 12 else 0
-                }, "AM or PM", modifier = Modifier.padding(start = Spacing.xs))
-            }
-        }
+        TimePicker(state = state)
     }
 }
 

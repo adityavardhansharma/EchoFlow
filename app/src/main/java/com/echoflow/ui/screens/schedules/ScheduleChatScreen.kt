@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
@@ -373,37 +376,35 @@ private fun StreamingReply(text: String) {
     }
 }
 
+/**
+ * Before the first message: a quiet invitation, not a showpiece. Scrolls rather than overflowing
+ * when the keyboard or the docked card leaves little room.
+ */
 @Composable
 private fun ScheduleChatEmpty(hasSchedule: Boolean, onTemplate: (String) -> Unit) {
-    val now = remember { Calendar.getInstance() }
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        WatchDial(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), Modifier.size(168.dp), sweepSeconds = true)
-        Spacer(Modifier.height(Spacing.xl))
-        Text(if (hasSchedule) "Talk to this schedule" else "What should happen,\nand when?",
-            style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            if (hasSchedule) "Ask for a change — “make it 7 am”, “only weekdays”, “shorter” — or edit the card below."
-            else "Say it like you'd tell a friend. EchoFlow sets it up, and you can change anything here or on the card.",
-            style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (!hasSchedule) {
+    val cs = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+                .padding(horizontal = Spacing.xl, vertical = Spacing.base),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            ScheduleMark(size = 64.dp, tint = cs.onSecondaryContainer, container = cs.secondaryContainer)
+            Spacer(Modifier.height(Spacing.l))
+            Text(if (hasSchedule) "Talk to this schedule" else "What should happen, and when?",
+                style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, color = cs.onSurface)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                if (hasSchedule) "Ask for a change in your own words, or tap the card below to edit it."
+                else "Say it like you'd tell a friend. EchoFlow sets it up, and you can fine-tune it on the card.",
+                style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = cs.onSurfaceVariant,
+            )
             Spacer(Modifier.height(Spacing.xl))
-            val cs = MaterialTheme.colorScheme
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.fillMaxWidth()) {
-                ScheduleTemplates.forEachIndexed { index, template ->
-                    val (container, onContainer) = when (index % 4) {
-                        0 -> cs.primaryContainer to cs.onPrimaryContainer
-                        1 -> cs.secondaryContainer to cs.onSecondaryContainer
-                        2 -> cs.tertiaryContainer to cs.onTertiaryContainer
-                        else -> cs.surfaceContainerHigh to cs.onSurface
-                    }
-                    AssistPill(template.icon, template.label, container, onContainer) { onTemplate(template.prompt) }
+                (if (hasSchedule) ScheduleSuggestions else ScheduleTemplates).forEach { template ->
+                    AssistPill(template.icon, template.label, cs.surfaceContainerHigh, cs.onSurface) { onTemplate(template.prompt) }
                 }
             }
         }
@@ -417,6 +418,13 @@ internal val ScheduleTemplates = listOf(
     ScheduleTemplate(Icons.Default.NotificationsActive, "Reminder", "Remind me to stretch and drink water every 2 hours"),
     ScheduleTemplate(Icons.Default.EditCalendar, "Weekly review", "Every Sunday at 7 PM, help me review my week with three reflective questions"),
     ScheduleTemplate(Icons.Default.Tune, "Daily word", "Every day at 9 AM, teach me one uncommon English word with an example, for the next 4 weeks"),
+)
+
+/** Changes people usually ask of an existing schedule; each fills the composer to edit before sending. */
+private val ScheduleSuggestions = listOf(
+    ScheduleTemplate(Icons.Default.Schedule, "Move it to 7 am", "Move it to 7 am"),
+    ScheduleTemplate(Icons.Default.EditCalendar, "Only on weekdays", "Only run it on weekdays"),
+    ScheduleTemplate(Icons.Default.Tune, "Keep it shorter", "Keep each answer shorter"),
 )
 
 @Composable

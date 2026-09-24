@@ -49,10 +49,10 @@ class ScheduleScreenshotTest {
         compose.onRoot().captureRoboImage("$out/$name.png")
     }
 
-    @Test fun watchDialAndMarks() = capture("watch-dial", dark = false) {
+    @Test fun marks() = capture("marks", dark = false) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            WatchDial(7, 30, Modifier.size(260.dp), window = "MON")
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                ScheduleMark(size = 20.dp)
                 ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.secondaryContainer,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 ScheduleMark(size = 44.dp, container = MaterialTheme.colorScheme.tertiaryContainer,
