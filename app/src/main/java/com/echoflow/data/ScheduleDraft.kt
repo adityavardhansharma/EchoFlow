@@ -139,6 +139,17 @@ data class ScheduleDraft(
         )
     }
 
+    /** This draft with fields its repeat doesn't use cleared, so "unchanged" compares meaning, not leftovers. */
+    fun normalized(): ScheduleDraft = copy(
+        title = title.trim(), instruction = instruction.trim(),
+        hour = if (unit == ScheduleTask.HOUR) 0 else hour,
+        weekdays = if (unit == ScheduleTask.WEEK) weekdays else emptySet(),
+        monthDay = if (unit == ScheduleTask.MONTH) monthDay else 1,
+        onceDate = if (unit == ScheduleTask.ONCE) onceDate else "",
+    )
+
+    fun sameAs(other: ScheduleDraft?): Boolean = other != null && normalized() == other.normalized()
+
     fun toJson(): JSONObject = JSONObject()
         .put("title", title)
         .put("instruction", instruction)

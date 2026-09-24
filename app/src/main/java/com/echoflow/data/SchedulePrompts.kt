@@ -49,7 +49,7 @@ object SchedulePrompts {
             saved.nextRunAt?.let { appendLine("Next run: ${ScheduleText.occurrence(it, saved.zoneId, c.use24h, c.locale)}.") }
         }
         val draft = c.draft
-        if (draft != null && draft != saved?.toDraft()) {
+        if (draft != null && !draft.sameAs(saved?.toDraft())) {
             appendLine("Unsaved draft on the user's screen (they can edit it by hand too): ${draft.toJson()}")
         }
         appendLine()

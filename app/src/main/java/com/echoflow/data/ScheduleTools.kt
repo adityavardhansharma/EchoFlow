@@ -126,7 +126,7 @@ class ScheduleTools(
         resolved.onSuccess { task ->
             result.put("next_runs", JSONArray(ScheduleTime.preview(task, 3, now()).map { ScheduleText.occurrence(it, task.zoneId, use24h, locale) }))
         }.onFailure { result.put("problem", it.message ?: "Incomplete") }
-        result.put("unsaved_changes", workspace.saved?.toDraft() != draft)
+        result.put("unsaved_changes", !draft.sameAs(workspace.saved?.toDraft()))
         if (tool == UPDATE) result.put("next_step", if (resolved.isSuccess)
             "Draft updated. Save when the user has confirmed (or clearly asked for it)." else "Fix the problem before saving.")
         return result
