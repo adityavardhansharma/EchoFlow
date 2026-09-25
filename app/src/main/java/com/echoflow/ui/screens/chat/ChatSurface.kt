@@ -235,6 +235,15 @@ internal fun ChatSurface(
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
+    // Text shared in from another app (share sheet or text selection) seeds the composer.
+    val sharedDraftText by chatViewModel.sharedDraftText.collectAsState()
+    LaunchedEffect(sharedDraftText) {
+        sharedDraftText?.let {
+            textInput = it
+            chatViewModel.consumeSharedDraftText()
+        }
+    }
+
     // Dictation uses the selected transcription provider, independently of the chat model.
     val openRouterKey by settingsViewModel.apiKey.collectAsState()
     val sttCloudModelId by settingsViewModel.sttCloudModel.collectAsState()

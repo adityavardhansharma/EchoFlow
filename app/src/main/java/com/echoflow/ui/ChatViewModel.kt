@@ -521,6 +521,25 @@ class ChatViewModel(
         }
     }
 
+    // Text shared in from another app, waiting for the Chat composer to pick it up.
+    private val _sharedDraftText = MutableStateFlow<String?>(null)
+    val sharedDraftText: StateFlow<String?> = _sharedDraftText.asStateFlow()
+
+    /**
+     * Opens a new Chat conversation seeded with what another app shared: text lands in the
+     * composer, files are staged as attachments. Nothing is sent until the user does.
+     */
+    fun openShare(share: com.echoflow.ui.chat.IncomingShare) {
+        if (appMode.value != AppMode.Chat) switchMode(AppMode.Chat)
+        selectThread(null)
+        _sharedDraftText.value = share.text?.takeIf { it.isNotBlank() }
+        attachments.addSharedFiles(share.files)
+    }
+
+    fun consumeSharedDraftText() {
+        _sharedDraftText.value = null
+    }
+
     /**
      * Versions of a specific artifact lineage, so an in-chat card can compute its own version-diff
      * chips and (for HTML) a preview from its content. Keyed by id — not the chat's "current"

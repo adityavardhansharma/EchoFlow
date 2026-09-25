@@ -32,6 +32,7 @@ import com.echoflow.data.ReplyNotifications
 import com.echoflow.data.ScheduleManager
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
+import com.echoflow.ui.chat.IncomingShare
 import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.chat.ChatScreen
 import com.echoflow.ui.screens.settings.SettingsScreen
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
     // A schedule to open, from a finished-run notification. Wins over the chat extra it also carries.
     private val openScheduleRequest = MutableStateFlow<String?>(null)
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
+    // Text or files another app shared into EchoFlow, opened as a new chat.
+    private val shareRequest = MutableStateFlow<IncomingShare?>(null)
 
     private fun readOpenRequest(intent: Intent?) {
         val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
@@ -58,16 +61,24 @@ class MainActivity : ComponentActivity() {
         else intent?.getStringExtra(ReplyNotifications.EXTRA_OPEN_CHAT)?.let { openChatRequest.value = it }
     }
 
+    private fun readShare(intent: Intent?) {
+        IncomingShare.from(intent)?.let { shareRequest.value = it }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         readOpenRequest(intent)
+        readShare(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         readOpenRequest(intent)
+        // A recreated activity (rotation, process restore) still carries the launch intent;
+        // re-reading it would reopen the share over whatever the user has since typed.
+        if (savedInstanceState == null) readShare(intent)
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
         // foreground-service progress notification to appear in the status bar.
@@ -111,6 +122,14 @@ class MainActivity : ComponentActivity() {
                 pendingChat?.let { chatId ->
                     chatVm.openThreadFromNotification(chatId)
                     openChatRequest.value = null
+                }
+            }
+
+            val pendingShare by shareRequest.collectAsState()
+            LaunchedEffect(pendingShare) {
+                pendingShare?.let { share ->
+                    chatVm.openShare(share)
+                    shareRequest.value = null
                 }
             }
 
