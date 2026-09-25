@@ -626,31 +626,39 @@ class LocalLlmService(private val context: Context) {
 
         val engine = LlamaAndroid(context.contentResolver)
         val uri = Uri.fromFile(file)
-        val fd = context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            ?: throw Exception("Could not open the on-device model file.")
-        val config = mapOf<String, Any>(
-            "model" to uri.toString(),
-            "model_fd" to fd,
-            "use_mmap" to false,
-            "use_mlock" to false,
-            "n_ctx" to maxTokens,
-            "embedding" to false,
-            "n_batch" to 512,
-            "n_threads" to 0, // 0 = let llama.cpp pick a good thread count
-            "n_gpu_layers" to 0, // the AAR runs CPU-only
-            "vocab_only" to false,
-            "lora" to "",
-            "lora_scaled" to 1.0,
-            "rope_freq_base" to 0.0,
-            "rope_freq_scale" to 0.0,
-        )
 
         // The token callback streams to whichever generation is in flight; it reads the
         // current producer at call time, so reusing one engine across turns is fine.
-        val result = engine.startEngine(config) { token ->
-            ggufFullText.append(token)
-            ggufProducer?.trySend(StreamChunk.Content(token))
-        } ?: throw Exception(
+        fun start(useMmap: Boolean): Map<String, Any>? {
+            val fd = context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
+                ?: throw Exception("Could not open the on-device model file.")
+            val config = mapOf<String, Any>(
+                "model" to uri.toString(),
+                "model_fd" to fd,
+                "use_mmap" to useMmap,
+                "use_mlock" to false,
+                "n_ctx" to maxTokens,
+                "embedding" to false,
+                "n_batch" to 512,
+                "n_threads" to 0, // 0 = let llama.cpp pick a good thread count
+                "n_gpu_layers" to 0, // the AAR runs CPU-only
+                "vocab_only" to false,
+                "lora" to "",
+                "lora_scaled" to 1.0,
+                "rope_freq_base" to 0.0,
+                "rope_freq_scale" to 0.0,
+            )
+            return engine.startEngine(config) { token ->
+                ggufFullText.append(token)
+                ggufProducer?.trySend(StreamChunk.Content(token))
+            }
+        }
+
+        // mmap maps the weights from the file instead of copying them into app memory: loads
+        // skip the full read, reloads hit the OS page cache, and under memory pressure Android
+        // can drop those pages rather than kill the app. If the mmap load fails, fall back to
+        // reading the whole file in, as before.
+        val result = start(useMmap = true) ?: start(useMmap = false) ?: throw Exception(
             "Could not load this GGUF model. It may be corrupt, an unsupported quantization, " +
                 "or too large for this device."
         )
