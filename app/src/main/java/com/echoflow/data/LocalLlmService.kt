@@ -70,6 +70,7 @@ class LocalLlmService(private val context: Context) {
     private var lrtEngine: Engine? = null
     private var lrtLoadedPath: String? = null
     private var lrtLoadedMaxTokens = -1
+    private var lrtSupportsVision = false
     private var lrtConversation: Conversation? = null
     private var lrtChatId: String? = null
     private var lrtLastHistorySize = -1
@@ -203,6 +204,7 @@ class LocalLlmService(private val context: Context) {
         lrtEngine = null
         lrtLoadedPath = null
         lrtLoadedMaxTokens = -1
+        lrtSupportsVision = false
 
         releaseGgufInternal()
 
@@ -233,19 +235,39 @@ class LocalLlmService(private val context: Context) {
 
         checkRamBudget(file)
 
-        lrtEngine = try {
-            createLitertEngine(path, maxTokens, Backend.GPU(), visionBackend = Backend.GPU())
-        } catch (gpuError: Throwable) {
-            // Some devices lack a usable GPU delegate; retry on CPU before giving up.
-            try {
-                createLitertEngine(path, maxTokens, Backend.CPU(), visionBackend = Backend.CPU())
-            } catch (cpuError: Throwable) {
-                throw Exception(friendlyLoadError(cpuError))
+        // Text-only bundles (Qwen, DeepSeek, Gemma 3 1B…) have no vision encoder, and asking
+        // for a vision backend makes engine creation fail with "TF_LITE_VISION_ENCODER not
+        // found". Try multimodal first, drop vision as soon as the bundle says it has none, and
+        // fall back from GPU to CPU for devices without a usable GPU delegate.
+        var withVision = true
+        var lastError: Throwable? = null
+        var engine: Engine? = null
+        for (useGpu in listOf(true, false)) {
+            while (engine == null) {
+                val backend = if (useGpu) Backend.GPU() else Backend.CPU()
+                val vision = if (withVision) (if (useGpu) Backend.GPU() else Backend.CPU()) else null
+                try {
+                    engine = createLitertEngine(path, maxTokens, backend, vision)
+                } catch (error: Throwable) {
+                    if (withVision && isMissingVisionEncoder(error)) {
+                        withVision = false
+                        continue
+                    }
+                    // Keep the more useful error: a missing vision encoder is only noise.
+                    if (lastError == null || !isMissingVisionEncoder(error)) lastError = error
+                    break
+                }
             }
+            if (engine != null) break
         }
+        lrtEngine = engine ?: throw Exception(friendlyLoadError(lastError ?: Exception("Unknown error")))
+        lrtSupportsVision = withVision
         lrtLoadedPath = path
         lrtLoadedMaxTokens = maxTokens
     }
+
+    private fun isMissingVisionEncoder(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it.message?.contains("VISION_ENCODER", ignoreCase = true) == true }
 
     private fun closeLrtConversationInternal() {
         runCatching { lrtConversation?.close() }
@@ -315,7 +337,9 @@ class LocalLlmService(private val context: Context) {
                 _modelLoading.value = false
             }
             // An image on the latest user turn is sent alongside the text (multimodal bundles).
-            val image = history.lastOrNull()?.takeIf { it.role == "user" }?.let { imageContentFromUri(it.localAttachmentUri) }
+            // Text-only bundles were loaded without a vision backend, so the image is dropped there.
+            val image = if (!lrtSupportsVision) null
+                else history.lastOrNull()?.takeIf { it.role == "user" }?.let { imageContentFromUri(it.localAttachmentUri) }
             sendLitertMessage(this@callbackFlow, text, image)
         }
         awaitClose { onLitertFlowClosed() }
