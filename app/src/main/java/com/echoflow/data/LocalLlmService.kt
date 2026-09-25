@@ -77,6 +77,10 @@ class LocalLlmService(private val context: Context) {
     private var lrtSystemPrompt: String? = null
     private var lrtParams: InferenceParams? = null
     @Volatile private var lrtConversationReusable = true
+    /** Rough size of everything in the conversation so far, in characters. */
+    private var lrtUsedChars = 0L
+    /** True once web search results have been sent into the conversation. */
+    private var lrtHoldsSearchResults = false
 
     /** Search results waiting to be sent on the next [continueGeneration] round. */
     private var lrtPendingContext: String? = null
@@ -278,6 +282,8 @@ class LocalLlmService(private val context: Context) {
         lrtPendingContext = null
         lrtParams = null
         lrtConversationReusable = true
+        lrtUsedChars = 0L
+        lrtHoldsSearchResults = false
     }
 
     private fun generateLitert(
@@ -301,7 +307,8 @@ class LocalLlmService(private val context: Context) {
                     lrtChatId == chatId &&
                     lrtSystemPrompt == systemPrompt &&
                     lrtParams == params &&
-                    history.size == lrtLastHistorySize + 2
+                    history.size == lrtLastHistorySize + 2 &&
+                    !searchResultsCrowdContext(maxTokens)
 
                 if (incremental) {
                     text = history.last().content
@@ -327,6 +334,7 @@ class LocalLlmService(private val context: Context) {
                     lrtChatId = chatId
                     lrtSystemPrompt = systemPrompt
                     lrtParams = params
+                    lrtUsedChars = systemPrompt.length.toLong() + prior.sumOf { it.content.length.toLong() }
 
                     // Prior turns are supplied as native role-aware messages above. Keeping the
                     // current user message separate lets the bundle's own chat template render it.
@@ -349,13 +357,18 @@ class LocalLlmService(private val context: Context) {
         val text = lrtPendingContext
             ?: throw Exception("No pending context for the on-device conversation.")
         lrtPendingContext = null
+        lrtHoldsSearchResults = true
 
         // Retry briefly because a just-cancelled generation may still be winding down.
         var started = false
         var lastError: Throwable? = null
         for (attempt in 0 until 10) {
             try {
-                sendLitertMessage(this@callbackFlow, text)
+                // The search round was cut short at its `search:` line, which marked the
+                // conversation unusable. This round writes the answer on that same
+                // conversation, so once it finishes normally the next turn can reuse it too
+                // instead of re-reading the whole chat.
+                sendLitertMessage(this@callbackFlow, text, onFinished = { lrtConversationReusable = true })
                 started = true
                 break
             } catch (e: Exception) {
@@ -367,9 +380,15 @@ class LocalLlmService(private val context: Context) {
         awaitClose { onLitertFlowClosed() }
     }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
 
-    private fun sendLitertMessage(producer: ProducerScope<StreamChunk>, text: String, image: Content? = null) {
+    private fun sendLitertMessage(
+        producer: ProducerScope<StreamChunk>,
+        text: String,
+        image: Content? = null,
+        onFinished: (() -> Unit)? = null,
+    ) {
         val conversation = lrtConversation ?: throw Exception("No active on-device conversation.")
         generating.set(true)
+        lrtUsedChars += text.length
         try {
             val parts = mutableListOf<Content>(Content.Text(text))
             if (image != null) parts.add(image)
@@ -379,15 +398,18 @@ class LocalLlmService(private val context: Context) {
                     override fun onMessage(message: Message) {
                         val thought = message.channels["thought"]
                         if (!thought.isNullOrEmpty()) {
+                            lrtUsedChars += thought.length
                             producer.trySend(StreamChunk.Reasoning(thought))
                         }
                         val chunk = message.toString()
                         if (chunk.isNotEmpty()) {
+                            lrtUsedChars += chunk.length
                             producer.trySend(StreamChunk.Content(chunk))
                         }
                     }
 
                     override fun onDone() {
+                        onFinished?.invoke()
                         generating.set(false)
                         producer.close()
                     }
@@ -408,6 +430,15 @@ class LocalLlmService(private val context: Context) {
             throw e
         }
     }
+
+    /**
+     * A rebuilt conversation holds only the stored chat turns, while a reused one also keeps
+     * the search results sent into it. Those help follow-up questions, but on a small context
+     * window they crowd out room for the answer, so rebuild once the conversation is past half
+     * the window (estimated at ~4 characters per token).
+     */
+    private fun searchResultsCrowdContext(maxTokens: Int): Boolean =
+        lrtHoldsSearchResults && lrtUsedChars / 4 > maxTokens / 2
 
     private fun onLitertFlowClosed() {
         if (activeRuntime == LocalLlmRuntime.LITERT && generating.get()) {

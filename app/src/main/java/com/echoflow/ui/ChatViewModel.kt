@@ -1900,7 +1900,9 @@ class ChatViewModel(
                 val recallPlan = JevRouter.recallPlan(jevDecision, memoryEnabled, forceMemory, automaticRecall != null)
                 tools.recallAllowed = recallPlan.allowTool
                 val canRecall = recallPlan.prefetch
-                var turnSystemPrompt = systemPrompt + if (factsSaved)
+                // On-device models have no remember_memory tool, and a per-turn system prompt change
+                // makes LiteRT-LM re-read the whole chat, so the note is cloud-only.
+                var turnSystemPrompt = systemPrompt + if (factsSaved && !isLocal)
                     "\nHigh-confidence durable facts in the current user message were already submitted to memory. Do not call remember_memory for those same facts."
                 else ""
                 if (jevDecision?.saveTriggered == true && !factsSaved) {
