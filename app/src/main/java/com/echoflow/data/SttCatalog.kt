@@ -111,14 +111,15 @@ object SttCatalog {
             id = GEMINI_TRANSCRIBE_MODEL_ID,
             name = "Gemini 3.5 Transcribe",
             provider = "Google",
-            // OpenRouter bills tokens: $2/M audio in, $12/M text out. At ~32 audio tokens per
-            // second plus ~200 transcript tokens per minute of speech that is ≈ $0.37/hour.
-            pricing = "~\$0.37 / hr",
+            // OpenRouter bills 25 audio tokens per second at $2/M and reports no output tokens,
+            // so cost tracks recording length only: $0.003/min → $0.18/hour (measured on
+            // 14 s and 78 s clips, with and without custom vocabulary).
+            pricing = "~\$0.18 / hr",
             blurb = "Learns your names and terms through a custom vocabulary.",
-            usdPerMinute = 0.37 / 60.0,
+            usdPerMinute = 0.18 / 60.0,
             supportsCustomVocabulary = true,
-            // Token billing makes long or dense dictation cost noticeably more than the estimate.
-            costTierOverride = SttCostTier.Expensive,
+            // $0.003/min sits exactly on the Cheap/Moderate cutoff; pin it so rounding can't flip the tag.
+            costTierOverride = SttCostTier.Moderate,
         ),
         SttModel(
             id = MUSE_MODEL_ID,
