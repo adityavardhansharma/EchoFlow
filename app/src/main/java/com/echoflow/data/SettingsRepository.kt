@@ -66,7 +66,8 @@ class SettingsRepository(context: Context) {
         // System-wide dictation remains cloud-backed while on-device transcription is only a
         // settings preview. Switching that preview must not disable the user's system-wide opt-in.
         return DictationConfiguration(model, key,
-            model == SttCatalog.SARVAM_MODEL_ID && getSarvamHinglishEnabledDirect())
+            model == SttCatalog.SARVAM_MODEL_ID && getSarvamHinglishEnabledDirect(),
+            if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList())
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
     fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
@@ -164,6 +165,11 @@ class SettingsRepository(context: Context) {
     // script via `/transliterate`. Auto-detect stays; every other language is untouched.
     private val _sarvamHinglishEnabled = MutableStateFlow(getSarvamHinglishEnabledDirect())
     val sarvamHinglishEnabled: StateFlow<Boolean> = _sarvamHinglishEnabled.asStateFlow()
+
+    // Custom vocabulary: names and terms sent to dictation models that accept keyword biasing.
+    // Kept independently of the selected model so switching away and back never loses the list.
+    private val _sttVocabulary = MutableStateFlow(getSttVocabularyDirect())
+    val sttVocabulary: StateFlow<List<String>> = _sttVocabulary.asStateFlow()
 
     // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
     private val _appMode = MutableStateFlow(getAppModeDirect())
@@ -725,6 +731,15 @@ class SettingsRepository(context: Context) {
         _sarvamHinglishEnabled.value = enabled
     }
 
+    fun getSttVocabularyDirect(): List<String> =
+        DictationVocabulary.decode(prefs.getString(KEY_STT_VOCABULARY, null))
+
+    fun saveSttVocabulary(terms: List<String>) {
+        val normalized = DictationVocabulary.normalize(terms)
+        prefs.edit().putString(KEY_STT_VOCABULARY, DictationVocabulary.encode(normalized)).apply()
+        _sttVocabulary.value = normalized
+    }
+
     // ── App mode ───────────────────────────────────────────────────────────────────────
 
     fun getAppModeDirect(): AppMode = AppMode.fromStorage(prefs.getString(KEY_APP_MODE, null))
@@ -901,6 +916,7 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val KEY_APP_MODE = "app_mode"
+        private const val KEY_STT_VOCABULARY = "stt_custom_vocabulary"
 
         /**
          * Marks "a blank composer was open". A reserved token rather than an empty string,

@@ -11,8 +11,11 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -124,6 +127,7 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
     val selectedId by viewModel.sttCloudModel.collectAsState()
     val config by viewModel.customProviderConfig.collectAsState()
     val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
+    val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
     Column {
@@ -139,7 +143,22 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
             models = SttCatalog.availableModels(config),
             selectedId = selectedId,
             onSelect = viewModel::saveSttCloudModel,
+            vocabularyCount = vocabulary.size,
         )
+        // Vocabulary opens in place under the list when a model that accepts it is chosen, so it
+        // reads as part of that choice rather than a separate setting.
+        AnimatedVisibility(
+            visible = SttCatalog.supportsCustomVocabulary(selectedId),
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        ) {
+            Column {
+                Spacer(Modifier.height(Spacing.m))
+                SttVocabularyCard(viewModel)
+            }
+        }
         if (SttCatalog.sarvamAvailable(config)) {
             Spacer(Modifier.height(Spacing.m))
             SttHinglishRow(viewModel)
@@ -184,6 +203,7 @@ internal fun SttCloudModelList(
     models: List<SttModel>,
     selectedId: String,
     onSelect: (String) -> Unit,
+    vocabularyCount: Int = 0,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
         models.forEachIndexed { index, model ->
@@ -239,8 +259,11 @@ internal fun SttCloudModelList(
                             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                             else MaterialTheme.colorScheme.primary,
                         )
+                        val vocabularyActive = model.supportsCustomVocabulary && vocabularyCount > 0
                         Text(
-                            model.blurb,
+                            if (vocabularyActive) {
+                                "Custom vocabulary · $vocabularyCount ${if (vocabularyCount == 1) "word" else "words"}"
+                            } else model.blurb,
                             style = MaterialTheme.typography.bodySmall,
                             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             else MaterialTheme.colorScheme.onSurfaceVariant,

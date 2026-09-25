@@ -25,6 +25,7 @@ class SttCatalogTest {
         assertEquals(
             listOf(
                 "microsoft/mai-transcribe-2",
+                "google/gemini-3.5-transcribe",
                 "meta/muse-voice-transcribe-1.0",
                 "openai/gpt-transcribe",
                 "x-ai/grok-stt-1.0",
@@ -44,6 +45,7 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.pricing,
         )
         assertEquals("~\$0.96 / hr", SttCatalog.byId("google/chirp-3")!!.pricing)
+        assertEquals("~\$0.37 / hr", SttCatalog.byId("google/gemini-3.5-transcribe")!!.pricing)
         assertEquals("~\$0.36 / hr", SttCatalog.SARVAM_MODEL.pricing)
     }
 

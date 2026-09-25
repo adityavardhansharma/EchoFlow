@@ -59,6 +59,8 @@ data class SttModel(
     val usdPerMinute: Double,
     val isBest: Boolean = false,
     val showCostTier: Boolean = true,
+    /** True when the model accepts a custom vocabulary list (see [DictationVocabulary]). */
+    val supportsCustomVocabulary: Boolean = false,
     /** Optional display classification; the numeric price remains the billing reference. */
     private val costTierOverride: SttCostTier? = null,
 ) {
@@ -69,6 +71,7 @@ object SttCatalog {
     const val MAI_MODEL_ID = "microsoft/mai-transcribe-2"
     const val MUSE_MODEL_ID = "meta/muse-voice-transcribe-1.0"
     const val GROK_MODEL_ID = "x-ai/grok-stt-1.0"
+    const val GEMINI_TRANSCRIBE_MODEL_ID = "google/gemini-3.5-transcribe"
     const val SARVAM_MODEL_ID = "saaras:v4"
     val SARVAM_MODEL = SttModel(
         id = SARVAM_MODEL_ID,
@@ -103,6 +106,17 @@ object SttCatalog {
             usdPerMinute = 0.10 / 60.0,
             isBest = true,
             costTierOverride = SttCostTier.Moderate,
+        ),
+        SttModel(
+            id = GEMINI_TRANSCRIBE_MODEL_ID,
+            name = "Gemini 3.5 Transcribe",
+            provider = "Google",
+            // OpenRouter bills tokens: $2/M audio in, $12/M text out. At ~32 audio tokens per
+            // second plus ~200 transcript tokens per minute of speech that is ≈ $0.37/hour.
+            pricing = "~\$0.37 / hr",
+            blurb = "Learns your names and terms through a custom vocabulary.",
+            usdPerMinute = 0.37 / 60.0,
+            supportsCustomVocabulary = true,
         ),
         SttModel(
             id = MUSE_MODEL_ID,
@@ -156,6 +170,8 @@ object SttCatalog {
     /** One-shot recovery route for OpenRouter request-validation failures. */
     fun fallbackForBadRequest(modelId: String): String =
         if (modelId == MUSE_MODEL_ID) GROK_MODEL_ID else MUSE_MODEL_ID
+
+    fun supportsCustomVocabulary(id: String): Boolean = byId(id)?.supportsCustomVocabulary == true
 
     fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
 

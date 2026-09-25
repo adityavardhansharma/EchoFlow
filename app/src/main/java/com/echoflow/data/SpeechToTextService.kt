@@ -194,6 +194,7 @@ class SpeechToTextTranscriber(
         modelId: String,
         wav: ByteArray,
         romanizeHindi: Boolean = false,
+        vocabulary: List<String> = emptyList(),
     ): Result<String> =
         withContext(Dispatchers.IO) {
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
@@ -243,6 +244,15 @@ class SpeechToTextTranscriber(
                         OpenRouterSttAttempt(SttCatalog.MUSE_MODEL_ID),
                         OpenRouterSttAttempt(SttCatalog.GROK_MODEL_ID),
                     )
+                } else if (SttCatalog.supportsCustomVocabulary(modelId)) {
+                    // Vocabulary biasing is an enhancement, never a gate: if the provider rejects
+                    // the hint list, the same model transcribes plainly before switching models.
+                    val terms = DictationVocabulary.normalize(vocabulary)
+                    listOfNotNull(
+                        OpenRouterSttAttempt(modelId, vocabulary = terms),
+                        if (terms.isNotEmpty()) OpenRouterSttAttempt(modelId) else null,
+                        OpenRouterSttAttempt(SttCatalog.fallbackForBadRequest(modelId)),
+                    )
                 } else {
                     listOf(
                         OpenRouterSttAttempt(modelId),
@@ -258,6 +268,7 @@ class SpeechToTextTranscriber(
                             modelId = attempt.modelId,
                             wavBase64 = wavBase64,
                             transcribeStyle = attempt.transcribeStyle,
+                            vocabulary = attempt.vocabulary,
                         ),
                     )
                     code = response.first
@@ -325,6 +336,7 @@ class SpeechToTextTranscriber(
 private data class OpenRouterSttAttempt(
     val modelId: String,
     val transcribeStyle: String? = SttPayloads.DEFAULT_TRANSCRIBE_STYLE,
+    val vocabulary: List<String> = emptyList(),
 )
 
 /**
@@ -335,6 +347,7 @@ private data class OpenRouterSttAttempt(
 internal object SttPayloads {
     const val DEFAULT_TRANSCRIBE_STYLE = "simple"
     const val CLEAN_TRANSCRIBE_STYLE = "clean"
+    const val GOOGLE_AI_STUDIO_PROVIDER = "google-ai-studio"
 
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
@@ -342,6 +355,7 @@ internal object SttPayloads {
         modelId: String,
         wavBase64: String,
         transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
+        vocabulary: List<String> = emptyList(),
     ): Map<String, Any> = buildMap {
         put("model", modelId)
         put("input_audio", mapOf(
@@ -361,6 +375,16 @@ internal object SttPayloads {
                 ),
             ))
         }
+        // Gemini Transcribe biases recognition toward these spellings. OpenRouter forwards
+        // provider options under Google AI Studio's own field name, the only endpoint serving it.
+        val terms = DictationVocabulary.normalize(vocabulary)
+        if (SttCatalog.supportsCustomVocabulary(modelId) && terms.isNotEmpty()) {
+            put("provider", mapOf(
+                "options" to mapOf(
+                    GOOGLE_AI_STUDIO_PROVIDER to mapOf("custom_vocabulary" to terms),
+                ),
+            ))
+        }
     }
 
     fun encode(payload: Map<String, Any>): String = json.toJson(payload)
@@ -370,13 +394,14 @@ internal object SttPayloads {
         modelId: String,
         wavBase64: String,
         transcribeStyle: String? = DEFAULT_TRANSCRIBE_STYLE,
+        vocabulary: List<String> = emptyList(),
     ): Request = Request.Builder()
         .url("https://openrouter.ai/api/v1/audio/transcriptions")
         .header("Authorization", "Bearer $apiKey")
         .header("HTTP-Referer", "https://echoflow.app")
         .header("X-Title", "EchoFlow")
         .post(
-            encode(requestBody(modelId, wavBase64, transcribeStyle))
+            encode(requestBody(modelId, wavBase64, transcribeStyle, vocabulary))
                 .toRequestBody("application/json".toMediaType()),
         )
         .build()

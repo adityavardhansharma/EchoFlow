@@ -246,6 +246,10 @@ internal fun ChatSurface(
     // Hinglish lives on the Sarvam STT path only; OpenRouter models are untouched.
     val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
     val romanizeHindi = hinglishEnabled && sttCloudModelId == com.echoflow.data.SttCatalog.SARVAM_MODEL_ID
+    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe).
+    val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
+    val dictationVocabulary =
+        if (com.echoflow.data.SttCatalog.supportsCustomVocabulary(sttCloudModelId)) sttVocabulary else emptyList()
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -633,7 +637,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

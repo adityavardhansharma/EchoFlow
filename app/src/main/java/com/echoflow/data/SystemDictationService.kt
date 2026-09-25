@@ -46,6 +46,7 @@ class SystemDictationService : AccessibilityService() {
     private var model = ""
     private var key = ""
     private var hinglish = false
+    private var vocabulary = emptyList<String>()
     private var prerequisitesReady = false
     private var systemWideEnabled = false
     private var starting = false
@@ -332,6 +333,7 @@ class SystemDictationService : AccessibilityService() {
                 model = config.model
                 key = config.key
                 hinglish = config.hinglish
+                vocabulary = config.vocabulary
                 try {
                     // This service is bound by the system. Promote that same service only on a user tap.
                     foreground("Recording dictation")
@@ -378,13 +380,14 @@ class SystemDictationService : AccessibilityService() {
         val sessionKey = key
         val sessionModel = model
         val sessionHinglish = hinglish
+        val sessionVocabulary = vocabulary
         session = scope.launch {
             try {
                 val wav = release.await() ?: return@launch
                 ensureActive()
                 if (!refreshPrerequisites()) return@launch
                 if (runCatching { foreground("Transcribing dictation") }.isFailure) { disable(); return@launch }
-                transcriber.transcribe(sessionKey, sessionModel, wav, sessionHinglish).onSuccess { transcript ->
+                transcriber.transcribe(sessionKey, sessionModel, wav, sessionHinglish, sessionVocabulary).onSuccess { transcript ->
                     ensureActive()
                     if (!refreshPrerequisites()) return@onSuccess
                     deliver(transcript)
