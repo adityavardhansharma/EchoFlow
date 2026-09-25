@@ -20,11 +20,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,7 +33,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumExtendedFloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -55,8 +54,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.Project
 import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.PROJECT_ACCENT_COUNT
 import com.echoflow.ui.components.ProjectMedallion
+import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.Spacing
 
 /**
@@ -66,7 +67,7 @@ import com.echoflow.ui.theme.Spacing
  * launchpad, not a container"): a project home surfaces its chats, and points to instructions and
  * documents as focused sub-screens rather than cramming everything onto one page.
  *
- * Every level shares [ProjectPageScaffold] — a collapsing large flexible app bar, a tonal back
+ * Every level shares [ProjectPageScaffold] — a collapsing medium flexible app bar, a tonal back
  * button and an extended FAB for the page's primary action — the same chrome as Settings and
  * Schedules, with each project's [MaterialShapes] medallion as its face.
  */
@@ -117,8 +118,8 @@ fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
 private fun ProjectsListContent(chatViewModel: ChatViewModel) {
     val projects by chatViewModel.projects.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
-    val gridState = rememberLazyGridState()
-    val fabExpanded by remember { derivedStateOf { gridState.firstVisibleItemIndex == 0 } }
+    val listState = rememberLazyListState()
+    val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     if (showCreate) {
         // New projects rotate through the identities so a fresh board isn't five identical marks;
@@ -147,11 +148,14 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
         onBack = { chatViewModel.closeProjectsHub() },
         floatingActionButton = {
             if (projects.isNotEmpty()) {
-                MediumExtendedFloatingActionButton(
+                ExtendedFloatingActionButton(
                     text = { Text("New project") },
                     icon = { Icon(Icons.Default.Add, null) },
                     onClick = { showCreate = true },
                     expanded = fabExpanded,
+                    shape = RoundedCornerShape(20.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         },
@@ -163,25 +167,21 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
             )
             return@ProjectPageScaffold
         }
-        // Tiles on phones, more columns as the window widens — a board of projects, not a ledger.
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            state = gridState,
+        // A connected list, not a board: the name is what you scan for, so each project is one
+        // quiet row with its mark, its name and what's inside — the same rhythm as Settings.
+        LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 128.dp),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-            verticalArrangement = Arrangement.spacedBy(Spacing.m),
+            contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 112.dp),
         ) {
-            item(key = "section", span = { GridItemSpan(maxLineSpan) }) {
-                ProjectSectionHeader("Your projects")
-            }
-            items(projects, key = { it.id }) { project ->
-                ProjectTile(
+            itemsIndexed(projects, key = { _, it -> it.id }) { index, project ->
+                ProjectRow(
                     project = project,
                     chatCountFlow = { chatViewModel.projectChatCountFlow(project.id) },
                     docCountFlow = { chatViewModel.projectDocumentCountFlow(project.id) },
+                    shape = groupedItemShape(index, projects.size),
                     onClick = { chatViewModel.openProjectHome(project.id) },
-                    modifier = Modifier.animateItem(),
+                    modifier = Modifier.padding(bottom = GroupedItemGap).animateItem(),
                 )
             }
         }
@@ -189,98 +189,72 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
 }
 
 /**
- * One project on the board: its medallion leads, a brief-set badge rides the top edge, the name
- * gets real type, and the contents read as small icon counts rather than a sentence of prose.
+ * One project in the list: its medallion leads, the name carries the row, and a single quiet line
+ * says what's inside. A set brief shows as a small sparkle beside the counts rather than a badge.
  */
 @Composable
-private fun ProjectTile(
+private fun ProjectRow(
     project: Project,
     chatCountFlow: () -> kotlinx.coroutines.flow.Flow<Int>,
     docCountFlow: () -> kotlinx.coroutines.flow.Flow<Int>,
+    shape: Shape,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chatCount by remember(project.id) { chatCountFlow() }.collectAsState(0)
     val docCount by remember(project.id) { docCountFlow() }.collectAsState(0)
-    val hasBrief = project.instructions.isNotBlank()
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.heightIn(min = 188.dp).padding(Spacing.base)) {
-            Row(verticalAlignment = Alignment.Top) {
-                ProjectMedallion(project.colorIndex, size = 56.dp)
-                Spacer(Modifier.weight(1f))
-                if (hasBrief) {
-                    Box(
-                        Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
+        Row(
+            Modifier.heightIn(min = 64.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProjectMedallion(project.colorIndex, size = 36.dp)
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    project.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (project.instructions.isNotBlank()) {
                         Icon(
                             Icons.Default.AutoAwesome, "Instructions set",
-                            Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            Modifier.padding(end = Spacing.xs).size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
-                }
-            }
-            Spacer(Modifier.weight(1f).heightIn(min = Spacing.l))
-            Text(
-                project.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(
-                Modifier.padding(top = Spacing.s),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (chatCount == 0 && docCount == 0) {
                     Text(
-                        "Edited ${DateUtils.getRelativeTimeSpanString(project.updatedAt)}",
-                        style = MaterialTheme.typography.labelMedium,
+                        projectRowMeta(chatCount, docCount, project.updatedAt),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                } else {
-                    TileStat(Icons.Outlined.ChatBubbleOutline, chatCount)
-                    TileStat(Icons.Outlined.Description, docCount)
                 }
             }
         }
     }
 }
 
-@Composable
-private fun TileStat(icon: ImageVector, count: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(Spacing.xs))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** A glanceable summary of what's inside a project — counts when it has substance, a nudge when not. */
-internal fun projectMetaLine(chatCount: Int, docCount: Int, instructions: String): String {
+/** Counts when the project has substance, otherwise when it was last touched. */
+internal fun projectRowMeta(chatCount: Int, docCount: Int, updatedAt: Long, now: Long = System.currentTimeMillis()): String {
     val parts = buildList {
         if (chatCount > 0) add(if (chatCount == 1) "1 chat" else "$chatCount chats")
         if (docCount > 0) add(if (docCount == 1) "1 file" else "$docCount files")
     }
-    return when {
-        parts.isNotEmpty() -> parts.joinToString(" · ")
-        instructions.isNotBlank() -> "Instructions set · tap to open"
-        else -> "Empty project · tap to set up"
-    }
+    return parts.joinToString(" · ").ifEmpty { "Edited ${relativeTime(updatedAt, now)}" }
 }
+
+/** "just now" for the first minute rather than DateUtils' literal "0 minutes ago". */
+internal fun relativeTime(time: Long, now: Long = System.currentTimeMillis()): String =
+    if (now - time in 0 until DateUtils.MINUTE_IN_MILLIS) "just now"
+    else DateUtils.getRelativeTimeSpanString(time, now, DateUtils.MINUTE_IN_MILLIS).toString()

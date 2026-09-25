@@ -30,11 +30,11 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -81,7 +81,7 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
         subtitle = project.name,
         onBack = leave,
         actions = {
-            FilledTonalButton(onClick = leave, modifier = Modifier.padding(end = Spacing.s)) { Text("Done") }
+            TextButton(onClick = leave, modifier = Modifier.padding(end = Spacing.xs)) { Text("Done") }
         },
     ) { padding ->
         Column(
@@ -102,8 +102,8 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
             // read like a document, not a cramped form field. It grows with the text and the page
             // scrolls, which also collapses the app bar out of the way while writing.
             Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 TextField(
@@ -112,11 +112,11 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
                     placeholder = {
                         Text(
                             "e.g. You are helping me write a noir mystery. Keep a wry, hard-boiled tone and remember the characters and timeline in the attached files.",
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -125,7 +125,7 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
                         unfocusedIndicatorColor = Color.Transparent,
                         disabledIndicatorColor = Color.Transparent,
                     ),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp).padding(Spacing.s),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp).padding(Spacing.xs),
                 )
             }
 
@@ -166,42 +166,20 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
     }
 }
 
-/** What a brief is, said once in a tonal card rather than as a grey caption under the bar. */
+/** What a brief is, said once as a quiet caption above the writing surface. */
 @Composable
 private fun BriefExplainer() {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.AutoAwesome, null,
-                    Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-            Spacer(Modifier.width(Spacing.m))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "A standing brief",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                Text(
-                    "Sent to the model with every message in this project — set its role, tone and rules.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-        }
+    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.Top) {
+        Icon(
+            Icons.Default.AutoAwesome, null,
+            Modifier.padding(top = 1.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(Spacing.s))
+        Text(
+            "Sent to the model with every message in this project — set its role, tone and rules.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
