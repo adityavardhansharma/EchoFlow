@@ -194,7 +194,7 @@ private fun ProjectHomeContent(
 
     ProjectPageScaffold(
         title = project?.name ?: "Project",
-        subtitle = project?.let { "Updated ${relativeTime(it.updatedAt)}" },
+        subtitle = project?.let { "Updated ${relativeTime(it.updatedAt, LocalProjectsNow.current)}" },
         titleLeading = { ProjectMedallion(colorIndex, size = 32.dp) },
         onBack = onBack,
         actions = {
@@ -375,6 +375,7 @@ private fun ProjectChatRow(
     modifier: Modifier = Modifier,
 ) {
     val accent = projectAccent(colorIndex)
+    val now = LocalProjectsNow.current
     Surface(
         onClick = onClick,
         shape = shape,
@@ -392,20 +393,21 @@ private fun ProjectChatRow(
                 Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(16.dp), tint = accent.onContainer)
             }
             Spacer(Modifier.width(Spacing.m))
-            Text(
-                thread.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                relativeTime(thread.updatedAt),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.padding(start = Spacing.m),
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    thread.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    relativeTime(thread.updatedAt, now),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }

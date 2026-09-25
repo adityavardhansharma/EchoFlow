@@ -37,11 +37,14 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +62,9 @@ import com.echoflow.ui.components.PROJECT_ACCENT_COUNT
 import com.echoflow.ui.components.ProjectMedallion
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.Spacing
+import kotlinx.coroutines.delay
+
+internal val LocalProjectsNow = staticCompositionLocalOf { System.currentTimeMillis() }
 
 /**
  * The Projects hub — a fullscreen surface opened from the drawer. It hosts two levels: the list of
@@ -74,6 +80,13 @@ import com.echoflow.ui.theme.Spacing
 @Composable
 fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
     val openProjectId by chatViewModel.openProjectId.collectAsState()
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            val current = System.currentTimeMillis()
+            value = current
+            delay(DateUtils.MINUTE_IN_MILLIS - current % DateUtils.MINUTE_IN_MILLIS)
+        }
+    }
 
     // The hub opens over the chat, whose composer may still hold focus and keep the soft keyboard
     // up. Nothing in the hub wants it, so dismiss it as the surface appears — otherwise it hangs
@@ -93,21 +106,23 @@ fun ProjectsHubScreen(chatViewModel: ChatViewModel) {
         label = "projects-open",
     )
 
-    Surface(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = (1f - openProgress) * size.height
-                alpha = openProgress
-            },
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        val projectId = openProjectId
-        if (projectId == null) {
-            BackHandler { chatViewModel.closeProjectsHub() }
-            ProjectsListContent(chatViewModel)
-        } else {
-            ProjectHomeScreen(chatViewModel, projectId, onBack = { chatViewModel.closeProjectHome() })
+    CompositionLocalProvider(LocalProjectsNow provides now) {
+        Surface(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = (1f - openProgress) * size.height
+                    alpha = openProgress
+                },
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            val projectId = openProjectId
+            if (projectId == null) {
+                BackHandler { chatViewModel.closeProjectsHub() }
+                ProjectsListContent(chatViewModel)
+            } else {
+                ProjectHomeScreen(chatViewModel, projectId, onBack = { chatViewModel.closeProjectHome() })
+            }
         }
     }
 }
@@ -203,6 +218,7 @@ private fun ProjectRow(
 ) {
     val chatCount by remember(project.id) { chatCountFlow() }.collectAsState(0)
     val docCount by remember(project.id) { docCountFlow() }.collectAsState(0)
+    val now = LocalProjectsNow.current
 
     Surface(
         onClick = onClick,
@@ -233,7 +249,7 @@ private fun ProjectRow(
                         )
                     }
                     Text(
-                        projectRowMeta(chatCount, docCount, project.updatedAt),
+                        projectRowMeta(chatCount, docCount, project.updatedAt, now),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
