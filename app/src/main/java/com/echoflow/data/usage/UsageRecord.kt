@@ -16,15 +16,15 @@ import okhttp3.HttpUrl
 enum class UsageUnit { Usd, Credits, Tokens, Requests }
 
 /**
- * Every provider whose responses the ledger reads. [unit] is what the provider itself reports:
- * OpenAI, Anthropic, Gemini, Cerebras and Sarvam return token counts but no price, so they are
- * [UsageUnit.Tokens] and never enter the dollar total. Nothing here is estimated.
+ * Every provider whose responses the ledger reads, and the unit its spend is shown in. OpenAI,
+ * Anthropic and Gemini report tokens only; their dollars come from list prices ([ListPrices]).
+ * Cerebras and Sarvam have no public per-model list to price from, so they stay in tokens.
  */
 enum class UsageProvider(val label: String, val unit: UsageUnit, private val host: String) {
     OpenRouter("OpenRouter", UsageUnit.Usd, "openrouter.ai"),
-    OpenAi("OpenAI", UsageUnit.Tokens, "api.openai.com"),
-    Claude("Anthropic", UsageUnit.Tokens, "api.anthropic.com"),
-    Gemini("Google Gemini", UsageUnit.Tokens, "generativelanguage.googleapis.com"),
+    OpenAi("OpenAI", UsageUnit.Usd, "api.openai.com"),
+    Claude("Anthropic", UsageUnit.Usd, "api.anthropic.com"),
+    Gemini("Google Gemini", UsageUnit.Usd, "generativelanguage.googleapis.com"),
     Cerebras("Cerebras", UsageUnit.Tokens, "api.cerebras.ai"),
     XAi("xAI", UsageUnit.Usd, "api.x.ai"),
     Sarvam("Sarvam", UsageUnit.Tokens, "api.sarvam.ai"),
@@ -84,6 +84,9 @@ data class UsageRecord(
     val detail: String? = null,
 )
 
+/** One priced request, for charting spend over time. */
+data class UsagePoint(val provider: String, val keyHash: String, val createdAt: Long, val costUsd: Double)
+
 /** Per-provider sums for one key over a window. */
 data class UsageTotal(
     val provider: String,
@@ -114,6 +117,19 @@ interface UsageDao {
             "FROM usage_records WHERE createdAt >= :since GROUP BY provider, keyHash"
     )
     fun observeTotals(since: Long): Flow<List<UsageTotal>>
+
+    @Query(
+        "SELECT provider, keyHash, createdAt, costUsd FROM usage_records " +
+            "WHERE createdAt >= :since AND costUsd IS NOT NULL ORDER BY createdAt ASC"
+    )
+    fun observePoints(since: Long): Flow<List<UsagePoint>>
+
+    /** List-priced rows stored before a price list was available. */
+    @Query(
+        "SELECT * FROM usage_records WHERE provider IN (:providers) AND costUsd IS NULL " +
+            "AND inputTokens IS NOT NULL AND model IS NOT NULL LIMIT :limit"
+    )
+    suspend fun unpricedTokens(providers: List<String>, limit: Int): List<UsageRecord>
 
     /** Deepgram rows whose price has not been looked up yet, oldest first. */
     @Query(

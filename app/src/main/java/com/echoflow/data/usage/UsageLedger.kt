@@ -45,12 +45,14 @@ object UsageLedger {
     private const val TRACKING_STARTED = "tracking_started_at"
 
     @Volatile private var dao: UsageDao? = null
+    @Volatile private var priceFor: (suspend (UsageProvider, String) -> ModelPrice?)? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun install(context: Context) {
         if (dao != null) return
         val app = context.applicationContext
         dao = AppDatabase.getDatabase(app).usageDao()
+        priceFor = { provider, model -> ListPrices.find(ListPrices.load(app), provider, model) }
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!prefs.contains(TRACKING_STARTED)) {
             prefs.edit().putLong(TRACKING_STARTED, System.currentTimeMillis()).apply()
@@ -66,15 +68,22 @@ object UsageLedger {
         val target = dao ?: return
         scope.launch {
             try {
-                write(target, capture)
+                write(target, capture, priceFor)
             } catch (e: Exception) {
                 Log.w(TAG, "Could not record ${capture.provider} usage", e)
             }
         }
     }
 
-    /** Parses [capture] and upserts its row. Returns the stored record, or null if nothing was reported. */
-    suspend fun write(dao: UsageDao, capture: UsageCapture): UsageRecord? {
+    /**
+     * Parses [capture] and upserts its row. Returns the stored record, or null if nothing was
+     * reported. Token-only providers are priced with [priceFor] when their model is listed.
+     */
+    suspend fun write(
+        dao: UsageDao,
+        capture: UsageCapture,
+        priceFor: (suspend (UsageProvider, String) -> ModelPrice?)? = null,
+    ): UsageRecord? {
         val accumulator = UsageAccumulator(capture.provider)
         capture.documents.forEach { doc -> UsageJson.read(doc)?.let(accumulator::accept) }
         val reading = accumulator.reading()
@@ -84,19 +93,25 @@ object UsageLedger {
         val id = "${capture.provider.name}:${externalId ?: UUID.randomUUID()}"
         // A polled job reports again on every poll; keep the time it was first seen.
         val createdAt = dao.find(id)?.createdAt ?: capture.finishedAt
+        val model = reading.model ?: requestModel(capture.request)
+        val listCost = if (reading.costUsd == null && capture.provider in ListPrices.priced && model != null && reading.inputTokens != null) {
+            priceFor?.invoke(capture.provider, model)?.let {
+                ListPrices.cost(it, reading.inputTokens, reading.outputTokens ?: 0L, reading.cachedTokens)
+            }
+        } else null
         val record = UsageRecord(
             id = id,
             provider = capture.provider.name,
             keyHash = capture.keyHash,
             createdAt = createdAt,
             kind = capture.kind.name,
-            model = reading.model ?: requestModel(capture.request),
+            model = model,
             externalId = externalId,
             inputTokens = reading.inputTokens,
             outputTokens = reading.outputTokens,
             cachedTokens = reading.cachedTokens,
             reasoningTokens = reading.reasoningTokens,
-            costUsd = reading.costUsd,
+            costUsd = reading.costUsd ?: listCost,
             credits = reading.credits,
             audioSeconds = reading.audioSeconds,
             detail = reading.detail,
