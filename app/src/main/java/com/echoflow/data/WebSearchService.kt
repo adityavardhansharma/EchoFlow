@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ class WebSearchService {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     private val moshi = Moshi.Builder()

@@ -16,9 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
-        ScheduleTask::class, ScheduleRun::class
+        ScheduleTask::class, ScheduleRun::class, com.echoflow.data.usage.UsageRecord::class
     ],
-    version = 29, // v29: schedule conversations, weekday sets and end dates
+    version = 30, // v30: on-device spend ledger
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun projectDao(): ProjectDao
     abstract fun projectDocumentDao(): ProjectDocumentDao
     abstract fun scheduleDao(): ScheduleDao
+    abstract fun usageDao(): com.echoflow.data.usage.UsageDao
 
     companion object {
         @Volatile
@@ -511,6 +512,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** The spend ledger: one row per provider request, as the provider reported it. */
+        internal val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS usage_records (id TEXT NOT NULL, provider TEXT NOT NULL, keyHash TEXT NOT NULL, createdAt INTEGER NOT NULL, kind TEXT NOT NULL, model TEXT, externalId TEXT, inputTokens INTEGER, outputTokens INTEGER, cachedTokens INTEGER, reasoningTokens INTEGER, costUsd REAL, credits REAL, audioSeconds REAL, detail TEXT, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_usage_records_provider_keyHash_createdAt ON usage_records(provider, keyHash, createdAt)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -547,6 +556,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_26_27,
                     MIGRATION_27_28,
                     MIGRATION_28_29,
+                    MIGRATION_29_30,
                 )
                 .build()
                 INSTANCE = instance

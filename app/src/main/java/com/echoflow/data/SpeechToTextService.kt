@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Base64
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
@@ -186,6 +187,7 @@ class SpeechToTextTranscriber(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build(),
     private val sarvamBaseUrl: String = "https://api.sarvam.ai",
     private val deepgramBaseUrl: String = "https://api.deepgram.com",
