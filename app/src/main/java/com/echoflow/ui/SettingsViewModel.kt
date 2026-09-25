@@ -17,6 +17,7 @@ import com.echoflow.data.CustomModel
 import com.echoflow.data.CustomModelDao
 import com.echoflow.data.DeepResearchModel
 import com.echoflow.data.DeepResearchModelDao
+import com.echoflow.data.DictationVocabulary
 import com.echoflow.data.FusionPanel
 import com.echoflow.data.FusionPanelDao
 import com.echoflow.data.ImageModel
@@ -143,6 +144,12 @@ class SettingsViewModel(
     fun saveSttMode(mode: SttMode) = repository.saveSttMode(mode)
     fun saveSttCloudModel(id: String) = repository.saveSttCloudModel(id)
     fun saveSarvamHinglishEnabled(enabled: Boolean) = repository.saveSarvamHinglishEnabled(enabled)
+    val sttVocabulary: StateFlow<List<String>> = repository.sttVocabulary
+    fun addSttVocabulary(raw: String) =
+        repository.saveSttVocabulary(DictationVocabulary.merge(sttVocabulary.value, DictationVocabulary.split(raw)))
+    fun removeSttVocabulary(term: String) =
+        repository.saveSttVocabulary(sttVocabulary.value.filterNot { it.equals(term, ignoreCase = true) })
+    fun clearSttVocabulary() = repository.saveSttVocabulary(emptyList())
 
     // Image generation
     val imageGenModelId: StateFlow<String> = repository.imageGenModel

@@ -174,6 +174,45 @@ class SttRequestTest {
         assertEquals(1, calls)
     }
 
+    @Test fun `Gemini vocabulary is posted under Google AI Studio provider options`() {
+        val json = SttPayloads.encode(
+            SttPayloads.requestBody(
+                SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID,
+                "dGVzdA==",
+                vocabulary = listOf(" Aditya ", "Jyoti", "aditya", ""),
+            ),
+        )
+        assertTrue(json.contains(
+            "\"provider\":{\"options\":{\"google-ai-studio\":{\"custom_vocabulary\":[\"Aditya\",\"Jyoti\"]}}}",
+        ))
+    }
+
+    @Test fun `empty vocabulary and other models omit provider options`() {
+        assertNull(SttPayloads.requestBody(SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID, "dGVzdA==")["provider"])
+        assertNull(
+            SttPayloads.requestBody(SttCatalog.GROK_MODEL_ID, "dGVzdA==", vocabulary = listOf("Aditya"))["provider"],
+        )
+    }
+
+    @Test fun `HTTP 400 retries Gemini without vocabulary before changing models`() = runTest {
+        val sent = mutableListOf<Pair<String, Boolean>>()
+        val client = client { request ->
+            sent += request.modelId() to request.bodyText().contains("custom_vocabulary")
+            if (sent.size == 1) response(request, """{"error":{"message":"bad option"}}""", 400)
+            else response(request, """{"text":"plain worked"}""")
+        }
+
+        val result = SpeechToTextTranscriber(client).transcribe(
+            "router-key", SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID, ByteArray(100), vocabulary = listOf("Aditya"),
+        )
+
+        assertEquals("plain worked", result.getOrThrow())
+        assertEquals(
+            listOf(SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID to true, SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID to false),
+            sent,
+        )
+    }
+
     private fun Request.modelId(): String {
         return Regex("\\\"model\\\":\\\"([^\\\"]+)\\\"").find(bodyText())!!.groupValues[1]
     }

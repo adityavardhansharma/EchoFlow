@@ -65,7 +65,13 @@ class VoiceInputController(
     }
 
     /** Stop capturing and transcribe; [onText] receives the transcript on success. */
-    fun stopAndTranscribe(apiKey: String, modelId: String, romanizeHindi: Boolean = false, onText: (String) -> Unit) {
+    fun stopAndTranscribe(
+        apiKey: String,
+        modelId: String,
+        romanizeHindi: Boolean = false,
+        vocabulary: List<String> = emptyList(),
+        onText: (String) -> Unit,
+    ) {
         if (phase != VoicePhase.Recording) return
         val wav = recorder.stop()
         if (wav == null) {
@@ -75,7 +81,7 @@ class VoiceInputController(
         }
         phase = VoicePhase.Transcribing
         job = scope.launch {
-            transcriber.transcribe(apiKey, modelId, wav, romanizeHindi)
+            transcriber.transcribe(apiKey, modelId, wav, romanizeHindi, vocabulary)
                 .onSuccess { onText(it) }
                 .onFailure { error = it.message ?: "Couldn't transcribe that." }
             phase = VoicePhase.Idle
