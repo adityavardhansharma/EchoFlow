@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,12 +62,16 @@ import kotlinx.coroutines.launch
 /** Where the Schedules surface is: the home list, or one schedule's conversation. */
 sealed interface ScheduleRoute {
     data object Home : ScheduleRoute
-    /** [fromHome] decides whether Back returns to the list or leaves Schedules altogether. */
+    /**
+     * [fromHome] decides whether Back returns to the list or leaves Schedules altogether.
+     * [edit] opens the conversation with the editor sheet already up (the list's Edit action).
+     */
     data class Conversation(
         val scheduleId: String,
         val threadId: String? = null,
         val seed: String = "",
         val fromHome: Boolean = false,
+        val edit: Boolean = false,
     ) : ScheduleRoute
 
     companion object {
@@ -118,12 +123,14 @@ fun SchedulesScreen(
             ScheduleRoute.Home -> SchedulesHome(
                 onBack = back,
                 onOpen = { task -> onRouteChange(ScheduleRoute.Conversation(task.id, task.threadId, fromHome = true)) },
+                onEdit = { task -> onRouteChange(ScheduleRoute.Conversation(task.id, task.threadId, fromHome = true, edit = true)) },
                 onNew = { seed -> onRouteChange(ScheduleRoute.new(seed)) },
             )
             is ScheduleRoute.Conversation -> ScheduleChatScreen(
                 scheduleId = current.scheduleId, threadId = current.threadId,
                 defaultModel = selectedModel, models = models, localModels = localEntries,
                 onBack = back, onManageModels = onManageModels, seed = current.seed,
+                openEditor = current.edit,
             )
         }
     }
@@ -133,6 +140,7 @@ fun SchedulesScreen(
 private fun SchedulesHome(
     onBack: () -> Unit,
     onOpen: (ScheduleTask) -> Unit,
+    onEdit: (ScheduleTask) -> Unit,
     onNew: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -272,6 +280,7 @@ private fun SchedulesHome(
                         task = task, index = index, count = visible.size, now = now, use24h = use24h,
                         running = task.id in running,
                         onClick = { onOpen(task) },
+                        onEdit = { onEdit(task) },
                         onRunNow = { act { manager.runNow(task.id) } },
                         onStopRun = { act { manager.stopCurrentRun(task.id) } },
                         onStatus = { status -> act { manager.setStatus(task.id, status) } },
@@ -331,6 +340,7 @@ private fun ScheduleRow(
     use24h: Boolean,
     running: Boolean,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onRunNow: () -> Unit,
     onStopRun: () -> Unit,
     onStatus: (String) -> Unit,
@@ -378,6 +388,7 @@ private fun ScheduleRow(
                             onClick = { menu = false; action() },
                         )
                     }
+                    item("Edit schedule", Icons.Outlined.Edit, action = onEdit)()
                     if (running) item("Stop this run", Icons.Default.Stop, action = onStopRun)()
                     else if (task.status != ScheduleTask.COMPLETED) item("Run now", Icons.Default.Bolt, action = onRunNow)()
                     when (task.status) {
