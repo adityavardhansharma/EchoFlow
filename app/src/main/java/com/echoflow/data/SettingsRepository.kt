@@ -94,6 +94,10 @@ class SettingsRepository(context: Context) {
     private val _selectedModel = MutableStateFlow(getSelectedModelDirect())
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
+    private val _defaultModel = MutableStateFlow(getDefaultModelDirect())
+    /** The model every new chat starts on, or null (the out-of-box state) to keep the last one used. */
+    val defaultModel: StateFlow<String?> = _defaultModel.asStateFlow()
+
     private val _themeColor = MutableStateFlow(getThemeColorDirect())
     val themeColor: StateFlow<String> = _themeColor.asStateFlow()
 
@@ -266,6 +270,14 @@ class SettingsRepository(context: Context) {
     fun saveSelectedModel(modelId: String) {
         prefs.edit().putString("selected_model", modelId).apply()
         _selectedModel.value = modelId
+    }
+
+    fun getDefaultModelDirect(): String? =
+        prefs.getString("default_model", null)?.takeIf { it.isNotBlank() }
+
+    fun saveDefaultModel(modelId: String?) {
+        prefs.edit().apply { if (modelId == null) remove("default_model") else putString("default_model", modelId) }.apply()
+        _defaultModel.value = modelId
     }
 
     fun getThemeColorDirect(): String {

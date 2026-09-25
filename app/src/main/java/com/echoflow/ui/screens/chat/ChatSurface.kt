@@ -694,6 +694,7 @@ internal fun ChatSurface(
 }
 
     if (showModelMenu) {
+        val defaultModelId by settingsViewModel.defaultModel.collectAsState()
         if (echoFusionActive) {
             FusionPickerSheet(
                 panels = fusionPanels,
@@ -708,7 +709,7 @@ internal fun ChatSurface(
                 selectedModelId = selectedModelID,
                 profiles = advisorProfiles,
                 selectedProfileId = echoAdviserProfileId,
-                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectModel = { chatViewModel.selectModel(it) },
                 onSelectProfile = { settingsViewModel.saveEchoAdviserProfile(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
@@ -719,7 +720,7 @@ internal fun ChatSurface(
                 selectedModelId = selectedModelID,
                 profiles = agentProfiles,
                 selectedProfileId = echoAgentProfileId,
-                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectModel = { chatViewModel.selectModel(it) },
                 onSelectProfile = { settingsViewModel.saveEchoAgentProfile(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
@@ -763,7 +764,9 @@ internal fun ChatSurface(
                 models = activeModelList,
                 localModels = localModelEntries,
                 selectedId = selectedModelID,
-                onSelect = { settingsViewModel.saveSelectedModel(it); showModelMenu = false },
+                defaultId = defaultModelId,
+                onSelect = { chatViewModel.selectModel(it); showModelMenu = false },
+                onSetDefault = { settingsViewModel.saveDefaultModel(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
             )

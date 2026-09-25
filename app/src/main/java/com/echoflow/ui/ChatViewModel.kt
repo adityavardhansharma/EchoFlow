@@ -185,6 +185,38 @@ class ChatViewModel(
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
+        applyModelForThread(chatId)
+    }
+
+    // ── Per-chat model ──────────────────────────────────────────────────────────────
+
+    /**
+     * Puts the picker on the model [chatId] was using. A blank composer starts on the user's
+     * default model when they've set one, otherwise it keeps the last model in use. A chat with
+     * no remembered model (older ones, or one that hasn't sent yet) also keeps the current pick.
+     */
+    private fun applyModelForThread(chatId: String?) {
+        modelRestoreJob?.cancel()
+        if (chatId == null) {
+            settingsRepository.getDefaultModelDirect()?.let(settingsRepository::saveSelectedModel)
+            return
+        }
+        modelRestoreJob = viewModelScope.launch {
+            val modelId = chatRepository.thread(chatId)?.modelId ?: return@launch
+            // A local model deleted since leaves the pick alone rather than pointing at nothing.
+            if (modelId.startsWith("local/") && localModelDao.getLocalModelById(modelId) == null) return@launch
+            if (_currentChatThreadId.value == chatId) settingsRepository.saveSelectedModel(modelId)
+        }
+    }
+
+    private var modelRestoreJob: Job? = null
+
+    /** Picking a model inside a chat moves that chat to it; the next new chat starts on it too. */
+    fun selectModel(modelId: String) {
+        modelRestoreJob?.cancel()
+        settingsRepository.saveSelectedModel(modelId)
+        val chatId = _currentChatThreadId.value ?: return
+        viewModelScope.launch { chatDao.setModelId(chatId, modelId) }
     }
 
     private fun clearConversationComposerState() {
@@ -1644,6 +1676,8 @@ class ChatViewModel(
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
+            // Remember the model this turn used, so reopening the chat picks it back up.
+            chatDao.setModelId(chatId, selectedModel)
             // Record provenance before user text is stored: a cancelled local reply must
             // never become eligible when the next turn happens to use a cloud provider.
             if (isLocal || customProvider == "ollama") {

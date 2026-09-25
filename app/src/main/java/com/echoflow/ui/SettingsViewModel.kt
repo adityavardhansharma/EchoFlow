@@ -65,6 +65,7 @@ class SettingsViewModel(
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
+    val defaultModel: StateFlow<String?> = repository.defaultModel
     val themeColor: StateFlow<String> = repository.themeColor
     val darkMode: StateFlow<String> = repository.darkMode
 
@@ -311,6 +312,11 @@ class SettingsViewModel(
 
     fun saveSelectedModel(modelId: String) {
         repository.saveSelectedModel(modelId)
+    }
+
+    /** Null clears it, so new chats go back to starting on the last model used. */
+    fun saveDefaultModel(modelId: String?) {
+        repository.saveDefaultModel(modelId)
     }
 
     fun saveThemeColor(colorName: String) {
@@ -707,6 +713,7 @@ class SettingsViewModel(
             if (selectedModel.value == model.id) {
                 saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
             }
+            if (defaultModel.value == model.id) saveDefaultModel(null)
         }
     }
 
@@ -727,6 +734,7 @@ class SettingsViewModel(
             if (selectedModel.value == id) {
                 saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
             }
+            if (defaultModel.value == id) saveDefaultModel(null)
         }
     }
 

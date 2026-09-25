@@ -47,6 +47,9 @@ interface ChatDao {
     @Query("UPDATE chat_threads SET pinnedAt = :pinnedAt WHERE id = :id")
     suspend fun setPinnedAt(id: String, pinnedAt: Long?)
 
+    @Query("UPDATE chat_threads SET modelId = :modelId WHERE id = :id")
+    suspend fun setModelId(id: String, modelId: String?)
+
     /**
      * Conversations belonging to one project, newest activity first (pins still float to the top).
      * Scoped to Chat threads: projects are a Chat concept, so an Imagine thread that somehow
