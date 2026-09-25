@@ -69,8 +69,8 @@ import java.util.Calendar
 import java.util.TimeZone
 
 /**
- * A schedule is a conversation. It is created by describing it, changed by asking — or by
- * touching the docked card — and every run's answer arrives here as a new message. It looks and
+ * A schedule is a conversation. It is created by describing it, changed by asking — or by hand
+ * from the title bar's menu — and every run's answer arrives here as a new message. It looks and
  * behaves like an EchoFlow chat because it is one: same bubbles, same composer, same model pill.
  */
 @Composable
@@ -83,6 +83,7 @@ fun ScheduleChatScreen(
     onBack: () -> Unit,
     onManageModels: () -> Unit,
     seed: String = "",
+    openEditor: Boolean = false,
 ) {
     val application = LocalContext.current.applicationContext as Application
     val vm: ScheduleChatViewModel = viewModel(
@@ -102,7 +103,8 @@ fun ScheduleChatScreen(
         ?: modelId.substringAfterLast('/').ifBlank { "Choose a model" }
 
     var input by rememberSaveable(scheduleId) { mutableStateOf(seed) }
-    var editing by rememberSaveable(scheduleId) { mutableStateOf(false) }
+    // The sheet waits for the schedule to load, so opening straight into the editor is safe.
+    var editing by rememberSaveable(scheduleId) { mutableStateOf(openEditor) }
     var pickingModel by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -187,16 +189,18 @@ fun ScheduleChatScreen(
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                     .padding(horizontal = Spacing.base, vertical = Spacing.m),
             ) {
-                AnimatedVisibility(shown != null, enter = fadeIn() + slideInVertically { it / 2 } + scaleIn(initialScale = 0.96f), exit = fadeOut()) {
-                    shown?.let { current ->
+                // The card docks only while something waits to be created or saved. A saved schedule
+                // keeps the conversation clear: its name and state live in the title bar, and
+                // Edit, Resume and the rest live in the title bar's menu.
+                AnimatedVisibility(dirty, enter = fadeIn() + slideInVertically { it / 2 } + scaleIn(initialScale = 0.96f), exit = fadeOut()) {
+                    draft?.let { current ->
                         ScheduleCard(
-                            draft = current, isNew = saved == null, dirty = dirty,
+                            draft = current, isNew = saved == null,
                             problem = preview?.exceptionOrNull()?.message,
-                            status = saved?.status, use24h = use24h,
+                            use24h = use24h,
                             onOpen = { editing = true },
                             onSave = vm::saveFromCard,
                             onDiscard = vm::discardFromCard,
-                            onResume = { vm.setStatusFromMenu(ScheduleTask.ACTIVE) },
                             modifier = Modifier.padding(bottom = Spacing.m),
                         )
                     }
@@ -449,8 +453,8 @@ private fun ScheduleChatEmpty(hasSchedule: Boolean, onTemplate: (String) -> Unit
                 style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, color = cs.onSurface)
             Spacer(Modifier.height(Spacing.s))
             Text(
-                if (hasSchedule) "Ask for a change in your own words, or tap the card below to edit it."
-                else "Say it like you'd tell a friend. EchoFlow sets it up, and you can fine-tune it on the card.",
+                if (hasSchedule) "Ask for a change in your own words, or choose Edit schedule from the ⋮ menu."
+                else "Say it like you'd tell a friend. EchoFlow sets it up, and you can fine-tune it before creating it.",
                 style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = cs.onSurfaceVariant,
             )
             Spacer(Modifier.height(Spacing.xl))

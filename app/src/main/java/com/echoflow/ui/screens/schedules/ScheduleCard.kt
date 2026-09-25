@@ -2,11 +2,7 @@
 
 package com.echoflow.ui.screens.schedules
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,9 +19,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,35 +48,26 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * The schedule, docked above the composer: one line with the mark, the name and the cadence.
- *
- * Tapping it opens [ScheduleEditorSheet]. What the card offers on the right follows the state:
- * Discard and Save/Create while something is unsaved (a hand-made draft can always be thrown
- * away), Resume while paused, otherwise a pencil that says "tap to edit". Everything else a
- * schedule can do lives in the title bar's menu.
+ * Unsaved schedule work, docked above the composer: the mark, the name and the cadence, with
+ * Discard and Create/Save. It appears only while something is unsaved, so a saved schedule's
+ * conversation stays clear. Tapping it opens [ScheduleEditorSheet]; everything else a schedule
+ * can do, editing included, lives in the title bar's menu.
  */
 @Composable
 internal fun ScheduleCard(
     draft: ScheduleDraft,
     isNew: Boolean,
-    dirty: Boolean,
     problem: String?,
-    status: String?,
     onOpen: () -> Unit,
     onSave: () -> Unit,
     onDiscard: () -> Unit,
-    onResume: () -> Unit,
     use24h: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val canSave = dirty && problem == null
-    val resting = status == ScheduleTask.PAUSED || status == ScheduleTask.COMPLETED
     val line = when {
-        dirty && problem != null -> problem
-        dirty && !isNew -> "Unsaved · " + summary(draft, use24h)
-        status == ScheduleTask.PAUSED -> "Paused · " + summary(draft, use24h)
-        status == ScheduleTask.COMPLETED -> "Ended · " + summary(draft, use24h)
+        problem != null -> problem
+        !isNew -> "Unsaved · " + summary(draft, use24h)
         else -> summary(draft, use24h)
     }
     Surface(
@@ -95,51 +80,25 @@ internal fun ScheduleCard(
             Modifier.heightIn(min = 64.dp).padding(start = Spacing.m, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ScheduleMark(
-                size = 40.dp,
-                tint = if (resting && !dirty) colors.onSurfaceVariant else colors.onSecondaryContainer,
-                container = if (resting && !dirty) colors.surfaceContainerHighest else colors.secondaryContainer,
-            )
+            ScheduleMark(size = 40.dp, tint = colors.onSecondaryContainer, container = colors.secondaryContainer)
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Text(draft.title.ifBlank { "Untitled schedule" }, style = MaterialTheme.typography.titleSmall,
                     color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(line, style = MaterialTheme.typography.bodySmall,
-                    color = if (dirty && problem != null) colors.error else colors.onSurfaceVariant,
+                    color = if (problem != null) colors.error else colors.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(Spacing.s))
-            AnimatedContent(
-                targetState = when {
-                    dirty -> CardAction.Save
-                    status == ScheduleTask.PAUSED -> CardAction.Resume
-                    else -> CardAction.Edit
-                },
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "card-action",
-            ) { action ->
-                when (action) {
-                    CardAction.Save -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onDiscard) {
-                            Icon(Icons.Default.Close, if (isNew) "Discard draft" else "Discard changes", tint = colors.onSurfaceVariant)
-                        }
-                        Button(onClick = onSave, enabled = canSave, contentPadding = PaddingValues(horizontal = Spacing.base)) {
-                            Text(if (isNew) "Create" else "Save")
-                        }
-                    }
-                    CardAction.Resume -> FilledTonalButton(onClick = onResume, contentPadding = PaddingValues(start = Spacing.m, end = Spacing.base)) {
-                        Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(Spacing.xs))
-                        Text("Resume")
-                    }
-                    CardAction.Edit -> Icon(Icons.Outlined.Edit, null, Modifier.padding(Spacing.m).size(20.dp), tint = colors.onSurfaceVariant)
-                }
+            IconButton(onClick = onDiscard) {
+                Icon(Icons.Default.Close, if (isNew) "Discard draft" else "Discard changes", tint = colors.onSurfaceVariant)
+            }
+            Button(onClick = onSave, enabled = problem == null, contentPadding = PaddingValues(horizontal = Spacing.base)) {
+                Text(if (isNew) "Create" else "Save")
             }
         }
     }
 }
-
-private enum class CardAction { Save, Resume, Edit }
 
 internal fun summary(draft: ScheduleDraft, use24h: Boolean): String = buildString {
     append(ScheduleText.cadence(draft, use24h))
