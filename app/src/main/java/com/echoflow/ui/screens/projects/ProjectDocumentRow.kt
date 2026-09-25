@@ -120,7 +120,7 @@ internal fun DocumentRow(
         ) {
             Row(
                 Modifier
-                    .heightIn(min = 68.dp)
+                    .heightIn(min = 64.dp)
                     .padding(start = Spacing.base, end = Spacing.xs, top = Spacing.m, bottom = Spacing.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -131,8 +131,8 @@ internal fun DocumentRow(
                 val badgeContent = if (hintIsError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
                 Box(
                     Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(badgeColor)
                         .then(
                             when (document.status) {
@@ -152,14 +152,14 @@ internal fun DocumentRow(
                     ) { busy ->
                         if (busy) {
                             LoadingIndicator(
-                                modifier = Modifier.size(26.dp),
+                                modifier = Modifier.size(22.dp),
                                 color = badgeContent,
                             )
                         } else {
                             Icon(
                                 kindIcon(kind),
                                 null,
-                                Modifier.size(22.dp),
+                                Modifier.size(18.dp),
                                 tint = badgeContent,
                             )
                         }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,7 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -80,9 +81,9 @@ import com.echoflow.ui.theme.rememberReducedMotion
 // ── Page scaffold ──────────────────────────────────────────────────────────────────────
 
 /**
- * The one frame every Projects page hangs off: a [LargeFlexibleTopAppBar] that collapses into a
- * compact bar as the content scrolls, a tonal back button and an optional FAB — the same chrome
- * Settings and Schedules wear, so the hub reads as part of the app rather than a bolted-on web view.
+ * The one frame every Projects page hangs off: a [MediumFlexibleTopAppBar] that collapses into a
+ * compact bar as the content scrolls, a tonal back button and an optional FAB. Medium, not large:
+ * the hub is a working surface, so the title names the page without taking a third of the screen.
  * [titleLeading] sets a mark (a project's medallion) beside the title in both bar states. The body
  * receives the scaffold padding and is expected to be a single scrolling container.
  */
@@ -101,7 +102,7 @@ internal fun ProjectPageScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
-            LargeFlexibleTopAppBar(
+            MediumFlexibleTopAppBar(
                 title = {
                     if (titleLeading == null) {
                         Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -144,25 +145,21 @@ internal fun ProjectSectionHeader(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
-        modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = Spacing.xs),
+        modifier.fillMaxWidth().heightIn(min = 36.dp).padding(start = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
         )
         if (count != null && count > 0) {
             Spacer(Modifier.width(Spacing.s))
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                Text(
-                    count.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
-                )
-            }
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Spacer(Modifier.weight(1f))
         if (trailing != null) trailing()
@@ -198,9 +195,9 @@ internal fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * The signature empty state: a slowly morphing [BrandShapes] hero set in a soft halo, a small
- * eyebrow, a display-voice title and a full filled button — the M3 Expressive "hero moment". It is
- * upper-biased so it never floats in a dead-centred void, and it holds still under reduced motion.
+ * The signature empty state: a slowly morphing [BrandShapes] mark in a soft halo, a small eyebrow,
+ * a headline and a standard filled button. Sized to invite, not to shout — it is upper-biased so it
+ * never floats in a dead-centred void, and it holds still under reduced motion.
  */
 @Composable
 private fun HeroEmptyState(
@@ -222,42 +219,42 @@ private fun HeroEmptyState(
             }
             // Halo: a larger, quieter echo of the hero so it sits in light rather than on a void.
             Box(
-                Modifier.size(176.dp).clip(CircleShape)
+                Modifier.size(120.dp).clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
             )
             Box(
-                Modifier.size(136.dp).clip(MorphPolygonShape(morph, progress))
+                Modifier.size(92.dp).clip(MorphPolygonShape(morph, progress))
                     .background(MaterialTheme.colorScheme.primaryContainer),
             )
-            Icon(glyph, null, Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Icon(glyph, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
         Text(
             eyebrow.uppercase(),
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = Spacing.xl),
+            modifier = Modifier.padding(top = Spacing.l),
         )
         Text(
             title,
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = Spacing.s),
         )
         Text(
             body,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = Spacing.m),
+            modifier = Modifier.padding(top = Spacing.s).widthIn(max = 320.dp),
         )
         Button(
             onClick = onAction,
-            contentPadding = PaddingValues(horizontal = Spacing.xl),
-            modifier = Modifier.padding(top = Spacing.xl).height(56.dp),
+            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+            modifier = Modifier.padding(top = Spacing.l),
         ) {
             Icon(Icons.Default.Add, null, Modifier.size(ButtonDefaults.IconSize))
-            Spacer(Modifier.width(Spacing.s))
-            Text(actionLabel, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            Text(actionLabel)
         }
     }
 }
@@ -283,7 +280,7 @@ internal fun ProjectNameDialog(
     val confirm = { onConfirm(name.trim().ifBlank { "Untitled project" }) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { ProjectMedallion(colorIndex, size = 56.dp) },
+        icon = { ProjectMedallion(colorIndex, size = 40.dp) },
         title = { Text(title) },
         text = {
             OutlinedTextField(
@@ -319,7 +316,7 @@ internal fun ProjectColorDialog(selected: Int, onDismiss: () -> Unit, onPick: (I
         title = { Text("Colour & shape") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                ProjectMedallion(choice, size = 88.dp)
+                ProjectMedallion(choice, size = 64.dp)
                 Text(
                     "Every project wears one mark — in the list, its home and the drawer.",
                     style = MaterialTheme.typography.bodyMedium,

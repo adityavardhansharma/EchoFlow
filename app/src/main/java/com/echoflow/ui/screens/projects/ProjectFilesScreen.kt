@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MediumExtendedFloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
 import com.echoflow.data.ProjectFileOpener
+import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.screens.chat.ErrorBanner
 import com.echoflow.ui.theme.Spacing
@@ -93,11 +94,14 @@ internal fun ProjectFilesScreen(
             onBack = onBack,
             floatingActionButton = {
                 if (hasContent) {
-                    MediumExtendedFloatingActionButton(
+                    ExtendedFloatingActionButton(
                         text = { Text("Add files") },
                         icon = { Icon(Icons.Default.Add, null) },
                         onClick = { picker.launch(arrayOf("*/*")) },
                         expanded = fabExpanded,
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             },
@@ -122,7 +126,7 @@ internal fun ProjectFilesScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 128.dp),
+                        contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 112.dp),
                     ) {
                         item(key = "purpose") {
                             FilesPurposeNote(Modifier.padding(bottom = Spacing.l))
@@ -156,7 +160,7 @@ internal fun ProjectFilesScreen(
                                 },
                                 onOpenMarkdown = { openedDocId = doc.id },
                                 onRemove = { onRemove(doc) },
-                                modifier = Modifier.padding(bottom = 3.dp).animateItem(),
+                                modifier = Modifier.padding(bottom = GroupedItemGap).animateItem(),
                             )
                         }
                     }
@@ -174,32 +178,26 @@ internal fun ProjectFilesScreen(
 }
 
 /**
- * A quiet line above the list saying what these files are for. Tonal and compact so it informs
- * without competing with the files themselves.
+ * A quiet caption above the list saying what these files are for — plain text, not a card, so it
+ * informs without competing with the files themselves.
  */
 @Composable
 private fun FilesPurposeNote(modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+        verticalAlignment = Alignment.Top,
     ) {
-        Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Outlined.Info, null,
-                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(Spacing.m))
-            Text(
-                "Every chat in this project can draw on these files as background knowledge.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        Icon(
+            Icons.Outlined.Info, null,
+            Modifier.padding(top = 1.dp).size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(Spacing.s))
+        Text(
+            "Every chat in this project can draw on these files as background knowledge.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -220,21 +218,21 @@ private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
         ) {
             Box(
                 Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
                 LoadingIndicator(
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(22.dp),
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
-            Spacer(Modifier.width(Spacing.m))
+            Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
                     if (count == 1) "1 file queued" else "$count files queued",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

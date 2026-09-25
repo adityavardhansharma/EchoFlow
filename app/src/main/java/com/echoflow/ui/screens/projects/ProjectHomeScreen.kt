@@ -44,7 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumExtendedFloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.echoflow.data.Project
 import com.echoflow.data.ProjectDocument
 import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.ProjectMedallion
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.components.projectAccent
@@ -193,8 +194,8 @@ private fun ProjectHomeContent(
 
     ProjectPageScaffold(
         title = project?.name ?: "Project",
-        subtitle = project?.let { "Updated ${DateUtils.getRelativeTimeSpanString(it.updatedAt)}" },
-        titleLeading = { ProjectMedallion(colorIndex, size = 40.dp) },
+        subtitle = project?.let { "Updated ${relativeTime(it.updatedAt, LocalProjectsNow.current)}" },
+        titleLeading = { ProjectMedallion(colorIndex, size = 32.dp) },
         onBack = onBack,
         actions = {
             Box {
@@ -214,11 +215,12 @@ private fun ProjectHomeContent(
         // The primary action is the FAB, tinted with the project's own accent: a new chat that
         // already carries this project's brief and files. It collapses to its icon once you scroll.
         floatingActionButton = {
-            MediumExtendedFloatingActionButton(
+            ExtendedFloatingActionButton(
                 text = { Text("New chat") },
                 icon = { Icon(Icons.Outlined.Edit, null) },
                 onClick = { chatViewModel.startNewChatInProject(projectId) },
                 expanded = fabExpanded,
+                shape = RoundedCornerShape(20.dp),
                 containerColor = accent.container,
                 contentColor = accent.onContainer,
             )
@@ -227,24 +229,23 @@ private fun ProjectHomeContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 128.dp),
+            contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 112.dp),
         ) {
-            item(key = "context-label") { ProjectSectionHeader("Project context") }
             item(key = "context") {
                 val brief = project?.instructions?.trim().orEmpty()
-                ContextPair(
+                ProjectContext(
                     brief = brief,
                     fileCount = documents.size,
                     readingCount = documents.count { it.status.isBusy },
                     onOpenInstructions = onOpenInstructions,
                     onOpenFiles = onOpenFiles,
-                    modifier = Modifier.padding(bottom = Spacing.xl),
+                    modifier = Modifier.padding(bottom = Spacing.l),
                 )
             }
 
             item(key = "chats-label") { ProjectSectionHeader("Conversations", count = chats.size) }
             if (chats.isEmpty()) {
-                item(key = "chats-empty") { NoChatsCard(colorIndex) }
+                item(key = "chats-empty") { NoChatsNote() }
             } else {
                 itemsIndexed(chats, key = { _, it -> it.id }) { index, thread ->
                     ProjectChatRow(
@@ -252,7 +253,7 @@ private fun ProjectHomeContent(
                         colorIndex = colorIndex,
                         shape = groupedItemShape(index, chats.size),
                         onClick = { chatViewModel.openChatFromProject(thread.id) },
-                        modifier = Modifier.padding(bottom = 3.dp).animateItem(),
+                        modifier = Modifier.padding(bottom = GroupedItemGap).animateItem(),
                     )
                 }
             }
@@ -260,15 +261,15 @@ private fun ProjectHomeContent(
     }
 }
 
-// ── Context pair ─────────────────────────────────────────────────────────────────────────
+// ── Project context ─────────────────────────────────────────────────────────────────────
 
 /**
- * Instructions and Files as a *connected* pair — two equal tiles whose inner corners tighten
- * toward each other, the M3 Expressive button-group move applied to cards. Each tile shows what's
- * actually there (a preview of the brief, a file count) instead of a generic "tap to set up".
+ * Instructions and Files as two connected rows — what the project knows, stated plainly. Each row
+ * shows what's actually there (the brief's opening line, a file count) and its state reads from the
+ * leading badge: tonal when set, outline-quiet when it's still waiting to be filled in.
  */
 @Composable
-private fun ContextPair(
+private fun ProjectContext(
     brief: String,
     fileCount: Int,
     readingCount: Int,
@@ -276,128 +277,92 @@ private fun ContextPair(
     onOpenFiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier.fillMaxWidth().height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        ContextTile(
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+        ContextRow(
             icon = Icons.Default.AutoAwesome,
             title = "Instructions",
-            body = brief.ifBlank { "Give every chat a standing brief — role, tone and rules." },
-            bodyIsPreview = brief.isNotBlank(),
-            footer = if (brief.isBlank()) "Add a brief" else "Edit brief",
-            filled = brief.isNotBlank(),
-            shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 8.dp, bottomEnd = 8.dp),
+            detail = brief.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+                ?: "Add a standing brief — role, tone and rules",
+            isSet = brief.isNotBlank(),
+            shape = groupedItemShape(0, 2),
             onClick = onOpenInstructions,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
         )
-        ContextTile(
+        ContextRow(
             icon = Icons.Default.FolderOpen,
             title = "Files",
-            body = when {
-                fileCount == 0 -> "Attach reference the model can draw on."
+            detail = when {
+                fileCount == 0 -> "Attach reference the model can draw on"
                 readingCount > 0 -> "$fileCount attached · reading $readingCount"
                 fileCount == 1 -> "1 file attached"
                 else -> "$fileCount files attached"
             },
-            bodyIsPreview = false,
-            footer = if (fileCount == 0) "Add files" else "Manage files",
-            filled = fileCount > 0,
-            shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 28.dp, bottomEnd = 28.dp),
+            isSet = fileCount > 0,
+            shape = groupedItemShape(1, 2),
             onClick = onOpenFiles,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
         )
     }
 }
 
 @Composable
-private fun ContextTile(
+private fun ContextRow(
     icon: ImageVector,
     title: String,
-    body: String,
-    bodyIsPreview: Boolean,
-    footer: String,
-    filled: Boolean,
+    detail: String,
+    isSet: Boolean,
     shape: Shape,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
         shape = shape,
-        color = if (filled) cs.secondaryContainer else cs.surfaceContainerHigh,
-        contentColor = if (filled) cs.onSecondaryContainer else cs.onSurface,
-        modifier = modifier,
+        color = cs.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.heightIn(min = 164.dp).padding(Spacing.base)) {
+        Row(
+            Modifier.heightIn(min = 64.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (filled) cs.onSecondaryContainer.copy(alpha = 0.12f) else cs.surfaceContainerHighest),
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSet) cs.secondaryContainer else cs.surfaceContainerHighest),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, null, Modifier.size(22.dp), tint = if (filled) cs.onSecondaryContainer else cs.primary)
+                Icon(icon, null, Modifier.size(18.dp), tint = if (isSet) cs.onSecondaryContainer else cs.onSurfaceVariant)
             }
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = Spacing.m),
-            )
-            Text(
-                if (bodyIsPreview) "“$body”" else body,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (filled) cs.onSecondaryContainer.copy(alpha = 0.8f) else cs.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-            Spacer(Modifier.weight(1f).heightIn(min = Spacing.m))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(Spacing.base))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(
-                    footer,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (filled) cs.onSecondaryContainer else cs.primary,
-                )
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                    Modifier.size(18.dp), tint = if (filled) cs.onSecondaryContainer else cs.primary,
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                Modifier.padding(start = Spacing.s).size(20.dp), tint = cs.onSurfaceVariant,
+            )
         }
     }
 }
 
 // ── Conversations ────────────────────────────────────────────────────────────────────────
 
+/** Nothing here yet — said in one quiet line under the header, pointing at the FAB. */
 @Composable
-private fun NoChatsCard(colorIndex: Int) {
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            ProjectMedallion(colorIndex, size = 56.dp, glyph = Icons.Outlined.ChatBubbleOutline)
-            Text(
-                "No conversations yet",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = Spacing.base),
-            )
-            Text(
-                "Tap New chat to start one. It lives here and carries this project's brief and files.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = Spacing.xs),
-            )
-        }
-    }
+private fun NoChatsNote() {
+    Text(
+        "No conversations yet. New chats here carry this project's brief and files.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.base, top = Spacing.xs),
+    )
 }
 
 /** One conversation in the project's connected list — its title leads, recency trails quietly. */
@@ -410,42 +375,39 @@ private fun ProjectChatRow(
     modifier: Modifier = Modifier,
 ) {
     val accent = projectAccent(colorIndex)
+    val now = LocalProjectsNow.current
     Surface(
         onClick = onClick,
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.heightIn(min = 72.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
+            Modifier.heightIn(min = 56.dp).padding(horizontal = Spacing.base, vertical = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(accent.container),
+                Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(accent.container),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp), tint = accent.onContainer)
+                Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(16.dp), tint = accent.onContainer)
             }
-            Spacer(Modifier.width(Spacing.base))
+            Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Text(
                     thread.title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    DateUtils.getRelativeTimeSpanString(thread.updatedAt).toString(),
-                    style = MaterialTheme.typography.bodySmall,
+                    relativeTime(thread.updatedAt, now),
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
