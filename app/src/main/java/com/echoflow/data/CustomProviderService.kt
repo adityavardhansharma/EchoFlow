@@ -3,6 +3,7 @@ package com.echoflow.data
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -104,6 +106,18 @@ data class CustomProviderModel(
 enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
+    /**
+     * xAI and Cerebras only send token usage (and xAI its exact charge) on a stream when asked
+     * with `stream_options.include_usage`. Other OpenAI-compatible servers may reject the field,
+     * so it is sent to these two hosts alone.
+     */
+    fun putStreamUsage(payload: MutableMap<String, in Any>, baseUrl: String) {
+        val host = baseUrl.toHttpUrlOrNull()?.host ?: return
+        if (host == "api.x.ai" || host == "api.cerebras.ai") {
+            payload["stream_options"] = mapOf("include_usage" to true)
+        }
+    }
+
     fun cerebrasSupportsImages(model: String): Boolean {
         val id = model.trim().lowercase()
         return id.startsWith("gemma") || id.contains("/gemma")
@@ -173,6 +187,7 @@ class CustomProviderService(
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build(),
 ) {
     private val moshi = Moshi.Builder()
@@ -393,6 +408,7 @@ class CustomProviderService(
             "top_p" to params.topP,
         )
         if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
+        CustomProviderCapabilities.putStreamUsage(payload, baseUrl)
         val request = Request.Builder()
             .url(joinUrl(baseUrl, "chat/completions"))
             .addHeader("Content-Type", "application/json")

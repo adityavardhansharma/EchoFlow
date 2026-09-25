@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ class DeepResearchEngine(
         // so the read timeout is generous.
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     /**
@@ -44,6 +46,7 @@ class DeepResearchEngine(
         .readTimeout(10, TimeUnit.MINUTES)
         .writeTimeout(45, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.MINUTES)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()

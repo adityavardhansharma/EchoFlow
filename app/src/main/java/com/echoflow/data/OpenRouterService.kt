@@ -3,6 +3,7 @@ package com.echoflow.data
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -25,6 +26,7 @@ class OpenRouterService(private val context: Context) {
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     // Echo Adviser/Fusion run a whole multi-model loop server-side in one (non-streaming)
@@ -34,6 +36,7 @@ class OpenRouterService(private val context: Context) {
         .readTimeout(300, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
         .callTimeout(360, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     private val moshi = Moshi.Builder()

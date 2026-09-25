@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.echoflow.data.usage.UsageInterceptor
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,7 @@ class OpenRouterVideoService {
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .addInterceptor(UsageInterceptor.shared)
         .build()
 
     // Downloads are tens of megabytes over mobile links; they get their own generous budget.

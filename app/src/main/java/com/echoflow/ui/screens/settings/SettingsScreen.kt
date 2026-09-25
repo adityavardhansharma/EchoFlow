@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +94,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echoflow.R
 import com.echoflow.data.AdvisorProfile
 import com.echoflow.data.AgentProfile
@@ -107,6 +110,7 @@ import com.echoflow.data.InferenceParams
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
 import com.echoflow.data.OpenRouterModelInfo
+import com.echoflow.data.usage.UsageProvider
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.SectionLabel
@@ -174,14 +178,17 @@ internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal const val PageLicenses = "open_source_licenses"
+internal const val PageSpend = "spend"
+/** A provider's spend page: this prefix plus the [UsageProvider] name. */
+internal const val PageSpendProvider = "spend:"
 internal val CustomProviderSectionGap = 28.dp
 
 /** Parent page when backing out of [page]; null on the settings hub. */
-internal fun settingsParentPage(page: String): String? = when (page) {
+internal fun settingsParentPage(page: String): String? = if (page.startsWith(PageSpendProvider)) PageSpend else when (page) {
     PageHome -> null
     PageMyMemories -> PageMemory
     PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
-    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud,
+    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud, PageSpend,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
     PageEchoAgent, PageCustomProvider, PageLicenses, PageJev,
@@ -231,6 +238,9 @@ fun SettingsScreen(
         settingsParentPage(page)?.let { page = it }
     }
     BackHandler(enabled = settingsParentPage(page) != null, onBack = navigateBack)
+    val spendViewModel: SpendViewModel = viewModel()
+    val spendKeys = rememberSpendKeys(viewModel)
+    LaunchedEffect(spendKeys) { spendViewModel.setKeys(spendKeys) }
 
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -284,7 +294,12 @@ fun SettingsScreen(
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
             PageLicenses -> OpenSourceLicensesPage(onBack = navigateBack)
-            else -> SettingsHomePage(viewModel, onBackClicked = onBackClicked, onOpen = { page = it })
+            PageSpend -> SpendHomePage(spendViewModel, onOpen = { page = PageSpendProvider + it.name }, onBack = navigateBack)
+            else -> current.removePrefix(PageSpendProvider)
+                .takeIf { current.startsWith(PageSpendProvider) }
+                ?.let { name -> UsageProvider.entries.firstOrNull { it.name == name } }
+                ?.let { SpendProviderPage(spendViewModel, it, onBack = navigateBack) }
+                ?: SettingsHomePage(viewModel, spendViewModel, onBackClicked = onBackClicked, onOpen = { page = it })
         }
     }
 }
@@ -330,6 +345,7 @@ internal fun ModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 @Composable
 internal fun SettingsHomePage(
     viewModel: SettingsViewModel,
+    spendViewModel: SpendViewModel,
     onBackClicked: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
@@ -356,6 +372,7 @@ internal fun SettingsHomePage(
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
+    val spendThisMonth by spendViewModel.monthTotal.collectAsState()
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -442,7 +459,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 8,
+                index = 0, count = 9,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -452,7 +469,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenRouter & on-device",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 8,
+                index = 1, count = 9,
                 onClick = { onOpen(PageModels) },
             )
             SettingsNavRow(
@@ -462,7 +479,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 8,
+                index = 2, count = 9,
                 onClick = { onOpen(PageCustomProviderCloud) },
             )
             SettingsNavRow(
@@ -472,7 +489,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 8,
+                index = 3, count = 9,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -482,7 +499,7 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 8,
+                index = 4, count = 9,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -492,7 +509,7 @@ internal fun SettingsHomePage(
                 subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 8,
+                index = 5, count = 9,
                 onClick = { onOpen(PageImagine) },
             )
             SettingsNavRow(
@@ -502,7 +519,7 @@ internal fun SettingsHomePage(
                 subtitle = sttSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 8,
+                index = 6, count = 9,
                 onClick = { onOpen(PageSpeechToText) },
             )
             SettingsNavRow(
@@ -512,8 +529,18 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 8,
+                index = 7, count = 9,
                 onClick = { onOpen(PageEchoLabs) },
+            )
+            SettingsNavRow(
+                icon = Icons.Default.Payments,
+                polygon = MaterialShapes.Clover8Leaf,
+                title = "Spend",
+                subtitle = spendThisMonth?.let { "${SpendFormat.usd(it)} this month" } ?: "What your API keys have spent",
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 8, count = 9,
+                onClick = { onOpen(PageSpend) },
             )
         }
     }
