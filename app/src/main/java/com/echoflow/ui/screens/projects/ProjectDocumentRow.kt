@@ -58,7 +58,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.ExtractionStatus
@@ -94,9 +93,9 @@ internal fun DocumentRow(
     val reducedMotion = rememberReducedMotion()
     val pressColor by animateColorAsState(
         targetValue = if (pressed) {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
         },
         animationSpec = if (reducedMotion) snap() else tween(durationMillis = if (pressed) 90 else 220),
         label = "docPress",
@@ -120,7 +119,7 @@ internal fun DocumentRow(
         ) {
             Row(
                 Modifier
-                    .heightIn(min = 64.dp)
+                    .heightIn(min = 72.dp)
                     .padding(start = Spacing.base, end = Spacing.xs, top = Spacing.m, bottom = Spacing.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -131,7 +130,7 @@ internal fun DocumentRow(
                 val badgeContent = if (hintIsError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
                 Box(
                     Modifier
-                        .size(36.dp)
+                        .size(40.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(badgeColor)
                         .then(
@@ -159,7 +158,7 @@ internal fun DocumentRow(
                             Icon(
                                 kindIcon(kind),
                                 null,
-                                Modifier.size(18.dp),
+                                Modifier.size(20.dp),
                                 tint = badgeContent,
                             )
                         }
@@ -169,8 +168,8 @@ internal fun DocumentRow(
                 Column(Modifier.weight(1f)) {
                     Text(
                         document.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -187,7 +186,7 @@ internal fun DocumentRow(
                                     append(currentHint)
                                 }
                             },
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = if (hintIsError) {
                                 MaterialTheme.colorScheme.error
                             } else {
