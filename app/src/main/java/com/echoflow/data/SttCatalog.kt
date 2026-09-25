@@ -95,7 +95,7 @@ object SttCatalog {
         // → $0.312/hour. Keyterm Prompting adds $0.0013/min (~$0.078/hour) only when keyterms
         // are sent; Smart Formatting is included.
         pricing = "~\$0.312 / hr",
-        blurb = "Hindi–English code switching, with keyterms for your names and terms.",
+        blurb = "Fast, accurate multilingual dictation with smart formatting.",
         usdPerMinute = 0.0052,
         supportsCustomVocabulary = true,
         vocabularyLabel = "Keyterms",

@@ -289,9 +289,9 @@ internal fun DeepgramKeyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     Text("Dictation", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "Your key adds Nova-3 Multilingual to Settings → Dictation. It handles Hindi–English " +
-                            "and other mixed-language speech, formats punctuation and casing, and can use your " +
-                            "vocabulary as keyterms. Usage is billed to your Deepgram account.",
+                        "Your key adds Nova-3 Multilingual to Settings → Dictation. It transcribes many " +
+                            "languages, formats punctuation and casing, and can use your vocabulary as " +
+                            "keyterms. Usage is billed to your Deepgram account.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
