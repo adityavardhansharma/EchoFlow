@@ -19,6 +19,7 @@ import org.junit.Test
  * - google/chirp-3 = $0.016/min = $0.96/hour
  * - google/gemini-3.5-transcribe = 25 audio tokens/sec × $2/M = $0.003/min = $0.18/hour (measured)
  * - saaras:v4 = ₹30/hour ≈ $0.36/hour
+ * - Deepgram nova-3 (language=multi) = $0.0052/min = $0.312/hour, +$0.0013/min with keyterms
  */
 class SttCatalogTest {
 
@@ -48,12 +49,13 @@ class SttCatalogTest {
         assertEquals("~\$0.96 / hr", SttCatalog.byId("google/chirp-3")!!.pricing)
         assertEquals("~\$0.18 / hr", SttCatalog.byId("google/gemini-3.5-transcribe")!!.pricing)
         assertEquals("~\$0.36 / hr", SttCatalog.SARVAM_MODEL.pricing)
+        assertEquals("~\$0.312 / hr", SttCatalog.DEEPGRAM_MODEL.pricing)
     }
 
     @Test fun `displayed hourly price matches the numeric rate behind the dollar tier`() {
         // `pricing` is rendered directly while `costTier` derives from `usdPerMinute`;
         // keep them equivalent so a manual update cannot show one price and tag another.
-        for (model in SttCatalog.CLOUD_MODELS + SttCatalog.SARVAM_MODEL) {
+        for (model in SttCatalog.CLOUD_MODELS + SttCatalog.SARVAM_MODEL + SttCatalog.DEEPGRAM_MODEL) {
             val displayed =
                 model.pricing
                     .removePrefix("~\$")
@@ -75,6 +77,9 @@ class SttCatalogTest {
         assertEquals(SttCostTier.Moderate, SttCatalog.byId("google/gemini-3.5-transcribe")!!.costTier)
         assertEquals(SttCostTier.Moderate, SttCatalog.SARVAM_MODEL.costTier)
         assertTrue(SttCatalog.SARVAM_MODEL.showCostTier)
+        assertEquals(SttCostTier.Moderate, SttCatalog.DEEPGRAM_MODEL.costTier)
+        assertTrue(SttCatalog.DEEPGRAM_MODEL.supportsCustomVocabulary)
+        assertEquals("Keyterms", SttCatalog.DEEPGRAM_MODEL.vocabularyLabel)
         assertEquals(1, SttCostTier.Cheap.dollars)
         assertEquals(2, SttCostTier.Moderate.dollars)
         assertEquals(3, SttCostTier.Expensive.dollars)

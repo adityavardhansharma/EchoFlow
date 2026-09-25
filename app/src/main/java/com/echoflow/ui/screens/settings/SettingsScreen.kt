@@ -170,6 +170,7 @@ internal const val PageCustomProviderGemini = "custom_provider_gemini"
 internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
 internal const val PageCustomProviderSarvam = "custom_provider_sarvam"
 internal const val PageCustomProviderXAi = "custom_provider_xai"
+internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal const val PageLicenses = "open_source_licenses"
@@ -188,6 +189,7 @@ internal fun settingsParentPage(page: String): String? = when (page) {
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi,
+    PageCustomProviderDeepgram,
     -> PageCustomProviderCloud
     else -> PageHome
 }
@@ -260,6 +262,7 @@ fun SettingsScreen(
                 viewModel,
                 onOpenCloudModels = { page = PageCloudModels },
                 onOpenSarvam = { page = PageCustomProviderSarvam },
+                onOpenDeepgram = { page = PageCustomProviderDeepgram },
                 onBack = navigateBack,
             )
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
@@ -277,6 +280,7 @@ fun SettingsScreen(
             PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = navigateBack)
             PageCustomProviderSarvam -> DirectCloudBrandPage(viewModel, CustomModelProvider.Sarvam, onBack = navigateBack)
             PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
+            PageCustomProviderDeepgram -> DeepgramKeyPage(viewModel, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
             PageLicenses -> OpenSourceLicensesPage(onBack = navigateBack)
@@ -455,7 +459,7 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
                 title = "Custom",
-                subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI",
+                subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = 8,

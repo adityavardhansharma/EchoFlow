@@ -66,7 +66,13 @@ data class CustomProviderConfig(
     val sarvamModel: String = "",
     val sarvamModels: String = "sarvam-105b\nsarvam-105b-conversations",
     val sarvamSelectedModels: String = "sarvam-105b",
+    /** Deepgram is dictation-only: a key here unlocks Nova-3 Multilingual, never chat models. */
+    val deepgramEnabled: Boolean = false,
+    val deepgramApiKey: String = "",
 ) {
+    val deepgramAvailable: Boolean
+        get() = cloudApisEnabled && deepgramEnabled && deepgramApiKey.isNotBlank()
+
     val sarvamAvailable: Boolean
         get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
 
@@ -95,7 +101,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     fun cerebrasSupportsImages(model: String): Boolean {
@@ -512,6 +518,7 @@ class CustomProviderService(
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
                 CustomModelProvider.Sarvam -> listOf("sarvam-105b", "sarvam-105b-conversations")
                 CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
+                CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
             }

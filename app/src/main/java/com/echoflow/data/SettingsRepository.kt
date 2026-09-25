@@ -55,14 +55,21 @@ class SettingsRepository(context: Context) {
 
     /** A read-only snapshot: no full provider catalog, unrelated keys, or migration writes. */
     internal fun getDictationConfiguration(): DictationConfiguration {
-        val sarvam = prefs.getBoolean("labs_cloud_apis_enabled", false) &&
-            prefs.getBoolean("direct_sarvam_enabled", false)
+        val cloudApis = prefs.getBoolean("labs_cloud_apis_enabled", false)
+        val sarvam = cloudApis && prefs.getBoolean("direct_sarvam_enabled", false)
+        val deepgram = cloudApis && prefs.getBoolean("direct_deepgram_enabled", false)
         val stored = prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
-        val sarvamKey = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvam)
-            prefs.getString("direct_sarvam_api_key", "").orEmpty() else ""
-        val model = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvamKey.isBlank())
+        // Direct-provider models read only their own key, and only while that provider is on.
+        val directKey = when {
+            stored == SttCatalog.SARVAM_MODEL_ID && sarvam ->
+                prefs.getString("direct_sarvam_api_key", "").orEmpty()
+            stored == SttCatalog.DEEPGRAM_MODEL_ID && deepgram ->
+                prefs.getString("direct_deepgram_api_key", "").orEmpty()
+            else -> ""
+        }
+        val model = if (SttCatalog.usesDirectKey(stored) && directKey.isBlank())
             SttCatalog.DEFAULT_MODEL_ID else SttCatalog.resolve(stored).id
-        val key = if (model == SttCatalog.SARVAM_MODEL_ID) sarvamKey else getApiKeyDirect()
+        val key = if (SttCatalog.usesDirectKey(model)) directKey else getApiKeyDirect()
         // System-wide dictation remains cloud-backed while on-device transcription is only a
         // settings preview. Switching that preview must not disable the user's system-wide opt-in.
         return DictationConfiguration(model, key,
@@ -476,6 +483,8 @@ class SettingsRepository(context: Context) {
             sarvamModel = prefs.getString("direct_sarvam_model", "").orEmpty(),
             sarvamModels = prefs.getString("direct_sarvam_models", "sarvam-105b\nsarvam-105b-conversations").orEmpty(),
             sarvamSelectedModels = prefs.getString("direct_sarvam_selected_models", "sarvam-105b").orEmpty(),
+            deepgramEnabled = prefs.getBoolean("direct_deepgram_enabled", false),
+            deepgramApiKey = prefs.getString("direct_deepgram_api_key", "").orEmpty(),
             xAiEnabled = prefs.getBoolean("direct_xai_enabled", false),
             xAiApiKey = prefs.getString("direct_xai_api_key", "").orEmpty(),
             xAiModel = prefs.getString("direct_xai_model", "").orEmpty(),
@@ -510,6 +519,7 @@ class SettingsRepository(context: Context) {
             cerebrasModel = config.cerebrasModel.trim(),
             sarvamApiKey = config.sarvamApiKey.trim(),
             sarvamModel = config.sarvamModel.trim(),
+            deepgramApiKey = config.deepgramApiKey.trim(),
             xAiApiKey = config.xAiApiKey.trim(),
             xAiModel = config.xAiModel.trim(),
             ollamaBaseUrl = config.ollamaBaseUrl.trim(),
@@ -547,6 +557,8 @@ class SettingsRepository(context: Context) {
             .putString("direct_sarvam_model", clean.sarvamModel)
             .putString("direct_sarvam_models", clean.sarvamModels)
             .putString("direct_sarvam_selected_models", clean.sarvamSelectedModels)
+            .putBoolean("direct_deepgram_enabled", clean.deepgramEnabled)
+            .putString("direct_deepgram_api_key", clean.deepgramApiKey)
             .putBoolean("direct_xai_enabled", clean.xAiEnabled)
             .putString("direct_xai_api_key", clean.xAiApiKey)
             .putString("direct_xai_model", clean.xAiModel)

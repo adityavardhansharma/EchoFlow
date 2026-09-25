@@ -188,6 +188,7 @@ class SpeechToTextTranscriber(
         .readTimeout(120, TimeUnit.SECONDS)
         .build(),
     private val sarvamBaseUrl: String = "https://api.sarvam.ai",
+    private val deepgramBaseUrl: String = "https://api.deepgram.com",
 ) {
     suspend fun transcribe(
         apiKey: String,
@@ -228,6 +229,30 @@ class SpeechToTextTranscriber(
                     SarvamDictation.stitch(transcripts).ifBlank {
                         error("Couldn't hear that — try again.")
                     }
+                }.onFailure { if (it is CancellationException) throw it }
+            }
+            if (modelId == SttCatalog.DEEPGRAM_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No Deepgram key" }
+                    // Keyterms only bias recognition, so like Gemini's vocabulary they never gate
+                    // dictation: a 400 on the keyterm request retries once without them.
+                    val keyterms = DeepgramDictation.keyterms(vocabulary)
+                    val attempts = if (keyterms.isEmpty()) listOf(keyterms) else listOf(keyterms, emptyList())
+                    var code = 0
+                    var body = ""
+                    for ((index, terms) in attempts.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val response = executeCancellable(
+                            DeepgramDictation.request(deepgramBaseUrl, apiKey, wav, terms),
+                        )
+                        code = response.first
+                        body = response.second
+                        if (code != 400 || index == attempts.lastIndex) break
+                    }
+                    check(code in 200..299) {
+                        ProviderHttpSupport.errorMessage("Deepgram dictation", code, body)
+                    }
+                    DeepgramDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
                 }.onFailure { if (it is CancellationException) throw it }
             }
             if (apiKey.isBlank()) {
@@ -378,7 +403,7 @@ internal object SttPayloads {
         // Gemini Transcribe biases recognition toward these spellings. OpenRouter forwards
         // provider options under Google AI Studio's own field name, the only endpoint serving it.
         val terms = DictationVocabulary.normalize(vocabulary)
-        if (SttCatalog.supportsCustomVocabulary(modelId) && terms.isNotEmpty()) {
+        if (modelId == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID && terms.isNotEmpty()) {
             put("provider", mapOf(
                 "options" to mapOf(
                     GOOGLE_AI_STUDIO_PROVIDER to mapOf("custom_vocabulary" to terms),

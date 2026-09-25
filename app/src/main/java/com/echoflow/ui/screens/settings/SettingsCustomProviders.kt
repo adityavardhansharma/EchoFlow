@@ -358,8 +358,9 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Sarvam to PageCustomProviderSarvam,
         CustomModelProvider.XAi to PageCustomProviderXAi,
     )
+    val speechBrands = listOf(CustomModelProvider.Deepgram to PageCustomProviderDeepgram)
 
-    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram", onBack = onBack) {
         EndpointMasterToggle(
             title = "Direct Cloud APIs",
             subtitle = "Use brand APIs without OpenRouter",
@@ -379,6 +380,21 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
                             subtitle = directProviderSummary(draft, provider),
                             index = index,
                             count = brands.size,
+                            onClick = { onOpen(page) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(CustomProviderSectionGap))
+                PageSection("Dictation", "Speech-to-text keys that add models to the dictation picker")
+                Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+                    speechBrands.forEachIndexed { index, (provider, page) ->
+                        DirectBrandNavRow(
+                            provider = provider,
+                            enabled = directProviderEnabled(draft, provider),
+                            subtitle = directProviderSummary(draft, provider),
+                            index = index,
+                            count = speechBrands.size,
                             onClick = { onOpen(page) },
                         )
                     }

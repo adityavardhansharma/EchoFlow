@@ -134,6 +134,7 @@ internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderB
     CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFF15A29))
     CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.XAi -> DirectProviderBrand("xAI", "Direct xAI API", "xai-...", "grok-4.5", R.drawable.logo_xai, Color(0xFF151515))
+    CustomModelProvider.Deepgram -> DirectProviderBrand("Deepgram", "Nova-3 Multilingual dictation", "Deepgram API key", "nova-3", R.drawable.logo_deepgram, Color(0xFF101014))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
 }
@@ -602,6 +603,7 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Cerebras -> config.cerebrasEnabled
     CustomModelProvider.Sarvam -> config.sarvamEnabled
     CustomModelProvider.XAi -> config.xAiEnabled
+    CustomModelProvider.Deepgram -> config.deepgramEnabled
     else -> false
 }
 
@@ -612,6 +614,7 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Cerebras -> config.copy(cerebrasEnabled = enabled)
     CustomModelProvider.Sarvam -> config.copy(sarvamEnabled = enabled)
     CustomModelProvider.XAi -> config.copy(xAiEnabled = enabled)
+    CustomModelProvider.Deepgram -> config.copy(deepgramEnabled = enabled)
     else -> config
 }
 
@@ -622,6 +625,7 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Cerebras -> config.cerebrasApiKey
     CustomModelProvider.Sarvam -> config.sarvamApiKey
     CustomModelProvider.XAi -> config.xAiApiKey
+    CustomModelProvider.Deepgram -> config.deepgramApiKey
     else -> ""
 }
 
@@ -632,6 +636,7 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Cerebras -> config.copy(cerebrasApiKey = value)
     CustomModelProvider.Sarvam -> config.copy(sarvamApiKey = value)
     CustomModelProvider.XAi -> config.copy(xAiApiKey = value)
+    CustomModelProvider.Deepgram -> config.copy(deepgramApiKey = value)
     else -> config
 }
 
@@ -687,6 +692,9 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
 
 internal fun directProviderSummary(config: CustomProviderConfig, provider: CustomModelProvider): String {
     if (!directProviderEnabled(config, provider)) return "Off"
+    if (provider == CustomModelProvider.Deepgram) {
+        return if (config.deepgramApiKey.isBlank()) "On · no key" else "On · dictation only"
+    }
     val count = (
         listOf(directProviderManualModel(config, provider).trim()).filter { it.isNotEmpty() } +
             directProviderSelectedModels(config, provider).lineSequence().map { it.trim() }.filter { it.isNotEmpty() }
@@ -708,6 +716,7 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Cerebras -> "Cerebras"
     CustomModelProvider.Sarvam -> "Sarvam"
     CustomModelProvider.XAi -> "xAI"
+    CustomModelProvider.Deepgram -> "Deepgram"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"
 }

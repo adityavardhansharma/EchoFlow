@@ -246,7 +246,7 @@ internal fun ChatSurface(
     // Hinglish lives on the Sarvam STT path only; OpenRouter models are untouched.
     val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
     val romanizeHindi = hinglishEnabled && sttCloudModelId == com.echoflow.data.SttCatalog.SARVAM_MODEL_ID
-    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe).
+    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram keyterms).
     val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
     val dictationVocabulary =
         if (com.echoflow.data.SttCatalog.supportsCustomVocabulary(sttCloudModelId)) sttVocabulary else emptyList()

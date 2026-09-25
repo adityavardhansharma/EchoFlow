@@ -230,6 +230,80 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
     }
 }
 
+/**
+ * Deepgram is dictation-only, so its page is just the switch and key: no chat models to fetch.
+ * A saved key adds Nova-3 Multilingual to the dictation picker; clearing it hides the model again.
+ */
+@Composable
+internal fun DeepgramKeyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val provider = CustomModelProvider.Deepgram
+    val saved by viewModel.customProviderConfig.collectAsState()
+    var draft by remember(saved) { mutableStateOf(saved) }
+    var keyVisible by remember { mutableStateOf(false) }
+    val brand = directProviderBrand(provider)
+
+    SettingsPageScaffold(title = brand.title, subtitle = brand.subtitle, onBack = onBack) {
+        BrandEndpointToggle(
+            provider = provider,
+            enabled = draft.deepgramEnabled,
+            onToggle = {
+                draft = draft.copy(deepgramEnabled = it, cloudApisEnabled = draft.cloudApisEnabled || it)
+                viewModel.saveCustomProviderConfig(draft)
+            },
+        )
+
+        AnimatedVisibility(visible = draft.deepgramEnabled, enter = sectionEnter(), exit = sectionExit()) {
+            Column {
+                Spacer(Modifier.height(CustomProviderSectionGap))
+                PageSection("API key")
+                FormCard {
+                    OutlinedTextField(
+                        value = draft.deepgramApiKey,
+                        onValueChange = { draft = draft.copy(deepgramApiKey = it) },
+                        placeholder = { Text(brand.keyPlaceholder) },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium,
+                        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        leadingIcon = { Icon(Icons.Default.Key, null) },
+                        trailingIcon = {
+                            IconButton(onClick = { keyVisible = !keyVisible }) {
+                                Icon(if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (keyVisible) "Hide" else "Show")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (saved.deepgramApiKey.isNotBlank()) {
+                        Spacer(Modifier.height(Spacing.s))
+                        SavedKeyBadge("A key is saved on this device")
+                    }
+                    Spacer(Modifier.height(Spacing.m))
+                    Button(
+                        onClick = { viewModel.saveCustomProviderConfig(draft) },
+                        shape = CircleShape,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) { Text("Save key") }
+                }
+
+                Spacer(Modifier.height(CustomProviderSectionGap))
+                FormCard {
+                    Text("Dictation", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        "Your key adds Nova-3 Multilingual to Settings → Dictation. It handles Hindi–English " +
+                            "and other mixed-language speech, formats punctuation and casing, and can use your " +
+                            "vocabulary as keyterms. Usage is billed to your Deepgram account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(visible = !draft.deepgramEnabled, enter = sectionEnter(), exit = sectionExit()) {
+            EndpointOffState("Turn on ${brand.title} to add a key for dictation.")
+        }
+    }
+}
+
 @Composable
 internal fun OllamaEndpointPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val saved by viewModel.customProviderConfig.collectAsState()
