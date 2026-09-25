@@ -3,7 +3,13 @@
 
 package com.echoflow.ui.screens.chat
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -14,7 +20,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.AppMode
@@ -43,11 +52,7 @@ internal fun ChatTopBar(
         navigationIcon = {
             // Nudge inward from the screen edge — flush against the bezel reads cramped.
             Box(Modifier.padding(start = Spacing.s)) {
-                ShapedIconButton(
-                    onClick = onMenu, enabled = true, size = 44.dp,
-                    restShape = MaterialShapes.Cookie4Sided, pressedShape = MaterialShapes.Cookie7Sided,
-                    container = MaterialTheme.colorScheme.primaryContainer,
-                ) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                RoundTopBarButton(onClick = onMenu, container = MaterialTheme.colorScheme.primaryContainer) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(22.dp)) }
             }
         },
         title = {
@@ -59,15 +64,45 @@ internal fun ChatTopBar(
             )
         },
         actions = {
-            ShapedIconButton(
-                onClick = onNewChat, enabled = true, size = 44.dp,
-                restShape = MaterialShapes.Cookie7Sided, pressedShape = MaterialShapes.Sunny,
-                container = MaterialTheme.colorScheme.tertiaryContainer,
-                pulseOnClick = true,
-            ) { Icon(Icons.Default.Create, newLabel, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+            Box(Modifier.padding(end = Spacing.s)) {
+                RoundTopBarButton(onClick = onNewChat, container = MaterialTheme.colorScheme.tertiaryContainer) { Icon(Icons.Default.Create, newLabel, Modifier.size(22.dp)) }
+            }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
     )
+}
+
+/**
+ * A round top-bar button: a solid colour disc the same height as the [ModeSwitch] tray beside
+ * it, given a little body without gloss: a soft cast shadow (which carries it in light themes)
+ * plus a faint top-to-bottom shade (which carries it in dark ones, where shadows vanish).
+ * Pressing sinks it — it shrinks slightly and the shadow settles in.
+ */
+@Composable
+private fun RoundTopBarButton(
+    onClick: () -> Unit,
+    container: Color,
+    content: @Composable () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "topbar-button-press",
+    )
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = container,
+        contentColor = contentColorFor(container),
+        shadowElevation = if (pressed) 1.dp else 4.dp,
+        interactionSource = interaction,
+        modifier = Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+    ) {
+        val shade = Brush.verticalGradient(listOf(lerp(container, Color.White, 0.08f), lerp(container, Color.Black, 0.08f)))
+        Box(Modifier.background(shade), contentAlignment = Alignment.Center) { content() }
+    }
 }
 
 @Composable
