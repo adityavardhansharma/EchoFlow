@@ -72,13 +72,22 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
-            <!-- "Ask EchoFlow" in the text-selection menu of other apps. -->
-            <intent-filter android:label="@string/process_text_label">
+        </activity>
+
+        <!-- "Ask EchoFlow" in the text-selection menu of other apps. Off by default; the Echo Labs
+             beta toggle enables this component (see AskEchoFlowSelection). -->
+        <activity-alias
+            android:name=".AskEchoFlowSelection"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/process_text_label">
+            <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <service
             android:name=".data.SystemDictationService"
