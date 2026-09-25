@@ -71,6 +71,7 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.costTier,
         )
         assertEquals(SttCostTier.Expensive, SttCatalog.byId("google/chirp-3")!!.costTier)
+        assertEquals(SttCostTier.Expensive, SttCatalog.byId("google/gemini-3.5-transcribe")!!.costTier)
         assertEquals(SttCostTier.Moderate, SttCatalog.SARVAM_MODEL.costTier)
         assertTrue(SttCatalog.SARVAM_MODEL.showCostTier)
         assertEquals(1, SttCostTier.Cheap.dollars)

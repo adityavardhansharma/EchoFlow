@@ -168,7 +168,7 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
             "Prices are per hour of audio. Saaras is billed directly to your Sarvam key; " +
                 "the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
-                "Best is the recommended dictation model.",
+                "Best is the recommended dictation model; Custom vocabulary models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -250,7 +250,8 @@ internal fun SttCloudModelList(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
                             )
-                            if (model.isBest) SttBestBadge()
+                            if (model.isBest) SttTagBadge("Best")
+                            if (model.supportsCustomVocabulary) SttTagBadge("Custom vocabulary")
                             if (model.showCostTier) SttCostMark(model.costTier)
                         }
                         Text(
@@ -262,7 +263,7 @@ internal fun SttCloudModelList(
                         val vocabularyActive = model.supportsCustomVocabulary && vocabularyCount > 0
                         Text(
                             if (vocabularyActive) {
-                                "Custom vocabulary · $vocabularyCount ${if (vocabularyCount == 1) "word" else "words"}"
+                                "$vocabularyCount ${if (vocabularyCount == 1) "word" else "words"} in your vocabulary"
                             } else model.blurb,
                             style = MaterialTheme.typography.bodySmall,
                             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -281,10 +282,11 @@ internal fun SttCloudModelList(
 }
 
 @Composable
-private fun SttBestBadge() {
+private fun SttTagBadge(label: String) {
     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
         Text(
-            "Best",
+            label,
+            maxLines = 1,
             modifier = Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,

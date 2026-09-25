@@ -117,6 +117,8 @@ object SttCatalog {
             blurb = "Learns your names and terms through a custom vocabulary.",
             usdPerMinute = 0.37 / 60.0,
             supportsCustomVocabulary = true,
+            // Token billing makes long or dense dictation cost noticeably more than the estimate.
+            costTierOverride = SttCostTier.Expensive,
         ),
         SttModel(
             id = MUSE_MODEL_ID,
