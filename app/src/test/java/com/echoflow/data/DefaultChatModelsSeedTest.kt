@@ -9,6 +9,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -109,5 +111,51 @@ class DefaultChatModelsSeedTest {
         DefaultChatModelsSeed.run(context, database)
 
         assertEquals(null, database.customModelDao().getCustomModelById(DefaultChatModels.DEFAULT_MODEL_ID))
+    }
+
+    @Test fun `upgrade swaps the seeded GPT 5_6 Luna row for GPT-6 Luna`() = runBlocking {
+        seedV1With("openai/gpt-5.6-luna", "GPT 5.6 Luna")
+
+        DefaultChatModelsSeed.run(context, database)
+
+        assertNull(database.customModelDao().getCustomModelById("openai/gpt-5.6-luna"))
+        assertEquals(
+            "GPT-6 Luna",
+            database.customModelDao().getCustomModelById(DefaultChatModels.DEFAULT_MODEL_ID)?.name,
+        )
+    }
+
+    @Test fun `upgrade keeps GPT 5_6 Luna while it is the selected model`() = runBlocking {
+        seedV1With("openai/gpt-5.6-luna", "GPT 5.6 Luna")
+        context.getSharedPreferences(LEGACY_FILE, Context.MODE_PRIVATE)
+            .edit()
+            .putString("selected_model", "openai/gpt-5.6-luna")
+            .commit()
+
+        DefaultChatModelsSeed.run(context, database)
+
+        assertNotNull(database.customModelDao().getCustomModelById("openai/gpt-5.6-luna"))
+        assertNotNull(database.customModelDao().getCustomModelById(DefaultChatModels.DEFAULT_MODEL_ID))
+        assertEquals("openai/gpt-5.6-luna", SettingsRepository(context).getSelectedModelDirect())
+    }
+
+    @Test fun `upgrade keeps a GPT-5_6 Luna the user added from the directory`() = runBlocking {
+        seedV1With("openai/gpt-5.6-luna", "GPT-5.6 Luna")
+
+        DefaultChatModelsSeed.run(context, database)
+
+        assertNotNull(database.customModelDao().getCustomModelById("openai/gpt-5.6-luna"))
+    }
+
+    /** Simulates an install the first seed pass already ran on, before GPT-6 Luna shipped. */
+    private suspend fun seedV1With(id: String, name: String) {
+        database.customModelDao().insertCustomModel(CustomModel(id, name))
+        database.customModelDao().insertCustomModel(
+            CustomModel(DefaultChatModels.ECHO_LUMEN_MODEL_ID, DefaultChatModels.ECHO_LUMEN_MODEL_NAME),
+        )
+        listOf(LEGACY_FILE, SECURE_FILE).forEach {
+            context.getSharedPreferences(it, Context.MODE_PRIVATE)
+                .edit().putBoolean("default_chat_models_seeded_v1", true).commit()
+        }
     }
 }
