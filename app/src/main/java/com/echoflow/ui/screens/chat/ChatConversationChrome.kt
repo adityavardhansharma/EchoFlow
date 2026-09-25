@@ -49,7 +49,11 @@ internal fun ChatTopBar(
         navigationIcon = {
             // Nudge inward from the screen edge — flush against the bezel reads cramped.
             Box(Modifier.padding(start = Spacing.s)) {
-                RoundTopBarButton(onClick = onMenu) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(22.dp)) }
+                RoundTopBarButton(
+                    onClick = onMenu,
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) { Icon(Icons.Default.Menu, "Open conversations", Modifier.size(22.dp)) }
             }
         },
         title = {
@@ -62,7 +66,11 @@ internal fun ChatTopBar(
         },
         actions = {
             Box(Modifier.padding(end = Spacing.s)) {
-                RoundTopBarButton(onClick = onNewChat) { Icon(Icons.Default.Create, newLabel, Modifier.size(22.dp)) }
+                RoundTopBarButton(
+                    onClick = onNewChat,
+                    container = MaterialTheme.colorScheme.tertiaryContainer,
+                    onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) { Icon(Icons.Default.Create, newLabel, Modifier.size(22.dp)) }
             }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
@@ -70,12 +78,14 @@ internal fun ChatTopBar(
 }
 
 /**
- * A compact tonal action matching the mode tray's surface, with a 40dp visible disc matching
- * its inset thumb. The surrounding 48dp target keeps the action comfortable to tap.
+ * A compact theme-colored action with a 40dp visible disc matching
+ * the mode switch’s inset thumb. The surrounding 48dp target keeps the action comfortable to tap.
  */
 @Composable
 private fun RoundTopBarButton(
     onClick: () -> Unit,
+    container: Color,
+    onContainer: Color,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -88,8 +98,8 @@ private fun RoundTopBarButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = container,
+        contentColor = onContainer,
         tonalElevation = 3.dp,
         interactionSource = interaction,
         modifier = Modifier
