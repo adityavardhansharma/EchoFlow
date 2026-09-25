@@ -9,8 +9,8 @@ import org.junit.Test
 
 class DefaultChatModelsTest {
     @Test fun `ships Luna as the primary default and Echo Lumen as the free router`() {
-        assertEquals("openai/gpt-5.6-luna", DefaultChatModels.DEFAULT_MODEL_ID)
-        assertEquals("GPT 5.6 Luna", DefaultChatModels.DEFAULT_MODEL_NAME)
+        assertEquals("openai/gpt-6-luna", DefaultChatModels.DEFAULT_MODEL_ID)
+        assertEquals("GPT-6 Luna", DefaultChatModels.DEFAULT_MODEL_NAME)
         assertEquals("openrouter/free", DefaultChatModels.ECHO_LUMEN_MODEL_ID)
         assertEquals("Echo Lumen", DefaultChatModels.ECHO_LUMEN_MODEL_NAME)
     }
@@ -22,7 +22,7 @@ class DefaultChatModelsTest {
     }
 
     @Test fun `displayName resolves shipped and legacy ids`() {
-        assertEquals("GPT 5.6 Luna", DefaultChatModels.displayName(DefaultChatModels.DEFAULT_MODEL_ID))
+        assertEquals("GPT-6 Luna", DefaultChatModels.displayName(DefaultChatModels.DEFAULT_MODEL_ID))
         assertEquals("Echo Lumen", DefaultChatModels.displayName(DefaultChatModels.ECHO_LUMEN_MODEL_ID))
         assertEquals("Gemini 2.0 Flash", DefaultChatModels.displayName(DefaultChatModels.LEGACY_DEFAULT_MODEL_ID))
         assertNull(DefaultChatModels.displayName("anthropic/claude-sonnet-4.5"))
@@ -37,7 +37,7 @@ class DefaultChatModelsTest {
             ),
         )
         assertEquals(
-            "GPT 5.6 Luna",
+            "GPT-6 Luna",
             DefaultChatModels.pickerDisplayName(
                 DefaultChatModels.DEFAULT_MODEL_ID,
                 DefaultChatModels.DEFAULT_MODEL_NAME,

@@ -7,8 +7,8 @@ package com.echoflow.data
  * [SHIPPED] is written into `custom_models` once so Settings → Models shows them too.
  */
 object DefaultChatModels {
-    const val DEFAULT_MODEL_ID = "openai/gpt-5.6-luna"
-    const val DEFAULT_MODEL_NAME = "GPT 5.6 Luna"
+    const val DEFAULT_MODEL_ID = "openai/gpt-6-luna"
+    const val DEFAULT_MODEL_NAME = "GPT-6 Luna"
 
     /** OpenRouter's free-model router, presented in EchoFlow as a first-party model. */
     const val ECHO_LUMEN_MODEL_ID = "openrouter/free"
