@@ -196,6 +196,26 @@ class SpeechToTextTranscriber(
         wav: ByteArray,
         romanizeHindi: Boolean = false,
         vocabulary: List<String> = emptyList(),
+        /** Sarvam key used for Hinglish romanization; any STT model's output can be romanized. */
+        sarvamKey: String = apiKey,
+    ): Result<String> =
+        transcribeRaw(apiKey, modelId, wav, vocabulary).map { transcript ->
+            // Hinglish: the whole transcript goes to Sarvam in one request (split only past its
+            // per-request limit) so the model sees full context. Pure non-Devanagari text is
+            // returned untouched, and a transliteration miss keeps the original script rather
+            // than failing the dictation.
+            if (romanizeHindi && sarvamKey.isNotBlank() && SttPayloads.containsDevanagari(transcript)) {
+                withContext(Dispatchers.IO) { transliterateHindi(sarvamKey, transcript) }.getOrElse { transcript }
+            } else {
+                transcript
+            }
+        }
+
+    private suspend fun transcribeRaw(
+        apiKey: String,
+        modelId: String,
+        wav: ByteArray,
+        vocabulary: List<String>,
     ): Result<String> =
         withContext(Dispatchers.IO) {
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
@@ -210,22 +230,7 @@ class SpeechToTextTranscriber(
                         }
                         SttPayloads.parseSarvamResult(body)
                     }
-                    // Hinglish: auto-detect stays on the STT call; only chunks Sarvam itself
-                    // tagged as Hindi are romanized. Every other language passes through in
-                    // native script, and a transliteration miss falls back to the original
-                    // Devanagari rather than failing the dictation.
-                    val transcripts = if (romanizeHindi) {
-                        results.map { result ->
-                            currentCoroutineContext().ensureActive()
-                            if (result.text.isNotBlank() && SttPayloads.shouldRomanizeHindi(result.languageCode)) {
-                                transliterateHindi(apiKey, result.text).getOrElse { result.text }
-                            } else {
-                                result.text
-                            }
-                        }
-                    } else {
-                        results.map { it.text }
-                    }
+                    val transcripts = results.map { it.text }
                     SarvamDictation.stitch(transcripts).ifBlank {
                         error("Couldn't hear that — try again.")
                     }
@@ -310,8 +315,8 @@ class SpeechToTextTranscriber(
         }
 
     /**
-     * Romanize one Hindi transcript via Sarvam's text `/transliterate` endpoint. Long
-     * transcripts are split at sentence boundaries to respect the per-request limit.
+     * Romanize a transcript via Sarvam's text `/transliterate` endpoint. It is sent whole;
+     * only a transcript past the per-request limit is split, at sentence ends where possible.
      * Never throws — callers fall back to the original script on any failure.
      */
     private suspend fun transliterateHindi(apiKey: String, text: String): Result<String> =
@@ -469,10 +474,12 @@ internal object SttPayloads {
         val out = mutableListOf<String>()
         var rest = clean
         while (rest.length > TRANSLITERATE_MAX_CHARS) {
-            val window = rest.substring(0, TRANSLITERATE_MAX_CHARS + 1)
-            val cut = listOf(window.lastIndexOf("।"), window.lastIndexOf('.'), window.lastIndexOf('?'),
-                window.lastIndexOf('!'), window.lastIndexOf('\n'), window.lastIndexOf(' '))
-                .maxOrNull()?.takeIf { it > TRANSLITERATE_MAX_CHARS / 2 } ?: TRANSLITERATE_MAX_CHARS
+            val window = rest.substring(0, TRANSLITERATE_MAX_CHARS)
+            val min = TRANSLITERATE_MAX_CHARS / 2
+            // Prefer a sentence end (kept with its sentence), then a word gap, then a hard cut.
+            val sentenceEnd = window.indexOfLast { it in SENTENCE_ENDS }.takeIf { it >= min }?.plus(1)
+            val space = window.lastIndexOf(' ').takeIf { it >= min }
+            val cut = sentenceEnd ?: space ?: TRANSLITERATE_MAX_CHARS
             out.add(rest.substring(0, cut).trim())
             rest = rest.substring(cut).trim()
         }
@@ -481,6 +488,10 @@ internal object SttPayloads {
     }
 
     const val TRANSLITERATE_MAX_CHARS = 1000
+    private val SENTENCE_ENDS = charArrayOf('।', '.', '?', '!', '\n')
+
+    /** True when [text] has any Devanagari — the only script Hinglish romanizes. */
+    fun containsDevanagari(text: String): Boolean = text.any { it in '\u0900'..'\u097F' }
 
     fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null

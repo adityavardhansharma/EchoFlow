@@ -174,7 +174,8 @@ private fun SttCloudSection(
                 SttVocabularyCard(viewModel, SttCatalog.resolve(selectedId))
             }
         }
-        if (isSarvam) {
+        // Hinglish post-processes any model's output through Sarvam, so it shows with a Sarvam key.
+        if (config.sarvamAvailable) {
             Spacer(Modifier.height(Spacing.m))
             SttHinglishRow(viewModel)
         }
@@ -202,7 +203,7 @@ private fun SttHinglishRow(viewModel: SettingsViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Hinglish", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    "Hindi dictation arrives in English letters. Other languages stay in native script.",
+                    "Hindi dictation arrives in English letters, whichever model transcribes. Uses your Sarvam key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
