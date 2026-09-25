@@ -54,7 +54,8 @@ internal object ProviderHttpSupport {
             when (val error = map?.get("error")) {
                 is String -> error
                 is Map<*, *> -> error["message"] as? String
-                else -> map?.get("message") as? String
+                // Deepgram reports `err_msg`; most other providers use `message`.
+                else -> (map?.get("message") ?: map?.get("err_msg")) as? String
             }
         }.getOrNull()
         return when (code) {

@@ -51,20 +51,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import com.echoflow.data.DeepgramDictation
 import com.echoflow.data.DictationVocabulary
+import com.echoflow.data.SttCatalog
+import com.echoflow.data.SttModel
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
 
 /**
- * Custom vocabulary for Gemini 3.5 Transcribe, shown directly under the model list while that
- * model is selected. Terms can be typed or pasted comma-separated ("Aditya, Jyoti") and turn into
+ * Custom vocabulary for models that accept it, shown directly under the model list while one is
+ * selected. Gemini 3.5 Transcribe receives it as `custom_vocabulary`; Deepgram Nova-3 receives the
+ * same terms as keyterms, so the card is labelled after whichever model will use them. Terms can be typed or pasted comma-separated ("Aditya, Jyoti") and turn into
  * chips as soon as a separator lands, so the list always shows exactly what is sent. The same
  * list applies to in-app and system-wide dictation.
  */
 @Composable
-internal fun SttVocabularyCard(viewModel: SettingsViewModel) {
+internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
     val terms by viewModel.sttVocabulary.collectAsState()
+    val keyterms = model.id == SttCatalog.DEEPGRAM_MODEL_ID
     var draft by rememberSaveable { mutableStateOf("") }
     val full = terms.size >= DictationVocabulary.MAX_TERMS
 
@@ -95,12 +100,13 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel) {
                 Spacer(Modifier.width(Spacing.base))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Custom vocabulary",
+                        if (keyterms) "Vocabulary · Keyterms" else "Custom vocabulary",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        "Names and terms Gemini should hear and spell your way.",
+                        if (keyterms) "Words and phrases Deepgram listens for and spells your way."
+                        else "Names and terms Gemini should hear and spell your way.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -182,7 +188,11 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Used for Gemini dictation in chat and system-wide.",
+                    if (keyterms) {
+                        "Sent as Deepgram keyterms in chat and system-wide. They bias recognition toward " +
+                            "these spellings; they don't rewrite what you say. Up to " +
+                            "${DeepgramDictation.MAX_KEYTERMS} are sent per recording, adding ~\$0.078 / hr."
+                    } else "Used for Gemini dictation in chat and system-wide.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f).padding(vertical = Spacing.s),

@@ -61,6 +61,8 @@ data class SttModel(
     val showCostTier: Boolean = true,
     /** True when the model accepts a custom vocabulary list (see [DictationVocabulary]). */
     val supportsCustomVocabulary: Boolean = false,
+    /** Picker badge for [supportsCustomVocabulary] models, named after what the provider calls it. */
+    val vocabularyLabel: String = "Custom vocabulary",
     /** Optional display classification; the numeric price remains the billing reference. */
     private val costTierOverride: SttCostTier? = null,
 ) {
@@ -83,16 +85,44 @@ object SttCatalog {
         usdPerMinute = 0.006,
     )
 
+    /** Deepgram's prerecorded model id; `language=multi` makes it Nova-3 Multilingual. */
+    const val DEEPGRAM_MODEL_ID = "nova-3"
+    val DEEPGRAM_MODEL = SttModel(
+        id = DEEPGRAM_MODEL_ID,
+        name = "Nova-3 Multilingual",
+        provider = "Deepgram",
+        // Deepgram pay-as-you-go pre-recorded (2026-09): Nova-3 Multilingual $0.0052/min
+        // → $0.312/hour. Keyterm Prompting adds $0.0013/min (~$0.078/hour) only when keyterms
+        // are sent; Smart Formatting is included.
+        pricing = "~\$0.312 / hr",
+        blurb = "Hindi–English code switching, with keyterms for your names and terms.",
+        usdPerMinute = 0.0052,
+        supportsCustomVocabulary = true,
+        vocabularyLabel = "Keyterms",
+    )
+
     fun sarvamAvailable(config: CustomProviderConfig): Boolean =
         config.sarvamAvailable
 
-    fun availableModels(config: CustomProviderConfig): List<SttModel> =
-        if (sarvamAvailable(config)) CLOUD_MODELS + SARVAM_MODEL else CLOUD_MODELS
+    fun deepgramAvailable(config: CustomProviderConfig): Boolean =
+        config.deepgramAvailable
 
-    fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String =
-        if (modelId == SARVAM_MODEL_ID) {
-            if (sarvamAvailable(config)) config.sarvamApiKey else ""
-        } else openRouterKey
+    /** OpenRouter models plus direct-provider models whose key is saved under Custom. */
+    fun availableModels(config: CustomProviderConfig): List<SttModel> = buildList {
+        addAll(CLOUD_MODELS)
+        if (sarvamAvailable(config)) add(SARVAM_MODEL)
+        if (deepgramAvailable(config)) add(DEEPGRAM_MODEL)
+    }
+
+    /** True for models billed to a direct provider key rather than OpenRouter. */
+    fun usesDirectKey(modelId: String): Boolean =
+        modelId == SARVAM_MODEL_ID || modelId == DEEPGRAM_MODEL_ID
+
+    fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String = when (modelId) {
+        SARVAM_MODEL_ID -> if (sarvamAvailable(config)) config.sarvamApiKey else ""
+        DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""
+        else -> openRouterKey
+    }
 
     /** Cloud options offered on the STT settings page, in display order. */
     val CLOUD_MODELS = listOf(
@@ -176,7 +206,7 @@ object SttCatalog {
 
     fun supportsCustomVocabulary(id: String): Boolean = byId(id)?.supportsCustomVocabulary == true
 
-    fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL).firstOrNull { it.id == id }
+    fun byId(id: String): SttModel? = (CLOUD_MODELS + SARVAM_MODEL + DEEPGRAM_MODEL).firstOrNull { it.id == id }
 
     fun resolveAvailable(id: String, config: CustomProviderConfig): SttModel =
         availableModels(config).firstOrNull { it.id == id } ?: CLOUD_MODELS.first()

@@ -87,6 +87,7 @@ internal fun SpeechToTextPage(
     viewModel: SettingsViewModel,
     onOpenCloudModels: () -> Unit,
     onOpenSarvam: () -> Unit,
+    onOpenDeepgram: () -> Unit,
     onBack: () -> Unit,
 ) {
     val mode by viewModel.sttMode.collectAsState()
@@ -114,7 +115,7 @@ internal fun SpeechToTextPage(
             label = "sttSections",
         ) { current ->
             when (current) {
-                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam)
+                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram)
                 SttMode.OnDevice -> SttOnDeviceSection()
             }
         }
@@ -122,19 +123,33 @@ internal fun SpeechToTextPage(
 }
 
 @Composable
-private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () -> Unit, onOpenSarvam: () -> Unit) {
+private fun SttCloudSection(
+    viewModel: SettingsViewModel,
+    onOpenCloudModels: () -> Unit,
+    onOpenSarvam: () -> Unit,
+    onOpenDeepgram: () -> Unit,
+) {
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedId by viewModel.sttCloudModel.collectAsState()
     val config by viewModel.customProviderConfig.collectAsState()
     val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
+    val isDeepgram = selectedId == SttCatalog.DEEPGRAM_MODEL_ID
     val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
     Column {
         SttKeyStatusCard(
             hasKey = hasKey,
-            provider = if (isSarvam) "Sarvam" else "OpenRouter",
-            onOpenCloudModels = if (isSarvam) onOpenSarvam else onOpenCloudModels,
+            provider = when {
+                isSarvam -> "Sarvam"
+                isDeepgram -> "Deepgram"
+                else -> "OpenRouter"
+            },
+            onOpenCloudModels = when {
+                isSarvam -> onOpenSarvam
+                isDeepgram -> onOpenDeepgram
+                else -> onOpenCloudModels
+            },
         )
 
         Spacer(Modifier.height(Spacing.xl))
@@ -156,7 +171,7 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
         ) {
             Column {
                 Spacer(Modifier.height(Spacing.m))
-                SttVocabularyCard(viewModel)
+                SttVocabularyCard(viewModel, SttCatalog.resolve(selectedId))
             }
         }
         if (isSarvam) {
@@ -165,10 +180,10 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
         }
         Spacer(Modifier.height(Spacing.m))
         Text(
-            "Prices are per hour of audio. Saaras is billed directly to your Sarvam key; " +
-                "the rest use OpenRouter. " +
+            "Prices are per hour of audio. Saaras and Nova-3 are billed directly to your Sarvam and " +
+                "Deepgram keys, and appear once those keys are saved under Custom; the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
-                "Best is the recommended dictation model; Custom vocabulary models learn your names and terms.",
+                "Best is the recommended dictation model; Custom vocabulary and Keyterms models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -251,7 +266,7 @@ internal fun SttCloudModelList(
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (model.isBest) SttTagBadge("Best")
-                            if (model.supportsCustomVocabulary) SttTagBadge("Custom vocabulary")
+                            if (model.supportsCustomVocabulary) SttTagBadge(model.vocabularyLabel)
                             if (model.showCostTier) SttCostMark(model.costTier)
                         }
                         Text(
@@ -350,8 +365,10 @@ private fun SttKeyStatusCard(hasKey: Boolean, provider: String, onOpenCloudModel
                 Column(Modifier.weight(1f)) {
                     Text("$provider key needed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text(
-                        if (provider == "Sarvam") "Enable Sarvam and save its key under Custom models to turn on the chat mic."
-                        else "Add it under OpenRouter in Models to turn on the chat mic.",
+                        when (provider) {
+                            "Sarvam", "Deepgram" -> "Enable $provider and save its key under Custom models to turn on the chat mic."
+                            else -> "Add it under OpenRouter in Models to turn on the chat mic."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
