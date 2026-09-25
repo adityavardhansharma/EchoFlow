@@ -17,6 +17,7 @@ import org.junit.Test
  * - x-ai/grok-stt-1.0 = $0.10/hour
  * - nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b = $0.000003/sec = $0.0108/hour
  * - google/chirp-3 = $0.016/min = $0.96/hour
+ * - google/gemini-3.5-transcribe = 25 audio tokens/sec × $2/M = $0.003/min = $0.18/hour (measured)
  * - saaras:v4 = ₹30/hour ≈ $0.36/hour
  */
 class SttCatalogTest {
@@ -45,7 +46,7 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.pricing,
         )
         assertEquals("~\$0.96 / hr", SttCatalog.byId("google/chirp-3")!!.pricing)
-        assertEquals("~\$0.37 / hr", SttCatalog.byId("google/gemini-3.5-transcribe")!!.pricing)
+        assertEquals("~\$0.18 / hr", SttCatalog.byId("google/gemini-3.5-transcribe")!!.pricing)
         assertEquals("~\$0.36 / hr", SttCatalog.SARVAM_MODEL.pricing)
     }
 
@@ -71,7 +72,7 @@ class SttCatalogTest {
             SttCatalog.byId("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b")!!.costTier,
         )
         assertEquals(SttCostTier.Expensive, SttCatalog.byId("google/chirp-3")!!.costTier)
-        assertEquals(SttCostTier.Expensive, SttCatalog.byId("google/gemini-3.5-transcribe")!!.costTier)
+        assertEquals(SttCostTier.Moderate, SttCatalog.byId("google/gemini-3.5-transcribe")!!.costTier)
         assertEquals(SttCostTier.Moderate, SttCatalog.SARVAM_MODEL.costTier)
         assertTrue(SttCatalog.SARVAM_MODEL.showCostTier)
         assertEquals(1, SttCostTier.Cheap.dollars)
