@@ -70,6 +70,7 @@ class VoiceInputController(
         modelId: String,
         romanizeHindi: Boolean = false,
         vocabulary: List<String> = emptyList(),
+        sarvamKey: String = "",
         onText: (String) -> Unit,
     ) {
         if (phase != VoicePhase.Recording) return
@@ -81,7 +82,7 @@ class VoiceInputController(
         }
         phase = VoicePhase.Transcribing
         job = scope.launch {
-            transcriber.transcribe(apiKey, modelId, wav, romanizeHindi, vocabulary)
+            transcriber.transcribe(apiKey, modelId, wav, romanizeHindi, vocabulary, sarvamKey)
                 .onSuccess { onText(it) }
                 .onFailure { error = it.message ?: "Couldn't transcribe that." }
             phase = VoicePhase.Idle

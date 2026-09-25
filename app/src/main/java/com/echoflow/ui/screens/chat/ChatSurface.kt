@@ -243,9 +243,10 @@ internal fun ChatSurface(
     val voiceAmplitude by voice.amplitude.collectAsState()
     val dictationKey = com.echoflow.data.SttCatalog.apiKey(sttCloudModelId, openRouterKey, customProviderConfig)
     val sttAvailable = dictationKey.isNotBlank() && sttMode == com.echoflow.data.SttMode.Cloud
-    // Hinglish lives on the Sarvam STT path only; OpenRouter models are untouched.
+    // Hinglish romanizes any model's Hindi output through Sarvam, so it needs only a Sarvam key.
     val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
-    val romanizeHindi = hinglishEnabled && sttCloudModelId == com.echoflow.data.SttCatalog.SARVAM_MODEL_ID
+    val hinglishSarvamKey = if (customProviderConfig.sarvamAvailable) customProviderConfig.sarvamApiKey else ""
+    val romanizeHindi = hinglishEnabled && hinglishSarvamKey.isNotBlank()
     // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram keyterms).
     val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
     val dictationVocabulary =
@@ -637,7 +638,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary, hinglishSarvamKey) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

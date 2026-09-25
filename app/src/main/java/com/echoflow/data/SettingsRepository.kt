@@ -72,9 +72,12 @@ class SettingsRepository(context: Context) {
         val key = if (SttCatalog.usesDirectKey(model)) directKey else getApiKeyDirect()
         // System-wide dictation remains cloud-backed while on-device transcription is only a
         // settings preview. Switching that preview must not disable the user's system-wide opt-in.
+        // Hinglish romanizes any model's output, so it needs only a live Sarvam key.
+        val sarvamKey = if (sarvam) prefs.getString("direct_sarvam_api_key", "").orEmpty() else ""
         return DictationConfiguration(model, key,
-            model == SttCatalog.SARVAM_MODEL_ID && getSarvamHinglishEnabledDirect(),
-            if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList())
+            sarvamKey.isNotBlank() && getSarvamHinglishEnabledDirect(),
+            if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList(),
+            sarvamKey)
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
     fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
@@ -168,8 +171,8 @@ class SettingsRepository(context: Context) {
     private val _sttCloudModel = MutableStateFlow(getSttCloudModelDirect())
     val sttCloudModel: StateFlow<String> = _sttCloudModel.asStateFlow()
 
-    // Hinglish: when on, Sarvam dictation chunks detected as Hindi are romanized to Latin
-    // script via `/transliterate`. Auto-detect stays; every other language is untouched.
+    // Hinglish: when on and a Sarvam key is saved, any dictation model's Devanagari output is
+    // romanized to Latin script via Sarvam's `/transliterate`. Other scripts are untouched.
     private val _sarvamHinglishEnabled = MutableStateFlow(getSarvamHinglishEnabledDirect())
     val sarvamHinglishEnabled: StateFlow<Boolean> = _sarvamHinglishEnabled.asStateFlow()
 
