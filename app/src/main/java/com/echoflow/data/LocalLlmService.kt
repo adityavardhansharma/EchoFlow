@@ -27,8 +27,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -115,19 +118,48 @@ class LocalLlmService(private val context: Context) {
     private val _modelLoading = MutableStateFlow(false)
     val modelLoading: StateFlow<Boolean> = _modelLoading.asStateFlow()
 
+    // ── Idle unload ──────────────────────────────────────────────────────────────────
+    // A loaded model holds hundreds of MB to several GB, so it is freed once it has gone
+    // unused for a while: [IDLE_UNLOAD_MS] with the app on screen, [BACKGROUND_UNLOAD_MS]
+    // after the user leaves it. "Keep model loaded" turns this off, leaving it to Android.
+    private val idleScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val idleLock = Any()
+    private var idleJob: Job? = null
+    /** A scheduled warm-up keeps its model at least until this time (epoch ms). */
+    @Volatile private var holdUntil = 0L
+
+    init {
+        // Leaving or returning to the app switches which timeout applies, counted from now.
+        idleScope.launch { AppVisibility.isForeground.drop(1).collect { scheduleIdleRelease() } }
+        // Turning "Keep model loaded" on cancels the countdown; turning it off starts one.
+        idleScope.launch { LocalModelResidency.keepLoadedChanges(context).drop(1).collect { scheduleIdleRelease() } }
+    }
+
     private fun modelFile(model: LocalModel): File = platform.modelFile(model)
 
     fun modelFileExists(model: LocalModel): Boolean = modelFile(model).exists()
 
-    /** Best-effort preparation. Due runs use the same load path if Android kills this process. */
-    suspend fun prewarm(model: LocalModel, params: InferenceParams) = setupMutex.withLock {
+    /**
+     * Best-effort preparation, so the first reply skips the load. Due runs use the same load
+     * path if Android kills this process. [keepForMillis] holds the model past the idle
+     * timeout, for a scheduled run that is still a few minutes away.
+     */
+    suspend fun prewarm(model: LocalModel, params: InferenceParams, keepForMillis: Long = 0) = setupMutex.withLock {
         if (generating.get() || !modelFileExists(model)) return@withLock
         val maxTokens = effectiveMaxTokens(model, params)
-        when (LocalLlmPrompting.runtimeFor(model)) {
-            LocalLlmRuntime.LITERT -> ensureLitertEngine(model, maxTokens)
-            LocalLlmRuntime.MEDIAPIPE -> ensureMpEngine(model, maxTokens, maxOf(64, params.topK))
-            LocalLlmRuntime.GGUF -> ensureGgufEngine(model, maxTokens)
+        // A reply sent mid-load waits on this lock, so it shows the loading state meanwhile.
+        _modelLoading.value = true
+        try {
+            when (LocalLlmPrompting.runtimeFor(model)) {
+                LocalLlmRuntime.LITERT -> ensureLitertEngine(model, maxTokens)
+                LocalLlmRuntime.MEDIAPIPE -> ensureMpEngine(model, maxTokens, maxOf(64, params.topK))
+                LocalLlmRuntime.GGUF -> ensureGgufEngine(model, maxTokens)
+            }
+        } finally {
+            _modelLoading.value = false
         }
+        if (keepForMillis > 0) holdUntil = maxOf(holdUntil, System.currentTimeMillis() + keepForMillis)
+        scheduleIdleRelease()
     }
 
     private fun effectiveMaxTokens(model: LocalModel, params: InferenceParams): Int =
@@ -172,7 +204,7 @@ class LocalLlmService(private val context: Context) {
             LocalLlmRuntime.GGUF -> generateGguf(model, chatId, history, systemPrompt, params)
             LocalLlmRuntime.LITERT -> generateLitert(model, chatId, history, systemPrompt, params)
             LocalLlmRuntime.MEDIAPIPE -> generateMediaPipe(model, chatId, history, systemPrompt, params)
-        }
+        }.inUse()
     }
 
     /**
@@ -192,27 +224,70 @@ class LocalLlmService(private val context: Context) {
         LocalLlmRuntime.LITERT -> continueLitert()
         LocalLlmRuntime.GGUF -> continueGguf()
         LocalLlmRuntime.MEDIAPIPE -> continueMediaPipe()
+    }.inUse()
+
+    /** No idle unload while a generation runs; the clock restarts when it ends. */
+    private fun Flow<StreamChunk>.inUse(): Flow<StreamChunk> =
+        onStart { cancelIdleRelease() }.onCompletion { scheduleIdleRelease() }
+
+    private fun cancelIdleRelease() = synchronized(idleLock) {
+        idleJob?.cancel()
+        idleJob = null
     }
 
-    /** Frees all engines and sessions when the application releases its shared local runtime. */
+    /** (Re)starts the unload countdown for whatever is loaded, from now. */
+    private fun scheduleIdleRelease() = synchronized(idleLock) {
+        idleJob?.cancel()
+        idleJob = null
+        if (!hasLoadedEngine() || LocalModelResidency.keepLoaded(context)) return@synchronized
+        val timeout = if (AppVisibility.isForeground.value) IDLE_UNLOAD_MS else BACKGROUND_UNLOAD_MS
+        val wait = maxOf(timeout, holdUntil - System.currentTimeMillis())
+        idleJob = idleScope.launch {
+            delay(wait)
+            setupMutex.withLock {
+                // A generation that started meanwhile restarts the clock when it ends.
+                if (generating.get() || LocalModelResidency.keepLoaded(context)) return@withLock
+                releaseAll()
+            }
+        }
+    }
+
+    private fun hasLoadedEngine(): Boolean = mpEngine != null || lrtEngine != null || ggufEngine != null
+
+    /** Frees all engines and sessions (idle unload). */
     fun releaseAll() {
+        releaseMpInternal()
+        releaseLrtInternal()
+        releaseGgufInternal()
+        generating.set(false)
+    }
+
+    /**
+     * Loading one runtime's model frees the others, so switching between a .task, .litertlm
+     * and .gguf model never keeps two models in memory.
+     */
+    private fun releaseRuntimesExcept(keep: LocalLlmRuntime) {
+        if (keep != LocalLlmRuntime.MEDIAPIPE) releaseMpInternal()
+        if (keep != LocalLlmRuntime.LITERT) releaseLrtInternal()
+        if (keep != LocalLlmRuntime.GGUF) releaseGgufInternal()
+    }
+
+    private fun releaseMpInternal() {
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
         mpEngine = null
         mpLoadedPath = null
         mpLoadedMaxTokens = -1
         mpLoadedMaxTopK = -1
+    }
 
+    private fun releaseLrtInternal() {
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
         lrtEngine = null
         lrtLoadedPath = null
         lrtLoadedMaxTokens = -1
         lrtSupportsVision = false
-
-        releaseGgufInternal()
-
-        generating.set(false)
     }
 
     // ── LiteRT-LM implementation ─────────────────────────────────────────────────────
@@ -230,6 +305,7 @@ class LocalLlmService(private val context: Context) {
         // The kv-cache size is baked in at engine creation, so a changed token budget needs
         // a fresh engine, not just a fresh conversation.
         if (lrtEngine != null && lrtLoadedPath == path && lrtLoadedMaxTokens == maxTokens) return
+        releaseRuntimesExcept(LocalLlmRuntime.LITERT)
 
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
@@ -457,6 +533,7 @@ class LocalLlmService(private val context: Context) {
         // Token budget and the top-k ceiling are fixed at engine creation, so a change in
         // either forces a rebuild.
         if (mpEngine != null && mpLoadedPath == path && mpLoadedMaxTokens == maxTokens && mpLoadedMaxTopK == maxTopK) return
+        releaseRuntimesExcept(LocalLlmRuntime.MEDIAPIPE)
 
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
@@ -651,6 +728,7 @@ class LocalLlmService(private val context: Context) {
         val file = modelFile(model)
         val path = file.absolutePath
         if (ggufEngine != null && ggufContextId != null && ggufLoadedPath == path && ggufLoadedMaxTokens == maxTokens) return
+        releaseRuntimesExcept(LocalLlmRuntime.GGUF)
 
         releaseGgufInternal()
         checkRamBudget(file)
@@ -818,5 +896,10 @@ class LocalLlmService(private val context: Context) {
             }
             ggufJob?.cancel()
         }
+    }
+
+    private companion object {
+        const val IDLE_UNLOAD_MS = 5 * 60_000L
+        const val BACKGROUND_UNLOAD_MS = 2 * 60_000L
     }
 }

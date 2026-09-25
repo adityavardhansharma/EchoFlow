@@ -211,6 +211,34 @@ class ChatViewModel(
 
     private var modelRestoreJob: Job? = null
 
+    private fun localInferenceParams(model: LocalModel): InferenceParams = InferenceLimits.coerce(
+        settingsRepository.getInferenceParamsDirect(local = true),
+        ModelCapabilities(
+            maxContextTokens = (model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName))
+                .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
+            maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
+        ),
+        InferenceLimits.LOCAL_DEFAULTS,
+    )
+
+    /**
+     * Loads the on-device model while the user is still typing, so the first reply skips the
+     * load. Runs when a local model is picked, when a chat restores one, and on returning to
+     * the app. Skipped while another on-device task holds the engine.
+     */
+    private suspend fun prewarmLocalModel(modelId: String) {
+        if (localInferenceGate.isBusy) return
+        val model = localModelDao.getLocalModelById(modelId) ?: return
+        if (!localLlmService.modelFileExists(model)) return
+        try {
+            withContext(Dispatchers.IO) { localLlmService.prewarm(model, localInferenceParams(model)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Optional: the next reply performs the normal load and reports any error.
+        }
+    }
+
     /** Picking a model inside a chat moves that chat to it; the next new chat starts on it too. */
     fun selectModel(modelId: String) {
         modelRestoreJob?.cancel()
@@ -548,6 +576,11 @@ class ChatViewModel(
         // which one is actually on screen. Reading chat A is no reason to swallow chat B.
         viewModelScope.launch {
             _currentChatThreadId.collect { ReplyNotifications.visibleChatId = it }
+        }
+        viewModelScope.launch {
+            combine(settingsRepository.selectedModel, AppVisibility.isForeground) { modelId, onScreen ->
+                modelId.takeIf { onScreen && it.startsWith("local/") }
+            }.distinctUntilChanged().collectLatest { modelId -> modelId?.let { prewarmLocalModel(it) } }
         }
         // Reopen exactly where the user left off — including on a blank composer. Through the
         // same guarded path as a mode switch, because a cold database makes this the slowest
@@ -1822,16 +1855,7 @@ class ChatViewModel(
             // clamped to that model's limits (so a budget set for a big model can't break a
             // smaller one — it falls back to the shipped default instead).
             val inferenceParams = if (isLocal) {
-                val lm = localModel!!
-                InferenceLimits.coerce(
-                    settingsRepository.getInferenceParamsDirect(local = true),
-                    ModelCapabilities(
-                        maxContextTokens = (lm.maxTokens ?: LocalModelCatalog.maxTokensFor(lm.id, lm.fileName))
-                            .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
-                        maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
-                    ),
-                    InferenceLimits.LOCAL_DEFAULTS,
-                )
+                localInferenceParams(localModel!!)
             } else {
                 InferenceLimits.coerce(
                     settingsRepository.getInferenceParamsDirect(local = false),

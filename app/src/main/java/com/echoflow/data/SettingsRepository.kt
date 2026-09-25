@@ -3,6 +3,7 @@ package com.echoflow.data
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -398,6 +399,11 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean("gguf_enabled", enabled).apply()
         _ggufEnabled.value = enabled
     }
+
+    // Lives in its own prefs file so the process-wide local engine sees changes immediately.
+    val keepLocalModelLoaded: Flow<Boolean> = LocalModelResidency.keepLoadedChanges(appContext)
+    fun getKeepLocalModelLoadedDirect(): Boolean = LocalModelResidency.keepLoaded(appContext)
+    fun saveKeepLocalModelLoaded(enabled: Boolean) = LocalModelResidency.setKeepLoaded(appContext, enabled)
 
     fun getHfAccessTokenDirect(): String {
         return prefs.getString("hf_access_token", "").orEmpty()

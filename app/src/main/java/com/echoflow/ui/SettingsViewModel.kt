@@ -80,6 +80,8 @@ class SettingsViewModel(
     // Local models
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
     val ggufEnabled: StateFlow<Boolean> = repository.ggufEnabled
+    val keepLocalModelLoaded: StateFlow<Boolean> = repository.keepLocalModelLoaded
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getKeepLocalModelLoadedDirect())
     val hfAccessToken: StateFlow<String> = repository.hfAccessToken
     val downloadStates: StateFlow<Map<String, DownloadState>> = downloadManager.states
 
@@ -349,6 +351,10 @@ class SettingsViewModel(
 
     fun saveGgufEnabled(enabled: Boolean) {
         repository.saveGgufEnabled(enabled)
+    }
+
+    fun saveKeepLocalModelLoaded(enabled: Boolean) {
+        repository.saveKeepLocalModelLoaded(enabled)
     }
 
     fun saveHfAccessToken(token: String) {
