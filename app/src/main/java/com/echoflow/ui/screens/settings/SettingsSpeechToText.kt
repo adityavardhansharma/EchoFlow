@@ -159,7 +159,7 @@ private fun SttCloudSection(viewModel: SettingsViewModel, onOpenCloudModels: () 
                 SttVocabularyCard(viewModel)
             }
         }
-        if (SttCatalog.sarvamAvailable(config)) {
+        if (isSarvam) {
             Spacer(Modifier.height(Spacing.m))
             SttHinglishRow(viewModel)
         }

@@ -56,10 +56,10 @@ class SettingsRepository(context: Context) {
     /** A read-only snapshot: no full provider catalog, unrelated keys, or migration writes. */
     internal fun getDictationConfiguration(): DictationConfiguration {
         val sarvam = prefs.getBoolean("labs_cloud_apis_enabled", false) &&
-            prefs.getBoolean("sarvam_enabled", false)
+            prefs.getBoolean("direct_sarvam_enabled", false)
         val stored = prefs.getString("stt_cloud_model", SttCatalog.DEFAULT_MODEL_ID).orEmpty()
         val sarvamKey = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvam)
-            prefs.getString("sarvam_api_key", "").orEmpty() else ""
+            prefs.getString("direct_sarvam_api_key", "").orEmpty() else ""
         val model = if (stored == SttCatalog.SARVAM_MODEL_ID && sarvamKey.isBlank())
             SttCatalog.DEFAULT_MODEL_ID else SttCatalog.resolve(stored).id
         val key = if (model == SttCatalog.SARVAM_MODEL_ID) sarvamKey else getApiKeyDirect()
