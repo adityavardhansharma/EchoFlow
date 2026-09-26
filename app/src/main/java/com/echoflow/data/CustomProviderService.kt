@@ -71,7 +71,33 @@ data class CustomProviderConfig(
     /** Deepgram is dictation-only: a key here unlocks Nova-3 Multilingual, never chat models. */
     val deepgramEnabled: Boolean = false,
     val deepgramApiKey: String = "",
+    /** Vercel AI Gateway: one key, OpenAI-compatible, routes to models from many labs. */
+    val vercelEnabled: Boolean = false,
+    val vercelApiKey: String = "",
+    val vercelModel: String = "",
+    val vercelModels: String = "",
+    val vercelSelectedModels: String = "",
+    val groqEnabled: Boolean = false,
+    val groqApiKey: String = "",
+    val groqModel: String = "",
+    val groqModels: String = "",
+    val groqSelectedModels: String = "",
+    val togetherEnabled: Boolean = false,
+    val togetherApiKey: String = "",
+    val togetherModel: String = "",
+    val togetherModels: String = "",
+    val togetherSelectedModels: String = "",
+    val cloudflareEnabled: Boolean = false,
+    val cloudflareApiKey: String = "",
+    val cloudflareModel: String = "",
+    val cloudflareModels: String = "",
+    val cloudflareSelectedModels: String = "",
+    /** Workers AI endpoints live under the Cloudflare account, so the URL needs its ID. */
+    val cloudflareAccountId: String = "",
 ) {
+    val cloudflareBaseUrl: String
+        get() = cloudflareBaseUrl(cloudflareAccountId)
+
     val deepgramAvailable: Boolean
         get() = cloudApisEnabled && deepgramEnabled && deepgramApiKey.isNotBlank()
 
@@ -91,6 +117,16 @@ data class CustomProviderConfig(
         const val PREFIX_CEREBRAS = "custom/cerebras/"
         const val PREFIX_SARVAM = "custom/sarvam/"
         const val PREFIX_XAI = "custom/xai/"
+        const val PREFIX_VERCEL = "custom/vercel/"
+        const val VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1"
+        const val PREFIX_GROQ = "custom/groq/"
+        const val GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        const val PREFIX_TOGETHER = "custom/together/"
+        const val TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+        const val PREFIX_CLOUDFLARE = "custom/cloudflare/"
+
+        fun cloudflareBaseUrl(accountId: String): String =
+            "https://api.cloudflare.com/client/v4/accounts/${accountId.trim()}/ai/v1"
         const val PREFIX_OLLAMA = "custom/ollama/"
         const val PREFIX_OPENAI_COMPATIBLE = "custom/openai-compatible/"
     }
@@ -103,7 +139,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Deepgram, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -116,6 +152,17 @@ object CustomProviderCapabilities {
         if (host == "api.x.ai" || host == "api.cerebras.ai") {
             payload["stream_options"] = mapOf("include_usage" to true)
         }
+    }
+
+    /**
+     * Vercel AI Gateway passes sampling params straight to the lab, and Anthropic rejects
+     * `temperature` / `top_p` on Claude Opus 4.7 and later, so drop them for those models.
+     */
+    fun dropGatewaySampling(payload: MutableMap<String, in Any>, baseUrl: String, model: String) {
+        if (baseUrl.toHttpUrlOrNull()?.host != "ai-gateway.vercel.sh") return
+        if (!model.contains("claude", ignoreCase = true) || claudeSupportsSamplingParams(model)) return
+        payload.remove("temperature")
+        payload.remove("top_p")
     }
 
     fun cerebrasSupportsImages(model: String): Boolean {
@@ -139,6 +186,24 @@ object CustomProviderCapabilities {
     }
 
     fun xAiSupportsPdfs(model: String): Boolean = false
+
+    /**
+     * Vercel AI Gateway routes to models from many labs, most of which take images; one that
+     * doesn't answers with a clear error from the gateway. Raw PDFs aren't sent on the
+     * OpenAI-compatible path, so they stay off.
+     */
+    fun vercelSupportsImages(model: String): Boolean = model.isNotBlank()
+
+    fun vercelSupportsPdfs(model: String): Boolean = false
+
+    /**
+     * Groq, Together AI and Workers AI host open-weight models that are mostly text-only and
+     * don't flag vision in their model lists, so images go only to known vision families.
+     */
+    fun openModelSupportsImages(model: String): Boolean {
+        val id = model.trim().lowercase()
+        return listOf("vision", "-vl", "llama-4", "gemma-3", "llava").any { it in id }
+    }
 
     /**
      * Anthropic rejects `temperature` / `top_p` / `top_k` on Claude Opus 4.7 and later
@@ -409,6 +474,7 @@ class CustomProviderService(
         )
         if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
         CustomProviderCapabilities.putStreamUsage(payload, baseUrl)
+        CustomProviderCapabilities.dropGatewaySampling(payload, baseUrl, model)
         val request = Request.Builder()
             .url(joinUrl(baseUrl, "chat/completions"))
             .addHeader("Content-Type", "application/json")
@@ -534,6 +600,11 @@ class CustomProviderService(
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
                 CustomModelProvider.Sarvam -> listOf("sarvam-105b", "sarvam-105b-conversations")
                 CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
+                CustomModelProvider.Vercel -> fetchVercelModels(apiKey)
+                CustomModelProvider.Groq -> fetchOpenAiStyleModels(CustomProviderConfig.GROQ_BASE_URL, apiKey)
+                    .filterNot { id -> listOf("whisper", "tts", "orpheus", "playai").any { it in id.lowercase() } }
+                CustomModelProvider.Together -> fetchTogetherModels(apiKey)
+                CustomModelProvider.Cloudflare -> fetchCloudflareModels(baseUrl, apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
@@ -631,6 +702,53 @@ class CustomProviderService(
     private fun fetchOpenAiStyleModels(baseUrl: String, apiKey: String): List<String> {
         if (apiKey.isBlank()) throw Exception("API key is missing.")
         return fetchModelsFromUrl("${baseUrl.trimEnd('/')}/models", apiKey)
+    }
+
+    /** The gateway also lists embedding and image models; only language models can chat. */
+    private fun fetchVercelModels(apiKey: String): List<String> {
+        if (apiKey.isBlank()) throw Exception("API key is missing.")
+        val request = Request.Builder()
+            .url("${CustomProviderConfig.VERCEL_BASE_URL}/models")
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception(customError("Vercel AI Gateway", response.code, body))
+            return ProviderHttpSupport.parseLanguageModelIds(body)
+        }
+    }
+
+    /** Together returns a bare array; `type` separates chat models from image, embedding and rerank ones. */
+    private fun fetchTogetherModels(apiKey: String): List<String> {
+        if (apiKey.isBlank()) throw Exception("API key is missing.")
+        val request = Request.Builder()
+            .url("${CustomProviderConfig.TOGETHER_BASE_URL}/models")
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception(customError("Together AI", response.code, body))
+            return ProviderHttpSupport.parseTogetherChatModelIds(body)
+        }
+    }
+
+    /** Workers AI has no OpenAI-style model list; its catalog search filters by task instead. */
+    private fun fetchCloudflareModels(baseUrl: String, apiKey: String): List<String> {
+        if (apiKey.isBlank()) throw Exception("API token is missing.")
+        if (baseUrl.contains("/accounts//")) throw Exception("Cloudflare account ID is missing.")
+        val url = "${baseUrl.trimEnd('/').removeSuffix("/v1")}/models/search?task=Text%20Generation&per_page=100"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception(customError("Cloudflare Workers AI", response.code, body))
+            return ProviderHttpSupport.parseCloudflareModelNames(body)
+        }
     }
 
     private fun fetchModelsFromUrl(url: String, apiKey: String): List<String> {

@@ -358,10 +358,14 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Cerebras to PageCustomProviderCerebras,
         CustomModelProvider.Sarvam to PageCustomProviderSarvam,
         CustomModelProvider.XAi to PageCustomProviderXAi,
+        CustomModelProvider.Vercel to PageCustomProviderVercel,
+        CustomModelProvider.Groq to PageCustomProviderGroq,
+        CustomModelProvider.Together to PageCustomProviderTogether,
+        CustomModelProvider.Cloudflare to PageCustomProviderCloudflare,
         CustomModelProvider.Deepgram to PageCustomProviderDeepgram,
     )
 
-    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram", onBack = onBack) {
+    SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · xAI · Groq · Vercel · and more", onBack = onBack) {
         EndpointMasterToggle(
             title = "Direct Cloud APIs",
             subtitle = "Use brand APIs without OpenRouter",

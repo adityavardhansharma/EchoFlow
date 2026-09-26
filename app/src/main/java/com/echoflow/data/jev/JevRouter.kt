@@ -14,7 +14,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 object JevRouter {
     /** Direct cloud brands eligible for Jev. Null = OpenRouter cloud. */
     private val cloudProviders = setOf(
-        "openai", "claude", "gemini", "cerebras", "sarvam", "xai",
+        "openai", "claude", "gemini", "cerebras", "sarvam", "xai", "vercel",
+        "groq", "together", "cloudflare",
     )
 
     fun isCloudChat(isLocal: Boolean, customProvider: String?): Boolean {

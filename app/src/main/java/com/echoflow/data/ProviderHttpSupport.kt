@@ -48,6 +48,36 @@ internal object ProviderHttpSupport {
         }.distinct()
     }
 
+    /** Like [parseModelIds], but drops entries whose `type` says they aren't language models. */
+    fun parseLanguageModelIds(body: String): List<String> {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["data"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val type = entry["type"] as? String
+            if (type != null && type != "language") return@mapNotNull null
+            entry["id"] as? String
+        }.distinct()
+    }
+
+    /** Together's `/models` is a bare array; keeps the chat, language and code models. */
+    fun parseTogetherChatModelIds(body: String): List<String> {
+        val items = runCatching { json.fromJson(body) as? List<*> }.getOrNull() ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val type = entry["type"] as? String
+            if (type != null && type !in setOf("chat", "language", "code")) return@mapNotNull null
+            entry["id"] as? String
+        }.distinct()
+    }
+
+    /** Workers AI model search: `{"result":[{"name":"@cf/meta/llama-3.1-8b-instruct",…}]}`. */
+    fun parseCloudflareModelNames(body: String): List<String> {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["result"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { (it as? Map<*, *>)?.get("name") as? String }.distinct()
+    }
+
     fun errorMessage(label: String, code: Int, body: String): String {
         val parsed = runCatching {
             val map = json.fromJson(body) as? Map<*, *>

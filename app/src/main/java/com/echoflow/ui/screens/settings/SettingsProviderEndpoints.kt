@@ -161,6 +161,18 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (provider == CustomModelProvider.Cloudflare) {
+                        Spacer(Modifier.height(Spacing.m))
+                        OutlinedTextField(
+                            value = draft.cloudflareAccountId,
+                            onValueChange = { draft = draft.copy(cloudflareAccountId = it) },
+                            label = { Text("Account ID") },
+                            supportingText = { Text("Shown on your Cloudflare dashboard under Workers AI") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     if (directProviderApiKey(saved, provider).isNotBlank()) {
                         Spacer(Modifier.height(Spacing.s))
                         SavedKeyBadge("A key is saved on this device")

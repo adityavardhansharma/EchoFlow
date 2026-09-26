@@ -144,4 +144,26 @@ class SettingsRepositoryCharacterizationTest {
         assertEquals("grok-4.5\ngrok-4.20", restored.xAiModels)
         assertEquals("grok-4.5", restored.xAiSelectedModels)
     }
+
+    @Test
+    fun vercelGatewaySettingsRoundTripThroughARecreatedRepository() {
+        val repository = SettingsRepository(context)
+        repository.saveCustomProviderConfig(
+            repository.getCustomProviderConfigDirect().copy(
+                cloudApisEnabled = true,
+                vercelEnabled = true,
+                vercelApiKey = "  vck-test-key  ",
+                vercelModel = "  anthropic/claude-sonnet-4.5  ",
+                vercelModels = "anthropic/claude-sonnet-4.5\nopenai/gpt-5",
+                vercelSelectedModels = "openai/gpt-5",
+            )
+        )
+
+        val restored = SettingsRepository(context).getCustomProviderConfigDirect()
+        assertTrue(restored.vercelEnabled)
+        assertEquals("vck-test-key", restored.vercelApiKey)
+        assertEquals("anthropic/claude-sonnet-4.5", restored.vercelModel)
+        assertEquals("anthropic/claude-sonnet-4.5\nopenai/gpt-5", restored.vercelModels)
+        assertEquals("openai/gpt-5", restored.vercelSelectedModels)
+    }
 }

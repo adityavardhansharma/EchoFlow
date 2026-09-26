@@ -319,6 +319,12 @@ internal fun ChatSurface(
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
                 CustomProviderCapabilities.xAiSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_XAI))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL) ->
+                CustomProviderCapabilities.vercelSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GROQ) ||
+                selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_TOGETHER) ||
+                selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLOUDFLARE) ->
+                CustomProviderCapabilities.openModelSupportsImages(selectedModelID.substringAfter('/').substringAfter('/'))
             else -> true
         }
     }

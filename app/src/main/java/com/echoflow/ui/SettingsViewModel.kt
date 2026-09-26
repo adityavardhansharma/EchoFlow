@@ -407,6 +407,14 @@ class SettingsViewModel(
                     CustomModelProvider.Cerebras -> customProviderService.fetchModels(provider, apiKey = config.cerebrasApiKey)
                     CustomModelProvider.Sarvam -> customProviderService.fetchModels(provider, apiKey = config.sarvamApiKey)
                     CustomModelProvider.XAi -> customProviderService.fetchModels(provider, apiKey = config.xAiApiKey)
+                    CustomModelProvider.Vercel -> customProviderService.fetchModels(provider, apiKey = config.vercelApiKey)
+                    CustomModelProvider.Groq -> customProviderService.fetchModels(provider, apiKey = config.groqApiKey)
+                    CustomModelProvider.Together -> customProviderService.fetchModels(provider, apiKey = config.togetherApiKey)
+                    CustomModelProvider.Cloudflare -> customProviderService.fetchModels(
+                        provider,
+                        baseUrl = config.cloudflareBaseUrl,
+                        apiKey = config.cloudflareApiKey,
+                    )
                     CustomModelProvider.Deepgram -> customProviderService.fetchModels(provider, apiKey = config.deepgramApiKey)
                     CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
                     CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
@@ -423,6 +431,10 @@ class SettingsViewModel(
                         CustomModelProvider.Cerebras -> config.copy(cerebrasModels = result.message)
                         CustomModelProvider.Sarvam -> config.copy(sarvamModels = result.message)
                         CustomModelProvider.XAi -> config.copy(xAiModels = result.message)
+                        CustomModelProvider.Vercel -> config.copy(vercelModels = result.message)
+                        CustomModelProvider.Groq -> config.copy(groqModels = result.message)
+                        CustomModelProvider.Together -> config.copy(togetherModels = result.message)
+                        CustomModelProvider.Cloudflare -> config.copy(cloudflareModels = result.message)
                         CustomModelProvider.Deepgram -> config
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
                         CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
