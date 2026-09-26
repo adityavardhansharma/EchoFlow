@@ -1,6 +1,7 @@
-package com.echoflow.data
+package com.echoflow.data.legacy
 
 import android.content.Context
+import com.echoflow.data.SettingsPreferenceStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.echoflow.MainActivity
 import com.echoflow.R
+import com.echoflow.data.legacy.LegacyResearchResults
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -254,13 +255,7 @@ class DeepResearchForegroundService : Service() {
         val finishedAt = now()
         val timeline = closedTimeline(run, ResearchStep.STATE_DONE, finishedAt)
         val segments = if (run.usesLegacyUi) {
-            val planSteps = ResearchJson.stepsFromJson(run.planJson)
-            buildList {
-                if (!structured && planSteps.isNotEmpty()) {
-                    add(PersistedSegment(type = "plan", text = planSteps.joinToString("\n")))
-                }
-                add(PersistedSegment(type = if (structured) "data" else "report", text = payload))
-            }
+            LegacyResearchResults.resultSegments(run, payload, structured)
         } else {
             listOf(
                 PersistedSegment(
@@ -312,7 +307,7 @@ class DeepResearchForegroundService : Service() {
         val timeline = closedTimeline(run, ResearchStep.STATE_FAILED, failedAt)
         var messageId: String? = null
         if (run.usesLegacyUi) {
-            writeNote(run.chatId, "⚠️ Deep Research couldn't finish: $message")
+            writeNote(run.chatId, LegacyResearchResults.failureNote(message))
         } else {
             // New runs surface the failure as the result card's error variant (with a retry)
             // rather than a loose warning line in the transcript.

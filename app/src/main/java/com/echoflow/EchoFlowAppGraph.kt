@@ -3,7 +3,7 @@ package com.echoflow
 import android.app.Application
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.DefaultChatModelsSeed
-import com.echoflow.data.LegacyImageModelCleanup
+import com.echoflow.data.legacy.LegacyImageModelCleanup
 import com.echoflow.data.LocalInferenceGate
 import com.echoflow.data.ModelDownloadManager
 import com.echoflow.data.SettingsRepository

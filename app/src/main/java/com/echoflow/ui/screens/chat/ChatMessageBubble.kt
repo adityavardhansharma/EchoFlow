@@ -36,8 +36,9 @@ import com.echoflow.ui.components.RichMarkdown
 import com.echoflow.ui.components.SearchActivityCard
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.legacy.LegacyArtifactCard
-import com.echoflow.ui.legacy.LegacyDataResultCard
-import com.echoflow.ui.legacy.LegacyReportCard
+import com.echoflow.ui.legacy.LEGACY_RESEARCH_SEGMENT_TYPES
+import com.echoflow.ui.legacy.LegacyFlatReplyPrelude
+import com.echoflow.ui.legacy.LegacyResearchSegment
 import com.echoflow.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -201,10 +202,6 @@ private fun AssistantAnswerBody(
             if (message.content.isNotBlank()) SmoothStreamingText(message.content, Modifier.fillMaxWidth())
         }
         persistedSegments.isNotEmpty() -> {
-            val planSteps = remember(messageKey) {
-                persistedSegments.firstOrNull { it.type == "plan" }?.text
-                    ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
-            }
             val reportCitations = remember(messageKey, message.citationsJson) {
                 ToolEventJson.citationsFromJson(message.citationsJson)
             }
@@ -341,29 +338,17 @@ private fun AssistantAnswerBody(
                     // ── Research ────────────────────────────────────────────────────
                     // Old and new research are told apart here, and only here. "plan", "report"
                     // and "data" segments were written before the timeline redesign, so they draw
-                    // through the frozen ui/legacy components and look exactly as they always
-                    // have. Research produced by the current app writes a single "research"
-                    // segment instead. Because the split is on a type string that old rows simply
-                    // do not contain, no existing conversation can ever be reclassified.
-                    // The plan is rendered as a disclosure inside the legacy report card.
-                    "plan" -> Unit
-                    "report" -> {
-                        LegacyReportCard(
-                            report = segment.text.orEmpty(),
-                            citations = reportCitations,
-                            planSteps = planSteps,
-                            onCopy = copyAction,
-                        )
-                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                    }
-                    "data" -> {
-                        LegacyDataResultCard(
-                            json = segment.text.orEmpty(),
-                            citations = reportCitations,
-                            onCopy = copyAction,
-                        )
-                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                    }
+                    // through ui/legacy and look exactly as they always have. Research produced
+                    // by the current app writes a single "research" segment instead. Because the
+                    // split is on a type string that old rows simply do not contain, no existing
+                    // conversation can ever be reclassified.
+                    in LEGACY_RESEARCH_SEGMENT_TYPES -> LegacyResearchSegment(
+                        segment = segment,
+                        segments = persistedSegments,
+                        citations = reportCitations,
+                        isLast = index == persistedSegments.lastIndex,
+                        onCopy = copyAction,
+                    )
                     "research" -> {
                         segment.research?.let { ref ->
                             // The steps and sources come from the run row when it is still
@@ -396,19 +381,9 @@ private fun AssistantAnswerBody(
             }
         }
         else -> {
-            // Legacy messages saved before the timeline column existed.
-            val reasoningText = message.reasoning
-            if (!reasoningText.isNullOrBlank()) {
-                ReasoningSection(reasoning = reasoningText, active = false)
-                Spacer(Modifier.height(Spacing.s))
-            }
-            val toolEvents = remember(messageKey, message.toolEventsJson) {
-                ToolEventJson.toolEventsFromJson(message.toolEventsJson)
-            }
-            toolEvents.forEach { event ->
-                SearchActivityCard(query = event.query, sources = event.sources, active = false)
-                Spacer(Modifier.height(Spacing.s))
-            }
+            // No timeline: a plain note, or a message saved before the timeline column
+            // existed, whose reasoning and searches only ui/legacy knows how to draw.
+            LegacyFlatReplyPrelude(message, messageKey)
             RichMarkdown(message.content, Modifier.fillMaxWidth())
         }
     }
