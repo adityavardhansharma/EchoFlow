@@ -16,6 +16,9 @@ internal object CustomProviderModelCatalog {
         addProvider(config.sarvamAvailable, config.sarvamSelectedModels, config.sarvamModel, CustomProviderConfig.PREFIX_SARVAM, "Sarvam", false)
         addProvider(config.cloudApisEnabled && config.xAiEnabled, config.xAiSelectedModels, config.xAiModel, CustomProviderConfig.PREFIX_XAI, "xAI", false)
         addProvider(config.cloudApisEnabled && config.vercelEnabled, config.vercelSelectedModels, config.vercelModel, CustomProviderConfig.PREFIX_VERCEL, "Vercel AI Gateway", false)
+        addProvider(config.cloudApisEnabled && config.groqEnabled, config.groqSelectedModels, config.groqModel, CustomProviderConfig.PREFIX_GROQ, "Groq", false)
+        addProvider(config.cloudApisEnabled && config.togetherEnabled, config.togetherSelectedModels, config.togetherModel, CustomProviderConfig.PREFIX_TOGETHER, "Together AI", false)
+        addProvider(config.cloudApisEnabled && config.cloudflareEnabled, config.cloudflareSelectedModels, config.cloudflareModel, CustomProviderConfig.PREFIX_CLOUDFLARE, "Cloudflare Workers AI", false)
         addProvider(config.ollamaEnabled, config.ollamaSelectedModels, config.ollamaModel, CustomProviderConfig.PREFIX_OLLAMA, "Ollama", true)
         addProvider(config.openAiCompatibleEnabled, config.openAiCompatibleSelectedModels, config.openAiCompatibleModel, CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE, "OpenAI-compatible", true)
     }

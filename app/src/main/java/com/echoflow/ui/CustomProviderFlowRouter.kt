@@ -17,6 +17,12 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         }
         "xai" -> service.streamOpenAiCompatible("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params)
         "vercel" -> service.streamOpenAiCompatible(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params)
+        "groq" -> service.streamOpenAiCompatible(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params)
+        "together" -> service.streamOpenAiCompatible(CustomProviderConfig.TOGETHER_BASE_URL, config.togetherApiKey, model, history, prompt, params)
+        "cloudflare" -> flow {
+            if (config.cloudflareAccountId.isBlank()) error("Cloudflare account ID is missing. Add it under Settings → Custom → Cloudflare Workers AI.")
+            emitAll(service.streamOpenAiCompatible(config.cloudflareBaseUrl, config.cloudflareApiKey, model, history, prompt, params))
+        }
         "ollama" -> service.streamOllama(config.ollamaBaseUrl, model, history, prompt, params)
         "openai-compatible" -> service.streamOpenAiCompatible(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params)
         else -> flow { throw Exception("Unknown custom endpoint provider.") }
@@ -31,6 +37,9 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         }
         "xai" -> service.streamOpenAiTools("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params, search)
         "vercel" -> service.streamOpenAiTools(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params, search)
+        "groq" -> service.streamOpenAiTools(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params, search)
+        "together" -> service.streamOpenAiTools(CustomProviderConfig.TOGETHER_BASE_URL, config.togetherApiKey, model, history, prompt, params, search)
+        // Workers AI supports tool calls on only a few models, so it keeps the plain stream.
         "openai-compatible" -> service.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params, search)
         "ollama" -> service.streamOllamaTools(config.ollamaBaseUrl, model, history, prompt, params, search)
         "claude" -> service.streamClaudeTools(config.claudeApiKey, model, history, prompt, params, search)

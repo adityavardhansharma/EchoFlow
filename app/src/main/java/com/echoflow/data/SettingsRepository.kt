@@ -516,6 +516,22 @@ class SettingsRepository(context: Context) {
             vercelModel = prefs.getString("direct_vercel_model", "").orEmpty(),
             vercelModels = prefs.getString("direct_vercel_models", "").orEmpty(),
             vercelSelectedModels = prefs.getString("direct_vercel_selected_models", "").orEmpty(),
+            groqEnabled = prefs.getBoolean("direct_groq_enabled", false),
+            groqApiKey = prefs.getString("direct_groq_api_key", "").orEmpty(),
+            groqModel = prefs.getString("direct_groq_model", "").orEmpty(),
+            groqModels = prefs.getString("direct_groq_models", "").orEmpty(),
+            groqSelectedModels = prefs.getString("direct_groq_selected_models", "").orEmpty(),
+            togetherEnabled = prefs.getBoolean("direct_together_enabled", false),
+            togetherApiKey = prefs.getString("direct_together_api_key", "").orEmpty(),
+            togetherModel = prefs.getString("direct_together_model", "").orEmpty(),
+            togetherModels = prefs.getString("direct_together_models", "").orEmpty(),
+            togetherSelectedModels = prefs.getString("direct_together_selected_models", "").orEmpty(),
+            cloudflareEnabled = prefs.getBoolean("direct_cloudflare_enabled", false),
+            cloudflareApiKey = prefs.getString("direct_cloudflare_api_key", "").orEmpty(),
+            cloudflareModel = prefs.getString("direct_cloudflare_model", "").orEmpty(),
+            cloudflareModels = prefs.getString("direct_cloudflare_models", "").orEmpty(),
+            cloudflareSelectedModels = prefs.getString("direct_cloudflare_selected_models", "").orEmpty(),
+            cloudflareAccountId = prefs.getString("direct_cloudflare_account_id", "").orEmpty(),
             ollamaBaseUrl = prefs.getString("ollama_base_url", "http://localhost:11434").orEmpty(),
             ollamaModel = prefs.getString("ollama_model", "").orEmpty(),
             ollamaModels = prefs.getString("ollama_models", "").orEmpty(),
@@ -550,6 +566,13 @@ class SettingsRepository(context: Context) {
             xAiModel = config.xAiModel.trim(),
             vercelApiKey = config.vercelApiKey.trim(),
             vercelModel = config.vercelModel.trim(),
+            groqApiKey = config.groqApiKey.trim(),
+            groqModel = config.groqModel.trim(),
+            togetherApiKey = config.togetherApiKey.trim(),
+            togetherModel = config.togetherModel.trim(),
+            cloudflareApiKey = config.cloudflareApiKey.trim(),
+            cloudflareModel = config.cloudflareModel.trim(),
+            cloudflareAccountId = config.cloudflareAccountId.trim(),
             ollamaBaseUrl = config.ollamaBaseUrl.trim(),
             ollamaModel = config.ollamaModel.trim(),
             openAiBaseUrl = config.openAiBaseUrl.trim(),
@@ -597,6 +620,22 @@ class SettingsRepository(context: Context) {
             .putString("direct_vercel_model", clean.vercelModel)
             .putString("direct_vercel_models", clean.vercelModels)
             .putString("direct_vercel_selected_models", clean.vercelSelectedModels)
+            .putBoolean("direct_groq_enabled", clean.groqEnabled)
+            .putString("direct_groq_api_key", clean.groqApiKey)
+            .putString("direct_groq_model", clean.groqModel)
+            .putString("direct_groq_models", clean.groqModels)
+            .putString("direct_groq_selected_models", clean.groqSelectedModels)
+            .putBoolean("direct_together_enabled", clean.togetherEnabled)
+            .putString("direct_together_api_key", clean.togetherApiKey)
+            .putString("direct_together_model", clean.togetherModel)
+            .putString("direct_together_models", clean.togetherModels)
+            .putString("direct_together_selected_models", clean.togetherSelectedModels)
+            .putBoolean("direct_cloudflare_enabled", clean.cloudflareEnabled)
+            .putString("direct_cloudflare_api_key", clean.cloudflareApiKey)
+            .putString("direct_cloudflare_model", clean.cloudflareModel)
+            .putString("direct_cloudflare_models", clean.cloudflareModels)
+            .putString("direct_cloudflare_selected_models", clean.cloudflareSelectedModels)
+            .putString("direct_cloudflare_account_id", clean.cloudflareAccountId)
             .putString("ollama_base_url", clean.ollamaBaseUrl)
             .putString("ollama_model", clean.ollamaModel)
             .putString("ollama_models", clean.ollamaModels)

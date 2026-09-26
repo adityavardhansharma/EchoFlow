@@ -1425,6 +1425,9 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> "sarvam"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_VERCEL) -> "vercel"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_GROQ) -> "groq"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_TOGETHER) -> "together"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLOUDFLARE) -> "cloudflare"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
                 else -> null
@@ -1444,6 +1447,9 @@ class ChatViewModel(
                 "sarvam" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_SARVAM)
                 "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
                 "vercel" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_VERCEL)
+                "groq" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GROQ)
+                "together" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_TOGETHER)
+                "cloudflare" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLOUDFLARE)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
                 else -> selectedModel
@@ -1512,6 +1518,7 @@ class ChatViewModel(
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
                 "vercel" -> CustomProviderCapabilities.vercelSupportsImages(requestModel)
+                "groq", "together", "cloudflare" -> CustomProviderCapabilities.openModelSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
                 else -> false
@@ -1540,6 +1547,8 @@ class ChatViewModel(
             if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
                 _errorMessage.value = if (customProvider == "xai") {
                     "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
+                } else if (customProvider == "groq" || customProvider == "together" || customProvider == "cloudflare") {
+                    "$requestModel does not support image attachments. Choose a vision model, such as a Llama 4 model."
                 } else {
                     val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
                         "Settings → Echo Labs → Custom API Endpoint"
@@ -1593,6 +1602,7 @@ class ChatViewModel(
                 when (customProvider) {
                     "ollama" -> customProviderConfig.ollamaToolCallingEnabled
                     "openai-compatible" -> customProviderConfig.openAiCompatibleToolCallingEnabled
+                    "cloudflare" -> false // Workers AI tool calls work on only a few models
                     else -> true // OpenAI / Claude / Gemini / Cerebras / xAI
                 }
 

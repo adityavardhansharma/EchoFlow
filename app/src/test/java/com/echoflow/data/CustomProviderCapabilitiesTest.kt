@@ -72,4 +72,21 @@ class CustomProviderCapabilitiesTest {
         val otherHost = payload().also { CustomProviderCapabilities.dropGatewaySampling(it, "http://localhost:1234/v1", "claude-opus-5") }
         assertTrue("temperature" in otherHost)
     }
+
+    @Test
+    fun `open-model hosts send images only to known vision families`() {
+        assertTrue(CustomProviderCapabilities.openModelSupportsImages("meta-llama/llama-4-scout-17b-16e-instruct"))
+        assertTrue(CustomProviderCapabilities.openModelSupportsImages("@cf/meta/llama-3.2-11b-vision-instruct"))
+        assertTrue(CustomProviderCapabilities.openModelSupportsImages("Qwen/Qwen2.5-VL-72B-Instruct"))
+        assertFalse(CustomProviderCapabilities.openModelSupportsImages("llama-3.3-70b-versatile"))
+        assertFalse(CustomProviderCapabilities.openModelSupportsImages("@cf/openai/gpt-oss-120b"))
+    }
+
+    @Test
+    fun `Cloudflare base URL carries the account ID`() {
+        assertTrue(
+            CustomProviderConfig.cloudflareBaseUrl(" abc123 ") ==
+                "https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1"
+        )
+    }
 }

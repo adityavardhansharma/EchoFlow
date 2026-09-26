@@ -175,6 +175,9 @@ internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
 internal const val PageCustomProviderSarvam = "custom_provider_sarvam"
 internal const val PageCustomProviderXAi = "custom_provider_xai"
 internal const val PageCustomProviderVercel = "custom_provider_vercel"
+internal const val PageCustomProviderGroq = "custom_provider_groq"
+internal const val PageCustomProviderTogether = "custom_provider_together"
+internal const val PageCustomProviderCloudflare = "custom_provider_cloudflare"
 internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
@@ -197,6 +200,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi, PageCustomProviderVercel,
+    PageCustomProviderGroq, PageCustomProviderTogether, PageCustomProviderCloudflare,
     PageCustomProviderDeepgram,
     -> PageCustomProviderCloud
     else -> PageHome
@@ -292,6 +296,9 @@ fun SettingsScreen(
             PageCustomProviderSarvam -> DirectCloudBrandPage(viewModel, CustomModelProvider.Sarvam, onBack = navigateBack)
             PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
             PageCustomProviderVercel -> DirectCloudBrandPage(viewModel, CustomModelProvider.Vercel, onBack = navigateBack)
+            PageCustomProviderGroq -> DirectCloudBrandPage(viewModel, CustomModelProvider.Groq, onBack = navigateBack)
+            PageCustomProviderTogether -> DirectCloudBrandPage(viewModel, CustomModelProvider.Together, onBack = navigateBack)
+            PageCustomProviderCloudflare -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cloudflare, onBack = navigateBack)
             PageCustomProviderDeepgram -> DeepgramKeyPage(viewModel, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)

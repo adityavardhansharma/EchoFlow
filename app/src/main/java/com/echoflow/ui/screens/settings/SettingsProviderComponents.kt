@@ -135,6 +135,9 @@ internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderB
     CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.XAi -> DirectProviderBrand("xAI", "Direct xAI API", "xai-...", "grok-4.5", R.drawable.logo_xai, Color(0xFF151515))
     CustomModelProvider.Vercel -> DirectProviderBrand("Vercel AI Gateway", "Models from many labs with one key", "vck_...", "anthropic/claude-sonnet-4.5", R.drawable.logo_vercel, Color(0xFF000000))
+    CustomModelProvider.Groq -> DirectProviderBrand("Groq", "Fast open models on Groq", "gsk_...", "llama-3.3-70b-versatile", R.drawable.logo_compatible, Color(0xFFF55036))
+    CustomModelProvider.Together -> DirectProviderBrand("Together AI", "Open models on Together AI", "Together API key", "meta-llama/Llama-3.3-70B-Instruct-Turbo", R.drawable.logo_compatible, Color(0xFF0F6FFF))
+    CustomModelProvider.Cloudflare -> DirectProviderBrand("Cloudflare Workers AI", "Models on Cloudflare's network", "Cloudflare API token", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", R.drawable.logo_compatible, Color(0xFFF38020))
     CustomModelProvider.Deepgram -> DirectProviderBrand("Deepgram", "Nova-3 Multilingual dictation", "Deepgram API key", "nova-3", R.drawable.logo_deepgram, Color(0xFF101014))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
@@ -605,6 +608,9 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Sarvam -> config.sarvamEnabled
     CustomModelProvider.XAi -> config.xAiEnabled
     CustomModelProvider.Vercel -> config.vercelEnabled
+    CustomModelProvider.Groq -> config.groqEnabled
+    CustomModelProvider.Together -> config.togetherEnabled
+    CustomModelProvider.Cloudflare -> config.cloudflareEnabled
     CustomModelProvider.Deepgram -> config.deepgramEnabled
     else -> false
 }
@@ -617,6 +623,9 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Sarvam -> config.copy(sarvamEnabled = enabled)
     CustomModelProvider.XAi -> config.copy(xAiEnabled = enabled)
     CustomModelProvider.Vercel -> config.copy(vercelEnabled = enabled)
+    CustomModelProvider.Groq -> config.copy(groqEnabled = enabled)
+    CustomModelProvider.Together -> config.copy(togetherEnabled = enabled)
+    CustomModelProvider.Cloudflare -> config.copy(cloudflareEnabled = enabled)
     CustomModelProvider.Deepgram -> config.copy(deepgramEnabled = enabled)
     else -> config
 }
@@ -629,6 +638,9 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Sarvam -> config.sarvamApiKey
     CustomModelProvider.XAi -> config.xAiApiKey
     CustomModelProvider.Vercel -> config.vercelApiKey
+    CustomModelProvider.Groq -> config.groqApiKey
+    CustomModelProvider.Together -> config.togetherApiKey
+    CustomModelProvider.Cloudflare -> config.cloudflareApiKey
     CustomModelProvider.Deepgram -> config.deepgramApiKey
     else -> ""
 }
@@ -641,6 +653,9 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Sarvam -> config.copy(sarvamApiKey = value)
     CustomModelProvider.XAi -> config.copy(xAiApiKey = value)
     CustomModelProvider.Vercel -> config.copy(vercelApiKey = value)
+    CustomModelProvider.Groq -> config.copy(groqApiKey = value)
+    CustomModelProvider.Together -> config.copy(togetherApiKey = value)
+    CustomModelProvider.Cloudflare -> config.copy(cloudflareApiKey = value)
     CustomModelProvider.Deepgram -> config.copy(deepgramApiKey = value)
     else -> config
 }
@@ -653,6 +668,9 @@ internal fun directProviderManualModel(config: CustomProviderConfig, provider: C
     CustomModelProvider.Sarvam -> config.sarvamModel
     CustomModelProvider.XAi -> config.xAiModel
     CustomModelProvider.Vercel -> config.vercelModel
+    CustomModelProvider.Groq -> config.groqModel
+    CustomModelProvider.Together -> config.togetherModel
+    CustomModelProvider.Cloudflare -> config.cloudflareModel
     else -> ""
 }
 
@@ -664,6 +682,9 @@ internal fun setDirectProviderManualModel(config: CustomProviderConfig, provider
     CustomModelProvider.Sarvam -> config.copy(sarvamModel = value)
     CustomModelProvider.XAi -> config.copy(xAiModel = value)
     CustomModelProvider.Vercel -> config.copy(vercelModel = value)
+    CustomModelProvider.Groq -> config.copy(groqModel = value)
+    CustomModelProvider.Together -> config.copy(togetherModel = value)
+    CustomModelProvider.Cloudflare -> config.copy(cloudflareModel = value)
     else -> config
 }
 
@@ -675,6 +696,9 @@ internal fun directProviderAvailableModels(config: CustomProviderConfig, provide
     CustomModelProvider.Sarvam -> config.sarvamModels
     CustomModelProvider.XAi -> config.xAiModels
     CustomModelProvider.Vercel -> config.vercelModels
+    CustomModelProvider.Groq -> config.groqModels
+    CustomModelProvider.Together -> config.togetherModels
+    CustomModelProvider.Cloudflare -> config.cloudflareModels
     else -> ""
 }
 
@@ -686,6 +710,9 @@ internal fun directProviderSelectedModels(config: CustomProviderConfig, provider
     CustomModelProvider.Sarvam -> config.sarvamSelectedModels
     CustomModelProvider.XAi -> config.xAiSelectedModels
     CustomModelProvider.Vercel -> config.vercelSelectedModels
+    CustomModelProvider.Groq -> config.groqSelectedModels
+    CustomModelProvider.Together -> config.togetherSelectedModels
+    CustomModelProvider.Cloudflare -> config.cloudflareSelectedModels
     else -> ""
 }
 
@@ -697,6 +724,9 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
     CustomModelProvider.Sarvam -> config.copy(sarvamSelectedModels = value)
     CustomModelProvider.XAi -> config.copy(xAiSelectedModels = value)
     CustomModelProvider.Vercel -> config.copy(vercelSelectedModels = value)
+    CustomModelProvider.Groq -> config.copy(groqSelectedModels = value)
+    CustomModelProvider.Together -> config.copy(togetherSelectedModels = value)
+    CustomModelProvider.Cloudflare -> config.copy(cloudflareSelectedModels = value)
     else -> config
 }
 
@@ -717,6 +747,8 @@ internal fun directProviderAttachmentText(provider: CustomModelProvider): String
     CustomModelProvider.Sarvam -> "Sarvam 105B is text-only — documents are parsed on-device and sent as text. Your key also enables Saaras v4 in Dictation."
     CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
     CustomModelProvider.Vercel -> "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."
+    CustomModelProvider.Groq, CustomModelProvider.Together, CustomModelProvider.Cloudflare ->
+        "Images are available for vision models such as Llama 4. Other models are text-only; PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
 }
 
@@ -728,6 +760,9 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Sarvam -> "Sarvam"
     CustomModelProvider.XAi -> "xAI"
     CustomModelProvider.Vercel -> "Vercel AI Gateway"
+    CustomModelProvider.Groq -> "Groq"
+    CustomModelProvider.Together -> "Together AI"
+    CustomModelProvider.Cloudflare -> "Cloudflare Workers AI"
     CustomModelProvider.Deepgram -> "Deepgram"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"
