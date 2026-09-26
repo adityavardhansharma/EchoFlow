@@ -40,6 +40,12 @@ data class ChatThread(
      * [projectId], not a foreign key — deleting a schedule must never delete what it produced.
      */
     val scheduleId: String? = null,
+    /**
+     * The model this conversation was last using, so reopening it picks that model back up.
+     * Null for conversations from before v31 and for ones that haven't sent a message yet;
+     * those simply keep whatever model is selected.
+     */
+    val modelId: String? = null,
 ) {
     val mode: AppMode get() = AppMode.fromStorage(kind)
     val isPinned: Boolean get() = pinnedAt != null

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -19,9 +20,11 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.AppMode
 import com.echoflow.ui.components.ModeSwitch
@@ -41,6 +44,7 @@ internal fun ChatTopBar(
     renderingModes: Set<AppMode>,
     onMenu: () -> Unit,
     onNewChat: () -> Unit,
+    onNewTemporaryChat: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val newLabel = if (mode == AppMode.Imagine) "New creation" else "New conversation"
@@ -66,8 +70,11 @@ internal fun ChatTopBar(
         },
         actions = {
             Box(Modifier.padding(end = Spacing.s)) {
+                // Long-press opens a temporary chat. Imagine has no temporary mode.
                 RoundTopBarButton(
                     onClick = onNewChat,
+                    onLongClick = onNewTemporaryChat.takeIf { mode == AppMode.Chat },
+                    onLongClickLabel = "New temporary chat",
                     container = MaterialTheme.colorScheme.tertiaryContainer,
                     onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
                 ) { Icon(Icons.Default.Create, newLabel, Modifier.size(22.dp)) }
@@ -86,6 +93,8 @@ private fun RoundTopBarButton(
     onClick: () -> Unit,
     container: Color,
     onContainer: Color,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -96,16 +105,24 @@ private fun RoundTopBarButton(
         label = "topbar-button-press",
     )
     Surface(
-        onClick = onClick,
         shape = CircleShape,
         color = container,
         contentColor = onContainer,
         tonalElevation = 3.dp,
-        interactionSource = interaction,
         modifier = Modifier
             .minimumInteractiveComponentSize()
             .size(40.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale },
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                role = Role.Button,
+                onClick = onClick,
+                onLongClickLabel = onLongClickLabel,
+                // combinedClickable plays the long-press haptic itself.
+                onLongClick = onLongClick,
+            ),
     ) {
         Box(contentAlignment = Alignment.Center) { content() }
     }

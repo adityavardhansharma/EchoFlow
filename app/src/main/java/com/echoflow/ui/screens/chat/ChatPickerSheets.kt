@@ -20,6 +20,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.content.MediaType
 import androidx.compose.foundation.content.ReceiveContentListener
 import androidx.compose.foundation.content.TransferableContent
@@ -111,6 +112,8 @@ internal fun ModelPickerSheet(
     onSelect: (String) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
+    defaultId: String? = null,
+    onSetDefault: ((String?) -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by remember { mutableStateOf("") }
@@ -137,6 +140,14 @@ internal fun ModelPickerSheet(
                 shape = CircleShape,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (onSetDefault != null) {
+                Text(
+                    "Long-press a model to make it the default for new chats",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = Spacing.base, top = Spacing.s),
+                )
+            }
             Spacer(Modifier.height(Spacing.m))
             val filtered = models.filter { it.second.contains(query, true) || it.first.contains(query, true) }
             val filteredLocal = localModels.filter { it.second.contains(query, true) || it.first.contains(query, true) }
@@ -154,14 +165,22 @@ internal fun ModelPickerSheet(
                 contentPadding = PaddingValues(bottom = Spacing.xl),
             ) {
                 items(filtered, key = { it.first }) { (id, name) ->
-                    ModelRow(name, id, id == selectedId, isLocal = false) { onSelect(id) }
+                    ModelRow(
+                        name, id, id == selectedId, isLocal = false,
+                        isDefault = id == defaultId,
+                        onSetDefault = onSetDefault?.let { set -> { makeDefault: Boolean -> set(if (makeDefault) id else null) } },
+                    ) { onSelect(id) }
                 }
                 if (filteredLocal.isNotEmpty()) {
                     item(key = "local-section") {
                         Box(Modifier.padding(top = Spacing.m)) { SectionLabel("Local & network") }
                     }
                     items(filteredLocal, key = { it.first }) { (id, name) ->
-                        ModelRow(name, id, id == selectedId, isLocal = true) { onSelect(id) }
+                        ModelRow(
+                        name, id, id == selectedId, isLocal = true,
+                        isDefault = id == defaultId,
+                        onSetDefault = onSetDefault?.let { set -> { makeDefault: Boolean -> set(if (makeDefault) id else null) } },
+                    ) { onSelect(id) }
                     }
                 }
             }
@@ -457,7 +476,17 @@ internal fun DrEngineRow(name: String, description: String, selected: Boolean, o
 }
 
 @Composable
-internal fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal: Boolean = false, onClick: () -> Unit) {
+internal fun ModelRow(
+    name: String,
+    modelId: String,
+    selected: Boolean,
+    isLocal: Boolean = false,
+    isDefault: Boolean = false,
+    /** When set, long-pressing the row offers to make it (true) or stop it being (false) the default. */
+    onSetDefault: ((Boolean) -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
     val displayName = remember(name, modelId, isLocal) {
         modelPickerDisplayName(DefaultChatModels.pickerDisplayName(modelId, name), isLocal)
     }
@@ -474,48 +503,65 @@ internal fun ModelRow(name: String, modelId: String, selected: Boolean, isLocal:
         modelId.contains("/") -> modelId.substringBefore("/").replaceFirstChar { it.uppercase() }
         else -> "Custom"
     }
-    Surface(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.large,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
-            BrandMark(size = 40.dp)
-            Spacer(Modifier.width(Spacing.base))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        displayName,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (isLocal) {
-                        Spacer(Modifier.width(Spacing.s))
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
-                            Row(
-                                Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Default.OfflineBolt, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                                Spacer(Modifier.width(3.dp))
-                                Text("Local", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+    Box {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth()
+                .clip(MaterialTheme.shapes.large)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onSetDefault?.let { { menuOpen = true } },
+                    onLongClickLabel = if (onSetDefault == null) null
+                        else if (isDefault) "Remove as default" else "Set as default",
+                ),
+        ) {
+            Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                BrandMark(size = 40.dp)
+                Spacer(Modifier.width(Spacing.base))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            displayName,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (isLocal) {
+                            Spacer(Modifier.width(Spacing.s))
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
+                                Row(
+                                    Modifier.padding(horizontal = Spacing.s, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Default.OfflineBolt, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("Local", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                }
                             }
                         }
                     }
+                    Text(
+                        if (isDefault) "Default · $provider" else provider,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    provider,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+        }
+        if (onSetDefault != null) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (isDefault) "Remove as default" else "Set as default") },
+                    leadingIcon = { Icon(if (isDefault) Icons.Default.StarOutline else Icons.Default.Star, null) },
+                    onClick = { menuOpen = false; onSetDefault(!isDefault) },
                 )
             }
-            if (selected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }

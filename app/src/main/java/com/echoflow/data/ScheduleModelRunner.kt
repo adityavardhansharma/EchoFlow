@@ -105,13 +105,14 @@ class ScheduleModelRunner(private val context: Context) {
     ).fold(StringBuilder()) { acc, delta -> acc.append(delta) }.toString().trim()
         .ifBlank { error("The model returned no answer.") }
 
-    suspend fun prewarm(modelId: String) {
+    /** Loads [modelId] ahead of a due run and keeps it loaded for at least [keepForMillis]. */
+    suspend fun prewarm(modelId: String, keepForMillis: Long = 0) {
         val model = AppDatabase.getDatabase(context).localModelDao().getLocalModelById(modelId)
             ?: return
         val params = localParams(model)
         if (ScheduleLocalRuntime.gate.isBusy) return
         ScheduleLocalRuntime.gate.withExclusive("scheduled model warm-up") {
-            withContext(Dispatchers.IO) { ScheduleLocalRuntime.service(context).prewarm(model, params) }
+            withContext(Dispatchers.IO) { ScheduleLocalRuntime.service(context).prewarm(model, params, keepForMillis) }
         }
     }
 

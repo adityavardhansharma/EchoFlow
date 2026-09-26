@@ -235,6 +235,15 @@ internal fun ChatSurface(
     var textInput by remember { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
+    // Text shared in from another app (share sheet or text selection) seeds the composer.
+    val sharedDraftText by chatViewModel.sharedDraftText.collectAsState()
+    LaunchedEffect(sharedDraftText) {
+        sharedDraftText?.let {
+            textInput = it
+            chatViewModel.consumeSharedDraftText()
+        }
+    }
+
     // Dictation uses the selected transcription provider, independently of the chat model.
     val openRouterKey by settingsViewModel.apiKey.collectAsState()
     val sttCloudModelId by settingsViewModel.sttCloudModel.collectAsState()
@@ -685,6 +694,7 @@ internal fun ChatSurface(
 }
 
     if (showModelMenu) {
+        val defaultModelId by settingsViewModel.defaultModel.collectAsState()
         if (echoFusionActive) {
             FusionPickerSheet(
                 panels = fusionPanels,
@@ -699,7 +709,7 @@ internal fun ChatSurface(
                 selectedModelId = selectedModelID,
                 profiles = advisorProfiles,
                 selectedProfileId = echoAdviserProfileId,
-                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectModel = { chatViewModel.selectModel(it) },
                 onSelectProfile = { settingsViewModel.saveEchoAdviserProfile(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
@@ -710,7 +720,7 @@ internal fun ChatSurface(
                 selectedModelId = selectedModelID,
                 profiles = agentProfiles,
                 selectedProfileId = echoAgentProfileId,
-                onSelectModel = { settingsViewModel.saveSelectedModel(it) },
+                onSelectModel = { chatViewModel.selectModel(it) },
                 onSelectProfile = { settingsViewModel.saveEchoAgentProfile(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
@@ -754,7 +764,9 @@ internal fun ChatSurface(
                 models = activeModelList,
                 localModels = localModelEntries,
                 selectedId = selectedModelID,
-                onSelect = { settingsViewModel.saveSelectedModel(it); showModelMenu = false },
+                defaultId = defaultModelId,
+                onSelect = { chatViewModel.selectModel(it); showModelMenu = false },
+                onSetDefault = { settingsViewModel.saveDefaultModel(it) },
                 onManage = { showModelMenu = false; onSettingsClicked() },
                 onDismiss = { showModelMenu = false },
             )

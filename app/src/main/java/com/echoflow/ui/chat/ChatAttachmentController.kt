@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import com.echoflow.data.MessageAttachment
 import com.echoflow.data.extract.ChatAttachmentExtractor
 import com.echoflow.ui.PendingAttachment
@@ -34,6 +35,8 @@ internal class ChatAttachmentController(
     private val _pendingAttachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val pendingAttachments: StateFlow<List<PendingAttachment>> = _pendingAttachments.asStateFlow()
     private val extractionJobs = mutableMapOf<String, Job>()
+    // Shared-in files not yet checked against the model; the next reconcile says if any were dropped.
+    private val unreconciledShares = mutableSetOf<String>()
 
     /** Restore a prompt's attachments when editing, cancelling parses from the previous draft. */
     fun restore(attachments: List<MessageAttachment>, extractLocally: Boolean) {
@@ -168,6 +171,7 @@ internal class ChatAttachmentController(
     ) {
         val current = _pendingAttachments.value
         if (current.isEmpty()) return
+        val sharedIds = unreconciledShares.toSet().also { unreconciledShares.clear() }
         val next = PendingAttachmentPolicy.keep(
             current,
             imageAllowed = imageAllowed,
@@ -179,7 +183,10 @@ internal class ChatAttachmentController(
             val keepIds = next.map { it.id }.toSet()
             extractionJobs.keys.filter { it !in keepIds }.forEach { extractionJobs.remove(it)?.cancel() }
             _pendingAttachments.value = next
-            if (next.size < current.size && !localFilesAllowed && next.isNotEmpty()) {
+            val droppedShares = sharedIds.count { id -> next.none { it.id == id } }
+            if (droppedShares > 0 && next.isEmpty()) {
+                onError("This model can't read the shared file. Pick another model and share it again.")
+            } else if (next.size < current.size && !localFilesAllowed && next.isNotEmpty()) {
                 onError("Only one file can go with this model. Extra files were dropped.")
             }
         }
@@ -232,6 +239,69 @@ internal class ChatAttachmentController(
             }.getOrNull()
         }
 
+    /**
+     * Stage files another app shared with EchoFlow. The sender's read grant only lasts as long
+     * as the share, so each file is copied into cache first. Everything lands [State.Ready];
+     * the composer's reconcile then drops what the current model cannot take and starts the
+     * on-device parse where the local path needs it.
+     */
+    fun addSharedFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        scope.launch {
+            var unreadable = 0
+            for (uri in uris) {
+                if (_pendingAttachments.value.size >= maxAttachments) break
+                val copied = copySharedFileToCache(uri)
+                if (copied == null) {
+                    unreadable++
+                    continue
+                }
+                val attachment = PendingAttachment(
+                    uri = copied.uri.toString(),
+                    mimeType = copied.mimeType,
+                    name = copied.name,
+                    kind = if (copied.mimeType.startsWith("image/", ignoreCase = true)) PendingAttachment.Kind.Image
+                    else PendingAttachment.Kind.Doc,
+                    state = PendingAttachment.State.Ready,
+                )
+                unreconciledShares += attachment.id
+                _pendingAttachments.value = _pendingAttachments.value + attachment
+            }
+            if (unreadable > 0) {
+                onError(if (unreadable == 1) "Could not read the shared file." else "Could not read $unreadable shared files.")
+            }
+        }
+    }
+
+    private class SharedFile(val uri: Uri, val mimeType: String, val name: String)
+
+    private suspend fun copySharedFileToCache(uri: Uri): SharedFile? =
+        withContext(Dispatchers.IO) {
+            val resolver = application.contentResolver
+            runCatching {
+                var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Shared file"
+                runCatching { resolver.query(uri, null, null, null, null) }.getOrNull()?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        cursor.getString(nameIndex)?.let { displayName = it }
+                    }
+                }
+                // Some senders hand over a bare file:// URI, which has no type; go by extension.
+                val mimeType = resolver.getType(uri)
+                    ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(displayName.substringAfterLast('.', "").lowercase())
+                    ?: "application/octet-stream"
+                // Each share gets its own folder so the file keeps its real name without clashing.
+                val dir = File(File(application.cacheDir, "shared_in"), java.util.UUID.randomUUID().toString())
+                    .apply { mkdirs() }
+                val safeName = displayName.replace(Regex("[/\\\\]"), "_").ifBlank { "Shared file" }
+                val file = File(dir, safeName)
+                resolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: return@runCatching null
+                SharedFile(Uri.fromFile(file), mimeType, displayName)
+            }.getOrNull()
+        }
+
     private fun imageExtensionFor(mimeType: String): String =
         when (mimeType.lowercase()) {
             "image/jpeg", "image/jpg" -> "jpg"
@@ -243,6 +313,7 @@ internal class ChatAttachmentController(
 
     fun clearPendingAttachment() {
         cancelExtractionJobs()
+        unreconciledShares.clear()
         _pendingAttachments.value = emptyList()
     }
 

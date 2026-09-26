@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,10 +29,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -94,15 +93,7 @@ internal fun ProjectFilesScreen(
             onBack = onBack,
             floatingActionButton = {
                 if (hasContent) {
-                    ExtendedFloatingActionButton(
-                        text = { Text("Add files") },
-                        icon = { Icon(Icons.Default.Add, null) },
-                        onClick = { picker.launch(arrayOf("*/*")) },
-                        expanded = fabExpanded,
-                        shape = RoundedCornerShape(20.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    ProjectFab("Add files", Icons.Default.Add, fabExpanded) { picker.launch(arrayOf("*/*")) }
                 }
             },
         ) { padding ->
@@ -129,7 +120,10 @@ internal fun ProjectFilesScreen(
                         contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = 112.dp),
                     ) {
                         item(key = "purpose") {
-                            FilesPurposeNote(Modifier.padding(bottom = Spacing.l))
+                            ProjectPageNote(
+                                "Every chat in this project can use these files as background knowledge.",
+                                Modifier.padding(bottom = Spacing.l),
+                            )
                         }
                         if (queued > 0) {
                             item(key = "queued-batch") {
@@ -141,7 +135,7 @@ internal fun ProjectFilesScreen(
                         }
                         if (documents.isNotEmpty()) {
                             item(key = "attached-label") {
-                                ProjectSectionHeader("Attached", count = documents.size)
+                                ProjectSectionHeader("Attached")
                             }
                         }
                         itemsIndexed(documents, key = { _, it -> it.id }) { index, doc ->
@@ -177,70 +171,39 @@ internal fun ProjectFilesScreen(
     }
 }
 
-/**
- * A quiet caption above the list saying what these files are for — plain text, not a card, so it
- * informs without competing with the files themselves.
- */
-@Composable
-private fun FilesPurposeNote(modifier: Modifier = Modifier) {
-    Row(
-        modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            Icons.Outlined.Info, null,
-            Modifier.padding(top = 1.dp).size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(Spacing.s))
-        Text(
-            "Every chat in this project can draw on these files as background knowledge.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
+/** Files picked but not yet read, shown as one row in the same style as the files below. */
 @Composable
 private fun QueuedFilesRow(count: Int, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val label = if (count == 1) "1 file queued" else "$count files queued"
     Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = if (count == 1) "1 file queued" else "$count files queued"
-            },
+        shape = groupedItemShape(0, 1),
+        color = cs.surfaceContainer,
+        modifier = modifier.fillMaxWidth().semantics { contentDescription = label },
     ) {
         Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
+            Modifier.heightIn(min = 72.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
+                Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(cs.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                LoadingIndicator(
-                    modifier = Modifier.size(22.dp),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                LoadingIndicator(modifier = Modifier.size(24.dp), color = cs.onSecondaryContainer)
             }
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (count == 1) "1 file queued" else "$count files queued",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = cs.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "Waiting to be read…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                    "Waiting to be read",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
                 )
             }
         }

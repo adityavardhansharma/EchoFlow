@@ -20,13 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -96,13 +93,12 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
                 .padding(start = Spacing.base, end = Spacing.base, top = Spacing.s, bottom = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
-            BriefExplainer()
+            ProjectPageNote("Every chat in this project follows these. Set the model's role, tone and rules.")
 
-            // The writing surface: a generous card with comfortable inner margins so long briefs
-            // read like a document, not a cramped form field. It grows with the text and the page
-            // scrolls, which also collapses the app bar out of the way while writing.
+            // The writing surface: the same card as a Settings form, with room for long text. It
+            // grows with the text and the page scrolls, collapsing the app bar while writing.
             Surface(
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -143,7 +139,6 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
                         },
                         label = { Text(label) },
                         leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(AssistChipDefaults.IconSize)) },
-                        shape = RoundedCornerShape(12.dp),
                     )
                 }
             }
@@ -163,23 +158,5 @@ internal fun ProjectInstructionsScreen(project: Project, onSave: (String) -> Uni
                 )
             }
         }
-    }
-}
-
-/** What a brief is, said once as a quiet caption above the writing surface. */
-@Composable
-private fun BriefExplainer() {
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.Top) {
-        Icon(
-            Icons.Default.AutoAwesome, null,
-            Modifier.padding(top = 1.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.width(Spacing.s))
-        Text(
-            "Sent to the model with every message in this project — set its role, tone and rules.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
     }
 }

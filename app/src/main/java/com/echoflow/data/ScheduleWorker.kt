@@ -131,7 +131,9 @@ class ScheduleWarmupWorker(context: Context, params: WorkerParameters) : Corouti
             return Result.success()
         }
         return try {
-            ScheduleModelRunner(applicationContext).prewarm(task.modelId)
+            // Hold the model until just past the due time; the idle unload would otherwise
+            // free it first, since a warm-up runs with the app in the background.
+            ScheduleModelRunner(applicationContext).prewarm(task.modelId, keepForMillis = until + 60_000L)
             Result.success()
         } catch (_: Exception) {
             // Warm-up is optional. The due worker performs the normal load and reports errors.

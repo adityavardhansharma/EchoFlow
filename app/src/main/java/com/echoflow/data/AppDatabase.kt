@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
         ScheduleTask::class, ScheduleRun::class, com.echoflow.data.usage.UsageRecord::class
     ],
-    version = 30, // v30: on-device spend ledger
+    version = 31, // v31: each chat remembers its model
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -520,6 +520,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Each chat remembers its own model. Additive; older chats stay NULL and keep the current pick. */
+        internal val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN modelId TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -557,6 +564,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_27_28,
                     MIGRATION_28_29,
                     MIGRATION_29_30,
+                    MIGRATION_30_31,
                 )
                 .build()
                 INSTANCE = instance

@@ -27,13 +27,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +51,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.Project
@@ -156,22 +154,14 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
     ProjectPageScaffold(
         title = "Projects",
         subtitle = when (projects.size) {
-            0 -> "Chats, a shared brief and files — together"
+            0 -> "Chats, instructions and files in one place"
             1 -> "1 project"
             else -> "${projects.size} projects"
         },
         onBack = { chatViewModel.closeProjectsHub() },
         floatingActionButton = {
             if (projects.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    text = { Text("New project") },
-                    icon = { Icon(Icons.Default.Add, null) },
-                    onClick = { showCreate = true },
-                    expanded = fabExpanded,
-                    shape = RoundedCornerShape(20.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                ProjectFab("New project", Icons.Default.Add, fabExpanded) { showCreate = true }
             }
         },
     ) { padding ->
@@ -182,8 +172,8 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
             )
             return@ProjectPageScaffold
         }
-        // A connected list, not a board: the name is what you scan for, so each project is one
-        // quiet row with its mark, its name and what's inside — the same rhythm as Settings.
+        // A connected list: the name is what you scan for, so each project is one row with its
+        // mark, its name and what's inside, in the same rhythm as the Schedules list.
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -203,10 +193,7 @@ private fun ProjectsListContent(chatViewModel: ChatViewModel) {
     }
 }
 
-/**
- * One project in the list: its medallion leads, the name carries the row, and a single quiet line
- * says what's inside. A set brief shows as a small sparkle beside the counts rather than a badge.
- */
+/** One project in the list: its medallion leads, the name carries the row, one line says what's inside. */
 @Composable
 private fun ProjectRow(
     project: Project,
@@ -227,36 +214,32 @@ private fun ProjectRow(
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.heightIn(min = 64.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
+            Modifier.heightIn(min = 72.dp).padding(horizontal = Spacing.base, vertical = Spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ProjectMedallion(project.colorIndex, size = 36.dp)
+            ProjectMedallion(project.colorIndex, size = 40.dp)
             Spacer(Modifier.width(Spacing.base))
             Column(Modifier.weight(1f)) {
                 Text(
                     project.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (project.instructions.isNotBlank()) {
-                        Icon(
-                            Icons.Default.AutoAwesome, "Instructions set",
-                            Modifier.padding(end = Spacing.xs).size(12.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    Text(
-                        projectRowMeta(chatCount, docCount, project.updatedAt, now),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    projectRowMeta(chatCount, docCount, project.updatedAt, now),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                Modifier.padding(start = Spacing.s),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

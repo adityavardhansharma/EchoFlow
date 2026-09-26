@@ -7,6 +7,7 @@ import com.echoflow.data.extract.ChatAttachmentExtractor.Result
 import com.echoflow.ui.PendingAttachment
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -76,5 +77,27 @@ class ChatAttachmentControllerTest {
         runCurrent()
         assertTrue(cancelled)
         assertTrue(controller.pendingAttachments.value.isEmpty())
+    }
+
+    @Test fun `shared files are copied in and dropped with a message when the model cannot read them`() = runTest {
+        val errors = mutableListOf<String>()
+        val controller = ChatAttachmentController(app, backgroundScope, 3, errors::add) { _, _ ->
+            Result.Text("unused")
+        }
+        val source = java.io.File(app.cacheDir, "notes.docx").apply { writeText("shared") }
+        controller.addSharedFiles(listOf(android.net.Uri.fromFile(source)))
+        val staged = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            kotlinx.coroutines.withTimeout(5_000) {
+                controller.pendingAttachments.first { it.isNotEmpty() }.single()
+            }
+        }
+        assertEquals("notes.docx", staged.name)
+        assertEquals(PendingAttachment.Kind.Doc, staged.kind)
+        assertNotEquals(android.net.Uri.fromFile(source).toString(), staged.uri)
+        assertEquals("shared", java.io.File(android.net.Uri.parse(staged.uri).path!!).readText())
+
+        controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = true, localFilesAllowed = false)
+        assertTrue(controller.pendingAttachments.value.isEmpty())
+        assertEquals(1, errors.size)
     }
 }

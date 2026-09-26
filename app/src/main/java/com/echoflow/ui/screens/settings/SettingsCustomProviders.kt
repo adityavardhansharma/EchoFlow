@@ -202,7 +202,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
         Spacer(Modifier.height(Spacing.xl))
         PageSection("Beta", "Experimental features · may break")
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-            SystemDictationRow(viewModel, index = 0, count = 4)
+            SystemDictationRow(viewModel, index = 0, count = 5)
             SettingsNavRow(
                 icon = Icons.Default.Language,
                 polygon = MaterialShapes.Cookie4Sided,
@@ -210,7 +210,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = browserSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 1, count = 4,
+                index = 1, count = 5,
                 onClick = { onOpen(PageBrowserFlow) },
             )
             SettingsNavRow(
@@ -220,7 +220,7 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = jevSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 2, count = 4,
+                index = 2, count = 5,
                 onClick = { onOpen(PageJev) },
             )
             SettingsNavRow(
@@ -230,9 +230,10 @@ internal fun EchoLabsPage(viewModel: SettingsViewModel, onOpen: (String) -> Unit
                 subtitle = "Supermemory · EchoBrain",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 3, count = 4,
+                index = 3, count = 5,
                 onClick = { onOpen(PageMemory) },
             )
+            AskEchoFlowRow(index = 4, count = 5)
         }
 
         val artifactsOffline by viewModel.artifactsOffline.collectAsState()

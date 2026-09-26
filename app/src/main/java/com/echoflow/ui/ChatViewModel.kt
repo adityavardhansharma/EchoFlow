@@ -180,10 +180,71 @@ class ChatViewModel(
      */
     private fun openThread(chatId: String?) {
         navigation.navigated()
+        leaveTemporaryChat(except = chatId)
         _currentChatThreadId.value = chatId
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
+        applyModelForThread(chatId)
+    }
+
+    // ── Per-chat model ──────────────────────────────────────────────────────────────
+
+    /**
+     * Puts the picker on the model [chatId] was using. A blank composer starts on the user's
+     * default model when they've set one, otherwise it keeps the last model in use. A chat with
+     * no remembered model (older ones, or one that hasn't sent yet) also keeps the current pick.
+     */
+    private fun applyModelForThread(chatId: String?) {
+        modelRestoreJob?.cancel()
+        if (chatId == null) {
+            settingsRepository.getDefaultModelDirect()?.let(settingsRepository::saveSelectedModel)
+            return
+        }
+        modelRestoreJob = viewModelScope.launch {
+            val modelId = chatRepository.thread(chatId)?.modelId ?: return@launch
+            // A local model deleted since leaves the pick alone rather than pointing at nothing.
+            if (modelId.startsWith("local/") && localModelDao.getLocalModelById(modelId) == null) return@launch
+            if (_currentChatThreadId.value == chatId) settingsRepository.saveSelectedModel(modelId)
+        }
+    }
+
+    private var modelRestoreJob: Job? = null
+
+    private fun localInferenceParams(model: LocalModel): InferenceParams = InferenceLimits.coerce(
+        settingsRepository.getInferenceParamsDirect(local = true),
+        ModelCapabilities(
+            maxContextTokens = (model.maxTokens ?: LocalModelCatalog.maxTokensFor(model.id, model.fileName))
+                .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
+            maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
+        ),
+        InferenceLimits.LOCAL_DEFAULTS,
+    )
+
+    /**
+     * Loads the on-device model while the user is still typing, so the first reply skips the
+     * load. Runs when a local model is picked, when a chat restores one, and on returning to
+     * the app. Skipped while another on-device task holds the engine.
+     */
+    private suspend fun prewarmLocalModel(modelId: String) {
+        if (localInferenceGate.isBusy) return
+        val model = localModelDao.getLocalModelById(modelId) ?: return
+        if (!localLlmService.modelFileExists(model)) return
+        try {
+            withContext(Dispatchers.IO) { localLlmService.prewarm(model, localInferenceParams(model)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Optional: the next reply performs the normal load and reports any error.
+        }
+    }
+
+    /** Picking a model inside a chat moves that chat to it; the next new chat starts on it too. */
+    fun selectModel(modelId: String) {
+        modelRestoreJob?.cancel()
+        settingsRepository.saveSelectedModel(modelId)
+        val chatId = _currentChatThreadId.value ?: return
+        viewModelScope.launch { chatDao.setModelId(chatId, modelId) }
     }
 
     private fun clearConversationComposerState() {
@@ -249,14 +310,29 @@ class ChatViewModel(
     private suspend fun restoredThreadId(mode: AppMode): String? =
         when (val position = settingsRepository.getLastPositionDirect(mode)) {
             is ModePosition.Thread ->
-                chatRepository.thread(position.chatId)?.takeIf { it.mode == mode }?.id
+                chatRepository.thread(position.chatId)
+                    ?.takeIf { it.mode == mode && it.id != leftoverTemporaryChatId }?.id
             ModePosition.Blank, ModePosition.Unset -> null
         }
 
+    // Temporary chat state; declared before [allThreads], which hides the open one.
+    private val temporaryPrefs = application.getSharedPreferences("temporary_chat", Application.MODE_PRIVATE)
+
+    /** Written as soon as a temporary chat gets a row, so process death can't turn it into history. */
+    private val leftoverTemporaryChatId: String? = temporaryPrefs.getString(KEY_TEMPORARY_CHAT_ID, null)
+
+    /** A blank composer whose first send will create a temporary chat. */
+    private val _temporaryArmed = MutableStateFlow(false)
+
+    /** The open temporary chat's thread, once its first message has created one. */
+    private val _temporaryChatId = MutableStateFlow<String?>(null)
+
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val allThreads: StateFlow<List<ChatThread>> = appMode
-        .flatMapLatest { chatRepository.threadsForMode(it) }
+    val allThreads: StateFlow<List<ChatThread>> = combine(
+        appMode.flatMapLatest { chatRepository.threadsForMode(it) },
+        _temporaryChatId,
+    ) { threads, temporaryId -> if (temporaryId == null) threads else threads.filter { it.id != temporaryId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
@@ -492,10 +568,19 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
+        // A temporary chat the process died inside is discarded on the next launch.
+        leftoverTemporaryChatId?.let { id ->
+            viewModelScope.launch { chatRepository.thread(id)?.let { deleteThreadNow(it) }; forgetTemporaryChatId() }
+        }
         // Completion pings suppress per-conversation rather than per-app, so they need to know
         // which one is actually on screen. Reading chat A is no reason to swallow chat B.
         viewModelScope.launch {
             _currentChatThreadId.collect { ReplyNotifications.visibleChatId = it }
+        }
+        viewModelScope.launch {
+            combine(settingsRepository.selectedModel, AppVisibility.isForeground) { modelId, onScreen ->
+                modelId.takeIf { onScreen && it.startsWith("local/") }
+            }.distinctUntilChanged().collectLatest { modelId -> modelId?.let { prewarmLocalModel(it) } }
         }
         // Reopen exactly where the user left off — including on a blank composer. Through the
         // same guarded path as a mode switch, because a cold database makes this the slowest
@@ -519,6 +604,25 @@ class ChatViewModel(
             }
             selectThread(thread.id)
         }
+    }
+
+    // Text shared in from another app, waiting for the Chat composer to pick it up.
+    private val _sharedDraftText = MutableStateFlow<String?>(null)
+    val sharedDraftText: StateFlow<String?> = _sharedDraftText.asStateFlow()
+
+    /**
+     * Opens a new Chat conversation seeded with what another app shared: text lands in the
+     * composer, files are staged as attachments. Nothing is sent until the user does.
+     */
+    fun openShare(share: com.echoflow.ui.chat.IncomingShare) {
+        if (appMode.value != AppMode.Chat) switchMode(AppMode.Chat)
+        selectThread(null)
+        _sharedDraftText.value = share.text?.takeIf { it.isNotBlank() }
+        attachments.addSharedFiles(share.files)
+    }
+
+    fun consumeSharedDraftText() {
+        _sharedDraftText.value = null
     }
 
     /**
@@ -1072,6 +1176,57 @@ class ChatViewModel(
         selectThread(null)
     }
 
+    // ── Temporary chat ────────────────────────────────────────────────────────────────
+
+    /** True while the user is in a temporary chat, blank or not. Drives the "not saved" pill. */
+    val isTemporaryChat: StateFlow<Boolean> = combine(_temporaryArmed, _temporaryChatId, _currentChatThreadId) { armed, id, current ->
+        armed || (id != null && id == current)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Opens a blank temporary chat: kept out of the drawer and memory, and deleted as soon as
+     * the user leaves it. Chat mode only — Imagine keeps its creations on purpose.
+     */
+    fun startTemporaryChat() {
+        if (appMode.value != AppMode.Chat) return
+        selectThread(null)
+        _temporaryArmed.value = true
+    }
+
+    private fun isTemporaryNow(): Boolean =
+        _temporaryArmed.value || (_temporaryChatId.value != null && _temporaryChatId.value == _currentChatThreadId.value)
+
+    /**
+     * [openThread] for a thread the app just created. When a temporary chat was armed, the new
+     * thread becomes it — excluded from memory before any of its messages exist.
+     */
+    private fun openNewThread(chatId: String) {
+        val temporary = _temporaryArmed.value
+        openThread(chatId)
+        if (!temporary) return
+        _temporaryChatId.value = chatId
+        temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, chatId).commit()
+        // Best effort: every turn here already skips memory; this also keeps a manual
+        // "learn now" flush from picking the chat up before it is deleted.
+        runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
+    }
+
+    /** Leaving a temporary chat for anything other than itself discards it. */
+    private fun leaveTemporaryChat(except: String?) {
+        _temporaryArmed.value = false
+        val id = _temporaryChatId.value ?: return
+        if (id == except) return
+        _temporaryChatId.value = null
+        viewModelScope.launch {
+            chatRepository.thread(id)?.let { deleteThreadNow(it) }
+            forgetTemporaryChatId()
+        }
+    }
+
+    private fun forgetTemporaryChatId() {
+        temporaryPrefs.edit().remove(KEY_TEMPORARY_CHAT_ID).apply()
+    }
+
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch { deleteThreadNow(thread) }
     }
@@ -1425,8 +1580,9 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
-            val learningSession = memorySettings.session()
-            val memoryRequested = memorySettings.connected && memorySettings.recall && !isLocal &&
+            val temporaryChat = isTemporaryNow()
+            val learningSession = memorySettings.session().takeUnless { temporaryChat }
+            val memoryRequested = !temporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
             val customToolCallingActive = customProviderActive &&
                 (effectiveProvider in CLIENT_SEARCH_PROVIDERS || memoryRequested) &&
@@ -1542,7 +1698,7 @@ class ChatViewModel(
                     mode = if (activeProjectId != null) AppMode.Chat else appMode.value,
                     projectId = activeProjectId,
                 ).id
-                openThread(chatId)
+                openNewThread(chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
@@ -1553,6 +1709,8 @@ class ChatViewModel(
             }
 
             if (streamJobs[chatId]?.isActive == true) return@launch
+            // Remember the model this turn used, so reopening the chat picks it back up.
+            chatDao.setModelId(chatId, selectedModel)
             // Record provenance before user text is stored: a cancelled local reply must
             // never become eligible when the next turn happens to use a cloud provider.
             if (isLocal || customProvider == "ollama") {
@@ -1697,16 +1855,7 @@ class ChatViewModel(
             // clamped to that model's limits (so a budget set for a big model can't break a
             // smaller one — it falls back to the shipped default instead).
             val inferenceParams = if (isLocal) {
-                val lm = localModel!!
-                InferenceLimits.coerce(
-                    settingsRepository.getInferenceParamsDirect(local = true),
-                    ModelCapabilities(
-                        maxContextTokens = (lm.maxTokens ?: LocalModelCatalog.maxTokensFor(lm.id, lm.fileName))
-                            .coerceAtMost(InferenceLimits.LOCAL_MAX_TOKENS_CEIL),
-                        maxTopK = InferenceLimits.LOCAL_TOP_K_MAX,
-                    ),
-                    InferenceLimits.LOCAL_DEFAULTS,
-                )
+                localInferenceParams(localModel!!)
             } else {
                 InferenceLimits.coerce(
                     settingsRepository.getInferenceParamsDirect(local = false),
@@ -1775,7 +1924,9 @@ class ChatViewModel(
                 val recallPlan = JevRouter.recallPlan(jevDecision, memoryEnabled, forceMemory, automaticRecall != null)
                 tools.recallAllowed = recallPlan.allowTool
                 val canRecall = recallPlan.prefetch
-                var turnSystemPrompt = systemPrompt + if (factsSaved)
+                // On-device models have no remember_memory tool, and a per-turn system prompt change
+                // makes LiteRT-LM re-read the whole chat, so the note is cloud-only.
+                var turnSystemPrompt = systemPrompt + if (factsSaved && !isLocal)
                     "\nHigh-confidence durable facts in the current user message were already submitted to memory. Do not call remember_memory for those same facts."
                 else ""
                 if (jevDecision?.saveTriggered == true && !factsSaved) {
@@ -2355,7 +2506,7 @@ class ChatViewModel(
             var chatId = _currentChatThreadId.value
             if (chatId == null) {
                 chatId = chatRepository.createThread(now = now).id
-                openThread(chatId)
+                openNewThread(chatId)
                 consumePendingProjectForNewThread(chatId)
                 val fallbackTitle = fallbackThreadTitle(topic)
                 chatRepository.renameThread(chatId, fallbackTitle)
@@ -2433,7 +2584,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                openThread(chatId)
+                openNewThread(chatId)
                 consumePendingProjectForNewThread(chatId)
             } else {
                 openThread(chatId)
@@ -2473,7 +2624,7 @@ class ChatViewModel(
             if (chatId == null) {
                 chatId = UUID.randomUUID().toString()
                 chatDao.insertThread(ChatThread(id = chatId, title = "New Conversation", createdAt = now, updatedAt = now))
-                openThread(chatId)
+                openNewThread(chatId)
                 consumePendingProjectForNewThread(chatId)
                 val fallbackTitle = fallbackThreadTitle(topic)
                 chatDao.setTitle(chatId, fallbackTitle)
@@ -2620,6 +2771,7 @@ class ChatViewModel(
 
         private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
         private const val STREAM_UI_EMIT_MS = 33L
+        private const val KEY_TEMPORARY_CHAT_ID = "temporary_chat_id"
         private const val ASSISTANT_HANDOFF_TIMEOUT_MS = 5_000L
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */

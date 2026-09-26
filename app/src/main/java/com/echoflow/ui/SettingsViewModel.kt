@@ -65,6 +65,7 @@ class SettingsViewModel(
 
     val apiKey: StateFlow<String> = repository.apiKey
     val selectedModel: StateFlow<String> = repository.selectedModel
+    val defaultModel: StateFlow<String?> = repository.defaultModel
     val themeColor: StateFlow<String> = repository.themeColor
     val darkMode: StateFlow<String> = repository.darkMode
 
@@ -79,6 +80,8 @@ class SettingsViewModel(
     // Local models
     val localModelsEnabled: StateFlow<Boolean> = repository.localModelsEnabled
     val ggufEnabled: StateFlow<Boolean> = repository.ggufEnabled
+    val keepLocalModelLoaded: StateFlow<Boolean> = repository.keepLocalModelLoaded
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getKeepLocalModelLoadedDirect())
     val hfAccessToken: StateFlow<String> = repository.hfAccessToken
     val downloadStates: StateFlow<Map<String, DownloadState>> = downloadManager.states
 
@@ -313,6 +316,11 @@ class SettingsViewModel(
         repository.saveSelectedModel(modelId)
     }
 
+    /** Null clears it, so new chats go back to starting on the last model used. */
+    fun saveDefaultModel(modelId: String?) {
+        repository.saveDefaultModel(modelId)
+    }
+
     fun saveThemeColor(colorName: String) {
         repository.saveThemeColor(colorName)
     }
@@ -343,6 +351,10 @@ class SettingsViewModel(
 
     fun saveGgufEnabled(enabled: Boolean) {
         repository.saveGgufEnabled(enabled)
+    }
+
+    fun saveKeepLocalModelLoaded(enabled: Boolean) {
+        repository.saveKeepLocalModelLoaded(enabled)
     }
 
     fun saveHfAccessToken(token: String) {
@@ -707,6 +719,7 @@ class SettingsViewModel(
             if (selectedModel.value == model.id) {
                 saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
             }
+            if (defaultModel.value == model.id) saveDefaultModel(null)
         }
     }
 
@@ -727,6 +740,7 @@ class SettingsViewModel(
             if (selectedModel.value == id) {
                 saveSelectedModel(SettingsRepository.DEFAULT_MODEL_ID)
             }
+            if (defaultModel.value == id) saveDefaultModel(null)
         }
     }
 

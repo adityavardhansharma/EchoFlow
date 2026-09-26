@@ -9,9 +9,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.echoflow.ui.chat.AskEchoFlowSelection
+import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.Spacing
 
 // ── Echo Adviser ──────────────────────────────────────────────────────────────────────
@@ -93,4 +96,35 @@ internal fun EchoNamePromptDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Beta: adds "Ask EchoFlow" to other apps' text-selection menu, next to Copy and Select all. */
+@Composable
+internal fun AskEchoFlowRow(index: Int, count: Int) {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(AskEchoFlowSelection.isEnabled(context)) }
+    Surface(
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ask EchoFlow", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Select text in any app and tap Ask EchoFlow to open it in a new chat.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    AskEchoFlowSelection.setEnabled(context, it)
+                    enabled = it
+                },
+            )
+        }
+    }
 }

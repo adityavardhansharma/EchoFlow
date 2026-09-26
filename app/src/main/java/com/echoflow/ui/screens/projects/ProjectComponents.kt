@@ -16,15 +16,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,11 +33,11 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -60,7 +58,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -70,22 +67,17 @@ import com.echoflow.ui.components.PROJECT_ACCENT_COUNT
 import com.echoflow.ui.components.ProjectMedallion
 import com.echoflow.ui.components.projectAccent
 import com.echoflow.ui.components.projectShape
-import com.echoflow.ui.theme.BrandShapes
-import com.echoflow.ui.theme.MorphPolygonShape
 import com.echoflow.ui.theme.RoundedPolygonShape
 import com.echoflow.ui.theme.Spacing
-import com.echoflow.ui.theme.rememberMorph
-import com.echoflow.ui.theme.rememberMorphProgress
 import com.echoflow.ui.theme.rememberReducedMotion
 
 // ── Page scaffold ──────────────────────────────────────────────────────────────────────
 
 /**
- * The one frame every Projects page hangs off: a [MediumFlexibleTopAppBar] that collapses into a
- * compact bar as the content scrolls, a tonal back button and an optional FAB. Medium, not large:
- * the hub is a working surface, so the title names the page without taking a third of the screen.
- * [titleLeading] sets a mark (a project's medallion) beside the title in both bar states. The body
- * receives the scaffold padding and is expected to be a single scrolling container.
+ * The one frame every Projects page hangs off: the same collapsing [LargeFlexibleTopAppBar], tonal
+ * back button and optional FAB as Settings and Schedules, so moving between them feels like one app.
+ * [titleLeading] sets a mark (a project's medallion) beside the title. The body receives the
+ * scaffold padding and is expected to be a single scrolling container.
  */
 @Composable
 internal fun ProjectPageScaffold(
@@ -102,7 +94,7 @@ internal fun ProjectPageScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
-            MediumFlexibleTopAppBar(
+            LargeFlexibleTopAppBar(
                 title = {
                     if (titleLeading == null) {
                         Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -133,49 +125,51 @@ internal fun ProjectPageScaffold(
     )
 }
 
-/**
- * A section heading inside a Projects page: a primary-tinted title with an optional count pill and
- * an optional trailing action, so each group announces itself without a heavy divider.
- */
+/** The page's primary action, the same extended FAB Schedules uses, collapsing once you scroll. */
 @Composable
-internal fun ProjectSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    count: Int? = null,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        modifier.fillMaxWidth().heightIn(min = 36.dp).padding(start = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        if (count != null && count > 0) {
-            Spacer(Modifier.width(Spacing.s))
-            Text(
-                count.toString(),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        if (trailing != null) trailing()
-    }
+internal fun ProjectFab(label: String, icon: ImageVector, expanded: Boolean, onClick: () -> Unit) {
+    ExtendedFloatingActionButton(
+        text = { Text(label) },
+        icon = { Icon(icon, null) },
+        onClick = onClick,
+        expanded = expanded,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
+}
+
+/** A section heading inside a Projects page, styled like the section labels on Schedules. */
+@Composable
+internal fun ProjectSectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(start = Spacing.xs, bottom = Spacing.s),
+    )
+}
+
+/** One line of supporting text under a page's bar, saying what the page is for. */
+@Composable
+internal fun ProjectPageNote(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+    )
 }
 
 // ── Empty states ─────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun ProjectsEmptyState(onCreate: () -> Unit, modifier: Modifier = Modifier) {
-    HeroEmptyState(
+    PlainEmptyState(
         glyph = Icons.Default.CreateNewFolder,
-        eyebrow = "Projects",
-        title = "Give your work\na home",
-        body = "Group related chats, give them a shared brief, and attach files the model can draw on.",
-        actionLabel = "Create a project",
+        title = "No projects yet",
+        body = "Group related chats, give them shared instructions, and attach files the model can draw on.",
+        actionLabel = "New project",
         onAction = onCreate,
         modifier = modifier,
     )
@@ -183,11 +177,10 @@ internal fun ProjectsEmptyState(onCreate: () -> Unit, modifier: Modifier = Modif
 
 @Composable
 internal fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
-    HeroEmptyState(
+    PlainEmptyState(
         glyph = Icons.Default.Description,
-        eyebrow = "Files",
-        title = "Add what the\nmodel should know",
-        body = "PDFs, Word and Excel files, slides or notes — EchoFlow reads them on your device and uses them as background knowledge for every chat in this project.",
+        title = "No files yet",
+        body = "Add PDFs, Word and Excel files, slides or notes. EchoFlow reads them on your device and every chat in this project can use them.",
         actionLabel = "Add files",
         onAction = onAdd,
         modifier = modifier,
@@ -195,65 +188,49 @@ internal fun FilesEmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * The signature empty state: a slowly morphing [BrandShapes] mark in a soft halo, a small eyebrow,
- * a headline and a standard filled button. Sized to invite, not to shout — it is upper-biased so it
- * never floats in a dead-centred void, and it holds still under reduced motion.
+ * An empty page: a still icon in a tonal badge, a headline, one line of explanation and a button,
+ * laid out the same way as the first-run state on Schedules.
  */
 @Composable
-private fun HeroEmptyState(
+private fun PlainEmptyState(
     glyph: ImageVector,
-    eyebrow: String,
     title: String,
     body: String,
     actionLabel: String,
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier.padding(horizontal = Spacing.xl), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.fillMaxHeight(0.1f))
-        Box(contentAlignment = Alignment.Center) {
-            val morph = rememberMorph(BrandShapes.heroStart, BrandShapes.heroEnd)
-            val progress = if (rememberReducedMotion()) 0f else {
-                val p by rememberMorphProgress(3400)
-                p
-            }
-            // Halo: a larger, quieter echo of the hero so it sits in light rather than on a void.
-            Box(
-                Modifier.size(120.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
-            )
-            Box(
-                Modifier.size(92.dp).clip(MorphPolygonShape(morph, progress))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-            )
-            Icon(glyph, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier.padding(horizontal = Spacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(Spacing.xxl))
+        Surface(shape = RoundedCornerShape(24.dp), color = cs.secondaryContainer) {
+            Icon(glyph, null, Modifier.padding(Spacing.l).size(32.dp), tint = cs.onSecondaryContainer)
         }
-        Text(
-            eyebrow.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = Spacing.l),
-        )
+        Spacer(Modifier.height(Spacing.l))
         Text(
             title,
             style = MaterialTheme.typography.headlineSmall,
+            color = cs.onSurface,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = Spacing.s),
         )
+        Spacer(Modifier.height(Spacing.s))
         Text(
             body,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = cs.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = Spacing.s).widthIn(max = 320.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
         )
+        Spacer(Modifier.height(Spacing.xl))
         Button(
             onClick = onAction,
-            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-            modifier = Modifier.padding(top = Spacing.l),
+            contentPadding = PaddingValues(horizontal = Spacing.xl, vertical = Spacing.m),
         ) {
-            Icon(Icons.Default.Add, null, Modifier.size(ButtonDefaults.IconSize))
-            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            Icon(Icons.Default.Add, null)
+            Spacer(Modifier.width(Spacing.s))
             Text(actionLabel)
         }
     }

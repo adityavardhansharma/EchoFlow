@@ -27,8 +27,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -70,12 +73,17 @@ class LocalLlmService(private val context: Context) {
     private var lrtEngine: Engine? = null
     private var lrtLoadedPath: String? = null
     private var lrtLoadedMaxTokens = -1
+    private var lrtSupportsVision = false
     private var lrtConversation: Conversation? = null
     private var lrtChatId: String? = null
     private var lrtLastHistorySize = -1
     private var lrtSystemPrompt: String? = null
     private var lrtParams: InferenceParams? = null
     @Volatile private var lrtConversationReusable = true
+    /** Rough size of everything in the conversation so far, in characters. */
+    private var lrtUsedChars = 0L
+    /** True once web search results have been sent into the conversation. */
+    private var lrtHoldsSearchResults = false
 
     /** Search results waiting to be sent on the next [continueGeneration] round. */
     private var lrtPendingContext: String? = null
@@ -110,19 +118,48 @@ class LocalLlmService(private val context: Context) {
     private val _modelLoading = MutableStateFlow(false)
     val modelLoading: StateFlow<Boolean> = _modelLoading.asStateFlow()
 
+    // ── Idle unload ──────────────────────────────────────────────────────────────────
+    // A loaded model holds hundreds of MB to several GB, so it is freed once it has gone
+    // unused for a while: [IDLE_UNLOAD_MS] with the app on screen, [BACKGROUND_UNLOAD_MS]
+    // after the user leaves it. "Keep model loaded" turns this off, leaving it to Android.
+    private val idleScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val idleLock = Any()
+    private var idleJob: Job? = null
+    /** A scheduled warm-up keeps its model at least until this time (epoch ms). */
+    @Volatile private var holdUntil = 0L
+
+    init {
+        // Leaving or returning to the app switches which timeout applies, counted from now.
+        idleScope.launch { AppVisibility.isForeground.drop(1).collect { scheduleIdleRelease() } }
+        // Turning "Keep model loaded" on cancels the countdown; turning it off starts one.
+        idleScope.launch { LocalModelResidency.keepLoadedChanges(context).drop(1).collect { scheduleIdleRelease() } }
+    }
+
     private fun modelFile(model: LocalModel): File = platform.modelFile(model)
 
     fun modelFileExists(model: LocalModel): Boolean = modelFile(model).exists()
 
-    /** Best-effort preparation. Due runs use the same load path if Android kills this process. */
-    suspend fun prewarm(model: LocalModel, params: InferenceParams) = setupMutex.withLock {
+    /**
+     * Best-effort preparation, so the first reply skips the load. Due runs use the same load
+     * path if Android kills this process. [keepForMillis] holds the model past the idle
+     * timeout, for a scheduled run that is still a few minutes away.
+     */
+    suspend fun prewarm(model: LocalModel, params: InferenceParams, keepForMillis: Long = 0) = setupMutex.withLock {
         if (generating.get() || !modelFileExists(model)) return@withLock
         val maxTokens = effectiveMaxTokens(model, params)
-        when (LocalLlmPrompting.runtimeFor(model)) {
-            LocalLlmRuntime.LITERT -> ensureLitertEngine(model, maxTokens)
-            LocalLlmRuntime.MEDIAPIPE -> ensureMpEngine(model, maxTokens, maxOf(64, params.topK))
-            LocalLlmRuntime.GGUF -> ensureGgufEngine(model, maxTokens)
+        // A reply sent mid-load waits on this lock, so it shows the loading state meanwhile.
+        _modelLoading.value = true
+        try {
+            when (LocalLlmPrompting.runtimeFor(model)) {
+                LocalLlmRuntime.LITERT -> ensureLitertEngine(model, maxTokens)
+                LocalLlmRuntime.MEDIAPIPE -> ensureMpEngine(model, maxTokens, maxOf(64, params.topK))
+                LocalLlmRuntime.GGUF -> ensureGgufEngine(model, maxTokens)
+            }
+        } finally {
+            _modelLoading.value = false
         }
+        if (keepForMillis > 0) holdUntil = maxOf(holdUntil, System.currentTimeMillis() + keepForMillis)
+        scheduleIdleRelease()
     }
 
     private fun effectiveMaxTokens(model: LocalModel, params: InferenceParams): Int =
@@ -167,7 +204,7 @@ class LocalLlmService(private val context: Context) {
             LocalLlmRuntime.GGUF -> generateGguf(model, chatId, history, systemPrompt, params)
             LocalLlmRuntime.LITERT -> generateLitert(model, chatId, history, systemPrompt, params)
             LocalLlmRuntime.MEDIAPIPE -> generateMediaPipe(model, chatId, history, systemPrompt, params)
-        }
+        }.inUse()
     }
 
     /**
@@ -187,26 +224,70 @@ class LocalLlmService(private val context: Context) {
         LocalLlmRuntime.LITERT -> continueLitert()
         LocalLlmRuntime.GGUF -> continueGguf()
         LocalLlmRuntime.MEDIAPIPE -> continueMediaPipe()
+    }.inUse()
+
+    /** No idle unload while a generation runs; the clock restarts when it ends. */
+    private fun Flow<StreamChunk>.inUse(): Flow<StreamChunk> =
+        onStart { cancelIdleRelease() }.onCompletion { scheduleIdleRelease() }
+
+    private fun cancelIdleRelease() = synchronized(idleLock) {
+        idleJob?.cancel()
+        idleJob = null
     }
 
-    /** Frees all engines and sessions when the application releases its shared local runtime. */
+    /** (Re)starts the unload countdown for whatever is loaded, from now. */
+    private fun scheduleIdleRelease() = synchronized(idleLock) {
+        idleJob?.cancel()
+        idleJob = null
+        if (!hasLoadedEngine() || LocalModelResidency.keepLoaded(context)) return@synchronized
+        val timeout = if (AppVisibility.isForeground.value) IDLE_UNLOAD_MS else BACKGROUND_UNLOAD_MS
+        val wait = maxOf(timeout, holdUntil - System.currentTimeMillis())
+        idleJob = idleScope.launch {
+            delay(wait)
+            setupMutex.withLock {
+                // A generation that started meanwhile restarts the clock when it ends.
+                if (generating.get() || LocalModelResidency.keepLoaded(context)) return@withLock
+                releaseAll()
+            }
+        }
+    }
+
+    private fun hasLoadedEngine(): Boolean = mpEngine != null || lrtEngine != null || ggufEngine != null
+
+    /** Frees all engines and sessions (idle unload). */
     fun releaseAll() {
+        releaseMpInternal()
+        releaseLrtInternal()
+        releaseGgufInternal()
+        generating.set(false)
+    }
+
+    /**
+     * Loading one runtime's model frees the others, so switching between a .task, .litertlm
+     * and .gguf model never keeps two models in memory.
+     */
+    private fun releaseRuntimesExcept(keep: LocalLlmRuntime) {
+        if (keep != LocalLlmRuntime.MEDIAPIPE) releaseMpInternal()
+        if (keep != LocalLlmRuntime.LITERT) releaseLrtInternal()
+        if (keep != LocalLlmRuntime.GGUF) releaseGgufInternal()
+    }
+
+    private fun releaseMpInternal() {
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
         mpEngine = null
         mpLoadedPath = null
         mpLoadedMaxTokens = -1
         mpLoadedMaxTopK = -1
+    }
 
+    private fun releaseLrtInternal() {
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
         lrtEngine = null
         lrtLoadedPath = null
         lrtLoadedMaxTokens = -1
-
-        releaseGgufInternal()
-
-        generating.set(false)
+        lrtSupportsVision = false
     }
 
     // ── LiteRT-LM implementation ─────────────────────────────────────────────────────
@@ -224,6 +305,7 @@ class LocalLlmService(private val context: Context) {
         // The kv-cache size is baked in at engine creation, so a changed token budget needs
         // a fresh engine, not just a fresh conversation.
         if (lrtEngine != null && lrtLoadedPath == path && lrtLoadedMaxTokens == maxTokens) return
+        releaseRuntimesExcept(LocalLlmRuntime.LITERT)
 
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
@@ -233,19 +315,39 @@ class LocalLlmService(private val context: Context) {
 
         checkRamBudget(file)
 
-        lrtEngine = try {
-            createLitertEngine(path, maxTokens, Backend.GPU(), visionBackend = Backend.GPU())
-        } catch (gpuError: Throwable) {
-            // Some devices lack a usable GPU delegate; retry on CPU before giving up.
-            try {
-                createLitertEngine(path, maxTokens, Backend.CPU(), visionBackend = Backend.CPU())
-            } catch (cpuError: Throwable) {
-                throw Exception(friendlyLoadError(cpuError))
+        // Text-only bundles (Qwen, DeepSeek, Gemma 3 1B…) have no vision encoder, and asking
+        // for a vision backend makes engine creation fail with "TF_LITE_VISION_ENCODER not
+        // found". Try multimodal first, drop vision as soon as the bundle says it has none, and
+        // fall back from GPU to CPU for devices without a usable GPU delegate.
+        var withVision = true
+        var lastError: Throwable? = null
+        var engine: Engine? = null
+        for (useGpu in listOf(true, false)) {
+            while (engine == null) {
+                val backend = if (useGpu) Backend.GPU() else Backend.CPU()
+                val vision = if (withVision) (if (useGpu) Backend.GPU() else Backend.CPU()) else null
+                try {
+                    engine = createLitertEngine(path, maxTokens, backend, vision)
+                } catch (error: Throwable) {
+                    if (withVision && isMissingVisionEncoder(error)) {
+                        withVision = false
+                        continue
+                    }
+                    // Keep the more useful error: a missing vision encoder is only noise.
+                    if (lastError == null || !isMissingVisionEncoder(error)) lastError = error
+                    break
+                }
             }
+            if (engine != null) break
         }
+        lrtEngine = engine ?: throw Exception(friendlyLoadError(lastError ?: Exception("Unknown error")))
+        lrtSupportsVision = withVision
         lrtLoadedPath = path
         lrtLoadedMaxTokens = maxTokens
     }
+
+    private fun isMissingVisionEncoder(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it.message?.contains("VISION_ENCODER", ignoreCase = true) == true }
 
     private fun closeLrtConversationInternal() {
         runCatching { lrtConversation?.close() }
@@ -256,6 +358,8 @@ class LocalLlmService(private val context: Context) {
         lrtPendingContext = null
         lrtParams = null
         lrtConversationReusable = true
+        lrtUsedChars = 0L
+        lrtHoldsSearchResults = false
     }
 
     private fun generateLitert(
@@ -279,7 +383,8 @@ class LocalLlmService(private val context: Context) {
                     lrtChatId == chatId &&
                     lrtSystemPrompt == systemPrompt &&
                     lrtParams == params &&
-                    history.size == lrtLastHistorySize + 2
+                    history.size == lrtLastHistorySize + 2 &&
+                    !searchResultsCrowdContext(maxTokens)
 
                 if (incremental) {
                     text = history.last().content
@@ -305,6 +410,7 @@ class LocalLlmService(private val context: Context) {
                     lrtChatId = chatId
                     lrtSystemPrompt = systemPrompt
                     lrtParams = params
+                    lrtUsedChars = systemPrompt.length.toLong() + prior.sumOf { it.content.length.toLong() }
 
                     // Prior turns are supplied as native role-aware messages above. Keeping the
                     // current user message separate lets the bundle's own chat template render it.
@@ -315,7 +421,9 @@ class LocalLlmService(private val context: Context) {
                 _modelLoading.value = false
             }
             // An image on the latest user turn is sent alongside the text (multimodal bundles).
-            val image = history.lastOrNull()?.takeIf { it.role == "user" }?.let { imageContentFromUri(it.localAttachmentUri) }
+            // Text-only bundles were loaded without a vision backend, so the image is dropped there.
+            val image = if (!lrtSupportsVision) null
+                else history.lastOrNull()?.takeIf { it.role == "user" }?.let { imageContentFromUri(it.localAttachmentUri) }
             sendLitertMessage(this@callbackFlow, text, image)
         }
         awaitClose { onLitertFlowClosed() }
@@ -325,13 +433,18 @@ class LocalLlmService(private val context: Context) {
         val text = lrtPendingContext
             ?: throw Exception("No pending context for the on-device conversation.")
         lrtPendingContext = null
+        lrtHoldsSearchResults = true
 
         // Retry briefly because a just-cancelled generation may still be winding down.
         var started = false
         var lastError: Throwable? = null
         for (attempt in 0 until 10) {
             try {
-                sendLitertMessage(this@callbackFlow, text)
+                // The search round was cut short at its `search:` line, which marked the
+                // conversation unusable. This round writes the answer on that same
+                // conversation, so once it finishes normally the next turn can reuse it too
+                // instead of re-reading the whole chat.
+                sendLitertMessage(this@callbackFlow, text, onFinished = { lrtConversationReusable = true })
                 started = true
                 break
             } catch (e: Exception) {
@@ -343,9 +456,15 @@ class LocalLlmService(private val context: Context) {
         awaitClose { onLitertFlowClosed() }
     }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
 
-    private fun sendLitertMessage(producer: ProducerScope<StreamChunk>, text: String, image: Content? = null) {
+    private fun sendLitertMessage(
+        producer: ProducerScope<StreamChunk>,
+        text: String,
+        image: Content? = null,
+        onFinished: (() -> Unit)? = null,
+    ) {
         val conversation = lrtConversation ?: throw Exception("No active on-device conversation.")
         generating.set(true)
+        lrtUsedChars += text.length
         try {
             val parts = mutableListOf<Content>(Content.Text(text))
             if (image != null) parts.add(image)
@@ -355,15 +474,18 @@ class LocalLlmService(private val context: Context) {
                     override fun onMessage(message: Message) {
                         val thought = message.channels["thought"]
                         if (!thought.isNullOrEmpty()) {
+                            lrtUsedChars += thought.length
                             producer.trySend(StreamChunk.Reasoning(thought))
                         }
                         val chunk = message.toString()
                         if (chunk.isNotEmpty()) {
+                            lrtUsedChars += chunk.length
                             producer.trySend(StreamChunk.Content(chunk))
                         }
                     }
 
                     override fun onDone() {
+                        onFinished?.invoke()
                         generating.set(false)
                         producer.close()
                     }
@@ -385,6 +507,15 @@ class LocalLlmService(private val context: Context) {
         }
     }
 
+    /**
+     * A rebuilt conversation holds only the stored chat turns, while a reused one also keeps
+     * the search results sent into it. Those help follow-up questions, but on a small context
+     * window they crowd out room for the answer, so rebuild once the conversation is past half
+     * the window (estimated at ~4 characters per token).
+     */
+    private fun searchResultsCrowdContext(maxTokens: Int): Boolean =
+        lrtHoldsSearchResults && lrtUsedChars / 4 > maxTokens / 2
+
     private fun onLitertFlowClosed() {
         if (activeRuntime == LocalLlmRuntime.LITERT && generating.get()) {
             lrtConversationReusable = false
@@ -402,6 +533,7 @@ class LocalLlmService(private val context: Context) {
         // Token budget and the top-k ceiling are fixed at engine creation, so a change in
         // either forces a rebuild.
         if (mpEngine != null && mpLoadedPath == path && mpLoadedMaxTokens == maxTokens && mpLoadedMaxTopK == maxTopK) return
+        releaseRuntimesExcept(LocalLlmRuntime.MEDIAPIPE)
 
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
@@ -596,37 +728,46 @@ class LocalLlmService(private val context: Context) {
         val file = modelFile(model)
         val path = file.absolutePath
         if (ggufEngine != null && ggufContextId != null && ggufLoadedPath == path && ggufLoadedMaxTokens == maxTokens) return
+        releaseRuntimesExcept(LocalLlmRuntime.GGUF)
 
         releaseGgufInternal()
         checkRamBudget(file)
 
         val engine = LlamaAndroid(context.contentResolver)
         val uri = Uri.fromFile(file)
-        val fd = context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
-            ?: throw Exception("Could not open the on-device model file.")
-        val config = mapOf<String, Any>(
-            "model" to uri.toString(),
-            "model_fd" to fd,
-            "use_mmap" to false,
-            "use_mlock" to false,
-            "n_ctx" to maxTokens,
-            "embedding" to false,
-            "n_batch" to 512,
-            "n_threads" to 0, // 0 = let llama.cpp pick a good thread count
-            "n_gpu_layers" to 0, // the AAR runs CPU-only
-            "vocab_only" to false,
-            "lora" to "",
-            "lora_scaled" to 1.0,
-            "rope_freq_base" to 0.0,
-            "rope_freq_scale" to 0.0,
-        )
 
         // The token callback streams to whichever generation is in flight; it reads the
         // current producer at call time, so reusing one engine across turns is fine.
-        val result = engine.startEngine(config) { token ->
-            ggufFullText.append(token)
-            ggufProducer?.trySend(StreamChunk.Content(token))
-        } ?: throw Exception(
+        fun start(useMmap: Boolean): Map<String, Any>? {
+            val fd = context.contentResolver.openFileDescriptor(uri, "r")?.detachFd()
+                ?: throw Exception("Could not open the on-device model file.")
+            val config = mapOf<String, Any>(
+                "model" to uri.toString(),
+                "model_fd" to fd,
+                "use_mmap" to useMmap,
+                "use_mlock" to false,
+                "n_ctx" to maxTokens,
+                "embedding" to false,
+                "n_batch" to 512,
+                "n_threads" to 0, // 0 = let llama.cpp pick a good thread count
+                "n_gpu_layers" to 0, // the AAR runs CPU-only
+                "vocab_only" to false,
+                "lora" to "",
+                "lora_scaled" to 1.0,
+                "rope_freq_base" to 0.0,
+                "rope_freq_scale" to 0.0,
+            )
+            return engine.startEngine(config) { token ->
+                ggufFullText.append(token)
+                ggufProducer?.trySend(StreamChunk.Content(token))
+            }
+        }
+
+        // mmap maps the weights from the file instead of copying them into app memory: loads
+        // skip the full read, reloads hit the OS page cache, and under memory pressure Android
+        // can drop those pages rather than kill the app. If the mmap load fails, fall back to
+        // reading the whole file in, as before.
+        val result = start(useMmap = true) ?: start(useMmap = false) ?: throw Exception(
             "Could not load this GGUF model. It may be corrupt, an unsupported quantization, " +
                 "or too large for this device."
         )
@@ -755,5 +896,10 @@ class LocalLlmService(private val context: Context) {
             }
             ggufJob?.cancel()
         }
+    }
+
+    private companion object {
+        const val IDLE_UNLOAD_MS = 5 * 60_000L
+        const val BACKGROUND_UNLOAD_MS = 2 * 60_000L
     }
 }

@@ -3,6 +3,7 @@ package com.echoflow.data
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,6 +94,10 @@ class SettingsRepository(context: Context) {
 
     private val _selectedModel = MutableStateFlow(getSelectedModelDirect())
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
+
+    private val _defaultModel = MutableStateFlow(getDefaultModelDirect())
+    /** The model every new chat starts on, or null (the out-of-box state) to keep the last one used. */
+    val defaultModel: StateFlow<String?> = _defaultModel.asStateFlow()
 
     private val _themeColor = MutableStateFlow(getThemeColorDirect())
     val themeColor: StateFlow<String> = _themeColor.asStateFlow()
@@ -268,6 +273,14 @@ class SettingsRepository(context: Context) {
         _selectedModel.value = modelId
     }
 
+    fun getDefaultModelDirect(): String? =
+        prefs.getString("default_model", null)?.takeIf { it.isNotBlank() }
+
+    fun saveDefaultModel(modelId: String?) {
+        prefs.edit().apply { if (modelId == null) remove("default_model") else putString("default_model", modelId) }.apply()
+        _defaultModel.value = modelId
+    }
+
     fun getThemeColorDirect(): String {
         // Default to Material You wallpaper-sampled dynamic color; Theme.kt falls back to Ocean
         // on devices older than Android 12.
@@ -386,6 +399,11 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean("gguf_enabled", enabled).apply()
         _ggufEnabled.value = enabled
     }
+
+    // Lives in its own prefs file so the process-wide local engine sees changes immediately.
+    val keepLocalModelLoaded: Flow<Boolean> = LocalModelResidency.keepLoadedChanges(appContext)
+    fun getKeepLocalModelLoadedDirect(): Boolean = LocalModelResidency.keepLoaded(appContext)
+    fun saveKeepLocalModelLoaded(enabled: Boolean) = LocalModelResidency.setKeepLoaded(appContext, enabled)
 
     fun getHfAccessTokenDirect(): String {
         return prefs.getString("hf_access_token", "").orEmpty()

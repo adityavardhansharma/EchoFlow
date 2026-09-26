@@ -119,6 +119,7 @@ import kotlin.math.roundToInt
 internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, embedded: Boolean = false) {
     val localModelsEnabled by viewModel.localModelsEnabled.collectAsState()
     val ggufEnabled by viewModel.ggufEnabled.collectAsState()
+    val keepModelLoaded by viewModel.keepLocalModelLoaded.collectAsState()
     val hfToken by viewModel.hfAccessToken.collectAsState()
     val localParams by viewModel.localInferenceParams.collectAsState()
     val localModels by viewModel.localModels.collectAsState()
@@ -240,6 +241,27 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                         }
                         Spacer(Modifier.width(Spacing.s))
                         Switch(checked = ggufEnabled, onCheckedChange = viewModel::saveGgufEnabled)
+                    }
+                }
+
+                Spacer(Modifier.height(Spacing.m))
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Keep model loaded", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                if (keepModelLoaded) "Stays in memory until Android closes the app. Replies start faster, but it keeps using RAM."
+                                else "Unloads after 5 minutes unused, or 2 minutes after you leave the app, to free memory.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(Spacing.s))
+                        Switch(checked = keepModelLoaded, onCheckedChange = viewModel::saveKeepLocalModelLoaded)
                     }
                 }
 
