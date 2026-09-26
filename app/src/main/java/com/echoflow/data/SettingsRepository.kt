@@ -511,6 +511,11 @@ class SettingsRepository(context: Context) {
             xAiModel = prefs.getString("direct_xai_model", "").orEmpty(),
             xAiModels = prefs.getString("direct_xai_models", "").orEmpty(),
             xAiSelectedModels = prefs.getString("direct_xai_selected_models", "").orEmpty(),
+            vercelEnabled = prefs.getBoolean("direct_vercel_enabled", false),
+            vercelApiKey = prefs.getString("direct_vercel_api_key", "").orEmpty(),
+            vercelModel = prefs.getString("direct_vercel_model", "").orEmpty(),
+            vercelModels = prefs.getString("direct_vercel_models", "").orEmpty(),
+            vercelSelectedModels = prefs.getString("direct_vercel_selected_models", "").orEmpty(),
             ollamaBaseUrl = prefs.getString("ollama_base_url", "http://localhost:11434").orEmpty(),
             ollamaModel = prefs.getString("ollama_model", "").orEmpty(),
             ollamaModels = prefs.getString("ollama_models", "").orEmpty(),
@@ -543,6 +548,8 @@ class SettingsRepository(context: Context) {
             deepgramApiKey = config.deepgramApiKey.trim(),
             xAiApiKey = config.xAiApiKey.trim(),
             xAiModel = config.xAiModel.trim(),
+            vercelApiKey = config.vercelApiKey.trim(),
+            vercelModel = config.vercelModel.trim(),
             ollamaBaseUrl = config.ollamaBaseUrl.trim(),
             ollamaModel = config.ollamaModel.trim(),
             openAiBaseUrl = config.openAiBaseUrl.trim(),
@@ -585,6 +592,11 @@ class SettingsRepository(context: Context) {
             .putString("direct_xai_model", clean.xAiModel)
             .putString("direct_xai_models", clean.xAiModels)
             .putString("direct_xai_selected_models", clean.xAiSelectedModels)
+            .putBoolean("direct_vercel_enabled", clean.vercelEnabled)
+            .putString("direct_vercel_api_key", clean.vercelApiKey)
+            .putString("direct_vercel_model", clean.vercelModel)
+            .putString("direct_vercel_models", clean.vercelModels)
+            .putString("direct_vercel_selected_models", clean.vercelSelectedModels)
             .putString("ollama_base_url", clean.ollamaBaseUrl)
             .putString("ollama_model", clean.ollamaModel)
             .putString("ollama_models", clean.ollamaModels)

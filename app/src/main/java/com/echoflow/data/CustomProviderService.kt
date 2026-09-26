@@ -71,6 +71,12 @@ data class CustomProviderConfig(
     /** Deepgram is dictation-only: a key here unlocks Nova-3 Multilingual, never chat models. */
     val deepgramEnabled: Boolean = false,
     val deepgramApiKey: String = "",
+    /** Vercel AI Gateway: one key, OpenAI-compatible, routes to models from many labs. */
+    val vercelEnabled: Boolean = false,
+    val vercelApiKey: String = "",
+    val vercelModel: String = "",
+    val vercelModels: String = "",
+    val vercelSelectedModels: String = "",
 ) {
     val deepgramAvailable: Boolean
         get() = cloudApisEnabled && deepgramEnabled && deepgramApiKey.isNotBlank()
@@ -91,6 +97,8 @@ data class CustomProviderConfig(
         const val PREFIX_CEREBRAS = "custom/cerebras/"
         const val PREFIX_SARVAM = "custom/sarvam/"
         const val PREFIX_XAI = "custom/xai/"
+        const val PREFIX_VERCEL = "custom/vercel/"
+        const val VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1"
         const val PREFIX_OLLAMA = "custom/ollama/"
         const val PREFIX_OPENAI_COMPATIBLE = "custom/openai-compatible/"
     }
@@ -103,7 +111,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Deepgram, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -116,6 +124,17 @@ object CustomProviderCapabilities {
         if (host == "api.x.ai" || host == "api.cerebras.ai") {
             payload["stream_options"] = mapOf("include_usage" to true)
         }
+    }
+
+    /**
+     * Vercel AI Gateway passes sampling params straight to the lab, and Anthropic rejects
+     * `temperature` / `top_p` on Claude Opus 4.7 and later, so drop them for those models.
+     */
+    fun dropGatewaySampling(payload: MutableMap<String, in Any>, baseUrl: String, model: String) {
+        if (baseUrl.toHttpUrlOrNull()?.host != "ai-gateway.vercel.sh") return
+        if (!model.contains("claude", ignoreCase = true) || claudeSupportsSamplingParams(model)) return
+        payload.remove("temperature")
+        payload.remove("top_p")
     }
 
     fun cerebrasSupportsImages(model: String): Boolean {
@@ -139,6 +158,15 @@ object CustomProviderCapabilities {
     }
 
     fun xAiSupportsPdfs(model: String): Boolean = false
+
+    /**
+     * Vercel AI Gateway routes to models from many labs, most of which take images; one that
+     * doesn't answers with a clear error from the gateway. Raw PDFs aren't sent on the
+     * OpenAI-compatible path, so they stay off.
+     */
+    fun vercelSupportsImages(model: String): Boolean = model.isNotBlank()
+
+    fun vercelSupportsPdfs(model: String): Boolean = false
 
     /**
      * Anthropic rejects `temperature` / `top_p` / `top_k` on Claude Opus 4.7 and later
@@ -409,6 +437,7 @@ class CustomProviderService(
         )
         if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
         CustomProviderCapabilities.putStreamUsage(payload, baseUrl)
+        CustomProviderCapabilities.dropGatewaySampling(payload, baseUrl, model)
         val request = Request.Builder()
             .url(joinUrl(baseUrl, "chat/completions"))
             .addHeader("Content-Type", "application/json")
@@ -534,6 +563,7 @@ class CustomProviderService(
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
                 CustomModelProvider.Sarvam -> listOf("sarvam-105b", "sarvam-105b-conversations")
                 CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
+                CustomModelProvider.Vercel -> fetchVercelModels(apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
@@ -631,6 +661,21 @@ class CustomProviderService(
     private fun fetchOpenAiStyleModels(baseUrl: String, apiKey: String): List<String> {
         if (apiKey.isBlank()) throw Exception("API key is missing.")
         return fetchModelsFromUrl("${baseUrl.trimEnd('/')}/models", apiKey)
+    }
+
+    /** The gateway also lists embedding and image models; only language models can chat. */
+    private fun fetchVercelModels(apiKey: String): List<String> {
+        if (apiKey.isBlank()) throw Exception("API key is missing.")
+        val request = Request.Builder()
+            .url("${CustomProviderConfig.VERCEL_BASE_URL}/models")
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw Exception(customError("Vercel AI Gateway", response.code, body))
+            return ProviderHttpSupport.parseLanguageModelIds(body)
+        }
     }
 
     private fun fetchModelsFromUrl(url: String, apiKey: String): List<String> {

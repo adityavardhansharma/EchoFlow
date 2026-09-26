@@ -497,6 +497,7 @@ internal fun ModelRow(
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) -> "Direct Cerebras API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> "Direct Sarvam API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) -> "Direct xAI API"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL) -> "Vercel AI Gateway"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> "Ollama API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "OpenAI-compatible API"
         isLocal -> "Runs on this device — private & offline"

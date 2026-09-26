@@ -1424,6 +1424,7 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> "sarvam"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_VERCEL) -> "vercel"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
                 else -> null
@@ -1442,6 +1443,7 @@ class ChatViewModel(
                 "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
                 "sarvam" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_SARVAM)
                 "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
+                "vercel" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_VERCEL)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
                 else -> selectedModel
@@ -1509,6 +1511,7 @@ class ChatViewModel(
                 "openai", "claude", "gemini" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
+                "vercel" -> CustomProviderCapabilities.vercelSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
                 else -> false
@@ -1517,6 +1520,7 @@ class ChatViewModel(
                 "openai", "claude", "gemini" -> true
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsPdfs(requestModel)
+                "vercel" -> CustomProviderCapabilities.vercelSupportsPdfs(requestModel)
                 "ollama" -> customProviderConfig.ollamaPdfsEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
                 else -> false

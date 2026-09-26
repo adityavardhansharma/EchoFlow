@@ -48,6 +48,18 @@ internal object ProviderHttpSupport {
         }.distinct()
     }
 
+    /** Like [parseModelIds], but drops entries whose `type` says they aren't language models. */
+    fun parseLanguageModelIds(body: String): List<String> {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["data"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val type = entry["type"] as? String
+            if (type != null && type != "language") return@mapNotNull null
+            entry["id"] as? String
+        }.distinct()
+    }
+
     fun errorMessage(label: String, code: Int, body: String): String {
         val parsed = runCatching {
             val map = json.fromJson(body) as? Map<*, *>

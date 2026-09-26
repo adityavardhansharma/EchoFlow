@@ -15,6 +15,7 @@ internal object CustomProviderModelCatalog {
         addProvider(config.cloudApisEnabled && config.cerebrasEnabled, config.cerebrasSelectedModels, config.cerebrasModel, CustomProviderConfig.PREFIX_CEREBRAS, "Cerebras", false)
         addProvider(config.sarvamAvailable, config.sarvamSelectedModels, config.sarvamModel, CustomProviderConfig.PREFIX_SARVAM, "Sarvam", false)
         addProvider(config.cloudApisEnabled && config.xAiEnabled, config.xAiSelectedModels, config.xAiModel, CustomProviderConfig.PREFIX_XAI, "xAI", false)
+        addProvider(config.cloudApisEnabled && config.vercelEnabled, config.vercelSelectedModels, config.vercelModel, CustomProviderConfig.PREFIX_VERCEL, "Vercel AI Gateway", false)
         addProvider(config.ollamaEnabled, config.ollamaSelectedModels, config.ollamaModel, CustomProviderConfig.PREFIX_OLLAMA, "Ollama", true)
         addProvider(config.openAiCompatibleEnabled, config.openAiCompatibleSelectedModels, config.openAiCompatibleModel, CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE, "OpenAI-compatible", true)
     }

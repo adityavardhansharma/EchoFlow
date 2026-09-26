@@ -134,6 +134,7 @@ internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderB
     CustomModelProvider.Cerebras -> DirectProviderBrand("Cerebras", "Direct Cerebras API", "csk-...", "llama3.3-70b", R.drawable.logo_cerebras, Color(0xFFF15A29))
     CustomModelProvider.Sarvam -> DirectProviderBrand("Sarvam", "Chat and dictation with Sarvam", "sk_...", "sarvam-105b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.XAi -> DirectProviderBrand("xAI", "Direct xAI API", "xai-...", "grok-4.5", R.drawable.logo_xai, Color(0xFF151515))
+    CustomModelProvider.Vercel -> DirectProviderBrand("Vercel AI Gateway", "Models from many labs with one key", "vck_...", "anthropic/claude-sonnet-4.5", R.drawable.logo_vercel, Color(0xFF000000))
     CustomModelProvider.Deepgram -> DirectProviderBrand("Deepgram", "Nova-3 Multilingual dictation", "Deepgram API key", "nova-3", R.drawable.logo_deepgram, Color(0xFF101014))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
@@ -603,6 +604,7 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Cerebras -> config.cerebrasEnabled
     CustomModelProvider.Sarvam -> config.sarvamEnabled
     CustomModelProvider.XAi -> config.xAiEnabled
+    CustomModelProvider.Vercel -> config.vercelEnabled
     CustomModelProvider.Deepgram -> config.deepgramEnabled
     else -> false
 }
@@ -614,6 +616,7 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Cerebras -> config.copy(cerebrasEnabled = enabled)
     CustomModelProvider.Sarvam -> config.copy(sarvamEnabled = enabled)
     CustomModelProvider.XAi -> config.copy(xAiEnabled = enabled)
+    CustomModelProvider.Vercel -> config.copy(vercelEnabled = enabled)
     CustomModelProvider.Deepgram -> config.copy(deepgramEnabled = enabled)
     else -> config
 }
@@ -625,6 +628,7 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Cerebras -> config.cerebrasApiKey
     CustomModelProvider.Sarvam -> config.sarvamApiKey
     CustomModelProvider.XAi -> config.xAiApiKey
+    CustomModelProvider.Vercel -> config.vercelApiKey
     CustomModelProvider.Deepgram -> config.deepgramApiKey
     else -> ""
 }
@@ -636,6 +640,7 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Cerebras -> config.copy(cerebrasApiKey = value)
     CustomModelProvider.Sarvam -> config.copy(sarvamApiKey = value)
     CustomModelProvider.XAi -> config.copy(xAiApiKey = value)
+    CustomModelProvider.Vercel -> config.copy(vercelApiKey = value)
     CustomModelProvider.Deepgram -> config.copy(deepgramApiKey = value)
     else -> config
 }
@@ -647,6 +652,7 @@ internal fun directProviderManualModel(config: CustomProviderConfig, provider: C
     CustomModelProvider.Cerebras -> config.cerebrasModel
     CustomModelProvider.Sarvam -> config.sarvamModel
     CustomModelProvider.XAi -> config.xAiModel
+    CustomModelProvider.Vercel -> config.vercelModel
     else -> ""
 }
 
@@ -657,6 +663,7 @@ internal fun setDirectProviderManualModel(config: CustomProviderConfig, provider
     CustomModelProvider.Cerebras -> config.copy(cerebrasModel = value)
     CustomModelProvider.Sarvam -> config.copy(sarvamModel = value)
     CustomModelProvider.XAi -> config.copy(xAiModel = value)
+    CustomModelProvider.Vercel -> config.copy(vercelModel = value)
     else -> config
 }
 
@@ -667,6 +674,7 @@ internal fun directProviderAvailableModels(config: CustomProviderConfig, provide
     CustomModelProvider.Cerebras -> config.cerebrasModels
     CustomModelProvider.Sarvam -> config.sarvamModels
     CustomModelProvider.XAi -> config.xAiModels
+    CustomModelProvider.Vercel -> config.vercelModels
     else -> ""
 }
 
@@ -677,6 +685,7 @@ internal fun directProviderSelectedModels(config: CustomProviderConfig, provider
     CustomModelProvider.Cerebras -> config.cerebrasSelectedModels
     CustomModelProvider.Sarvam -> config.sarvamSelectedModels
     CustomModelProvider.XAi -> config.xAiSelectedModels
+    CustomModelProvider.Vercel -> config.vercelSelectedModels
     else -> ""
 }
 
@@ -687,6 +696,7 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
     CustomModelProvider.Cerebras -> config.copy(cerebrasSelectedModels = value)
     CustomModelProvider.Sarvam -> config.copy(sarvamSelectedModels = value)
     CustomModelProvider.XAi -> config.copy(xAiSelectedModels = value)
+    CustomModelProvider.Vercel -> config.copy(vercelSelectedModels = value)
     else -> config
 }
 
@@ -706,6 +716,7 @@ internal fun directProviderAttachmentText(provider: CustomModelProvider): String
     CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
     CustomModelProvider.Sarvam -> "Sarvam 105B is text-only — documents are parsed on-device and sent as text. Your key also enables Saaras v4 in Dictation."
     CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
+    CustomModelProvider.Vercel -> "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
 }
 
@@ -716,6 +727,7 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Cerebras -> "Cerebras"
     CustomModelProvider.Sarvam -> "Sarvam"
     CustomModelProvider.XAi -> "xAI"
+    CustomModelProvider.Vercel -> "Vercel AI Gateway"
     CustomModelProvider.Deepgram -> "Deepgram"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"

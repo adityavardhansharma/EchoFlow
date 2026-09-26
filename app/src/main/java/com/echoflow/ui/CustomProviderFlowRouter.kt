@@ -16,6 +16,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
             emitAll(service.streamOpenAiCompatible("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params))
         }
         "xai" -> service.streamOpenAiCompatible("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params)
+        "vercel" -> service.streamOpenAiCompatible(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params)
         "ollama" -> service.streamOllama(config.ollamaBaseUrl, model, history, prompt, params)
         "openai-compatible" -> service.streamOpenAiCompatible(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params)
         else -> flow { throw Exception("Unknown custom endpoint provider.") }
@@ -29,6 +30,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
             emitAll(service.streamOpenAiTools("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params, search))
         }
         "xai" -> service.streamOpenAiTools("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params, search)
+        "vercel" -> service.streamOpenAiTools(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params, search)
         "openai-compatible" -> service.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params, search)
         "ollama" -> service.streamOllamaTools(config.ollamaBaseUrl, model, history, prompt, params, search)
         "claude" -> service.streamClaudeTools(config.claudeApiKey, model, history, prompt, params, search)

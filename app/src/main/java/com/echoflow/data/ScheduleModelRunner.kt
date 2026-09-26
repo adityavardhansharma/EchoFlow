@@ -140,6 +140,7 @@ class ScheduleModelRunner(private val context: Context) {
             CustomProviderConfig.PREFIX_CEREBRAS to "cerebras",
             CustomProviderConfig.PREFIX_SARVAM to "sarvam",
             CustomProviderConfig.PREFIX_XAI to "xai",
+            CustomProviderConfig.PREFIX_VERCEL to "vercel",
             CustomProviderConfig.PREFIX_OLLAMA to "ollama",
             CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE to "openai-compatible",
         ).firstOrNull { modelId.startsWith(it.first) }

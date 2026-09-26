@@ -174,6 +174,7 @@ internal const val PageCustomProviderGemini = "custom_provider_gemini"
 internal const val PageCustomProviderCerebras = "custom_provider_cerebras"
 internal const val PageCustomProviderSarvam = "custom_provider_sarvam"
 internal const val PageCustomProviderXAi = "custom_provider_xai"
+internal const val PageCustomProviderVercel = "custom_provider_vercel"
 internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
@@ -195,7 +196,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     -> PageEchoLabs
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
-    PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi,
+    PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi, PageCustomProviderVercel,
     PageCustomProviderDeepgram,
     -> PageCustomProviderCloud
     else -> PageHome
@@ -290,6 +291,7 @@ fun SettingsScreen(
             PageCustomProviderCerebras -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cerebras, onBack = navigateBack)
             PageCustomProviderSarvam -> DirectCloudBrandPage(viewModel, CustomModelProvider.Sarvam, onBack = navigateBack)
             PageCustomProviderXAi -> DirectCloudBrandPage(viewModel, CustomModelProvider.XAi, onBack = navigateBack)
+            PageCustomProviderVercel -> DirectCloudBrandPage(viewModel, CustomModelProvider.Vercel, onBack = navigateBack)
             PageCustomProviderDeepgram -> DeepgramKeyPage(viewModel, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)

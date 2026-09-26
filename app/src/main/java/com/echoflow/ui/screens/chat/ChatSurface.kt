@@ -319,6 +319,8 @@ internal fun ChatSurface(
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
                 CustomProviderCapabilities.xAiSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_XAI))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL) ->
+                CustomProviderCapabilities.vercelSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL))
             else -> true
         }
     }

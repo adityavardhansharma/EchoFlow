@@ -126,6 +126,7 @@ internal class CustomProviderToolStreamer(
             toolSchemas(round, searchCount, webSearchToolOpenAi)?.let { payload["tools"] = it }
             if (params.maxTokens > 0) payload["max_tokens"] = params.maxTokens
             CustomProviderCapabilities.putStreamUsage(payload, baseUrl)
+            CustomProviderCapabilities.dropGatewaySampling(payload, baseUrl, model)
             val request = Request.Builder()
                 .url(joinUrl(baseUrl, "chat/completions"))
                 .addHeader("Content-Type", "application/json")

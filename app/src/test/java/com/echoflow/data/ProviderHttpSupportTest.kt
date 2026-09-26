@@ -25,6 +25,16 @@ class ProviderHttpSupportTest {
         assertEquals(emptyList<String>(), ProviderHttpSupport.parseModelIds("not json"))
     }
 
+    @Test fun `keeps only language models from a typed model list`() {
+        val body = """{"object":"list","data":[
+            {"id":"anthropic/claude-opus-5","type":"language"},
+            {"id":"openai/text-embedding-3-small","type":"embedding"},
+            {"id":"google/imagen-4","type":"image"},
+            {"id":"openai/gpt-5"}
+        ]}"""
+        assertEquals(listOf("anthropic/claude-opus-5", "openai/gpt-5"), ProviderHttpSupport.parseLanguageModelIds(body))
+    }
+
     @Test fun `maps provider errors with status precedence`() {
         assertEquals("OpenAI rejected the API key or request.", ProviderHttpSupport.errorMessage("OpenAI", 401, "{}"))
         assertEquals("bad input", ProviderHttpSupport.errorMessage("OpenAI", 400, """{"error":{"message":"bad input"}}"""))
