@@ -93,7 +93,7 @@ class PlusMenuAnimationTest {
 
     composeRule.waitForIdle()
     composeRule.onNodeWithTag("plus_menu_surface").assertIsDisplayed()
-    composeRule.onNodeWithText("Artifact").assertIsDisplayed()
+    composeRule.onNodeWithText("Web search").assertIsDisplayed()
   }
 
   @Test
@@ -109,6 +109,6 @@ class PlusMenuAnimationTest {
 
     composeRule.waitForIdle()
     composeRule.onNodeWithTag("plus_menu_surface").assertIsDisplayed()
-    composeRule.onNodeWithText("Capabilities").assertIsDisplayed()
+    composeRule.onNodeWithText("Camera").assertIsDisplayed()
   }
 }

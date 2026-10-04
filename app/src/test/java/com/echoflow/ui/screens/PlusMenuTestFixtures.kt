@@ -62,6 +62,7 @@ internal fun PlusMenuHarness(
           browserFlowOn = false,
           browserFlowAvailable = true,
           artifactOn = true,
+          onCamera = {},
           onImage = {},
           onFiles = {},
           onToggleWebSearch = {},
