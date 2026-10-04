@@ -136,6 +136,19 @@ interface MessageDao {
         if (oldAssistantId != null) deleteMessageById(oldAssistantId)
     }
 
+    /**
+     * Whether any message or research run still points at a stored file, matched by its (unique)
+     * file name inside the attachment URI. `instr`, not LIKE: file names contain `_`, a LIKE wildcard.
+     */
+    @Query(
+        """SELECT EXISTS(SELECT 1 FROM chat_messages
+             WHERE instr(IFNULL(localAttachmentUri, ''), :fileName) > 0
+                OR instr(IFNULL(attachmentsJson, ''), :fileName) > 0)
+           OR EXISTS(SELECT 1 FROM research_runs
+             WHERE instr(IFNULL(localAttachmentUri, ''), :fileName) > 0)"""
+    )
+    suspend fun isAttachmentFileReferenced(fileName: String): Boolean
+
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
 

@@ -1247,7 +1247,18 @@ class ChatViewModel(
         // Media files live outside Room; remove them while their rows (and paths) still exist.
         generatedImageStore.deleteFilesForChat(thread.id)
         generatedVideoStore.deleteFilesForChat(thread.id)
+        // Camera photos too: note this chat's before its rows go, delete them once they have.
+        val app = getApplication<Application>()
+        val cameraPhotos = messageDao.getMessagesForChatSync(thread.id)
+            .flatMap { it.attachments }
+            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
         chatDao.deleteThread(thread)
+        val staged = pendingAttachments.value
+            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
+            .toSet()
+        com.echoflow.data.CameraCapture.deleteUnreferenced(app, cameraPhotos, keep = staged) {
+            messageDao.isAttachmentFileReferenced(it)
+        }
         AppDatabase.getDatabase(getApplication()).memorySyncDao().remove(thread.id)
         if (_currentChatThreadId.value == thread.id) {
             selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)

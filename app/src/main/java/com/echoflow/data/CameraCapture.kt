@@ -77,6 +77,40 @@ internal object CameraCapture {
         }
     }
 
+    /** The stored chat photo [uri] points at, or null when it is not one (a gallery pick, a PDF, ...). */
+    fun photoFileFor(context: Context, uri: String): File? {
+        val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return null
+        if (parsed.authority != "${context.packageName}.fileprovider") return null
+        val segments = parsed.pathSegments
+        if (segments.size != 2 || segments[0] != PHOTO_DIR) return null
+        val dir = File(context.filesDir, PHOTO_DIR).canonicalFile
+        return File(dir, segments[1]).canonicalFile.takeIf { it.parentFile == dir }
+    }
+
+    /**
+     * Deletes stored chat photos that no message points at any more. Checked: [candidates] (a deleted
+     * chat's photos, at any age) plus every stored photo older than a day, which also catches shots
+     * that were taken but never sent, or edited out of a turn. [keep] protects photos still staged in
+     * the composer. [isReferenced] is asked by file name, after the deleted chat's rows are gone, so
+     * a photo another chat still shows survives.
+     */
+    suspend fun deleteUnreferenced(
+        context: Context,
+        candidates: Collection<File>,
+        keep: Set<File>,
+        isReferenced: suspend (fileName: String) -> Boolean,
+    ) = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, PHOTO_DIR)
+        val cutoff = System.currentTimeMillis() - STALE_RAW_MS
+        val stale = dir.listFiles()?.filter { it.isFile && it.lastModified() < cutoff }.orEmpty()
+        val keepCanonical = keep.map { it.canonicalFile }.toSet()
+        (candidates + stale)
+            .map { it.canonicalFile }
+            .distinct()
+            .filter { it.isFile && it !in keepCanonical && !isReferenced(it.name) }
+            .forEach { it.delete() }
+    }
+
     /** Decodes at no more than [MAX_EDGE] on the long edge, with EXIF orientation applied. */
     private fun decodeUpright(file: File): Bitmap? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
