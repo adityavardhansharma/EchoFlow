@@ -448,14 +448,18 @@ internal fun ChatSurface(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri) },
     )
-    // Camera: the system camera app writes straight into a cache file we share through our own
-    // FileProvider, so no CAMERA permission is needed. The photo then joins the same pending
-    // attachment path as a picked image.
+    // Camera: the device's own camera app (Samsung Camera, Pixel Camera, ...) via ACTION_IMAGE_CAPTURE,
+    // so every phone shoots with its native pipeline and no CAMERA permission is needed. The raw
+    // file's path is saveable so a result still lands if the camera app outlives our process.
     val cameraContext = LocalContext.current
-    var cameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    val cameraAvailable = remember { com.echoflow.data.CameraCapture.isAvailable(cameraContext) }
+    var cameraRawPath by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
-        onResult = { saved -> cameraUri?.let { if (saved) chatViewModel.setPendingAttachment(it, "image/jpeg") } },
+        onResult = { saved ->
+            cameraRawPath?.let { chatViewModel.attachCameraPhoto(java.io.File(it), saved) }
+            cameraRawPath = null
+        },
     )
     val pdfPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -589,15 +593,12 @@ internal fun ChatSurface(
             onRetryAttachment = { id -> chatViewModel.retryPendingAttachment(id) },
             onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onCamera = {
-                val dir = java.io.File(cameraContext.cacheDir, "camera").apply { mkdirs() }
-                val photo = java.io.File(dir, "photo_${System.currentTimeMillis()}.jpg")
-                val uri = androidx.core.content.FileProvider.getUriForFile(
-                    cameraContext, "${cameraContext.packageName}.fileprovider", photo,
-                )
-                cameraUri = uri
-                // No camera app on the device: nothing to open, so the tap does nothing.
-                runCatching { cameraLauncher.launch(uri) }
+                val raw = com.echoflow.data.CameraCapture.newRawFile(cameraContext)
+                cameraRawPath = raw.path
+                runCatching { cameraLauncher.launch(com.echoflow.data.CameraCapture.uriFor(cameraContext, raw)) }
+                    .onFailure { cameraRawPath = null; raw.delete() }
             },
+            cameraAvailable = cameraAvailable,
             onAttachPdf = {
                 if (filesAttachAllowed) docPicker.launch(DOC_ATTACH_MIME_TYPES)
                 else pdfPicker.launch(arrayOf("application/pdf"))

@@ -48,6 +48,7 @@ internal fun PlusMenuHarness(
           expanded = expanded,
           onDismiss = {},
           showImage = true,
+          showCamera = true,
           showFiles = true,
           webSearchOn = false,
           deepResearchOn = false,

@@ -42,6 +42,8 @@ internal fun InputToolbar(
     onRetryAttachment: (String) -> Unit,
     onAttach: () -> Unit,
     onCamera: () -> Unit,
+    /** A camera app answers ACTION_IMAGE_CAPTURE on this device. */
+    cameraAvailable: Boolean,
     onAttachPdf: () -> Unit,
     onReceiveImage: (Uri) -> Unit,
     imageAttachEnabled: Boolean,
@@ -225,6 +227,7 @@ internal fun InputToolbar(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
                         showImage = imageAttachEnabled,
+                        showCamera = imageAttachEnabled && cameraAvailable,
                         showFiles = pdfAttachEnabled,
                         webSearchOn = webSearchChipOn,
                         deepResearchOn = deepResearchActive,

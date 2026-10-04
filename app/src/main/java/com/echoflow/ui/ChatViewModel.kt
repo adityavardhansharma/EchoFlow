@@ -1143,6 +1143,14 @@ class ChatViewModel(
     fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) =
         attachments.setPendingAttachment(uri, fallbackMimeType, overrideName)
 
+    /** Finishes a shot from the device camera app and stages it like a picked image. */
+    fun attachCameraPhoto(raw: java.io.File, saved: Boolean) {
+        viewModelScope.launch {
+            val uri = com.echoflow.data.CameraCapture.finish(getApplication(), raw, saved) ?: return@launch
+            setPendingAttachment(uri, "image/jpeg", "Photo")
+        }
+    }
+
     fun addPendingDocs(uris: List<Uri>) = attachments.addPendingDocs(uris)
     fun retryPendingAttachment(id: String) = attachments.retryPendingAttachment(id)
     fun removePendingAttachment(id: String) = attachments.removePendingAttachment(id)

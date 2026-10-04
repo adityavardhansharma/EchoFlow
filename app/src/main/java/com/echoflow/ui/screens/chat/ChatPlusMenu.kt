@@ -93,6 +93,7 @@ internal fun PlusMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     showImage: Boolean,
+    showCamera: Boolean,
     showFiles: Boolean,
     webSearchOn: Boolean,
     deepResearchOn: Boolean,
@@ -243,10 +244,8 @@ internal fun PlusMenu(
                     ) {
                         if (showImage || showFiles) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                                if (showImage) {
-                                    AttachTile(Icons.Outlined.PhotoCamera, "Camera", onCamera, Modifier.weight(1f))
-                                    AttachTile(Icons.Outlined.PhotoLibrary, "Photos", onImage, Modifier.weight(1f))
-                                }
+                                if (showCamera) AttachTile(Icons.Outlined.PhotoCamera, "Camera", onCamera, Modifier.weight(1f))
+                                if (showImage) AttachTile(Icons.Outlined.PhotoLibrary, "Photos", onImage, Modifier.weight(1f))
                                 if (showFiles) AttachTile(Icons.Outlined.Description, "Files", onFiles, Modifier.weight(1f))
                             }
                         }

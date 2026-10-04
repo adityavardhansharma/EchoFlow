@@ -10,4 +10,6 @@
     <cache-path name="shared_docs" path="shared_docs/" />
     <!-- Photos taken from the chat "+" menu's Camera tile, written here by the camera app. -->
     <cache-path name="camera" path="camera/" />
+    <!-- The upright, metadata-free copy of each chat photo, kept with the chat's messages. -->
+    <files-path name="camera_photos" path="camera_photos/" />
 </paths>
