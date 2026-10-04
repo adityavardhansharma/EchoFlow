@@ -150,6 +150,16 @@ data class ChatMessage(
     )
 }
 
+/**
+ * A user turn's photos beyond the one in the legacy `localAttachment*` column, as transient extras
+ * so every provider payload sends the whole set (and earlier turns keep theirs in context).
+ */
+fun ChatMessage.extraPhotos(): List<LocalFileAttachment> =
+    if (role != "user") emptyList()
+    else attachments
+        .filter { it.mimeType.startsWith("image/", ignoreCase = true) && it.uri != localAttachmentUri }
+        .map { LocalFileAttachment(uri = it.uri, mimeType = it.mimeType, name = it.name) }
+
 /** An extra file attached to one outgoing chat turn (not stored on the message row). */
 data class LocalFileAttachment(
     val uri: String,

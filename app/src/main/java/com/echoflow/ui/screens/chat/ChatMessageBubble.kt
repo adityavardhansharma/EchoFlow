@@ -21,6 +21,7 @@ import coil.compose.AsyncImage
 import com.echoflow.data.ArtifactVersion
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.GeneratedVideo
+import com.echoflow.data.MessageAttachment
 import com.echoflow.data.ReplyVersions
 import com.echoflow.data.ResearchJson
 import com.echoflow.data.ResearchRef
@@ -69,18 +70,7 @@ internal fun MessageBubble(
             onEdit = { onEditUserMessage(message.id) },
             modifier = modifier,
             attachment = message.attachments.takeIf { it.isNotEmpty() }?.let { list ->
-                {
-                    Column {
-                        list.forEach { att ->
-                            MessageAttachmentPreview(
-                                uri = att.uri,
-                                mimeType = att.mimeType,
-                                name = att.name,
-                                modifier = Modifier.padding(bottom = Spacing.s),
-                            )
-                        }
-                    }
-                }
+                { MessageAttachments(list) }
             },
         )
     } else {
@@ -187,14 +177,7 @@ private fun AssistantAnswerBody(
         onCopy(ReplyVersions.copyText(message))
     }
 
-    message.attachments.forEach { att ->
-        MessageAttachmentPreview(
-            uri = att.uri,
-            mimeType = att.mimeType,
-            name = att.name,
-            modifier = Modifier.padding(bottom = Spacing.s),
-        )
-    }
+    if (message.attachments.isNotEmpty()) MessageAttachments(message.attachments)
 
     when {
         streaming -> {
@@ -385,6 +368,38 @@ private fun AssistantAnswerBody(
             // existed, whose reasoning and searches only ui/legacy knows how to draw.
             LegacyFlatReplyPrelude(message, messageKey)
             RichMarkdown(message.content, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+internal fun MessageAttachments(attachments: List<MessageAttachment>, modifier: Modifier = Modifier) {
+    // One photo keeps the full preview; several sit in a two-up grid so four don't stack 800dp tall.
+    val photos = attachments.filter { it.mimeType.startsWith("image/", ignoreCase = true) }
+    val docs = attachments.filterNot { it in photos }
+    Column(modifier) {
+        if (photos.size == 1) {
+            val photo = photos.single()
+            MessageAttachmentPreview(photo.uri, photo.mimeType, photo.name, Modifier.padding(bottom = Spacing.s))
+        } else if (photos.size > 1) {
+            FlowRow(
+                modifier = Modifier.padding(bottom = Spacing.s),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                maxItemsInEachRow = 2,
+            ) {
+                photos.forEach { photo ->
+                    AsyncImage(
+                        photo.uri,
+                        null,
+                        Modifier.size(120.dp).clip(MaterialTheme.shapes.medium),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
+        }
+        docs.forEach { doc ->
+            MessageAttachmentPreview(doc.uri, doc.mimeType, doc.name, Modifier.padding(bottom = Spacing.s))
         }
     }
 }

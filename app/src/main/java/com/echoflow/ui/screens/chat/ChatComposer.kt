@@ -211,6 +211,8 @@ internal fun InputToolbar(
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
                 var plusMenuOpen by remember { mutableStateOf(false) }
+                // Photos and Camera step aside once a turn holds as many photos as it can carry.
+                val photoRoom = attachments.count { it.isImage } < com.echoflow.ui.PendingAttachmentPolicy.MAX_PHOTOS
                 Box {
                     ShapedIconButton(
                         onClick = { plusMenuOpen = true },
@@ -226,8 +228,8 @@ internal fun InputToolbar(
                     PlusMenu(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
-                        showImage = imageAttachEnabled,
-                        showCamera = imageAttachEnabled && cameraAvailable,
+                        showImage = imageAttachEnabled && photoRoom,
+                        showCamera = imageAttachEnabled && photoRoom && cameraAvailable,
                         showFiles = pdfAttachEnabled,
                         webSearchOn = webSearchChipOn,
                         deepResearchOn = deepResearchActive,

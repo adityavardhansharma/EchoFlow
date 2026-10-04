@@ -31,6 +31,9 @@ data class PendingAttachment(
 
 /** What to keep when the model or mode changes, and which chips still need an on-device parse. */
 internal object PendingAttachmentPolicy {
+    /** Photos one turn can carry to a cloud/custom vision model, picked in one go or added up. */
+    const val MAX_PHOTOS = 4
+
     fun keep(
         current: List<PendingAttachment>,
         imageAllowed: Boolean,
@@ -49,8 +52,10 @@ internal object PendingAttachmentPolicy {
         return if (localFilesAllowed) {
             legal.take(cap)
         } else {
-            // Cloud/custom/Imagine still send a single localAttachmentUri.
-            listOf(legal.firstOrNull { it.isImage } ?: legal.first())
+            // Cloud/custom: up to [MAX_PHOTOS] photos (the first rides the legacy column, the rest go
+            // as extra image parts), or a single PDF.
+            val photos = legal.filter { it.isImage }
+            if (photos.isNotEmpty()) photos.take(MAX_PHOTOS) else listOf(legal.first())
         }
     }
 

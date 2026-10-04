@@ -89,6 +89,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.PendingAttachmentPolicy
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
@@ -444,9 +445,10 @@ internal fun ChatSurface(
     }
     val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
 
+    // Photos: the system photo picker, several at once (no storage permission needed).
     val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri) },
+        contract = ActivityResultContracts.PickMultipleVisualMedia(PendingAttachmentPolicy.MAX_PHOTOS),
+        onResult = { uris -> chatViewModel.addPendingImages(uris, keepDocs = filesAttachAllowed) },
     )
     // Camera: the device's own camera app (Samsung Camera, Pixel Camera, ...) via ACTION_IMAGE_CAPTURE,
     // so every phone shoots with its native pipeline and no CAMERA permission is needed. The raw
@@ -457,7 +459,7 @@ internal fun ChatSurface(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
         onResult = { saved ->
-            cameraRawPath?.let { chatViewModel.attachCameraPhoto(java.io.File(it), saved) }
+            cameraRawPath?.let { chatViewModel.attachCameraPhoto(java.io.File(it), saved, keepDocs = filesAttachAllowed) }
             cameraRawPath = null
         },
     )

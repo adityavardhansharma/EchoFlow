@@ -63,7 +63,7 @@ class ChatAttachmentControllerTest {
         controller.restore(listOf(doc("one.pdf"), doc("two.pdf")), extractLocally = false)
         controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = true, localFilesAllowed = false)
         assertEquals(listOf("one.pdf"), controller.pendingAttachments.value.map { it.name })
-        assertEquals(listOf("Only one file can go with this model. Extra files were dropped."), errors)
+        assertEquals(listOf("This model takes up to 4 photos or one PDF. Extra files were dropped."), errors)
     }
 
     @Test fun `clearing the composer cancels in flight work and leaves no attachments`() = runTest {
@@ -99,5 +99,38 @@ class ChatAttachmentControllerTest {
         controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = true, localFilesAllowed = false)
         assertTrue(controller.pendingAttachments.value.isEmpty())
         assertEquals(1, errors.size)
+    }
+
+    @Test fun `picked photos join staged ones up to four and the rest are reported`() = runTest {
+        val errors = mutableListOf<String>()
+        val controller = ChatAttachmentController(app, backgroundScope, 3, errors::add) { _, _ ->
+            Result.Text("unused")
+        }
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = false)
+        runCurrent()
+        controller.addPendingImages(
+            (2..5).map { android.net.Uri.parse("content://media/$it") } + android.net.Uri.parse("content://media/1"),
+            keepDocs = false,
+        )
+        runCurrent()
+        assertEquals(
+            (1..4).map { "content://media/$it" },
+            controller.pendingAttachments.value.map { it.uri },
+        )
+        assertTrue(controller.pendingAttachments.value.all { it.isImage })
+        assertEquals(listOf("Up to 4 photos per message. Extra photos were left out."), errors)
+    }
+
+    @Test fun `photos replace a staged cloud PDF but keep local docs`() = runTest {
+        val controller = ChatAttachmentController(app, backgroundScope, 3, {}) { _, _ -> Result.Text("text") }
+        controller.restore(listOf(doc("cloud.pdf")), extractLocally = false)
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = false)
+        runCurrent()
+        assertEquals(listOf("content://media/1"), controller.pendingAttachments.value.map { it.uri })
+
+        controller.restore(listOf(doc("local.pdf", text = "parsed")), extractLocally = false)
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = true)
+        runCurrent()
+        assertEquals(2, controller.pendingAttachments.value.size)
     }
 }

@@ -1144,12 +1144,15 @@ class ChatViewModel(
         attachments.setPendingAttachment(uri, fallbackMimeType, overrideName)
 
     /** Finishes a shot from the device camera app and stages it like a picked image. */
-    fun attachCameraPhoto(raw: java.io.File, saved: Boolean) {
+    fun attachCameraPhoto(raw: java.io.File, saved: Boolean, keepDocs: Boolean) {
         viewModelScope.launch {
             val uri = com.echoflow.data.CameraCapture.finish(getApplication(), raw, saved) ?: return@launch
-            setPendingAttachment(uri, "image/jpeg", "Photo")
+            attachments.addPendingImages(listOf(uri), keepDocs, overrideName = "Photo")
         }
     }
+
+    /** Photos picked together from the Photos tile, added after any already staged. */
+    fun addPendingImages(uris: List<Uri>, keepDocs: Boolean) = attachments.addPendingImages(uris, keepDocs)
 
     fun addPendingDocs(uris: List<Uri>) = attachments.addPendingDocs(uris)
     fun retryPendingAttachment(id: String) = attachments.retryPendingAttachment(id)
@@ -1849,6 +1852,9 @@ class ChatViewModel(
 
             // Load updated dialog history
             val fullHistory = chatRepository.history(chatId)
+            // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
+            // provider as extra image parts, on every user turn so earlier photos stay in context.
+            fullHistory.forEach { it.extraAttachments = it.extraPhotos() }
             if (activeProjectId != null &&
                 com.echoflow.data.extract.ModelFileCapability.readsFiles(selectedModel)
             ) {
@@ -1861,7 +1867,7 @@ class ChatViewModel(
                             name = doc.name,
                         )
                     }
-                fullHistory.lastOrNull { it.role == "user" }?.extraAttachments = extras
+                fullHistory.lastOrNull { it.role == "user" }?.let { it.extraAttachments = it.extraAttachments + extras }
             }
 
             // On-device history: fold each turn's parsed-doc Markdown into the content the local
