@@ -34,6 +34,12 @@ internal object PendingAttachmentPolicy {
     /** Photos one turn can carry to a cloud/custom vision model, picked in one go or added up. */
     const val MAX_PHOTOS = 4
 
+    /**
+     * Photos one turn can carry. The local-files path (on-device models, and the cloud models that
+     * read files as on-device Markdown) sends a single photo, so it stays at one there.
+     */
+    fun photoLimit(localFilesAllowed: Boolean): Int = if (localFilesAllowed) 1 else MAX_PHOTOS
+
     fun keep(
         current: List<PendingAttachment>,
         imageAllowed: Boolean,
@@ -50,7 +56,8 @@ internal object PendingAttachmentPolicy {
         }
         if (legal.isEmpty()) return emptyList()
         return if (localFilesAllowed) {
-            legal.take(cap)
+            val firstPhoto = legal.firstOrNull { it.isImage }
+            legal.filter { !it.isImage || it === firstPhoto }.take(cap)
         } else {
             // Cloud/custom: up to [MAX_PHOTOS] photos (the first rides the legacy column, the rest go
             // as extra image parts), or a single PDF.

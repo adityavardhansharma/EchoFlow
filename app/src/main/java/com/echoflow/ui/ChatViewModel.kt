@@ -2060,9 +2060,10 @@ class ChatViewModel(
                                     aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                                 ),
                                 editImageDataUrl = imageEditUrl,
-                                referenceImageDataUrls = listOfNotNull(
-                                    if (attachmentUri != null && !pendingIsPdf) attachmentAsDataUrl(attachmentUri) else null,
-                                ),
+                                // Every staged photo is a reference, not only the first.
+                                referenceImageDataUrls = stagedAttachments
+                                    .filter { it.isImage }
+                                    .mapNotNull { attachmentAsDataUrl(it.uri) },
                                 aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                                 params = inferenceParams,
                             )

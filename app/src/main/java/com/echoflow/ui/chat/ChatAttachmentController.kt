@@ -10,6 +10,7 @@ import com.echoflow.data.extract.ChatAttachmentExtractor
 import com.echoflow.ui.PendingAttachment
 import com.echoflow.ui.PendingAttachmentPolicy
 import java.io.File
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +30,7 @@ internal class ChatAttachmentController(
     private val scope: CoroutineScope,
     private val maxAttachments: Int,
     private val onError: (String) -> Unit,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
     private val extract: suspend (Uri, String) -> ChatAttachmentExtractor.Result =
         ChatAttachmentExtractor(application.contentResolver)::extract,
 ) {
@@ -94,9 +96,9 @@ internal class ChatAttachmentController(
 
     /**
      * Stage photos picked together (or one camera shot) after any photos already staged, up to
-     * [PendingAttachmentPolicy.MAX_PHOTOS]; extras over the cap are left out with a note.
-     * [keepDocs] keeps staged docs (the local multi-file path); otherwise photos replace a staged
-     * PDF, as a single photo pick always has.
+     * [PendingAttachmentPolicy.photoLimit]; extras over the cap are left out with a note.
+     * [keepDocs] keeps staged docs (the local multi-file path, where everything together also stays
+     * within [maxAttachments]); otherwise photos replace a staged PDF, as a single photo pick always has.
      */
     fun addPendingImages(
         uris: List<Uri>,
@@ -106,29 +108,38 @@ internal class ChatAttachmentController(
     ) {
         if (uris.isEmpty()) return
         scope.launch {
-            val resolver = application.contentResolver
+            // Provider calls can be slow (a cloud-backed photo), so they stay off the main thread.
+            val resolved = withContext(io) {
+                val resolver = application.contentResolver
+                uris.distinct().map { uri ->
+                    runCatching {
+                        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    PendingAttachment(
+                        uri = uri.toString(),
+                        mimeType = runCatching { resolver.getType(uri) }.getOrNull()?.takeIf { it.startsWith("image/", ignoreCase = true) }
+                            ?: fallbackMimeType ?: "image/jpeg",
+                        name = overrideName ?: displayName(uri) ?: "Attached Image",
+                        kind = PendingAttachment.Kind.Image,
+                        state = PendingAttachment.State.Ready,
+                    )
+                }
+            }
             val staged = _pendingAttachments.value
             val kept = if (keepDocs) staged else staged.filter { it.isImage }
             val keptIds = kept.map { it.id }.toSet()
             extractionJobs.keys.filter { it !in keptIds }.forEach { extractionJobs.remove(it)?.cancel() }
-            val fresh = uris.distinct().filter { uri -> kept.none { it.uri == uri.toString() } }
-            val room = (PendingAttachmentPolicy.MAX_PHOTOS - kept.count { it.isImage }).coerceAtLeast(0)
-            val added = fresh.take(room).map { uri ->
-                runCatching {
-                    resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                PendingAttachment(
-                    uri = uri.toString(),
-                    mimeType = runCatching { resolver.getType(uri) }.getOrNull()?.takeIf { it.startsWith("image/", ignoreCase = true) }
-                        ?: fallbackMimeType ?: "image/jpeg",
-                    name = overrideName ?: displayName(uri) ?: "Attached Image",
-                    kind = PendingAttachment.Kind.Image,
-                    state = PendingAttachment.State.Ready,
-                )
-            }
+            val fresh = resolved.filter { att -> kept.none { it.uri == att.uri } }
+            val photoLimit = PendingAttachmentPolicy.photoLimit(localFilesAllowed = keepDocs)
+            val photoRoom = photoLimit - kept.count { it.isImage }
+            val totalRoom = if (keepDocs) maxAttachments - kept.size else Int.MAX_VALUE
+            val added = fresh.take(minOf(photoRoom, totalRoom).coerceAtLeast(0))
             _pendingAttachments.value = kept + added
             if (fresh.size > added.size) {
-                onError("Up to ${PendingAttachmentPolicy.MAX_PHOTOS} photos per message. Extra photos were left out.")
+                onError(
+                    if (photoLimit == 1) "This model takes one photo per message. Extra photos were left out."
+                    else "Up to $photoLimit photos per message. Extra photos were left out."
+                )
             }
         }
     }
@@ -233,8 +244,11 @@ internal class ChatAttachmentController(
             val droppedShares = sharedIds.count { id -> next.none { it.id == id } }
             if (droppedShares > 0 && next.isEmpty()) {
                 onError("This model can't read the shared file. Pick another model and share it again.")
-            } else if (next.size < current.size && !localFilesAllowed && next.isNotEmpty()) {
-                onError("This model takes up to ${PendingAttachmentPolicy.MAX_PHOTOS} photos or one PDF. Extra files were dropped.")
+            } else if (next.size < current.size && next.isNotEmpty()) {
+                onError(
+                    if (localFilesAllowed) "This model takes one photo and up to $maxAttachments files. Extra files were dropped."
+                    else "This model takes up to ${PendingAttachmentPolicy.MAX_PHOTOS} photos or one PDF. Extra files were dropped."
+                )
             }
         }
         if (localFilesAllowed) extractMissingDocs()

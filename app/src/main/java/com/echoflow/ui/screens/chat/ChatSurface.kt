@@ -445,10 +445,16 @@ internal fun ChatSurface(
     }
     val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
 
-    // Photos: the system photo picker, several at once (no storage permission needed).
+    // Photos: the system photo picker, several at once (no storage permission needed) — or just one
+    // on the local-files path, which sends a single photo.
+    val photoLimit = PendingAttachmentPolicy.photoLimit(localFilesAllowed = filesAttachAllowed)
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(PendingAttachmentPolicy.MAX_PHOTOS),
         onResult = { uris -> chatViewModel.addPendingImages(uris, keepDocs = filesAttachAllowed) },
+    )
+    val singleImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri -> if (uri != null) chatViewModel.addPendingImages(listOf(uri), keepDocs = filesAttachAllowed) },
     )
     // Camera: the device's own camera app (Samsung Camera, Pixel Camera, ...) via ACTION_IMAGE_CAPTURE,
     // so every phone shoots with its native pipeline and no CAMERA permission is needed. The raw
@@ -593,7 +599,11 @@ internal fun ChatSurface(
             attachmentLimit = com.echoflow.ui.ChatViewModel.MAX_MESSAGE_ATTACHMENTS,
             onRemoveAttachment = { id -> chatViewModel.removePendingAttachment(id) },
             onRetryAttachment = { id -> chatViewModel.retryPendingAttachment(id) },
-            onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            photoLimit = photoLimit,
+            onAttach = {
+                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                if (photoLimit > 1) imagePicker.launch(request) else singleImagePicker.launch(request)
+            },
             onCamera = {
                 // One shot in flight at a time: a second launch would repoint the result at its file.
                 if (cameraRawPath == null) {

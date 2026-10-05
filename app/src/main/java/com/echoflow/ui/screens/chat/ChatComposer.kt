@@ -38,6 +38,8 @@ internal fun InputToolbar(
     onText: (String) -> Unit,
     attachments: List<com.echoflow.ui.PendingAttachment>,
     attachmentLimit: Int,
+    /** Photos this turn can carry ([com.echoflow.ui.PendingAttachmentPolicy.photoLimit]). */
+    photoLimit: Int = com.echoflow.ui.PendingAttachmentPolicy.MAX_PHOTOS,
     onRemoveAttachment: (String) -> Unit,
     onRetryAttachment: (String) -> Unit,
     onAttach: () -> Unit,
@@ -212,7 +214,8 @@ internal fun InputToolbar(
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
                 var plusMenuOpen by remember { mutableStateOf(false) }
                 // Photos and Camera step aside once a turn holds as many photos as it can carry.
-                val photoRoom = attachments.count { it.isImage } < com.echoflow.ui.PendingAttachmentPolicy.MAX_PHOTOS
+                val photoRoom = attachments.count { it.isImage } < photoLimit &&
+                    (!requireExtractedDocs || attachments.size < attachmentLimit)
                 Box {
                     ShapedIconButton(
                         onClick = { plusMenuOpen = true },
