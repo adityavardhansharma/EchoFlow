@@ -73,7 +73,7 @@ class CameraCaptureTest {
       context,
       candidates = listOf(deletedChats, sharedWithOtherChat, staged),
       keep = setOf(staged),
-      isReferenced = { it == "photo_shared.jpg" },
+      references = { listOf("content://x/camera_photos/photo_shared.jpg") },
     )
 
     assertFalse(deletedChats.exists())

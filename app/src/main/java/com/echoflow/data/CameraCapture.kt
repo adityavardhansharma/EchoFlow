@@ -100,26 +100,28 @@ internal object CameraCapture {
 
     /**
      * Deletes stored chat photos that no message points at any more. Checked: [candidates] (a deleted
-     * chat's photos, at any age) plus every stored photo older than a day, which also catches shots
-     * that were taken but never sent, or edited out of a turn. [keep] protects photos still staged in
-     * the composer. [isReferenced] is asked by file name, after the deleted chat's rows are gone, so
-     * a photo another chat still shows survives.
+     * chat's photos or a removed chip's, at any age) plus every stored photo older than a day, which
+     * also catches shots that were taken but never sent, or edited out of a turn. [keep] protects
+     * photos still staged in the composer. [references] is read once, after the deleted chat's rows
+     * are gone, and a file name appearing in any of it means another chat still shows that photo.
      */
     suspend fun deleteUnreferenced(
         context: Context,
         candidates: Collection<File>,
         keep: Set<File>,
-        isReferenced: suspend (fileName: String) -> Boolean,
+        references: suspend () -> List<String>,
     ) = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, PHOTO_DIR)
         val cutoff = System.currentTimeMillis() - STALE_RAW_MS
         val stale = dir.listFiles()?.filter { it.isFile && it.lastModified() < cutoff }.orEmpty()
         val keepCanonical = keep.map { it.canonicalFile }.toSet()
-        (candidates + stale)
+        val eligible = (candidates + stale)
             .map { it.canonicalFile }
             .distinct()
-            .filter { it.isFile && it !in keepCanonical && !isReferenced(it.name) }
-            .forEach { it.delete() }
+            .filter { it.isFile && it !in keepCanonical }
+        if (eligible.isEmpty()) return@withContext
+        val refs = references()
+        eligible.filter { file -> refs.none { it.contains(file.name) } }.forEach { it.delete() }
     }
 
     /** Decodes at no more than [MAX_EDGE] on the long edge, with EXIF orientation applied. */

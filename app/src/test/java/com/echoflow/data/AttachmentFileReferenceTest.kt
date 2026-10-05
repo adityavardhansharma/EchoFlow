@@ -40,16 +40,20 @@ class AttachmentFileReferenceTest {
             )
         )
 
-        assertTrue(dao.isAttachmentFileReferenced("photo_1.jpg"))
-        assertTrue(dao.isAttachmentFileReferenced("photo_2.jpg"))
-        assertFalse(dao.isAttachmentFileReferenced("photo_3.jpg"))
+        val refs = dao.cameraPhotoReferences()
+        assertTrue(refs.any { "photo_1.jpg" in it })
+        assertTrue(refs.any { "photo_2.jpg" in it })
+        assertFalse(refs.any { "photo_3.jpg" in it })
     }
 
-    @Test fun `underscore in a file name is matched literally, not as a wildcard`() = runBlocking {
+    @Test fun `underscore in the folder name is matched literally, not as a wildcard`() = runBlocking {
         val dao = database.messageDao()
-        dao.insertMessage(ChatMessage("m1", "chat-1", "user", "look", 1L, localAttachmentUri = base + "photoX1.jpg"))
+        dao.insertMessage(
+            ChatMessage("m1", "chat-1", "user", "look", 1L, localAttachmentUri = "content://x/cameraXphotos/photo_1.jpg")
+        )
+        dao.insertMessage(ChatMessage("m2", "chat-1", "user", "plain", 2L))
 
-        assertFalse(dao.isAttachmentFileReferenced("photo_1.jpg"))
+        assertTrue(dao.cameraPhotoReferences().isEmpty())
     }
 
     @Test fun `deleting the chat drops its references`() = runBlocking {
@@ -58,6 +62,6 @@ class AttachmentFileReferenceTest {
         )
         database.chatDao().deleteThread(ChatThread("chat-1", "Chat", 1L, 1L))
 
-        assertFalse(database.messageDao().isAttachmentFileReferenced("photo_1.jpg"))
+        assertTrue(database.messageDao().cameraPhotoReferences().isEmpty())
     }
 }

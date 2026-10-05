@@ -137,17 +137,18 @@ interface MessageDao {
     }
 
     /**
-     * Whether any message or research run still points at a stored file, matched by its (unique)
-     * file name inside the attachment URI. `instr`, not LIKE: file names contain `_`, a LIKE wildcard.
+     * Every attachment value (URI or attachments JSON) on a message or research run that points into
+     * stored chat photos, read in one go so a cleanup sweep checks all its files against one result.
+     * `instr`, not LIKE: the folder name contains `_`, a LIKE wildcard.
      */
     @Query(
-        """SELECT EXISTS(SELECT 1 FROM chat_messages
-             WHERE instr(IFNULL(localAttachmentUri, ''), :fileName) > 0
-                OR instr(IFNULL(attachmentsJson, ''), :fileName) > 0)
-           OR EXISTS(SELECT 1 FROM research_runs
-             WHERE instr(IFNULL(localAttachmentUri, ''), :fileName) > 0)"""
+        """SELECT localAttachmentUri FROM chat_messages WHERE instr(IFNULL(localAttachmentUri, ''), 'camera_photos') > 0
+           UNION ALL
+           SELECT attachmentsJson FROM chat_messages WHERE instr(IFNULL(attachmentsJson, ''), 'camera_photos') > 0
+           UNION ALL
+           SELECT localAttachmentUri FROM research_runs WHERE instr(IFNULL(localAttachmentUri, ''), 'camera_photos') > 0"""
     )
-    suspend fun isAttachmentFileReferenced(fileName: String): Boolean
+    suspend fun cameraPhotoReferences(): List<String>
 
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)

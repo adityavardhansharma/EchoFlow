@@ -1158,7 +1158,25 @@ class ChatViewModel(
 
     fun addPendingDocs(uris: List<Uri>) = attachments.addPendingDocs(uris)
     fun retryPendingAttachment(id: String) = attachments.retryPendingAttachment(id)
-    fun removePendingAttachment(id: String) = attachments.removePendingAttachment(id)
+    fun removePendingAttachment(id: String) {
+        val removed = pendingAttachments.value.firstOrNull { it.id == id }
+        attachments.removePendingAttachment(id)
+        // A shot taken for this draft and then taken back out: delete it unless a sent message
+        // (an edited turn's original, say) still shows it.
+        val photo = removed?.let { com.echoflow.data.CameraCapture.photoFileFor(getApplication(), it.uri) } ?: return
+        viewModelScope.launch { withContext(NonCancellable) { deleteUnreferencedCameraPhotos(listOf(photo)) } }
+    }
+
+    /** Deletes [candidates] (and stale strays) that no message, run or staged chip still points at. */
+    private suspend fun deleteUnreferencedCameraPhotos(candidates: List<java.io.File>) {
+        val app = getApplication<Application>()
+        val staged = pendingAttachments.value
+            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
+            .toSet()
+        com.echoflow.data.CameraCapture.deleteUnreferenced(app, candidates, keep = staged) {
+            messageDao.cameraPhotoReferences()
+        }
+    }
 
     fun reconcilePendingAttachments(imageAllowed: Boolean, pdfAllowed: Boolean, localFilesAllowed: Boolean) =
         attachments.reconcilePendingAttachments(imageAllowed, pdfAllowed, localFilesAllowed)
@@ -1253,16 +1271,14 @@ class ChatViewModel(
         generatedImageStore.deleteFilesForChat(thread.id)
         generatedVideoStore.deleteFilesForChat(thread.id)
         // Camera photos too: note this chat's before its rows go, delete them once they have.
+        // Uncancellable from here: once the rows are gone, nothing could find these photos again.
         val app = getApplication<Application>()
         val cameraPhotos = messageDao.getMessagesForChatSync(thread.id)
             .flatMap { it.attachments }
             .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
-        chatDao.deleteThread(thread)
-        val staged = pendingAttachments.value
-            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
-            .toSet()
-        com.echoflow.data.CameraCapture.deleteUnreferenced(app, cameraPhotos, keep = staged) {
-            messageDao.isAttachmentFileReferenced(it)
+        withContext(NonCancellable) {
+            chatDao.deleteThread(thread)
+            deleteUnreferencedCameraPhotos(cameraPhotos)
         }
         AppDatabase.getDatabase(getApplication()).memorySyncDao().remove(thread.id)
         if (_currentChatThreadId.value == thread.id) {
