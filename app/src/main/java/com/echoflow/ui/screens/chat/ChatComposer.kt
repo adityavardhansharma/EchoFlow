@@ -225,6 +225,8 @@ internal fun InputToolbar(
                     ) {
                         Icon(Icons.Default.Add, "Add context or capability", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
+                    // Attach actions close the menu; tool toggles keep it open so the swap is
+                    // visible: picking one tool turns the previous one off right there.
                     PlusMenu(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
@@ -247,17 +249,17 @@ internal fun InputToolbar(
                         onCamera = { plusMenuOpen = false; onCamera() },
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
-                        onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
-                        onToggleDeepResearch = { plusMenuOpen = false; onToggleDeepResearch() },
-                        onToggleDataAgent = { plusMenuOpen = false; onToggleDataAgent() },
-                        onToggleEchoAdviser = { plusMenuOpen = false; onToggleEchoAdviser() },
-                        onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
-                        onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
-                        onToggleBrowserFlow = { plusMenuOpen = false; onToggleBrowserFlow() },
-                        onToggleArtifact = { plusMenuOpen = false; onToggleArtifact() },
+                        onToggleWebSearch = onToggleWebSearch,
+                        onToggleDeepResearch = onToggleDeepResearch,
+                        onToggleDataAgent = onToggleDataAgent,
+                        onToggleEchoAdviser = onToggleEchoAdviser,
+                        onToggleEchoFusion = onToggleEchoFusion,
+                        onToggleEchoAgent = onToggleEchoAgent,
+                        onToggleBrowserFlow = onToggleBrowserFlow,
+                        onToggleArtifact = onToggleArtifact,
                         memoryAvailable = memoryAvailable,
                         memoryOn = memoryOn,
-                        onToggleMemory = { plusMenuOpen = false; onToggleMemory() },
+                        onToggleMemory = onToggleMemory,
                     )
                 }
 

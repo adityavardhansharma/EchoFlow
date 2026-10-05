@@ -178,15 +178,41 @@ class ChatViewModel(
      * navigated since it began. Restoring reads the database, and a coroutine landing its
      * stale answer afterwards would show the wrong thread and file the next message into it.
      */
-    private fun openThread(chatId: String?) {
+    private val chatModes = com.echoflow.ui.chat.ChatModeMemory()
+
+    /**
+     * [carryMode]: the chat was just created from the blank composer, so it keeps the mode the
+     * user picked there instead of restoring one.
+     */
+    private fun openThread(chatId: String?, carryMode: Boolean = false) {
         navigation.navigated()
         leaveTemporaryChat(except = chatId)
+        _chatMode.value = chatModes.switch(_currentChatThreadId.value, _chatMode.value, chatId, carryMode)
         _currentChatThreadId.value = chatId
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
         applyModelForThread(chatId)
     }
+
+    /**
+     * One question, one run: once [runId] ends, [chatId] drops back to normal chat, so a follow-up
+     * ("thanks", "explain point 3") is not another paid run. The mode stays on while the run is
+     * going so the model pill keeps showing the research engine.
+     */
+    private fun endModeWhenRunEnds(chatId: String, runId: String, mode: ChatMode) {
+        viewModelScope.launch {
+            researchRunDao.observeById(runId).first { it == null || it.isTerminal }
+            if (_currentChatThreadId.value == chatId) {
+                if (_chatMode.value == mode) setMode(ChatMode.Normal)
+            } else if (chatModes.parked(chatId) == mode) {
+                chatModes.forget(chatId)
+            }
+        }
+    }
+
+    /** Back to normal chat, whatever mode was on (Recall, which only runs there, asks for this). */
+    fun clearChatMode() = setMode(ChatMode.Normal)
 
     // ── Per-chat model ──────────────────────────────────────────────────────────────
 
@@ -1213,7 +1239,7 @@ class ChatViewModel(
      */
     private fun openNewThread(chatId: String) {
         val temporary = _temporaryArmed.value
-        openThread(chatId)
+        openThread(chatId, carryMode = true)
         if (!temporary) return
         _temporaryChatId.value = chatId
         temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, chatId).commit()
@@ -1256,6 +1282,7 @@ class ChatViewModel(
             .flatMap { it.attachments }
             .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
         chatDao.deleteThread(thread)
+        chatModes.forget(thread.id)
         val staged = pendingAttachments.value
             .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
             .toSet()
@@ -2588,9 +2615,10 @@ class ChatViewModel(
             )
             DeepResearchForegroundService.start(getApplication(), runId)
             clearPendingAttachment()
-            // Stay in Deep Research mode so the model pill keeps the research engine list until
-            // the user toggles the capability off. Exiting to Normal on send made the composer
-            // jump back to chat models mid-run, which reads as the wrong selector.
+            // Stay in Deep Research mode while the run is going so the model pill keeps the
+            // research engine list (exiting on send made the composer jump back to chat models
+            // mid-run), then drop back to normal chat once it ends.
+            endModeWhenRunEnds(chatId, runId, ChatMode.DeepResearch)
         }
     }
 
@@ -2695,6 +2723,7 @@ class ChatViewModel(
                 )
             )
             DeepResearchForegroundService.start(getApplication(), runId)
+            endModeWhenRunEnds(chatId, runId, ChatMode.DataAgent)
             // Stay in Data Agent mode for the same reason as Deep Research: the engine pill must
             // keep its agent list until the user turns the capability off.
         }

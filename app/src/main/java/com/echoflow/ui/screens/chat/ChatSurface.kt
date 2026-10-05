@@ -218,10 +218,13 @@ internal fun ChatSurface(
     val memorySettings = remember { com.echoflow.data.memory.MemorySettings(chatViewModel.getApplication<android.app.Application>()) }
     val memoryPreferences by remember(memorySettings) { memorySettings.changes() }.collectAsState(initial = memorySettings.snapshot())
     var forceMemory by remember(currentThreadId, selectedModelID, memoryPreferences.generation) { mutableStateOf(false) }
-    val memoryAvailable = memoryPreferences.connected && memoryPreferences.recall &&
-        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal) &&
-        !deepResearchActive && !dataAgentActive && !browserFlowActive && !artifactActive &&
-        !echoAgentActive && !echoAdviserActive && !echoFusionActive
+    // Recall rides along with plain chat and Web search; every other mode replaces it. The "+" row
+    // stays offered either way, so picking Recall visibly turns such a mode off (and vice versa).
+    val memoryBlockingModeOn = deepResearchActive || dataAgentActive || browserFlowActive || artifactActive ||
+        echoAgentActive || echoAdviserActive || echoFusionActive
+    val memoryOffered = memoryPreferences.connected && memoryPreferences.recall &&
+        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal)
+    val memoryAvailable = memoryOffered && !memoryBlockingModeOn
     LaunchedEffect(memoryAvailable) { if (!memoryAvailable) forceMemory = false }
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
     val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()
@@ -334,6 +337,12 @@ internal fun ChatSurface(
     val selectedModelIsOpenRouter = remember(selectedModelID) {
         !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
     }
+    // Adviser and Agents need an OpenRouter cloud main model; Fusion runs its own cloud panel, so
+    // only a custom provider rules it out. Each is offered only where it can run, and an active one
+    // stays listed so it can still be turned off after a model switch.
+    val echoAdviserOffered = echoAdviserEnabled && (selectedModelIsOpenRouter || echoAdviserActive)
+    val echoAgentOffered = echoAgentEnabled && (selectedModelIsOpenRouter || echoAgentActive)
+    val echoFusionOffered = echoFusionEnabled && (!selectedModelID.startsWith("custom/") || echoFusionActive)
     val selectedModelUsesAnydocExtraction = remember(selectedModelID) {
         com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(selectedModelID)
     }
@@ -624,9 +633,9 @@ internal fun ChatSurface(
             onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
             onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
             onToggleEchoAgent = { chatViewModel.toggleEchoAgent() },
-            echoAdviserAvailable = echoAdviserEnabled,
-            echoFusionAvailable = echoFusionEnabled,
-            echoAgentAvailable = echoAgentEnabled,
+            echoAdviserAvailable = echoAdviserOffered,
+            echoFusionAvailable = echoFusionOffered,
+            echoAgentAvailable = echoAgentOffered,
             browserFlowActive = browserFlowActive,
             browserFlowAvailable = browserFlowAvailable,
             onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
@@ -655,9 +664,16 @@ internal fun ChatSurface(
                 localSendBlocked -> "On-device model is busy in another chat"
                 else -> null
             },
-            memoryAvailable = memoryAvailable,
+            memoryAvailable = memoryOffered,
             memoryOn = forceMemory && memoryAvailable,
-            onToggleMemory = { forceMemory = !forceMemory },
+            onToggleMemory = {
+                if (memoryBlockingModeOn) {
+                    chatViewModel.clearChatMode()
+                    forceMemory = true
+                } else {
+                    forceMemory = !forceMemory
+                }
+            },
             onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t, forceMemory && memoryAvailable); forceMemory = false },
             onStop = {
                 // One Stop for both chat streams and Deep Research / Data Agent runs.
