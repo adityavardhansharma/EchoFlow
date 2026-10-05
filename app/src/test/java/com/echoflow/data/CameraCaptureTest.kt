@@ -15,11 +15,9 @@ import java.io.File
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CameraCaptureTest {
   private val context: Context = ApplicationProvider.getApplicationContext()
@@ -97,6 +95,7 @@ class CameraCaptureTest {
     val raw = CameraCapture.newRawFile(context)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GRAY) }
     raw.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+    bitmap.recycle()
     ExifInterface(raw.path).apply {
       setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
       setAttribute(ExifInterface.TAG_GPS_LATITUDE, "37/1,25/1,0/1")
@@ -127,11 +126,11 @@ class CameraCaptureTest {
 
   @Test
   fun largeRotatedShot_isCappedOnItsLongEdge_inPortrait() = runBlocking {
-    val stored = storedFile(CameraCapture.finish(context, rawPortraitShot(4000, 3000), saved = true))
+    val stored = storedFile(CameraCapture.finish(context, rawPortraitShot(2600, 1300), saved = true))
 
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(stored.path, bounds)
     assertEquals(2560, bounds.outHeight)
-    assertEquals(1920, bounds.outWidth)
+    assertEquals(1280, bounds.outWidth)
   }
 }
