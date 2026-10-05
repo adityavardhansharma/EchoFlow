@@ -20,9 +20,6 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import com.echoflow.ui.theme.rememberReducedMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -216,20 +213,14 @@ internal fun InputToolbar(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                var plusMenuOpen by remember { mutableStateOf(false) }
-                // A tool toggle plays its swap (the previous tool's chip and check animate off as the
-                // new one's animate on), then the menu closes itself. A second tap restarts the wait.
+                // A tool toggle plays its swap, then the menu closes itself ([PlusMenuState]).
                 val menuScope = rememberCoroutineScope()
                 val reducedMotion = rememberReducedMotion()
-                var autoClose by remember { mutableStateOf<Job?>(null) }
+                val plusMenu = remember(menuScope) { PlusMenuState(menuScope) }
                 val toggleThenClose: (() -> Unit) -> () -> Unit = { toggle ->
                     {
                         toggle()
-                        autoClose?.cancel()
-                        autoClose = menuScope.launch {
-                            if (!reducedMotion) delay(PLUS_MENU_SWAP_MS)
-                            plusMenuOpen = false
-                        }
+                        plusMenu.toolToggled(reducedMotion)
                     }
                 }
                 // Photos and Camera step aside once a turn holds as many photos as it can carry.
@@ -237,7 +228,7 @@ internal fun InputToolbar(
                     (!requireExtractedDocs || attachments.size < attachmentLimit)
                 Box {
                     ShapedIconButton(
-                        onClick = { autoClose?.cancel(); plusMenuOpen = true },
+                        onClick = plusMenu::open,
                         enabled = true,
                         size = 44.dp,
                         restShape = MaterialShapes.Cookie6Sided,
@@ -249,8 +240,8 @@ internal fun InputToolbar(
                     }
                     // Attach actions close the menu at once; tool toggles close it after the swap.
                     PlusMenu(
-                        expanded = plusMenuOpen,
-                        onDismiss = { plusMenuOpen = false },
+                        expanded = plusMenu.expanded,
+                        onDismiss = plusMenu::dismiss,
                         showImage = imageAttachEnabled && photoRoom,
                         showCamera = imageAttachEnabled && photoRoom && cameraAvailable,
                         showFiles = pdfAttachEnabled,
@@ -267,9 +258,9 @@ internal fun InputToolbar(
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         artifactOn = artifactActive,
-                        onCamera = { plusMenuOpen = false; onCamera() },
-                        onImage = { plusMenuOpen = false; onAttach() },
-                        onFiles = { plusMenuOpen = false; onAttachPdf() },
+                        onCamera = { plusMenu.dismiss(); onCamera() },
+                        onImage = { plusMenu.dismiss(); onAttach() },
+                        onFiles = { plusMenu.dismiss(); onAttachPdf() },
                         onToggleWebSearch = toggleThenClose(onToggleWebSearch),
                         onToggleDeepResearch = toggleThenClose(onToggleDeepResearch),
                         onToggleDataAgent = toggleThenClose(onToggleDataAgent),
@@ -359,5 +350,3 @@ internal fun InputToolbar(
     }
 }
 
-/** How long a tool swap stays on screen before the "+" menu closes: the chip spring has settled. */
-private const val PLUS_MENU_SWAP_MS = 420L

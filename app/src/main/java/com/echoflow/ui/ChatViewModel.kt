@@ -203,6 +203,8 @@ class ChatViewModel(
     private fun endModeWhenRunEnds(chatId: String, runId: String, mode: ChatMode) {
         viewModelScope.launch {
             researchRunDao.observeById(runId).first { it == null || it.isTerminal }
+            // Another run still going in this chat keeps the mode; its own watcher ends it.
+            if (researchRunDao.countActiveForChat(chatId) > 0) return@launch
             if (_currentChatThreadId.value == chatId) {
                 if (_chatMode.value == mode) setMode(ChatMode.Normal)
             } else if (chatModes.parked(chatId) == mode) {
@@ -1309,13 +1311,14 @@ class ChatViewModel(
             .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
         withContext(NonCancellable) {
             chatDao.deleteThread(thread)
-            chatModes.forget(thread.id)
             deleteUnreferencedCameraPhotos(cameraPhotos)
         }
         AppDatabase.getDatabase(getApplication()).memorySyncDao().remove(thread.id)
         if (_currentChatThreadId.value == thread.id) {
             selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
         }
+        // Only now: navigating away just parked this chat's mode, which must not outlive the chat.
+        chatModes.forget(thread.id)
     }
 
     /**
