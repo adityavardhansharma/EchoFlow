@@ -27,6 +27,7 @@ internal fun PlusMenuHarness(
   layoutDirection: LayoutDirection = LayoutDirection.Ltr,
   reducedMotion: Boolean? = null,
   anchorAlignment: Alignment = Alignment.BottomStart,
+  onCamera: () -> Unit = {},
 ) {
   val menu: @Composable () -> Unit = {
     Box(
@@ -62,7 +63,7 @@ internal fun PlusMenuHarness(
           browserFlowOn = false,
           browserFlowAvailable = true,
           artifactOn = true,
-          onCamera = {},
+          onCamera = onCamera,
           onImage = {},
           onFiles = {},
           onToggleWebSearch = {},
