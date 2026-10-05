@@ -20,6 +20,10 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.echoflow.ui.theme.rememberReducedMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -211,11 +215,26 @@ internal fun InputToolbar(
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
                 var plusMenuOpen by remember { mutableStateOf(false) }
+                // A tool toggle plays its swap (the previous tool's chip and check animate off as the
+                // new one's animate on), then the menu closes itself. A second tap restarts the wait.
+                val menuScope = rememberCoroutineScope()
+                val reducedMotion = rememberReducedMotion()
+                var autoClose by remember { mutableStateOf<Job?>(null) }
+                val toggleThenClose: (() -> Unit) -> () -> Unit = { toggle ->
+                    {
+                        toggle()
+                        autoClose?.cancel()
+                        autoClose = menuScope.launch {
+                            if (!reducedMotion) delay(PLUS_MENU_SWAP_MS)
+                            plusMenuOpen = false
+                        }
+                    }
+                }
                 // Photos and Camera step aside once a turn holds as many photos as it can carry.
                 val photoRoom = attachments.count { it.isImage } < com.echoflow.ui.PendingAttachmentPolicy.MAX_PHOTOS
                 Box {
                     ShapedIconButton(
-                        onClick = { plusMenuOpen = true },
+                        onClick = { autoClose?.cancel(); plusMenuOpen = true },
                         enabled = true,
                         size = 44.dp,
                         restShape = MaterialShapes.Cookie6Sided,
@@ -225,8 +244,7 @@ internal fun InputToolbar(
                     ) {
                         Icon(Icons.Default.Add, "Add context or capability", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
-                    // Attach actions close the menu; tool toggles keep it open so the swap is
-                    // visible: picking one tool turns the previous one off right there.
+                    // Attach actions close the menu at once; tool toggles close it after the swap.
                     PlusMenu(
                         expanded = plusMenuOpen,
                         onDismiss = { plusMenuOpen = false },
@@ -249,17 +267,17 @@ internal fun InputToolbar(
                         onCamera = { plusMenuOpen = false; onCamera() },
                         onImage = { plusMenuOpen = false; onAttach() },
                         onFiles = { plusMenuOpen = false; onAttachPdf() },
-                        onToggleWebSearch = onToggleWebSearch,
-                        onToggleDeepResearch = onToggleDeepResearch,
-                        onToggleDataAgent = onToggleDataAgent,
-                        onToggleEchoAdviser = onToggleEchoAdviser,
-                        onToggleEchoFusion = onToggleEchoFusion,
-                        onToggleEchoAgent = onToggleEchoAgent,
-                        onToggleBrowserFlow = onToggleBrowserFlow,
-                        onToggleArtifact = onToggleArtifact,
+                        onToggleWebSearch = toggleThenClose(onToggleWebSearch),
+                        onToggleDeepResearch = toggleThenClose(onToggleDeepResearch),
+                        onToggleDataAgent = toggleThenClose(onToggleDataAgent),
+                        onToggleEchoAdviser = toggleThenClose(onToggleEchoAdviser),
+                        onToggleEchoFusion = toggleThenClose(onToggleEchoFusion),
+                        onToggleEchoAgent = toggleThenClose(onToggleEchoAgent),
+                        onToggleBrowserFlow = toggleThenClose(onToggleBrowserFlow),
+                        onToggleArtifact = toggleThenClose(onToggleArtifact),
                         memoryAvailable = memoryAvailable,
                         memoryOn = memoryOn,
-                        onToggleMemory = onToggleMemory,
+                        onToggleMemory = toggleThenClose(onToggleMemory),
                     )
                 }
 
@@ -337,3 +355,6 @@ internal fun InputToolbar(
         }
     }
 }
+
+/** How long a tool swap stays on screen before the "+" menu closes: the chip spring has settled. */
+private const val PLUS_MENU_SWAP_MS = 420L
