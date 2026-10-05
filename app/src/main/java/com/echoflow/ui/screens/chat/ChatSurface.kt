@@ -593,10 +593,13 @@ internal fun ChatSurface(
             onRetryAttachment = { id -> chatViewModel.retryPendingAttachment(id) },
             onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onCamera = {
-                val raw = com.echoflow.data.CameraCapture.newRawFile(cameraContext)
-                cameraRawPath = raw.path
-                runCatching { cameraLauncher.launch(com.echoflow.data.CameraCapture.uriFor(cameraContext, raw)) }
-                    .onFailure { cameraRawPath = null; raw.delete() }
+                // One shot in flight at a time: a second launch would repoint the result at its file.
+                if (cameraRawPath == null) {
+                    val raw = com.echoflow.data.CameraCapture.newRawFile(cameraContext)
+                    cameraRawPath = raw.path
+                    runCatching { cameraLauncher.launch(com.echoflow.data.CameraCapture.uriFor(cameraContext, raw)) }
+                        .onFailure { cameraRawPath = null; raw.delete() }
+                }
             },
             cameraAvailable = cameraAvailable,
             onAttachPdf = {

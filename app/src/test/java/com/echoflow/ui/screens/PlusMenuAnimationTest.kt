@@ -10,8 +10,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.LayoutDirection
 import com.echoflow.ui.theme.EchoFlowTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -110,5 +112,19 @@ class PlusMenuAnimationTest {
     composeRule.waitForIdle()
     composeRule.onNodeWithTag("plus_menu_surface").assertIsDisplayed()
     composeRule.onNodeWithText("Camera").assertIsDisplayed()
+  }
+
+  @Test
+  fun cameraTile_tap_runsCameraAction() {
+    var cameraTaps = 0
+    composeRule.setContent {
+      EchoFlowTheme {
+        PlusMenuHarness(expanded = true, onCamera = { cameraTaps++ })
+      }
+    }
+
+    composeRule.waitForIdle()
+    composeRule.onNodeWithText("Camera").performClick()
+    composeRule.runOnIdle { assertEquals(1, cameraTaps) }
   }
 }
