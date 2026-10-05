@@ -53,25 +53,36 @@ internal object CameraCapture {
     fun uriFor(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 
+    /** What came of one trip to the camera app. */
+    sealed interface Outcome {
+        /** The chat's copy; share it with [uriFor]. */
+        data class Taken(val file: File) : Outcome
+        /** Cancelled, or a camera app that reports success but writes no bytes. Nothing to say. */
+        data object NoShot : Outcome
+        /** A shot was taken but could not be made safe to send (undecodable, or storage full). */
+        data object Failed : Outcome
+    }
+
     /**
-     * Turns a finished capture into the chat's copy and returns its URI, or null when nothing was
-     * taken (cancelled, or a camera app that reports success but writes no bytes). The raw shot is
-     * always deleted.
+     * Turns a finished capture into the chat's copy. Only the re-encoded copy is ever attached:
+     * re-encoding is what drops the metadata (GPS included), so a shot that can't be decoded or
+     * written is [Outcome.Failed], never sent as taken. The raw shot is always deleted.
      */
-    suspend fun finish(context: Context, raw: File, saved: Boolean): Uri? = withContext(Dispatchers.IO) {
+    suspend fun finish(context: Context, raw: File, saved: Boolean): Outcome = withContext(Dispatchers.IO) {
         try {
-            if (!saved || !raw.isFile || raw.length() == 0L) return@withContext null
+            if (!saved || !raw.isFile || raw.length() == 0L) return@withContext Outcome.NoShot
+            val bitmap = runCatching { decodeUpright(raw) }.getOrNull() ?: return@withContext Outcome.Failed
             val dir = File(context.filesDir, PHOTO_DIR).apply { mkdirs() }
             val out = File(dir, "photo_${System.currentTimeMillis()}.jpg")
-            val bitmap = runCatching { decodeUpright(raw) }.getOrNull()
-            if (bitmap != null) {
-                val ok = out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+            val ok = try {
+                runCatching {
+                    out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+                }.getOrDefault(false)
+            } finally {
                 bitmap.recycle()
-                if (!ok) out.delete()
             }
-            // Undecodable but sendable (an unusual format from some camera app): keep it as taken.
-            if (!out.isFile && raw.length() <= CappedAttachmentBytes.MAX_BYTES) raw.copyTo(out, overwrite = true)
-            if (out.isFile) uriFor(context, out) else null
+            if (ok && out.length() > 0L) Outcome.Taken(out)
+            else Outcome.Failed.also { out.delete() }
         } finally {
             raw.delete()
         }
@@ -80,20 +91,27 @@ internal object CameraCapture {
     /** Decodes at no more than [MAX_EDGE] on the long edge, with EXIF orientation applied. */
     private fun decodeUpright(file: File): Bitmap? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            // ImageDecoder samples while decoding and applies EXIF orientation itself.
-            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                val (w, h) = info.size.width to info.size.height
-                val scale = MAX_EDGE.toFloat() / max(w, h)
-                if (scale < 1f) decoder.setTargetSize((w * scale).roundToInt(), (h * scale).roundToInt())
+            // ImageDecoder applies EXIF orientation itself. It samples by a power of two rather than
+            // to a target size, which holds whichever way the frame is turned; the exact cap is
+            // applied after decoding.
+            val decoded = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                decoder.setTargetSampleSize(sampleFor(max(info.size.width, info.size.height)))
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
+            val scale = MAX_EDGE.toFloat() / max(decoded.width, decoded.height)
+            if (scale >= 1f) return decoded
+            return Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).roundToInt().coerceAtLeast(1),
+                (decoded.height * scale).roundToInt().coerceAtLeast(1),
+                true,
+            ).also { if (it !== decoded) decoded.recycle() }
         }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         val longEdge = max(bounds.outWidth, bounds.outHeight)
         if (longEdge <= 0) return null
-        var sample = 1
-        while (longEdge / (sample * 2) >= MAX_EDGE) sample *= 2
+        val sample = sampleFor(longEdge)
         val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
             ?: return null
         val matrix = Matrix()
@@ -111,5 +129,12 @@ internal object CameraCapture {
         if (matrix.isIdentity) return decoded
         return Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
             .also { if (it !== decoded) decoded.recycle() }
+    }
+
+    /** The largest power-of-two sample that keeps the long edge at or above [MAX_EDGE]. */
+    private fun sampleFor(longEdge: Int): Int {
+        var sample = 1
+        while (longEdge / (sample * 2) >= MAX_EDGE) sample *= 2
+        return sample
     }
 }

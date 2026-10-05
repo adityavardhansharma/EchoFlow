@@ -1146,8 +1146,13 @@ class ChatViewModel(
     /** Finishes a shot from the device camera app and stages it like a picked image. */
     fun attachCameraPhoto(raw: java.io.File, saved: Boolean) {
         viewModelScope.launch {
-            val uri = com.echoflow.data.CameraCapture.finish(getApplication(), raw, saved) ?: return@launch
-            setPendingAttachment(uri, "image/jpeg", "Photo")
+            when (val outcome = com.echoflow.data.CameraCapture.finish(getApplication(), raw, saved)) {
+                is com.echoflow.data.CameraCapture.Outcome.Taken -> setPendingAttachment(
+                    com.echoflow.data.CameraCapture.uriFor(getApplication(), outcome.file), "image/jpeg", "Photo",
+                )
+                com.echoflow.data.CameraCapture.Outcome.Failed -> _errorMessage.value = "Couldn't save that photo. Try taking it again."
+                com.echoflow.data.CameraCapture.Outcome.NoShot -> Unit
+            }
         }
     }
 
