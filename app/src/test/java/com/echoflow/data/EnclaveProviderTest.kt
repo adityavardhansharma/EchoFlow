@@ -2,6 +2,7 @@ package com.echoflow.data
 
 import com.echoflow.ui.CustomProviderModelCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,5 +28,12 @@ class EnclaveProviderTest {
 
     @Test fun `Enclave points at its OpenAI-compatible router`() {
         assertEquals("https://router.enclave.ai/v1", CustomProviderConfig.ENCLAVE_BASE_URL)
+    }
+
+    @Test fun `Enclave streams plainly so chat adds client search results itself`() {
+        assertFalse(CustomProviderCapabilities.hasNativeToolCalling("enclave"))
+        assertFalse(CustomProviderCapabilities.hasNativeToolCalling("cloudflare"))
+        assertTrue(CustomProviderCapabilities.hasNativeToolCalling("groq"))
+        assertTrue(CustomProviderCapabilities.hasNativeToolCalling("together"))
     }
 }

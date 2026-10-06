@@ -1679,8 +1679,7 @@ class ChatViewModel(
                 when (customProvider) {
                     "ollama" -> customProviderConfig.ollamaToolCallingEnabled
                     "openai-compatible" -> customProviderConfig.openAiCompatibleToolCallingEnabled
-                    "cloudflare" -> false // Workers AI tool calls work on only a few models
-                    else -> true // OpenAI / Claude / Gemini / Cerebras / xAI
+                    else -> CustomProviderCapabilities.hasNativeToolCalling(customProvider)
                 }
 
             // Echo Adviser / Echo Fusion: OpenRouter-only modes. Resolve the active profile/panel
