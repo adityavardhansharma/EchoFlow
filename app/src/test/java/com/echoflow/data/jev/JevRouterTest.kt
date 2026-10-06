@@ -24,6 +24,7 @@ class JevRouterTest {
         assertTrue(JevRouter.isCloudChat(isLocal = false, customProvider = "claude"))
         assertTrue(JevRouter.isCloudChat(isLocal = false, customProvider = "gemini"))
         assertTrue(JevRouter.isCloudChat(isLocal = false, customProvider = "sarvam"))
+        assertTrue(JevRouter.isCloudChat(isLocal = false, customProvider = "enclave"))
     }
 
     @Test fun `fixed thresholds are the agreed values`() {
