@@ -87,6 +87,12 @@ data class CustomProviderConfig(
     val togetherModel: String = "",
     val togetherModels: String = "",
     val togetherSelectedModels: String = "",
+    /** Enclave router: OpenAI-compatible gateway to open-weight models, incl. an `auto` router model. */
+    val enclaveEnabled: Boolean = false,
+    val enclaveApiKey: String = "",
+    val enclaveModel: String = "",
+    val enclaveModels: String = "",
+    val enclaveSelectedModels: String = "",
     val cloudflareEnabled: Boolean = false,
     val cloudflareApiKey: String = "",
     val cloudflareModel: String = "",
@@ -123,6 +129,8 @@ data class CustomProviderConfig(
         const val GROQ_BASE_URL = "https://api.groq.com/openai/v1"
         const val PREFIX_TOGETHER = "custom/together/"
         const val TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+        const val PREFIX_ENCLAVE = "custom/enclave/"
+        const val ENCLAVE_BASE_URL = "https://router.enclave.ai/v1"
         const val PREFIX_CLOUDFLARE = "custom/cloudflare/"
 
         fun cloudflareBaseUrl(accountId: String): String =
@@ -139,7 +147,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -197,7 +205,7 @@ object CustomProviderCapabilities {
     fun vercelSupportsPdfs(model: String): Boolean = false
 
     /**
-     * Groq, Together AI and Workers AI host open-weight models that are mostly text-only and
+     * Groq, Together AI, Enclave and Workers AI host open-weight models that are mostly text-only and
      * don't flag vision in their model lists, so images go only to known vision families.
      */
     fun openModelSupportsImages(model: String): Boolean {
@@ -604,6 +612,7 @@ class CustomProviderService(
                 CustomModelProvider.Groq -> fetchOpenAiStyleModels(CustomProviderConfig.GROQ_BASE_URL, apiKey)
                     .filterNot { id -> listOf("whisper", "tts", "orpheus", "playai").any { it in id.lowercase() } }
                 CustomModelProvider.Together -> fetchTogetherModels(apiKey)
+                CustomModelProvider.Enclave -> fetchOpenAiStyleModels(CustomProviderConfig.ENCLAVE_BASE_URL, apiKey)
                 CustomModelProvider.Cloudflare -> fetchCloudflareModels(baseUrl, apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)

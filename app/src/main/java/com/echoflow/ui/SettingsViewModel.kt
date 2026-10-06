@@ -410,6 +410,7 @@ class SettingsViewModel(
                     CustomModelProvider.Vercel -> customProviderService.fetchModels(provider, apiKey = config.vercelApiKey)
                     CustomModelProvider.Groq -> customProviderService.fetchModels(provider, apiKey = config.groqApiKey)
                     CustomModelProvider.Together -> customProviderService.fetchModels(provider, apiKey = config.togetherApiKey)
+                    CustomModelProvider.Enclave -> customProviderService.fetchModels(provider, apiKey = config.enclaveApiKey)
                     CustomModelProvider.Cloudflare -> customProviderService.fetchModels(
                         provider,
                         baseUrl = config.cloudflareBaseUrl,
@@ -434,6 +435,7 @@ class SettingsViewModel(
                         CustomModelProvider.Vercel -> config.copy(vercelModels = result.message)
                         CustomModelProvider.Groq -> config.copy(groqModels = result.message)
                         CustomModelProvider.Together -> config.copy(togetherModels = result.message)
+                        CustomModelProvider.Enclave -> config.copy(enclaveModels = result.message)
                         CustomModelProvider.Cloudflare -> config.copy(cloudflareModels = result.message)
                         CustomModelProvider.Deepgram -> config
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)

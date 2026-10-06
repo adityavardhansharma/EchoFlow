@@ -526,6 +526,11 @@ class SettingsRepository(context: Context) {
             togetherModel = prefs.getString("direct_together_model", "").orEmpty(),
             togetherModels = prefs.getString("direct_together_models", "").orEmpty(),
             togetherSelectedModels = prefs.getString("direct_together_selected_models", "").orEmpty(),
+            enclaveEnabled = prefs.getBoolean("direct_enclave_enabled", false),
+            enclaveApiKey = prefs.getString("direct_enclave_api_key", "").orEmpty(),
+            enclaveModel = prefs.getString("direct_enclave_model", "").orEmpty(),
+            enclaveModels = prefs.getString("direct_enclave_models", "").orEmpty(),
+            enclaveSelectedModels = prefs.getString("direct_enclave_selected_models", "").orEmpty(),
             cloudflareEnabled = prefs.getBoolean("direct_cloudflare_enabled", false),
             cloudflareApiKey = prefs.getString("direct_cloudflare_api_key", "").orEmpty(),
             cloudflareModel = prefs.getString("direct_cloudflare_model", "").orEmpty(),
@@ -570,6 +575,8 @@ class SettingsRepository(context: Context) {
             groqModel = config.groqModel.trim(),
             togetherApiKey = config.togetherApiKey.trim(),
             togetherModel = config.togetherModel.trim(),
+            enclaveApiKey = config.enclaveApiKey.trim(),
+            enclaveModel = config.enclaveModel.trim(),
             cloudflareApiKey = config.cloudflareApiKey.trim(),
             cloudflareModel = config.cloudflareModel.trim(),
             cloudflareAccountId = config.cloudflareAccountId.trim(),
@@ -630,6 +637,11 @@ class SettingsRepository(context: Context) {
             .putString("direct_together_model", clean.togetherModel)
             .putString("direct_together_models", clean.togetherModels)
             .putString("direct_together_selected_models", clean.togetherSelectedModels)
+            .putBoolean("direct_enclave_enabled", clean.enclaveEnabled)
+            .putString("direct_enclave_api_key", clean.enclaveApiKey)
+            .putString("direct_enclave_model", clean.enclaveModel)
+            .putString("direct_enclave_models", clean.enclaveModels)
+            .putString("direct_enclave_selected_models", clean.enclaveSelectedModels)
             .putBoolean("direct_cloudflare_enabled", clean.cloudflareEnabled)
             .putString("direct_cloudflare_api_key", clean.cloudflareApiKey)
             .putString("direct_cloudflare_model", clean.cloudflareModel)
