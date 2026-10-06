@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -88,6 +89,7 @@ import com.echoflow.data.FusionPanel
 import com.echoflow.data.ResearchRun
 import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatViewModel
+import com.echoflow.ui.PendingAttachmentPolicy
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.StreamSegment
 import com.echoflow.ui.components.AdvisorCard
@@ -216,10 +218,13 @@ internal fun ChatSurface(
     val memorySettings = remember { com.echoflow.data.memory.MemorySettings(chatViewModel.getApplication<android.app.Application>()) }
     val memoryPreferences by remember(memorySettings) { memorySettings.changes() }.collectAsState(initial = memorySettings.snapshot())
     var forceMemory by remember(currentThreadId, selectedModelID, memoryPreferences.generation) { mutableStateOf(false) }
-    val memoryAvailable = memoryPreferences.connected && memoryPreferences.recall &&
-        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal) &&
-        !deepResearchActive && !dataAgentActive && !browserFlowActive && !artifactActive &&
-        !echoAgentActive && !echoAdviserActive && !echoFusionActive
+    // Recall rides along with plain chat and Web search; every other mode replaces it. The "+" row
+    // stays offered either way, so picking Recall visibly turns such a mode off (and vice versa).
+    val memoryBlockingModeOn = deepResearchActive || dataAgentActive || browserFlowActive || artifactActive ||
+        echoAgentActive || echoAdviserActive || echoFusionActive
+    val memoryOffered = memoryPreferences.connected && memoryPreferences.recall &&
+        (!selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/ollama/") || memoryPreferences.allowLocal)
+    val memoryAvailable = memoryOffered && !memoryBlockingModeOn
     LaunchedEffect(memoryAvailable) { if (!memoryAvailable) forceMemory = false }
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
     val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()
@@ -332,6 +337,12 @@ internal fun ChatSurface(
     val selectedModelIsOpenRouter = remember(selectedModelID) {
         !selectedModelID.startsWith("local/") && !selectedModelID.startsWith("custom/")
     }
+    // Adviser and Agents need an OpenRouter cloud main model; Fusion runs its own cloud panel, so
+    // only a custom provider rules it out. Each is offered only where it can run, and an active one
+    // stays listed so it can still be turned off after a model switch.
+    val echoAdviserOffered = echoAdviserEnabled && (selectedModelIsOpenRouter || echoAdviserActive)
+    val echoAgentOffered = echoAgentEnabled && (selectedModelIsOpenRouter || echoAgentActive)
+    val echoFusionOffered = echoFusionEnabled && (!selectedModelID.startsWith("custom/") || echoFusionActive)
     val selectedModelUsesAnydocExtraction = remember(selectedModelID) {
         com.echoflow.data.extract.ModelFileCapability.extractsDocsLocally(selectedModelID)
     }
@@ -443,9 +454,29 @@ internal fun ChatSurface(
     }
     val localSendBlocked = selectedModelID.startsWith("local/") && anyLocalStreamActive && !isStreaming
 
+    // Photos: the system photo picker, several at once (no storage permission needed) — or just one
+    // on the local-files path, which sends a single photo.
+    val photoLimit = PendingAttachmentPolicy.photoLimit(localFilesAllowed = filesAttachAllowed)
     val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(PendingAttachmentPolicy.MAX_PHOTOS),
+        onResult = { uris -> chatViewModel.addPendingImages(uris, keepDocs = filesAttachAllowed) },
+    )
+    val singleImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> if (uri != null) chatViewModel.setPendingAttachment(uri) },
+        onResult = { uri -> if (uri != null) chatViewModel.addPendingImages(listOf(uri), keepDocs = filesAttachAllowed) },
+    )
+    // Camera: the device's own camera app (Samsung Camera, Pixel Camera, ...) via ACTION_IMAGE_CAPTURE,
+    // so every phone shoots with its native pipeline and no CAMERA permission is needed. The raw
+    // file's path is saveable so a result still lands if the camera app outlives our process.
+    val cameraContext = LocalContext.current
+    val cameraAvailable = remember { com.echoflow.data.CameraCapture.isAvailable(cameraContext) }
+    var cameraRawPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { saved ->
+            cameraRawPath?.let { chatViewModel.attachCameraPhoto(java.io.File(it), saved, keepDocs = filesAttachAllowed) }
+            cameraRawPath = null
+        },
     )
     val pdfPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -577,7 +608,21 @@ internal fun ChatSurface(
             attachmentLimit = com.echoflow.ui.ChatViewModel.MAX_MESSAGE_ATTACHMENTS,
             onRemoveAttachment = { id -> chatViewModel.removePendingAttachment(id) },
             onRetryAttachment = { id -> chatViewModel.retryPendingAttachment(id) },
-            onAttach = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            photoLimit = photoLimit,
+            onAttach = {
+                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                if (photoLimit > 1) imagePicker.launch(request) else singleImagePicker.launch(request)
+            },
+            onCamera = {
+                // One shot in flight at a time: a second launch would repoint the result at its file.
+                if (cameraRawPath == null) {
+                    val raw = com.echoflow.data.CameraCapture.newRawFile(cameraContext)
+                    cameraRawPath = raw.path
+                    runCatching { cameraLauncher.launch(com.echoflow.data.CameraCapture.uriFor(cameraContext, raw)) }
+                        .onFailure { cameraRawPath = null; raw.delete() }
+                }
+            },
+            cameraAvailable = cameraAvailable,
             onAttachPdf = {
                 if (filesAttachAllowed) docPicker.launch(DOC_ATTACH_MIME_TYPES)
                 else pdfPicker.launch(arrayOf("application/pdf"))
@@ -601,9 +646,9 @@ internal fun ChatSurface(
             onToggleEchoAdviser = { chatViewModel.toggleEchoAdviser() },
             onToggleEchoFusion = { chatViewModel.toggleEchoFusion() },
             onToggleEchoAgent = { chatViewModel.toggleEchoAgent() },
-            echoAdviserAvailable = echoAdviserEnabled,
-            echoFusionAvailable = echoFusionEnabled,
-            echoAgentAvailable = echoAgentEnabled,
+            echoAdviserAvailable = echoAdviserOffered,
+            echoFusionAvailable = echoFusionOffered,
+            echoAgentAvailable = echoAgentOffered,
             browserFlowActive = browserFlowActive,
             browserFlowAvailable = browserFlowAvailable,
             onToggleBrowserFlow = { chatViewModel.toggleBrowserFlow() },
@@ -632,9 +677,16 @@ internal fun ChatSurface(
                 localSendBlocked -> "On-device model is busy in another chat"
                 else -> null
             },
-            memoryAvailable = memoryAvailable,
+            memoryAvailable = memoryOffered,
             memoryOn = forceMemory && memoryAvailable,
-            onToggleMemory = { forceMemory = !forceMemory },
+            onToggleMemory = {
+                if (memoryBlockingModeOn) {
+                    chatViewModel.clearChatMode()
+                    forceMemory = true
+                } else {
+                    forceMemory = !forceMemory
+                }
+            },
             onSend = { val t = textInput; textInput = ""; chatViewModel.sendMessage(t, forceMemory && memoryAvailable); forceMemory = false },
             onStop = {
                 // One Stop for both chat streams and Deep Research / Data Agent runs.

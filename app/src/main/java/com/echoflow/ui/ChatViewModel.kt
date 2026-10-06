@@ -178,15 +178,43 @@ class ChatViewModel(
      * navigated since it began. Restoring reads the database, and a coroutine landing its
      * stale answer afterwards would show the wrong thread and file the next message into it.
      */
-    private fun openThread(chatId: String?) {
+    private val chatModes = com.echoflow.ui.chat.ChatModeMemory()
+
+    /**
+     * [carryMode]: the chat was just created from the blank composer, so it keeps the mode the
+     * user picked there instead of restoring one.
+     */
+    private fun openThread(chatId: String?, carryMode: Boolean = false) {
         navigation.navigated()
         leaveTemporaryChat(except = chatId)
+        _chatMode.value = chatModes.switch(_currentChatThreadId.value, _chatMode.value, chatId, carryMode)
         _currentChatThreadId.value = chatId
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
         applyModelForThread(chatId)
     }
+
+    /**
+     * One question, one run: once [runId] ends, [chatId] drops back to normal chat, so a follow-up
+     * ("thanks", "explain point 3") is not another paid run. The mode stays on while the run is
+     * going so the model pill keeps showing the research engine.
+     */
+    private fun endModeWhenRunEnds(chatId: String, runId: String, mode: ChatMode) {
+        viewModelScope.launch {
+            researchRunDao.observeById(runId).first { it == null || it.isTerminal }
+            // Another run still going in this chat keeps the mode; its own watcher ends it.
+            if (researchRunDao.countActiveForChat(chatId) > 0) return@launch
+            if (_currentChatThreadId.value == chatId) {
+                if (_chatMode.value == mode) setMode(ChatMode.Normal)
+            } else if (chatModes.parked(chatId) == mode) {
+                chatModes.forget(chatId)
+            }
+        }
+    }
+
+    /** Back to normal chat, whatever mode was on (Recall, which only runs there, asks for this). */
+    fun clearChatMode() = setMode(ChatMode.Normal)
 
     // ── Per-chat model ──────────────────────────────────────────────────────────────
 
@@ -1143,9 +1171,45 @@ class ChatViewModel(
     fun setPendingAttachment(uri: Uri, fallbackMimeType: String? = null, overrideName: String? = null) =
         attachments.setPendingAttachment(uri, fallbackMimeType, overrideName)
 
+    /** Finishes a shot from the device camera app and stages it like a picked image. */
+    fun attachCameraPhoto(raw: java.io.File, saved: Boolean, keepDocs: Boolean) {
+        viewModelScope.launch {
+            when (val outcome = com.echoflow.data.CameraCapture.finish(getApplication(), raw, saved)) {
+                is com.echoflow.data.CameraCapture.Outcome.Taken -> attachments.addPendingImages(
+                    listOf(com.echoflow.data.CameraCapture.uriFor(getApplication(), outcome.file)),
+                    keepDocs,
+                    overrideName = "Photo",
+                )
+                com.echoflow.data.CameraCapture.Outcome.Failed -> _errorMessage.value = "Couldn't save that photo. Try taking it again."
+                com.echoflow.data.CameraCapture.Outcome.NoShot -> Unit
+            }
+        }
+    }
+
+    /** Photos picked together from the Photos tile, added after any already staged. */
+    fun addPendingImages(uris: List<Uri>, keepDocs: Boolean) = attachments.addPendingImages(uris, keepDocs)
+
     fun addPendingDocs(uris: List<Uri>) = attachments.addPendingDocs(uris)
     fun retryPendingAttachment(id: String) = attachments.retryPendingAttachment(id)
-    fun removePendingAttachment(id: String) = attachments.removePendingAttachment(id)
+    fun removePendingAttachment(id: String) {
+        val removed = pendingAttachments.value.firstOrNull { it.id == id }
+        attachments.removePendingAttachment(id)
+        // A shot taken for this draft and then taken back out: delete it unless a sent message
+        // (an edited turn's original, say) still shows it.
+        val photo = removed?.let { com.echoflow.data.CameraCapture.photoFileFor(getApplication(), it.uri) } ?: return
+        viewModelScope.launch { withContext(NonCancellable) { deleteUnreferencedCameraPhotos(listOf(photo)) } }
+    }
+
+    /** Deletes [candidates] (and stale strays) that no message, run or staged chip still points at. */
+    private suspend fun deleteUnreferencedCameraPhotos(candidates: List<java.io.File>) {
+        val app = getApplication<Application>()
+        val staged = pendingAttachments.value
+            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
+            .toSet()
+        com.echoflow.data.CameraCapture.deleteUnreferenced(app, candidates, keep = staged) {
+            messageDao.cameraPhotoReferences()
+        }
+    }
 
     fun reconcilePendingAttachments(imageAllowed: Boolean, pdfAllowed: Boolean, localFilesAllowed: Boolean) =
         attachments.reconcilePendingAttachments(imageAllowed, pdfAllowed, localFilesAllowed)
@@ -1202,7 +1266,7 @@ class ChatViewModel(
      */
     private fun openNewThread(chatId: String) {
         val temporary = _temporaryArmed.value
-        openThread(chatId)
+        openThread(chatId, carryMode = true)
         if (!temporary) return
         _temporaryChatId.value = chatId
         temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, chatId).commit()
@@ -1239,11 +1303,22 @@ class ChatViewModel(
         // Media files live outside Room; remove them while their rows (and paths) still exist.
         generatedImageStore.deleteFilesForChat(thread.id)
         generatedVideoStore.deleteFilesForChat(thread.id)
-        chatDao.deleteThread(thread)
+        // Camera photos too: note this chat's before its rows go, delete them once they have.
+        // Uncancellable from here: once the rows are gone, nothing could find these photos again.
+        val app = getApplication<Application>()
+        val cameraPhotos = messageDao.getMessagesForChatSync(thread.id)
+            .flatMap { it.attachments }
+            .mapNotNull { com.echoflow.data.CameraCapture.photoFileFor(app, it.uri) }
+        withContext(NonCancellable) {
+            chatDao.deleteThread(thread)
+            deleteUnreferencedCameraPhotos(cameraPhotos)
+        }
         AppDatabase.getDatabase(getApplication()).memorySyncDao().remove(thread.id)
         if (_currentChatThreadId.value == thread.id) {
             selectThread(allThreads.value.firstOrNull { it.id != thread.id }?.id)
         }
+        // Only now: navigating away just parked this chat's mode, which must not outlive the chat.
+        chatModes.forget(thread.id)
     }
 
     /**
@@ -1830,6 +1905,9 @@ class ChatViewModel(
 
             // Load updated dialog history
             val fullHistory = chatRepository.history(chatId)
+            // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
+            // provider as extra image parts, on every user turn so earlier photos stay in context.
+            fullHistory.forEach { it.extraAttachments = it.extraPhotos() }
             if (activeProjectId != null &&
                 com.echoflow.data.extract.ModelFileCapability.readsFiles(selectedModel)
             ) {
@@ -1842,7 +1920,7 @@ class ChatViewModel(
                             name = doc.name,
                         )
                     }
-                fullHistory.lastOrNull { it.role == "user" }?.extraAttachments = extras
+                fullHistory.lastOrNull { it.role == "user" }?.let { it.extraAttachments = it.extraAttachments + extras }
             }
 
             // On-device history: fold each turn's parsed-doc Markdown into the content the local
@@ -2012,9 +2090,10 @@ class ChatViewModel(
                                     aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                                 ),
                                 editImageDataUrl = imageEditUrl,
-                                referenceImageDataUrls = listOfNotNull(
-                                    if (attachmentUri != null && !pendingIsPdf) attachmentAsDataUrl(attachmentUri) else null,
-                                ),
+                                // Every staged photo is a reference, not only the first.
+                                referenceImageDataUrls = stagedAttachments
+                                    .filter { it.isImage }
+                                    .mapNotNull { attachmentAsDataUrl(it.uri) },
                                 aspectRatio = settingsRepository.getImageAspectRatioDirect(),
                                 params = inferenceParams,
                             )
@@ -2563,9 +2642,10 @@ class ChatViewModel(
             )
             DeepResearchForegroundService.start(getApplication(), runId)
             clearPendingAttachment()
-            // Stay in Deep Research mode so the model pill keeps the research engine list until
-            // the user toggles the capability off. Exiting to Normal on send made the composer
-            // jump back to chat models mid-run, which reads as the wrong selector.
+            // Stay in Deep Research mode while the run is going so the model pill keeps the
+            // research engine list (exiting on send made the composer jump back to chat models
+            // mid-run), then drop back to normal chat once it ends.
+            endModeWhenRunEnds(chatId, runId, ChatMode.DeepResearch)
         }
     }
 
@@ -2670,6 +2750,7 @@ class ChatViewModel(
                 )
             )
             DeepResearchForegroundService.start(getApplication(), runId)
+            endModeWhenRunEnds(chatId, runId, ChatMode.DataAgent)
             // Stay in Data Agent mode for the same reason as Deep Research: the engine pill must
             // keep its agent list until the user turns the capability off.
         }

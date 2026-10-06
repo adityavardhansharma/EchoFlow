@@ -4,6 +4,18 @@
 package com.echoflow.ui.screens.chat
 
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
@@ -21,7 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -39,6 +53,7 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -48,6 +63,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -61,12 +78,22 @@ import androidx.compose.ui.window.PopupProperties
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
 
-/** The unified "+" menu: add context (image) or turn on a capability (search / research). */
+/**
+ * The unified "+" menu. Three kinds of choice, three treatments:
+ * - **Attach** (Camera, Photos, Files): one-shot actions, as large labelled tiles.
+ * - **Core tools** (Web search, Deep Research): plain rows.
+ * - **Echo Labs**: every experimental mode, mirroring Settings → Echo Labs, in its own tinted band
+ *   with its own (tertiary) accent so it keeps an identity of its own.
+ *
+ * "On" is deliberately small: the leading chip fills and rounds to a circle and a check draws in.
+ * Rows never fill, so the selected state reads the same whichever tool it lands on.
+ */
 @Composable
 internal fun PlusMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     showImage: Boolean,
+    showCamera: Boolean,
     showFiles: Boolean,
     webSearchOn: Boolean,
     deepResearchOn: Boolean,
@@ -81,6 +108,7 @@ internal fun PlusMenu(
     browserFlowOn: Boolean,
     browserFlowAvailable: Boolean,
     artifactOn: Boolean,
+    onCamera: () -> Unit,
     onImage: () -> Unit,
     onFiles: () -> Unit,
     onToggleWebSearch: () -> Unit,
@@ -141,7 +169,7 @@ internal fun PlusMenu(
         ) {
             val transition = updateTransition(motion, label = "plus-menu")
             val reducedMotion = rememberReducedMotion()
-            // Near-instant: a snappy pop in, a quicker fade out. Simple, the way a "+" menu should be.
+            // A springy bloom in (slight overshoot as it settles), a quicker plain fade out.
             val enterMs = if (reducedMotion) 0 else 115
             val exitMs = if (reducedMotion) 0 else 80
 
@@ -158,11 +186,14 @@ internal fun PlusMenu(
             )
             val scale by transition.animateFloat(
                 transitionSpec = {
-                    if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
-                    else tween(exitMs, easing = FastOutLinearInEasing)
+                    if (false isTransitioningTo true) {
+                        if (reducedMotion) snap() else spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+                    } else {
+                        tween(exitMs, easing = FastOutLinearInEasing)
+                    }
                 },
                 label = "scale",
-            ) { if (it) 1f else 0.9f }
+            ) { if (it) 1f else 0.86f }
             val alpha by transition.animateFloat(
                 transitionSpec = {
                     if (false isTransitioningTo true) tween(enterMs, easing = FastOutSlowInEasing)
@@ -174,7 +205,7 @@ internal fun PlusMenu(
             // Never taller than the window (compact/landscape/split-screen): cap the height and let
             // the rows scroll, so lower items like Echo Labs can't be pushed off-screen.
             val maxMenuHeight = (LocalConfiguration.current.screenHeightDp - 24).dp
-            val menuShape = RoundedCornerShape(22.dp)
+            val menuShape = RoundedCornerShape(28.dp)
             // Even, soft drop shadow. Android's native elevation *spot* shadow is directional — it
             // casts to one side depending on where the popup sits on screen, which looked lopsided
             // and harsh (a hard band down one edge). Instead draw a symmetric Gaussian shadow
@@ -193,13 +224,14 @@ internal fun PlusMenu(
                         clip = false
                     }
                     .padding(shadowPad)
-                    .softDropShadow(shadowColor, cornerRadius = 22.dp, blurRadius = shadowBlur, offsetY = shadowOffsetY),
+                    .softDropShadow(shadowColor, cornerRadius = 28.dp, blurRadius = shadowBlur, offsetY = shadowOffsetY),
             ) {
                 Surface(
                     shape = menuShape,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier
-                        .widthIn(max = 260.dp)
+                        .widthIn(max = 296.dp)
+                        .fillMaxWidth()
                         .testTag("plus_menu_surface")
                         .graphicsLayer { this.alpha = alpha },
                 ) {
@@ -207,42 +239,29 @@ internal fun PlusMenu(
                         Modifier
                             .heightIn(max = maxMenuHeight)
                             .verticalScroll(rememberScrollState())
-                            .padding(6.dp),
+                            .padding(Spacing.s),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s),
                     ) {
-                    if (showImage || showFiles) {
-                        MenuSectionLabel("Attach")
-                        if (showImage) {
-                            PlusMenuRow(Icons.Outlined.AddPhotoAlternate, "Image", on = null, onClick = onImage)
+                        if (showImage || showFiles) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                                if (showCamera) AttachTile(Icons.Outlined.PhotoCamera, "Camera", onCamera, Modifier.weight(1f))
+                                if (showImage) AttachTile(Icons.Outlined.PhotoLibrary, "Photos", onImage, Modifier.weight(1f))
+                                if (showFiles) AttachTile(Icons.Outlined.Description, "Files", onFiles, Modifier.weight(1f))
+                            }
                         }
-                        if (showFiles) {
-                            PlusMenuRow(Icons.Default.PictureAsPdf, "Files", on = null, onClick = onFiles)
+                        Column {
+                            PlusMenuRow(Icons.Default.TravelExplore, "Web search", webSearchOn, labs = false, onClick = onToggleWebSearch)
+                            PlusMenuRow(Icons.Default.Science, "Deep Research", deepResearchOn, labs = false, onClick = onToggleDeepResearch)
                         }
-                        PlusMenuDivider()
-                    }
-                    MenuSectionLabel("Capabilities")
-                    if (memoryAvailable) PlusMenuRow(Icons.Default.AutoAwesome, "Recall for next reply", on = memoryOn, onClick = onToggleMemory)
-                    PlusMenuRow(Icons.Default.TravelExplore, "Web search", on = webSearchOn, onClick = onToggleWebSearch)
-                    PlusMenuRow(Icons.Default.Science, "Deep Research", on = deepResearchOn, onClick = onToggleDeepResearch)
-                    PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", on = artifactOn, onClick = onToggleArtifact)
-                    if (dataAgentAvailable) {
-                        PlusMenuRow(Icons.Default.Dataset, "Data Agent", on = dataAgentOn, onClick = onToggleDataAgent)
-                    }
-                    if (browserFlowAvailable) {
-                        PlusMenuRow(Icons.Default.Language, "Browser Flow", on = browserFlowOn, onClick = onToggleBrowserFlow)
-                    }
-                    if (echoAdviserAvailable || echoFusionAvailable || echoAgentAvailable) {
-                        PlusMenuDivider()
-                        MenuSectionLabel("Echo Labs")
-                        if (echoAdviserAvailable) {
-                            PlusMenuRow(Icons.Default.Psychology, "Echo Adviser", on = echoAdviserOn, onClick = onToggleEchoAdviser)
+                        EchoLabsBand {
+                            if (dataAgentAvailable) PlusMenuRow(Icons.Default.Dataset, "Data Agent", dataAgentOn, labs = true, onClick = onToggleDataAgent)
+                            if (echoAdviserAvailable) PlusMenuRow(Icons.Default.Psychology, "Echo Adviser", echoAdviserOn, labs = true, onClick = onToggleEchoAdviser)
+                            if (echoFusionAvailable) PlusMenuRow(Icons.Default.AccountTree, "Echo Fusion", echoFusionOn, labs = true, onClick = onToggleEchoFusion)
+                            if (echoAgentAvailable) PlusMenuRow(Icons.Default.Hub, "Echo Agents", echoAgentOn, labs = true, onClick = onToggleEchoAgent)
+                            if (browserFlowAvailable) PlusMenuRow(Icons.Default.Language, "Browser Flow", browserFlowOn, labs = true, onClick = onToggleBrowserFlow)
+                            if (memoryAvailable) PlusMenuRow(Icons.Default.Memory, "Recall for next reply", memoryOn, labs = true, onClick = onToggleMemory)
+                            PlusMenuRow(Icons.Default.AutoAwesome, "Artifact", artifactOn, labs = true, onClick = onToggleArtifact)
                         }
-                        if (echoFusionAvailable) {
-                            PlusMenuRow(Icons.Default.AccountTree, "Echo Fusion", on = echoFusionOn, onClick = onToggleEchoFusion)
-                        }
-                        if (echoAgentAvailable) {
-                            PlusMenuRow(Icons.Default.Hub, "Echo Agents", on = echoAgentOn, onClick = onToggleEchoAgent)
-                        }
-                    }
                     }
                 }
             }
@@ -250,60 +269,116 @@ internal fun PlusMenu(
     }
 }
 
+/** A one-shot attach action: a large labelled tile, so it never reads like an on/off tool. */
+@Composable
+private fun AttachTile(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable(onClick = onClick)
+            .padding(top = Spacing.m + 2.dp, bottom = Spacing.m),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+    ) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** Echo Labs' own band: a faint tertiary tint and a header, so experimental modes read as a set. */
+@Composable
+private fun EchoLabsBand(content: @Composable ColumnScope.() -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(lerp(scheme.surfaceContainerHigh, scheme.tertiaryContainer, 0.38f))
+            .padding(Spacing.xs),
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.s + 2.dp, end = Spacing.s, top = Spacing.s, bottom = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            Icon(Icons.Default.AutoAwesome, contentDescription = null, Modifier.size(16.dp), tint = scheme.tertiary)
+            Text("Echo Labs", style = MaterialTheme.typography.titleSmall, color = scheme.onSurface, modifier = Modifier.weight(1f))
+            Text("Experimental", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+        }
+        content()
+    }
+}
+
 /**
- * One row of the "+" popup. [on] = null marks a one-shot action (Attach); a non-null value marks a
- * capability toggle, whose leading chip lifts to the accent and gains a trailing check when active.
+ * One tool row of the "+" popup. The row itself never fills: "on" lives in the leading chip, which
+ * fills with the accent (primary for core tools, tertiary for Echo Labs) and springs round, plus a
+ * trailing check.
  */
 @Composable
 private fun PlusMenuRow(
     icon: ImageVector,
     label: String,
-    on: Boolean?,
+    on: Boolean,
+    labs: Boolean,
     onClick: () -> Unit,
 ) {
-    val active = on == true
+    val scheme = MaterialTheme.colorScheme
+    val accent = if (labs) scheme.tertiary else scheme.primary
+    val onAccent = if (labs) scheme.onTertiary else scheme.onPrimary
+    val restChip = if (labs) lerp(scheme.surfaceContainerHigh, scheme.tertiaryContainer, 0.75f) else scheme.surfaceContainerHighest
+    val restContent = if (labs) scheme.onTertiaryContainer else scheme.onSurfaceVariant
+    val reducedMotion = rememberReducedMotion()
 
-    // Attach chips are a neutral tonal; an active capability lifts to the accent container.
-    val chipColor = when {
-        active -> MaterialTheme.colorScheme.primaryContainer
-        on == null -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
-    }
-    val chipContent = when {
-        active -> MaterialTheme.colorScheme.onPrimaryContainer
-        on == null -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val chipColor by animateColorAsState(if (on) accent else restChip, tween(if (reducedMotion) 0 else 180), label = "chip")
+    val chipContent by animateColorAsState(if (on) onAccent else restContent, tween(if (reducedMotion) 0 else 180), label = "chipContent")
+    val corner by animateDpAsState(
+        if (on) 16.dp else 11.dp,
+        if (reducedMotion) snap() else spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow),
+        label = "chipCorner",
+    )
 
-    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
-            .clickable(interactionSource = interaction, indication = ripple(), onClick = onClick)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .semantics { stateDescription = if (on) "On" else "Off" }
             .heightIn(min = 46.dp)
-            .padding(horizontal = Spacing.s, vertical = Spacing.xs),
+            .padding(start = Spacing.xs + 2.dp, end = Spacing.m),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
                 .size(32.dp)
-                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 8.dp, bottomStart = 8.dp, bottomEnd = 12.dp))
+                .clip(RoundedCornerShape(corner))
                 .background(chipColor),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, Modifier.size(17.dp), tint = chipContent)
+            Icon(icon, contentDescription = null, Modifier.size(18.dp), tint = chipContent)
         }
         Spacer(Modifier.width(Spacing.m))
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+            color = scheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        if (active) {
-            Icon(Icons.Default.Check, "On", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        AnimatedVisibility(
+            visible = on,
+            enter = if (reducedMotion) EnterTransition.None else scaleIn(spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) + fadeIn(),
+            exit = if (reducedMotion) ExitTransition.None else scaleOut() + fadeOut(),
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, Modifier.size(18.dp), tint = accent)
         }
     }
 }
@@ -344,15 +419,6 @@ private fun Modifier.softDropShadow(
             cornerRadius = CornerRadius(r + blurPx * 0.2f),
         )
     }
-}
-
-/** Hairline divider between "+" popup sections. */
-@Composable
-private fun PlusMenuDivider() {
-    HorizontalDivider(
-        Modifier.padding(horizontal = Spacing.s, vertical = Spacing.xs),
-        color = MaterialTheme.colorScheme.outlineVariant,
-    )
 }
 
 /**
@@ -405,15 +471,4 @@ internal class PlusMenuPositionProvider(
         }
         return IntOffset(x, y)
     }
-}
-
-/** A quiet header inside the "+" menu, so its two halves read as different kinds of choice. */
-@Composable
-private fun MenuSectionLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = Spacing.m, top = Spacing.s, bottom = Spacing.xs),
-    )
 }

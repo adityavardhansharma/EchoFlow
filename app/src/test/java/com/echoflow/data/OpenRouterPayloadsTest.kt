@@ -98,4 +98,28 @@ class OpenRouterPayloadsTest {
         localAttachmentMimeType = mime,
         localAttachmentName = name,
     )
+
+    @Test fun `a multi-photo turn sends every photo`() {
+        val photos = (1..4).map { MessageAttachment("content://media/$it", "image/jpeg", "p$it.jpg") }
+        val turn = message(role = "user", content = "compare these", uri = photos.first().uri, mime = "image/jpeg")
+            .copy(attachmentsJson = ToolEventJson.attachmentsToJson(photos))
+        turn.extraAttachments = turn.extraPhotos()
+
+        val parts = OpenRouterPayloads.messages(listOf(turn)) { uri -> uri?.let { "aW1n" } }.single()["content"] as List<*>
+
+        assertEquals(5, parts.size)
+        assertEquals(4, parts.count { (it as Map<*, *>)["type"] == "image_url" })
+    }
+
+    @Test fun `extraPhotos skips the legacy photo, documents and assistant turns`() {
+        val atts = listOf(
+            MessageAttachment("content://media/1", "image/jpeg", "a.jpg"),
+            MessageAttachment("content://media/2", "image/png", "b.png"),
+            MessageAttachment("content://docs/3", "application/pdf", "c.pdf"),
+        )
+        val user = message(role = "user", content = "x", uri = "content://media/1", mime = "image/jpeg")
+            .copy(attachmentsJson = ToolEventJson.attachmentsToJson(atts))
+        assertEquals(listOf("content://media/2"), user.extraPhotos().map { it.uri })
+        assertTrue(user.copy(role = "assistant").extraPhotos().isEmpty())
+    }
 }

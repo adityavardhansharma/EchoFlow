@@ -86,4 +86,24 @@ class PendingAttachmentPolicyTest {
         )
         assertFalse(PendingAttachmentPolicy.needsExtraction(image("pic")))
     }
+
+    @Test fun `cloud keeps up to four photos and drops a staged PDF`() {
+        val kept = PendingAttachmentPolicy.keep(
+            listOf(doc("brief"), image("a"), image("b"), image("c"), image("d"), image("e")),
+            imageAllowed = true,
+            pdfAllowed = true,
+            localFilesAllowed = false,
+        )
+        assertEquals(listOf("a", "b", "c", "d"), kept.map { it.id })
+    }
+
+    @Test fun `local keeps one photo beside its docs`() {
+        val kept = PendingAttachmentPolicy.keep(
+            listOf(image("a"), doc("brief"), image("b")),
+            imageAllowed = true,
+            pdfAllowed = false,
+            localFilesAllowed = true,
+        )
+        assertEquals(listOf("a", "brief"), kept.map { it.id })
+    }
 }

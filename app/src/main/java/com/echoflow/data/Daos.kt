@@ -136,6 +136,20 @@ interface MessageDao {
         if (oldAssistantId != null) deleteMessageById(oldAssistantId)
     }
 
+    /**
+     * Every attachment value (URI or attachments JSON) on a message or research run that points into
+     * stored chat photos, read in one go so a cleanup sweep checks all its files against one result.
+     * `instr`, not LIKE: the folder name contains `_`, a LIKE wildcard.
+     */
+    @Query(
+        """SELECT localAttachmentUri FROM chat_messages WHERE instr(IFNULL(localAttachmentUri, ''), 'camera_photos') > 0
+           UNION ALL
+           SELECT attachmentsJson FROM chat_messages WHERE instr(IFNULL(attachmentsJson, ''), 'camera_photos') > 0
+           UNION ALL
+           SELECT localAttachmentUri FROM research_runs WHERE instr(IFNULL(localAttachmentUri, ''), 'camera_photos') > 0"""
+    )
+    suspend fun cameraPhotoReferences(): List<String>
+
     @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
 

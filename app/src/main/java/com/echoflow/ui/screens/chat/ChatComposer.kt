@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
+import com.echoflow.ui.theme.rememberReducedMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,9 +39,14 @@ internal fun InputToolbar(
     onText: (String) -> Unit,
     attachments: List<com.echoflow.ui.PendingAttachment>,
     attachmentLimit: Int,
+    /** Photos this turn can carry ([com.echoflow.ui.PendingAttachmentPolicy.photoLimit]). */
+    photoLimit: Int = com.echoflow.ui.PendingAttachmentPolicy.MAX_PHOTOS,
     onRemoveAttachment: (String) -> Unit,
     onRetryAttachment: (String) -> Unit,
     onAttach: () -> Unit,
+    onCamera: () -> Unit,
+    /** A camera app answers ACTION_IMAGE_CAPTURE on this device. */
+    cameraAvailable: Boolean,
     onAttachPdf: () -> Unit,
     onReceiveImage: (Uri) -> Unit,
     imageAttachEnabled: Boolean,
@@ -207,10 +213,22 @@ internal fun InputToolbar(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                var plusMenuOpen by remember { mutableStateOf(false) }
+                // A tool toggle plays its swap, then the menu closes itself ([PlusMenuState]).
+                val menuScope = rememberCoroutineScope()
+                val reducedMotion = rememberReducedMotion()
+                val plusMenu = remember(menuScope) { PlusMenuState(menuScope) }
+                val toggleThenClose: (() -> Unit) -> () -> Unit = { toggle ->
+                    {
+                        toggle()
+                        plusMenu.toolToggled(reducedMotion)
+                    }
+                }
+                // Photos and Camera step aside once a turn holds as many photos as it can carry.
+                val photoRoom = attachments.count { it.isImage } < photoLimit &&
+                    (!requireExtractedDocs || attachments.size < attachmentLimit)
                 Box {
                     ShapedIconButton(
-                        onClick = { plusMenuOpen = true },
+                        onClick = plusMenu::open,
                         enabled = true,
                         size = 44.dp,
                         restShape = MaterialShapes.Cookie6Sided,
@@ -220,10 +238,12 @@ internal fun InputToolbar(
                     ) {
                         Icon(Icons.Default.Add, "Add context or capability", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
+                    // Attach actions close the menu at once; tool toggles close it after the swap.
                     PlusMenu(
-                        expanded = plusMenuOpen,
-                        onDismiss = { plusMenuOpen = false },
-                        showImage = imageAttachEnabled,
+                        expanded = plusMenu.expanded,
+                        onDismiss = plusMenu::dismiss,
+                        showImage = imageAttachEnabled && photoRoom,
+                        showCamera = imageAttachEnabled && photoRoom && cameraAvailable,
                         showFiles = pdfAttachEnabled,
                         webSearchOn = webSearchChipOn,
                         deepResearchOn = deepResearchActive,
@@ -238,19 +258,20 @@ internal fun InputToolbar(
                         browserFlowOn = browserFlowActive,
                         browserFlowAvailable = browserFlowAvailable,
                         artifactOn = artifactActive,
-                        onImage = { plusMenuOpen = false; onAttach() },
-                        onFiles = { plusMenuOpen = false; onAttachPdf() },
-                        onToggleWebSearch = { plusMenuOpen = false; onToggleWebSearch() },
-                        onToggleDeepResearch = { plusMenuOpen = false; onToggleDeepResearch() },
-                        onToggleDataAgent = { plusMenuOpen = false; onToggleDataAgent() },
-                        onToggleEchoAdviser = { plusMenuOpen = false; onToggleEchoAdviser() },
-                        onToggleEchoFusion = { plusMenuOpen = false; onToggleEchoFusion() },
-                        onToggleEchoAgent = { plusMenuOpen = false; onToggleEchoAgent() },
-                        onToggleBrowserFlow = { plusMenuOpen = false; onToggleBrowserFlow() },
-                        onToggleArtifact = { plusMenuOpen = false; onToggleArtifact() },
+                        onCamera = { plusMenu.dismiss(); onCamera() },
+                        onImage = { plusMenu.dismiss(); onAttach() },
+                        onFiles = { plusMenu.dismiss(); onAttachPdf() },
+                        onToggleWebSearch = toggleThenClose(onToggleWebSearch),
+                        onToggleDeepResearch = toggleThenClose(onToggleDeepResearch),
+                        onToggleDataAgent = toggleThenClose(onToggleDataAgent),
+                        onToggleEchoAdviser = toggleThenClose(onToggleEchoAdviser),
+                        onToggleEchoFusion = toggleThenClose(onToggleEchoFusion),
+                        onToggleEchoAgent = toggleThenClose(onToggleEchoAgent),
+                        onToggleBrowserFlow = toggleThenClose(onToggleBrowserFlow),
+                        onToggleArtifact = toggleThenClose(onToggleArtifact),
                         memoryAvailable = memoryAvailable,
                         memoryOn = memoryOn,
-                        onToggleMemory = { plusMenuOpen = false; onToggleMemory() },
+                        onToggleMemory = toggleThenClose(onToggleMemory),
                     )
                 }
 
@@ -328,3 +349,4 @@ internal fun InputToolbar(
         }
     }
 }
+

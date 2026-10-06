@@ -8,6 +8,7 @@ import com.echoflow.ui.PendingAttachment
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -63,7 +64,7 @@ class ChatAttachmentControllerTest {
         controller.restore(listOf(doc("one.pdf"), doc("two.pdf")), extractLocally = false)
         controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = true, localFilesAllowed = false)
         assertEquals(listOf("one.pdf"), controller.pendingAttachments.value.map { it.name })
-        assertEquals(listOf("Only one file can go with this model. Extra files were dropped."), errors)
+        assertEquals(listOf("This model takes up to 4 photos or one PDF. Extra files were dropped."), errors)
     }
 
     @Test fun `clearing the composer cancels in flight work and leaves no attachments`() = runTest {
@@ -98,6 +99,74 @@ class ChatAttachmentControllerTest {
 
         controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = true, localFilesAllowed = false)
         assertTrue(controller.pendingAttachments.value.isEmpty())
+        assertEquals(1, errors.size)
+    }
+
+    @Test fun `picked photos join staged ones up to four and the rest are reported`() = runTest {
+        val errors = mutableListOf<String>()
+        val controller = ChatAttachmentController(
+            app, backgroundScope, 3, errors::add, io = UnconfinedTestDispatcher(testScheduler),
+        ) { _, _ -> Result.Text("unused") }
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = false)
+        runCurrent()
+        controller.addPendingImages(
+            (2..5).map { android.net.Uri.parse("content://media/$it") } + android.net.Uri.parse("content://media/1"),
+            keepDocs = false,
+        )
+        runCurrent()
+        assertEquals(
+            (1..4).map { "content://media/$it" },
+            controller.pendingAttachments.value.map { it.uri },
+        )
+        assertTrue(controller.pendingAttachments.value.all { it.isImage })
+        assertEquals(listOf("Up to 4 photos per message. Extra photos were left out."), errors)
+    }
+
+    @Test fun `photos replace a staged cloud PDF but keep local docs`() = runTest {
+        val controller = ChatAttachmentController(
+            app, backgroundScope, 3, {}, io = UnconfinedTestDispatcher(testScheduler),
+        ) { _, _ -> Result.Text("text") }
+        controller.restore(listOf(doc("cloud.pdf")), extractLocally = false)
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = false)
+        runCurrent()
+        assertEquals(listOf("content://media/1"), controller.pendingAttachments.value.map { it.uri })
+
+        controller.restore(listOf(doc("local.pdf", text = "parsed")), extractLocally = false)
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/1")), keepDocs = true)
+        runCurrent()
+        assertEquals(2, controller.pendingAttachments.value.size)
+    }
+
+    @Test fun `the local files path takes one photo and stays within the attachment cap`() = runTest {
+        val errors = mutableListOf<String>()
+        val controller = ChatAttachmentController(
+            app, backgroundScope, 3, errors::add, io = UnconfinedTestDispatcher(testScheduler),
+        ) { _, _ -> Result.Text("text") }
+        controller.restore(listOf(doc("a.pdf", "a"), doc("b.pdf", "b")), extractLocally = false)
+        controller.addPendingImages((1..4).map { android.net.Uri.parse("content://media/$it") }, keepDocs = true)
+        runCurrent()
+        assertEquals(
+            listOf("content://docs/a.pdf", "content://docs/b.pdf", "content://media/1"),
+            controller.pendingAttachments.value.map { it.uri },
+        )
+        assertEquals(listOf("This model takes one photo per message. Extra photos were left out."), errors)
+
+        // Full: nothing more fits, even as the only photo.
+        controller.restore(listOf(doc("a.pdf", "a"), doc("b.pdf", "b"), doc("c.pdf", "c")), extractLocally = false)
+        controller.addPendingImages(listOf(android.net.Uri.parse("content://media/9")), keepDocs = true)
+        runCurrent()
+        assertTrue(controller.pendingAttachments.value.none { it.isImage })
+    }
+
+    @Test fun `switching to the local path keeps one photo and says so`() = runTest {
+        val errors = mutableListOf<String>()
+        val controller = ChatAttachmentController(
+            app, backgroundScope, 3, errors::add, io = UnconfinedTestDispatcher(testScheduler),
+        ) { _, _ -> Result.Text("text") }
+        controller.addPendingImages((1..3).map { android.net.Uri.parse("content://media/$it") }, keepDocs = false)
+        runCurrent()
+        controller.reconcilePendingAttachments(imageAllowed = true, pdfAllowed = false, localFilesAllowed = true)
+        assertEquals(listOf("content://media/1"), controller.pendingAttachments.value.map { it.uri })
         assertEquals(1, errors.size)
     }
 }
