@@ -171,7 +171,7 @@ internal fun PlusMenu(
             val reducedMotion = rememberReducedMotion()
             // A springy bloom in (slight overshoot as it settles), a quicker plain fade out.
             val enterMs = if (reducedMotion) 0 else 115
-            val exitMs = if (reducedMotion) 0 else 80
+            val exitMs = if (reducedMotion) 0 else PLUS_MENU_EXIT_MS
 
             // Grow out of the "+": scale + fade with the transform origin on the button. X is the
             // anchor's resolved position inside the popup (from the position provider, so on-screen
@@ -268,6 +268,9 @@ internal fun PlusMenu(
         }
     }
 }
+
+/** How long the menu's close takes; a tool pick is applied once it has played. */
+internal const val PLUS_MENU_EXIT_MS = 80
 
 /** A one-shot attach action: a large labelled tile, so it never reads like an on/off tool. */
 @Composable

@@ -2,49 +2,42 @@ package com.echoflow.ui.screens.chat
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlusMenuStateTest {
-    private val swap = PlusMenuState.PLUS_MENU_SWAP_MS
+    private val exit = PLUS_MENU_EXIT_MS.toLong()
 
-    @Test fun `a toggle closes the menu once the swap has played`() = runTest {
+    @Test fun `a pick closes the menu at once and lands after the exit`() = runTest {
         val menu = PlusMenuState(backgroundScope).apply { open() }
-        menu.toolToggled(reducedMotion = false)
-        advanceTimeBy(swap - 1)
-        assertTrue(menu.expanded)
+        var picks = 0
+        menu.pick(reducedMotion = false) { picks++ }
+        assertFalse(menu.expanded)
+        advanceTimeBy(exit - 1)
+        assertEquals(0, picks)
         advanceTimeBy(2)
-        assertFalse(menu.expanded)
+        assertEquals(1, picks)
     }
 
-    @Test fun `a second toggle restarts the wait`() = runTest {
+    @Test fun `a second pick while closing is ignored`() = runTest {
         val menu = PlusMenuState(backgroundScope).apply { open() }
-        menu.toolToggled(reducedMotion = false)
-        advanceTimeBy(swap - 100)
-        menu.toolToggled(reducedMotion = false)
-        advanceTimeBy(swap - 1)
-        assertTrue(menu.expanded)
-        advanceTimeBy(2)
-        assertFalse(menu.expanded)
+        var first = 0
+        var second = 0
+        menu.pick(reducedMotion = false) { first++ }
+        menu.pick(reducedMotion = false) { second++ }
+        advanceTimeBy(exit * 2)
+        assertEquals(1, first)
+        assertEquals(0, second)
     }
 
-    @Test fun `dismissing and reopening cancels a pending close`() = runTest {
+    @Test fun `reduced motion closes and picks at once`() = runTest {
         val menu = PlusMenuState(backgroundScope).apply { open() }
-        menu.toolToggled(reducedMotion = false)
-        menu.dismiss()
-        menu.open()
-        advanceTimeBy(swap * 2)
-        runCurrent()
-        assertTrue(menu.expanded)
-    }
-
-    @Test fun `reduced motion closes at once`() = runTest {
-        val menu = PlusMenuState(backgroundScope).apply { open() }
-        menu.toolToggled(reducedMotion = true)
+        var picks = 0
+        menu.pick(reducedMotion = true) { picks++ }
         assertFalse(menu.expanded)
+        assertEquals(1, picks)
     }
 }

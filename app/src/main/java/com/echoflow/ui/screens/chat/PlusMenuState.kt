@@ -4,48 +4,42 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Whether the composer's "+" menu is open, and the wait before it closes itself after a tool toggle:
- * the swap (the previous tool's chip and check animating off as the new one's animate on) plays
- * first. A second toggle restarts the wait; opening or dismissing the menu cancels it.
+ * Whether the composer's "+" menu is open. Picking a tool closes the menu at once and applies the
+ * pick only once the close has played, so the menu never re-lays itself out (tiles dropping, rows
+ * swapping) mid-exit and the composer's own reaction (pill, chips, placeholder) follows the close
+ * instead of colliding with it. The next open shows the new state.
  */
 internal class PlusMenuState(
     private val scope: CoroutineScope,
-    private val swapMs: Long = PLUS_MENU_SWAP_MS,
+    private val exitMs: Long = PLUS_MENU_EXIT_MS.toLong(),
 ) {
     var expanded by mutableStateOf(false)
         private set
-    private var autoClose: Job? = null
 
     fun open() {
-        autoClose?.cancel()
         expanded = true
     }
 
     fun dismiss() {
-        autoClose?.cancel()
         expanded = false
     }
 
-    /** A tool was toggled: close once its swap has played, or at once under reduced motion. */
-    fun toolToggled(reducedMotion: Boolean) {
-        autoClose?.cancel()
+    /** A tool was picked: close now, run [action] after the exit (at once under reduced motion). */
+    fun pick(reducedMotion: Boolean, action: () -> Unit) {
+        // A second tap while the menu is already closing is ignored, so only one pick lands.
+        if (!expanded) return
+        expanded = false
         if (reducedMotion) {
-            expanded = false
+            action()
             return
         }
-        autoClose = scope.launch {
-            delay(swapMs)
-            expanded = false
+        scope.launch {
+            delay(exitMs)
+            action()
         }
-    }
-
-    companion object {
-        /** How long a tool swap stays on screen before the menu closes: the chip spring has settled. */
-        const val PLUS_MENU_SWAP_MS = 420L
     }
 }

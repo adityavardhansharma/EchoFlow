@@ -213,15 +213,12 @@ internal fun InputToolbar(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                // A tool toggle plays its swap, then the menu closes itself ([PlusMenuState]).
+                // Picking a tool closes the menu, then applies the pick ([PlusMenuState]).
                 val menuScope = rememberCoroutineScope()
                 val reducedMotion = rememberReducedMotion()
                 val plusMenu = remember(menuScope) { PlusMenuState(menuScope) }
                 val toggleThenClose: (() -> Unit) -> () -> Unit = { toggle ->
-                    {
-                        toggle()
-                        plusMenu.toolToggled(reducedMotion)
-                    }
+                    { plusMenu.pick(reducedMotion, toggle) }
                 }
                 // Photos and Camera step aside once a turn holds as many photos as it can carry.
                 val photoRoom = attachments.count { it.isImage } < photoLimit &&
@@ -238,7 +235,7 @@ internal fun InputToolbar(
                     ) {
                         Icon(Icons.Default.Add, "Add context or capability", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
-                    // Attach actions close the menu at once; tool toggles close it after the swap.
+                    // Attach actions close the menu and open their picker; tool picks land after the close.
                     PlusMenu(
                         expanded = plusMenu.expanded,
                         onDismiss = plusMenu::dismiss,
