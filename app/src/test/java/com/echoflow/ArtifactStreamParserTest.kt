@@ -205,4 +205,11 @@ class ArtifactStreamParserTest {
         assertEquals("page", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
         assertEquals("\nbye", proseOf(out))
     }
+
+    @Test
+    fun `indent split from its fence still opens the artifact`() {
+        val out = run("Here.\n  ", "```html\n<p>x</p>\n  ```\nEnjoy")
+        assertEquals("<p>x</p>", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+        assertEquals("Here.\n  \nEnjoy", proseOf(out))
+    }
 }

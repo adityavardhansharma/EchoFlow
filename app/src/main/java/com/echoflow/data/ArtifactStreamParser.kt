@@ -53,7 +53,9 @@ class ArtifactStreamParser {
     private var ending = false                 // stream is over: an unterminated fence line counts
     private var codeOpener: String? = null     // CODE: opening fence line, held until the body shows it is not a sentinel
     private var codeAtLineStart = true         // CODE: [pending] starts at the beginning of a line
-    private var lastProseChar: Char? = null    // last character sent to the bubble; null before any
+    // Spaces shown so far on the current bubble line, or -1 once it has other text. A fence may
+    // only open after at most three of them, even when they arrived in an earlier chunk.
+    private var proseLineIndent = 0
     private var swallowCloseFence: String? = null // a sentinel came wrapped in a fence: drop that fence's close line
 
     fun onChunk(chunk: StreamChunk): List<StreamChunk> {
@@ -134,7 +136,7 @@ class ArtifactStreamParser {
         val text = pending
         val tagAt = text.indexOf(OPEN_PREFIX)
         // Fences only matter until the reply has its artifact; after that they are plain prose.
-        val fenceAt = if (sawArtifact) -1 else findFenceOpen(text, startsAtLine = lastProseChar == null || lastProseChar == '\n')
+        val fenceAt = if (sawArtifact) -1 else findFenceOpen(text, proseLineIndent)
         val useFence = fenceAt >= 0 && (tagAt < 0 || fenceAt < tagAt)
 
         if (useFence) {
@@ -268,7 +270,10 @@ class ArtifactStreamParser {
     private fun emitProse(out: MutableList<StreamChunk>, text: String) {
         if (text.isEmpty()) return
         out.add(StreamChunk.Content(text))
-        lastProseChar = text.last()
+        val nl = text.lastIndexOf('\n')
+        val tail = text.substring(nl + 1)
+        val base = if (nl >= 0) 0 else proseLineIndent
+        proseLineIndent = if (base >= 0 && tail.all { it == ' ' }) base + tail.length else -1
     }
 
     private fun emitBefore(index: Int, out: MutableList<StreamChunk>) {
@@ -377,7 +382,7 @@ class ArtifactStreamParser {
          * First fence opener that starts a line (after at most three spaces), as CommonMark
          * requires; backticks in the middle of a sentence are prose. -1 when there is none.
          */
-        private fun findFenceOpen(text: CharSequence, startsAtLine: Boolean): Int {
+        private fun findFenceOpen(text: CharSequence, leadIndent: Int): Int {
             var best = -1
             for (opener in FENCE_OPENERS) {
                 var from = 0
@@ -387,8 +392,9 @@ class ArtifactStreamParser {
                     from = p + 1
                     var i = p - 1
                     while (i >= 0 && text[i] == ' ') i--
-                    val atLineStart = if (i < 0) startsAtLine else text[i] == '\n'
-                    if (atLineStart && p - 1 - i <= 3) { best = p; break }
+                    val atLineStart = if (i < 0) leadIndent >= 0 else text[i] == '\n'
+                    val indent = p - 1 - i + if (i < 0) leadIndent else 0
+                    if (atLineStart && indent <= 3) { best = p; break }
                 }
             }
             return best
