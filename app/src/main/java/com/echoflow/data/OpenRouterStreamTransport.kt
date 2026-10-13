@@ -303,6 +303,10 @@ internal class OpenRouterStreamTransport(
             )
         }
 
+        // Tell downstream how the turn ended. Artifact mode uses this to recover a page a model
+        // sent as a tool call, and to say why a reply came back without one.
+        onChunk(StreamChunk.TurnEnded(finishReason, completedCalls.map { StreamChunk.ToolCallSummary(it.name, it.arguments) }))
+
         return OpenRouterService.TurnResult(
             content = contentBuf.toString(),
             reasoning = reasoningBuf.toString(),

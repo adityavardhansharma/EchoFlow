@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.squareup.moshi.Moshi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -20,7 +21,12 @@ import kotlinx.coroutines.flow.flow
  * chunk boundaries are handled with a holdback, and a stream that ends mid-artifact still emits a
  * (truncated) [ArtifactCompleted] so partial work is not lost.
  *
- * Non-content chunks (reasoning, search, …) pass through untouched.
+ * Not every model honours the sentinel, so until a reply has produced an artifact two fallbacks
+ * apply: a fenced html / markdown / latex code block is taken as the artifact, and when the stream
+ * ends with none, a page the model sent as a tool call (reported by [StreamChunk.TurnEnded]) is
+ * recovered. If even that finds nothing, a short note says why the reply has no artifact.
+ *
+ * Other non-content chunks (reasoning, search, …) pass through untouched.
  */
 fun Flow<StreamChunk>.extractArtifacts(): Flow<StreamChunk> = flow {
     val parser = ArtifactStreamParser()
@@ -30,19 +36,29 @@ fun Flow<StreamChunk>.extractArtifacts(): Flow<StreamChunk> = flow {
 
 class ArtifactStreamParser {
 
-    private enum class State { OUTSIDE, INSIDE }
+    // OUTSIDE: prose. CODE: inside a fenced block that is not an artifact (passes through).
+    // INSIDE: inside an artifact, closed by [closeMarker].
+    private enum class State { OUTSIDE, CODE, INSIDE }
 
     private var state = State.OUTSIDE
-    private var pending = StringBuilder()      // OUTSIDE text not yet decided
+    private var pending = StringBuilder()      // OUTSIDE/CODE text not yet decided
     private var artifactBuf = StringBuilder()  // INSIDE body accumulated so far
     private var startedEmitted = false
     private var title = ""
     private var type = Artifact.TYPE_HTML
+    private var closeMarker = CLOSE_TAG
+    private var sawArtifact = false            // any artifact started in this reply
+    private var lastTurn: StreamChunk.TurnEnded? = null
 
     fun onChunk(chunk: StreamChunk): List<StreamChunk> {
+        if (chunk is StreamChunk.TurnEnded) {
+            // Diagnostic only; the last one decides the fallback in [onComplete].
+            lastTurn = chunk
+            return emptyList()
+        }
         if (chunk !is StreamChunk.Content) return listOf(chunk)
         val out = mutableListOf<StreamChunk>()
-        if (state == State.OUTSIDE) pending.append(chunk.text) else artifactBuf.append(chunk.text)
+        if (state == State.INSIDE) artifactBuf.append(chunk.text) else pending.append(chunk.text)
         drain(out)
         return out
     }
@@ -50,7 +66,7 @@ class ArtifactStreamParser {
     fun onComplete(): List<StreamChunk> {
         val out = mutableListOf<StreamChunk>()
         when (state) {
-            State.OUTSIDE -> {
+            State.OUTSIDE, State.CODE -> {
                 // Flush any held-back tail (it never became an open tag).
                 if (pending.isNotEmpty()) {
                     out.add(StreamChunk.Content(pending.toString()))
@@ -59,15 +75,19 @@ class ArtifactStreamParser {
             }
             State.INSIDE -> {
                 // Stream ended without a closing tag — surface what we have, marked truncated.
-                out.add(
-                    StreamChunk.ArtifactCompleted(
-                        title = title,
-                        artifactType = type,
-                        content = artifactBuf.toString().trim(),
-                        truncated = true,
-                    )
-                )
+                out.add(completed(artifactBuf.toString(), truncated = true))
                 reset()
+            }
+        }
+        val turn = lastTurn
+        if (!sawArtifact && turn != null) {
+            val salvaged = turn.toolCalls.firstNotNullOfOrNull { artifactFromToolCall(it) }
+            if (salvaged != null) {
+                sawArtifact = true
+                out.add(StreamChunk.ArtifactStarted(salvaged.title, salvaged.artifactType))
+                out.add(salvaged)
+            } else {
+                out.add(StreamChunk.Content(missingArtifactNote(turn)))
             }
         }
         return out
@@ -78,67 +98,136 @@ class ArtifactStreamParser {
         var progressed = true
         while (progressed) {
             progressed = false
-            if (state == State.OUTSIDE) {
-                val text = pending
-                val openAt = text.indexOf(OPEN_PREFIX)
-                if (openAt >= 0) {
-                    // Need the whole opening tag (up to '>') before we can start the artifact.
-                    val gt = text.indexOf('>', openAt)
-                    if (gt < 0) {
-                        // Open tag still arriving — emit the prose before it, keep the rest.
-                        if (openAt > 0) {
-                            out.add(StreamChunk.Content(text.substring(0, openAt)))
-                            pending = StringBuilder(text.substring(openAt))
-                        }
-                        return
-                    }
-                    // Emit prose before the tag.
-                    if (openAt > 0) out.add(StreamChunk.Content(text.substring(0, openAt)))
-                    val openTag = text.substring(openAt, gt + 1)
-                    title = attr(openTag, "title")
-                    type = Artifact.normalizeType(attr(openTag, "type"))
-                    if (!startedEmitted) {
-                        out.add(StreamChunk.ArtifactStarted(title, type))
-                        startedEmitted = true
-                    }
-                    state = State.INSIDE
-                    artifactBuf = StringBuilder(text.substring(gt + 1))
-                    pending = StringBuilder()
-                    progressed = true
-                } else {
-                    // No open tag: emit everything except a tail that could be a partial open tag.
-                    val keep = partialSuffixLen(text, OPEN_PREFIX)
-                    val emitLen = text.length - keep
-                    if (emitLen > 0) {
-                        out.add(StreamChunk.Content(text.substring(0, emitLen)))
-                        pending = StringBuilder(text.substring(emitLen))
-                    }
-                    return
-                }
-            } else { // INSIDE
-                val body = artifactBuf
-                val closeAt = body.indexOf(CLOSE_TAG)
-                if (closeAt >= 0) {
-                    val content = body.substring(0, closeAt).trim()
-                    out.add(
-                        StreamChunk.ArtifactCompleted(
-                            title = title,
-                            artifactType = type,
-                            content = content,
-                        )
-                    )
-                    val rest = body.substring(closeAt + CLOSE_TAG.length)
-                    reset()
-                    pending = StringBuilder(rest)
-                    progressed = rest.isNotEmpty()
-                } else {
-                    // No close yet — report progress, but never let a partial close tag count.
-                    val keep = partialSuffixLen(body, CLOSE_TAG)
-                    out.add(StreamChunk.ArtifactProgress(body.length - keep))
-                    return
-                }
+            when (state) {
+                State.OUTSIDE -> progressed = drainOutside(out)
+                State.CODE -> progressed = drainCode(out)
+                State.INSIDE -> progressed = drainInside(out)
             }
         }
+    }
+
+    private fun drainOutside(out: MutableList<StreamChunk>): Boolean {
+        val text = pending
+        val tagAt = text.indexOf(OPEN_PREFIX)
+        // Fences only matter until the reply has its artifact; after that they are plain prose.
+        val fenceAt = if (sawArtifact) -1 else text.indexOf(FENCE)
+        val useFence = fenceAt >= 0 && (tagAt < 0 || fenceAt < tagAt)
+
+        if (useFence) {
+            // Need the whole info string (up to the newline) to know the fence's language.
+            val nl = text.indexOf('\n', fenceAt)
+            if (nl < 0) {
+                emitBefore(fenceAt, out)
+                return false
+            }
+            val lang = text.substring(fenceAt + FENCE.length, nl).trim().substringBefore(' ').lowercase()
+            if (lang in FENCE_ARTIFACT_LANGS) {
+                emitBefore(fenceAt, out)
+                startArtifact(title = "", rawType = lang, closeMarker = FENCE_CLOSE, out = out)
+                artifactBuf = StringBuilder(text.substring(nl + 1))
+                pending = StringBuilder()
+            } else {
+                // An ordinary code block: show it, and skip to its closing fence.
+                out.add(StreamChunk.Content(text.substring(0, nl + 1)))
+                pending = StringBuilder(text.substring(nl + 1))
+                state = State.CODE
+            }
+            return true
+        }
+
+        if (tagAt >= 0) {
+            // Need the whole opening tag (up to '>') before we can start the artifact.
+            val gt = text.indexOf('>', tagAt)
+            if (gt < 0) {
+                // Open tag still arriving — emit the prose before it, keep the rest.
+                emitBefore(tagAt, out)
+                return false
+            }
+            // Emit prose before the tag.
+            if (tagAt > 0) out.add(StreamChunk.Content(text.substring(0, tagAt)))
+            val openTag = text.substring(tagAt, gt + 1)
+            startArtifact(attr(openTag, "title"), attr(openTag, "type"), CLOSE_TAG, out)
+            artifactBuf = StringBuilder(text.substring(gt + 1))
+            pending = StringBuilder()
+            return true
+        }
+
+        // No marker: emit everything except a tail that could be a partial marker.
+        val keep = maxOf(
+            partialSuffixLen(text, OPEN_PREFIX),
+            if (sawArtifact) 0 else partialSuffixLen(text, FENCE),
+        )
+        val emitLen = text.length - keep
+        if (emitLen > 0) {
+            out.add(StreamChunk.Content(text.substring(0, emitLen)))
+            pending = StringBuilder(text.substring(emitLen))
+        }
+        return false
+    }
+
+    private fun drainCode(out: MutableList<StreamChunk>): Boolean {
+        val text = pending
+        val closeAt = text.indexOf(FENCE)
+        if (closeAt >= 0) {
+            val end = closeAt + FENCE.length
+            out.add(StreamChunk.Content(text.substring(0, end)))
+            pending = StringBuilder(text.substring(end))
+            state = State.OUTSIDE
+            return true
+        }
+        val keep = partialSuffixLen(text, FENCE)
+        val emitLen = text.length - keep
+        if (emitLen > 0) {
+            out.add(StreamChunk.Content(text.substring(0, emitLen)))
+            pending = StringBuilder(text.substring(emitLen))
+        }
+        return false
+    }
+
+    private fun drainInside(out: MutableList<StreamChunk>): Boolean {
+        val body = artifactBuf
+        val closeAt = body.indexOf(closeMarker)
+        if (closeAt >= 0) {
+            out.add(completed(body.substring(0, closeAt), truncated = false))
+            val rest = body.substring(closeAt + closeMarker.length)
+            reset()
+            pending = StringBuilder(rest)
+            return rest.isNotEmpty()
+        }
+        // No close yet — report progress, but never let a partial close tag count.
+        val keep = partialSuffixLen(body, closeMarker)
+        out.add(StreamChunk.ArtifactProgress(body.length - keep))
+        return false
+    }
+
+    private fun emitBefore(index: Int, out: MutableList<StreamChunk>) {
+        if (index > 0) {
+            out.add(StreamChunk.Content(pending.substring(0, index)))
+            pending = StringBuilder(pending.substring(index))
+        }
+    }
+
+    private fun startArtifact(title: String, rawType: String, closeMarker: String, out: MutableList<StreamChunk>) {
+        this.title = title
+        this.type = Artifact.normalizeType(rawType)
+        this.closeMarker = closeMarker
+        if (!startedEmitted) {
+            out.add(StreamChunk.ArtifactStarted(this.title, this.type))
+            startedEmitted = true
+        }
+        sawArtifact = true
+        state = State.INSIDE
+    }
+
+    /** Builds the completed chunk, unwrapping a sentinel block a model put inside a code fence. */
+    private fun completed(raw: String, truncated: Boolean): StreamChunk.ArtifactCompleted {
+        val unwrapped = unwrapSentinel(raw)
+        return StreamChunk.ArtifactCompleted(
+            title = unwrapped?.title?.ifBlank { null } ?: title,
+            artifactType = unwrapped?.artifactType ?: type,
+            content = (unwrapped?.content ?: raw).trim(),
+            truncated = truncated,
+        )
     }
 
     private fun reset() {
@@ -147,17 +236,96 @@ class ArtifactStreamParser {
         startedEmitted = false
         title = ""
         type = Artifact.TYPE_HTML
+        closeMarker = CLOSE_TAG
     }
 
     companion object {
         private const val OPEN_PREFIX = "<echo:artifact"
         private const val CLOSE_TAG = "</echo:artifact>"
+        private const val FENCE = "```"
+        private const val FENCE_CLOSE = "\n```"
+        private val FENCE_ARTIFACT_LANGS = setOf("html", "htm", "markdown", "md", "latex", "tex")
+        private val SEARCH_TOOL_NAMES = listOf("web_search", "web_fetch", "search", "fetch")
 
         private val ATTR_RE = Regex("""(\w+)\s*=\s*"([^"]*)"""")
+        private val dynamicAdapter = Moshi.Builder().build().adapter(Any::class.java)
 
         private fun attr(tag: String, name: String): String =
             ATTR_RE.findAll(tag).firstOrNull { it.groupValues[1].equals(name, ignoreCase = true) }
                 ?.groupValues?.get(2)?.trim().orEmpty()
+
+        /** If [raw] holds an `<echo:artifact>` block, returns its body with the tag's title/type. */
+        private fun unwrapSentinel(raw: String): StreamChunk.ArtifactCompleted? {
+            val open = raw.indexOf(OPEN_PREFIX)
+            if (open < 0) return null
+            val gt = raw.indexOf('>', open)
+            if (gt < 0) return null
+            val tag = raw.substring(open, gt + 1)
+            val body = raw.substring(gt + 1).substringBefore(CLOSE_TAG)
+            return StreamChunk.ArtifactCompleted(
+                title = attr(tag, "title"),
+                artifactType = Artifact.normalizeType(attr(tag, "type")),
+                content = body.trim(),
+            )
+        }
+
+        private fun looksLikeArtifact(text: String): Boolean {
+            val lower = text.lowercase()
+            return OPEN_PREFIX in lower || "<!doctype" in lower || "<html" in lower || "\\documentclass" in lower
+        }
+
+        /**
+         * Some models turn the sentinel block into a tool call instead of text. Recover the page
+         * from the call's arguments: JSON when it parses, otherwise the raw argument string.
+         */
+        internal fun artifactFromToolCall(call: StreamChunk.ToolCallSummary): StreamChunk.ArtifactCompleted? {
+            val name = call.name.lowercase()
+            if (SEARCH_TOOL_NAMES.any { it in name }) return null
+            val parsed = runCatching { dynamicAdapter.fromJson(call.arguments) }.getOrNull()
+            val map = parsed as? Map<*, *>
+            val candidate: String? = if (parsed != null) {
+                val strings = mutableListOf<String>()
+                collectStrings(parsed, strings)
+                strings.filter { looksLikeArtifact(it) }.maxByOrNull { it.length }
+            } else {
+                call.arguments.takeIf { looksLikeArtifact(it) }
+            }
+            val body = candidate ?: return null
+
+            unwrapSentinel(body)?.let { inner ->
+                return inner.copy(title = inner.title.ifBlank { (map?.get("title") as? String)?.trim().orEmpty() })
+            }
+            val rawType = (map?.get("type") as? String)
+                ?: if ("\\documentclass" in body) Artifact.TYPE_LATEX else Artifact.TYPE_HTML
+            return StreamChunk.ArtifactCompleted(
+                // Blank is fine: ArtifactManager keeps the existing title or picks a default.
+                title = (map?.get("title") as? String)?.trim().orEmpty(),
+                artifactType = Artifact.normalizeType(rawType),
+                content = body.trim(),
+            )
+        }
+
+        private fun collectStrings(node: Any?, into: MutableList<String>) {
+            when (node) {
+                is String -> into.add(node)
+                is Map<*, *> -> node.values.forEach { collectStrings(it, into) }
+                is List<*> -> node.forEach { collectStrings(it, into) }
+            }
+        }
+
+        /** Plain-language reason a reply came back without an artifact, from how the turn ended. */
+        internal fun missingArtifactNote(turn: StreamChunk.TurnEnded): String {
+            val toolNames = turn.toolCalls.map { it.name }
+                .filter { name -> SEARCH_TOOL_NAMES.none { it in name.lowercase() } }
+            val reason = when {
+                toolNames.isNotEmpty() -> "it called a tool (${toolNames.joinToString()}) instead of writing the artifact"
+                turn.finishReason == "length" -> "it hit the output token limit"
+                turn.finishReason == "content_filter" -> "a content filter stopped it"
+                turn.finishReason.isNullOrBlank() || turn.finishReason == "stop" -> "it finished without writing the artifact block"
+                else -> "it ended with \"${turn.finishReason}\""
+            }
+            return "\n\n_No artifact came back: $reason. Try again, or pick another model for artifacts._"
+        }
 
         /**
          * Length of the longest suffix of [text] that is a (proper) prefix of [marker]. Used to

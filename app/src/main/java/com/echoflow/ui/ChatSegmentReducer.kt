@@ -8,7 +8,7 @@ internal object ChatSegmentReducer {
     fun reduce(segments: MutableList<StreamSegment>, chunk: StreamChunk): String? {
         // The "deploying agents" banner is only a waiting indicator: clear it the moment any real
         // reply content (a delegation, reasoning, the answer, …) starts to arrive.
-        if (chunk !is StreamChunk.AgentRunStarted && chunk !is StreamChunk.StatusNote) {
+        if (chunk !is StreamChunk.AgentRunStarted && chunk !is StreamChunk.StatusNote && chunk !is StreamChunk.TurnEnded) {
             segments.removeAll { it is StreamSegment.AgentRun }
         }
         when (chunk) {
@@ -55,6 +55,7 @@ internal object ChatSegmentReducer {
             is StreamChunk.StatusNote -> {
                 return chunk.text
             }
+            is StreamChunk.TurnEnded -> Unit
             is StreamChunk.AdvisorStarted -> {
                 segments.add(
                     StreamSegment.Advisor(
