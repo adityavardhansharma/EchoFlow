@@ -144,4 +144,28 @@ class ArtifactStreamParserTest {
         val out = runWithTurn(StreamChunk.TurnEnded("stop", emptyList()), "<echo:artifact type=\"html\" title=\"P\">a</echo:artifact>")
         assertEquals("", proseOf(out))
     }
+
+    @Test
+    fun `longer fence keeps a nested code block inside the artifact`() {
+        val out = run("````markdown\n# Doc\n```kotlin\nval a = 1\n```\nend\n````\nbye")
+        val done = out.filterIsInstance<StreamChunk.ArtifactCompleted>().single()
+        assertEquals("# Doc\n```kotlin\nval a = 1\n```\nend", done.content)
+        assertEquals(Artifact.TYPE_MARKDOWN, done.artifactType)
+        assertEquals("\nbye", proseOf(out))
+    }
+
+    @Test
+    fun `tilde fences are recognised`() {
+        val out = run("~~~html\n<p>t</p>\n~~~")
+        assertEquals("<p>t</p>", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+    }
+
+    @Test
+    fun `declared tool call content is recovered without page markers`() {
+        val args = """{"type":"markdown","title":"Notes","content":"# Notes\nHello"}"""
+        val turn = StreamChunk.TurnEnded("tool_calls", listOf(StreamChunk.ToolCallSummary("create_artifact", args)))
+        val done = runWithTurn(turn, "Here.").filterIsInstance<StreamChunk.ArtifactCompleted>().single()
+        assertEquals("# Notes\nHello", done.content)
+        assertEquals(Artifact.TYPE_MARKDOWN, done.artifactType)
+    }
 }

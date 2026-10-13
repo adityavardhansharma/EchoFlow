@@ -47,8 +47,10 @@ class ArtifactStreamParser {
     private var title = ""
     private var type = Artifact.TYPE_HTML
     private var closeMarker = CLOSE_TAG
+    private var fenceMarker: String? = null     // INSIDE a fenced artifact, or CODE: the opener's run
     private var sawArtifact = false            // any artifact started in this reply
     private var lastTurn: StreamChunk.TurnEnded? = null
+    private var ending = false                 // stream is over: an unterminated fence line counts
 
     fun onChunk(chunk: StreamChunk): List<StreamChunk> {
         if (chunk is StreamChunk.TurnEnded) {
@@ -65,6 +67,11 @@ class ArtifactStreamParser {
 
     fun onComplete(): List<StreamChunk> {
         val out = mutableListOf<StreamChunk>()
+        // A closing fence may be the last line with no newline after it: end the line so it counts.
+        if (state == State.CODE || (state == State.INSIDE && fenceMarker != null)) {
+            ending = true
+            drain(out)
+        }
         when (state) {
             State.OUTSIDE, State.CODE -> {
                 // Flush any held-back tail (it never became an open tag).
@@ -110,7 +117,7 @@ class ArtifactStreamParser {
         val text = pending
         val tagAt = text.indexOf(OPEN_PREFIX)
         // Fences only matter until the reply has its artifact; after that they are plain prose.
-        val fenceAt = if (sawArtifact) -1 else text.indexOf(FENCE)
+        val fenceAt = if (sawArtifact) -1 else FENCE_OPENERS.map { text.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
         val useFence = fenceAt >= 0 && (tagAt < 0 || fenceAt < tagAt)
 
         if (useFence) {
@@ -120,16 +127,23 @@ class ArtifactStreamParser {
                 emitBefore(fenceAt, out)
                 return false
             }
-            val lang = text.substring(fenceAt + FENCE.length, nl).trim().substringBefore(' ').lowercase()
+            // The opener's character and run length decide which line can close it.
+            val fenceChar = text[fenceAt]
+            var runEnd = fenceAt
+            while (runEnd < nl && text[runEnd] == fenceChar) runEnd++
+            val marker = fenceChar.toString().repeat(runEnd - fenceAt)
+            val lang = text.substring(runEnd, nl).trim().substringBefore(' ').lowercase()
             if (lang in FENCE_ARTIFACT_LANGS) {
                 emitBefore(fenceAt, out)
-                startArtifact(title = "", rawType = lang, closeMarker = FENCE_CLOSE, out = out)
+                startArtifact(title = "", rawType = lang, closeMarker = marker, out = out)
+                fenceMarker = marker
                 artifactBuf = StringBuilder(text.substring(nl + 1))
                 pending = StringBuilder()
             } else {
                 // An ordinary code block: show it, and skip to its closing fence.
                 out.add(StreamChunk.Content(text.substring(0, nl + 1)))
                 pending = StringBuilder(text.substring(nl + 1))
+                fenceMarker = marker
                 state = State.CODE
             }
             return true
@@ -155,7 +169,7 @@ class ArtifactStreamParser {
         // No marker: emit everything except a tail that could be a partial marker.
         val keep = maxOf(
             partialSuffixLen(text, OPEN_PREFIX),
-            if (sawArtifact) 0 else partialSuffixLen(text, FENCE),
+            if (sawArtifact) 0 else FENCE_OPENERS.maxOf { partialSuffixLen(text, it) },
         )
         val emitLen = text.length - keep
         if (emitLen > 0) {
@@ -167,16 +181,18 @@ class ArtifactStreamParser {
 
     private fun drainCode(out: MutableList<StreamChunk>): Boolean {
         val text = pending
-        val closeAt = text.indexOf(FENCE)
-        if (closeAt >= 0) {
-            val end = closeAt + FENCE.length
+        val marker = fenceMarker ?: FENCE_OPENERS.first()
+        val close = findFenceClose(text, marker)
+        if (close != null && (close.lineEnd >= 0 || ending)) {
+            val end = if (close.lineEnd >= 0) close.lineEnd else text.length
             out.add(StreamChunk.Content(text.substring(0, end)))
             pending = StringBuilder(text.substring(end))
+            fenceMarker = null
             state = State.OUTSIDE
             return true
         }
-        val keep = partialSuffixLen(text, FENCE)
-        val emitLen = text.length - keep
+        // Hold back a line that may still turn into the closing fence.
+        val emitLen = close?.fenceStart ?: undecidedTailStart(text, marker[0])
         if (emitLen > 0) {
             out.add(StreamChunk.Content(text.substring(0, emitLen)))
             pending = StringBuilder(text.substring(emitLen))
@@ -186,6 +202,19 @@ class ArtifactStreamParser {
 
     private fun drainInside(out: MutableList<StreamChunk>): Boolean {
         val body = artifactBuf
+        val marker = fenceMarker
+        if (marker != null) {
+            val close = findFenceClose(body, marker)
+            if (close != null && (close.lineEnd >= 0 || ending)) {
+                out.add(completed(body.substring(0, close.contentEnd), truncated = false))
+                val rest = if (close.lineEnd >= 0) body.substring(close.lineEnd) else 
+                reset()
+                pending = StringBuilder(rest)
+                return rest.isNotEmpty()
+            }
+            out.add(StreamChunk.ArtifactProgress(close?.contentEnd ?: undecidedTailStart(body, marker[0])))
+            return false
+        }
         val closeAt = body.indexOf(closeMarker)
         if (closeAt >= 0) {
             out.add(completed(body.substring(0, closeAt), truncated = false))
@@ -237,14 +266,19 @@ class ArtifactStreamParser {
         title = ""
         type = Artifact.TYPE_HTML
         closeMarker = CLOSE_TAG
+        fenceMarker = null
     }
+
+    /** A closing fence line: body ends at [contentEnd], the fence starts at [fenceStart], and its
+     *  line ends at [lineEnd] (the newline's index), or -1 while the line is still arriving. */
+    private class FenceClose(val contentEnd: Int, val fenceStart: Int, val lineEnd: Int)
 
     companion object {
         private const val OPEN_PREFIX = "<echo:artifact"
         private const val CLOSE_TAG = "</echo:artifact>"
-        private const val FENCE = "```"
-        private const val FENCE_CLOSE = "\n```"
+        private val FENCE_OPENERS = listOf("```", "~~~")
         private val FENCE_ARTIFACT_LANGS = setOf("html", "htm", "markdown", "md", "latex", "tex")
+        private val ARTIFACT_BODY_KEYS = listOf("content", "body", "html", "markdown", "latex", "code", "text")
         private val SEARCH_TOOL_NAMES = listOf("web_search", "web_fetch", "search", "fetch")
 
         private val ATTR_RE = Regex("""(\w+)\s*=\s*"([^"]*)"""")
@@ -269,6 +303,34 @@ class ArtifactStreamParser {
             )
         }
 
+        /**
+         * Finds the line that closes a fence opened with [marker]: at a line start, the same
+         * character at least as many times, then only whitespace (CommonMark's rule). A shorter
+         * or info-bearing fence inside the block is content, not the close.
+         */
+        private fun findFenceClose(buf: CharSequence, marker: String): FenceClose? {
+            val fenceChar = marker[0]
+            var from = 0
+            while (true) {
+                val p = buf.indexOf(marker, from)
+                if (p < 0) return null
+                if (p > 0 && buf[p - 1] != '\n') { from = p + 1; continue }
+                var q = p + marker.length
+                while (q < buf.length && buf[q] == fenceChar) q++
+                val nl = buf.indexOf('\n', q)
+                val tail = if (nl < 0) buf.substring(q) else buf.substring(q, nl)
+                if (tail.isNotBlank()) { from = q; continue }
+                return FenceClose(contentEnd = maxOf(p - 1, 0), fenceStart = p, lineEnd = nl)
+            }
+        }
+
+        /** Start of a trailing partial line that could still become a fence (else the length). */
+        private fun undecidedTailStart(buf: CharSequence, fenceChar: Char): Int {
+            val lineStart = buf.lastIndexOf('\n') + 1
+            val tail = buf.substring(lineStart)
+            return if (tail.isEmpty() || tail.all { it == fenceChar }) lineStart else buf.length
+        }
+
         private fun looksLikeArtifact(text: String): Boolean {
             val lower = text.lowercase()
             return OPEN_PREFIX in lower || "<!doctype" in lower || "<html" in lower || "\\documentclass" in lower
@@ -283,7 +345,13 @@ class ArtifactStreamParser {
             if (SEARCH_TOOL_NAMES.any { it in name }) return null
             val parsed = runCatching { dynamicAdapter.fromJson(call.arguments) }.getOrNull()
             val map = parsed as? Map<*, *>
-            val candidate: String? = if (parsed != null) {
+            // An artifact-named call declares its body; take it as is, markers or not.
+            val declared = if (map != null && "artifact" in name) {
+                ARTIFACT_BODY_KEYS.firstNotNullOfOrNull { key -> (map[key] as? String)?.takeIf { it.isNotBlank() } }
+            } else null
+            val candidate: String? = if (declared != null) {
+                declared
+            } else if (parsed != null) {
                 val strings = mutableListOf<String>()
                 collectStrings(parsed, strings)
                 strings.filter { looksLikeArtifact(it) }.maxByOrNull { it.length }
