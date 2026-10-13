@@ -479,6 +479,8 @@ object SystemPrompts {
         - TYPE is one of: html, markdown, latex. Put NOTHING outside the tags except that one prose
           line before the opening tag. Do not describe the code, do not repeat it, do not add a
           closing remark after the closing tag. Always close the tag.
+        - The block is plain text in your visible reply. It is NOT a tool or function call: never
+          call a tool to produce it, and never leave it only in your reasoning.
         """.trimIndent()
 
     private fun artifactTypeGuidance(): String =

@@ -55,6 +55,15 @@ sealed class StreamChunk {
     /** The worker finished a delegated task. [result] carries the outcome (or an error). */
     data class SubagentResolved(val result: SubagentResult) : StreamChunk()
 
+    /**
+     * One provider turn finished. [finishReason] is the provider's raw value ("stop", "length",
+     * "tool_calls", …) and [toolCalls] every call the model made in that turn. Diagnostic only:
+     * the timeline ignores it; the artifact parser uses it to salvage or explain a missing artifact.
+     */
+    data class TurnEnded(val finishReason: String?, val toolCalls: List<ToolCallSummary>) : StreamChunk()
+
+    data class ToolCallSummary(val name: String, val arguments: String)
+
     // ── Artifacts (sentinel-delimited, extracted from the content stream) ────────────
     /** The model opened an artifact block; [title]/[artifactType] are known, body pending. */
     data class ArtifactStarted(val title: String, val artifactType: String) : StreamChunk()
