@@ -31,9 +31,9 @@ class ArtifactStreamParserTest {
         chunks.filterIsInstance<StreamChunk.Content>().joinToString("") { it.text }
 
     @Test
-    fun `prose without an artifact passes straight through`() {
+    fun `prose without an artifact passes through with a note`() {
         val out = run("Hello ", "world")
-        assertEquals("Hello world", proseOf(out))
+        assertTrue(proseOf(out).startsWith("Hello world\n\n_No artifact came back"))
         assertTrue(out.none { it is StreamChunk.ArtifactStarted })
     }
 
@@ -101,7 +101,7 @@ class ArtifactStreamParserTest {
     @Test
     fun `ordinary code fences pass through untouched`() {
         val out = run("Try:\n```kotlin\nval a = 1\n```\nok")
-        assertEquals("Try:\n```kotlin\nval a = 1\n```\nok", proseOf(out))
+        assertTrue(proseOf(out).startsWith("Try:\n```kotlin\nval a = 1\n```\nok\n\n_No artifact"))
         assertTrue(out.none { it is StreamChunk.ArtifactStarted })
     }
 
@@ -167,5 +167,28 @@ class ArtifactStreamParserTest {
         val done = runWithTurn(turn, "Here.").filterIsInstance<StreamChunk.ArtifactCompleted>().single()
         assertEquals("# Notes\nHello", done.content)
         assertEquals(Artifact.TYPE_MARKDOWN, done.artifactType)
+    }
+
+    @Test
+    fun `sentinel inside an unlabelled fence still becomes the artifact`() {
+        val out = run("Here.\n```\n<echo:artifact type=\"html\" title=\"P\">page</echo:artifact>\n```\nbye")
+        assertEquals("page", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+        assertEquals("Here.\n\nbye", proseOf(out))
+    }
+
+    @Test
+    fun `backticks mid-line across a chunk split do not close a code block`() {
+        val out = run("```kotlin\n// ", "```\nval x = 1\n```\n<echo:artifact type=\"html\">page</echo:artifact>")
+        assertEquals("page", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+        assertEquals("```kotlin\n// ```\nval x = 1\n```\n", proseOf(out))
+    }
+
+    @Test
+    fun `indented closing fence closes the artifact`() {
+        val out = run("  ```html\n<p>x</p>\n  ```\nEnjoy")
+        val done = out.filterIsInstance<StreamChunk.ArtifactCompleted>().single()
+        assertEquals("<p>x</p>", done.content)
+        assertTrue(!done.truncated)
+        assertEquals("  \nEnjoy", proseOf(out))
     }
 }

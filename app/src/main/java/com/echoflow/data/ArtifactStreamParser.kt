@@ -51,6 +51,9 @@ class ArtifactStreamParser {
     private var sawArtifact = false            // any artifact started in this reply
     private var lastTurn: StreamChunk.TurnEnded? = null
     private var ending = false                 // stream is over: an unterminated fence line counts
+    private var codeOpener: String? = null     // CODE: opening fence line, held until the body shows it is not a sentinel
+    private var codeAtLineStart = true         // CODE: [pending] starts at the beginning of a line
+    private var swallowCloseFence: String? = null // a sentinel came wrapped in a fence: drop that fence's close line
 
     fun onChunk(chunk: StreamChunk): List<StreamChunk> {
         if (chunk is StreamChunk.TurnEnded) {
@@ -68,10 +71,8 @@ class ArtifactStreamParser {
     fun onComplete(): List<StreamChunk> {
         val out = mutableListOf<StreamChunk>()
         // A closing fence may be the last line with no newline after it: end the line so it counts.
-        if (state == State.CODE || (state == State.INSIDE && fenceMarker != null)) {
-            ending = true
-            drain(out)
-        }
+        ending = true
+        drain(out)
         when (state) {
             State.OUTSIDE, State.CODE -> {
                 // Flush any held-back tail (it never became an open tag).
@@ -87,8 +88,9 @@ class ArtifactStreamParser {
             }
         }
         val turn = lastTurn
-        if (!sawArtifact && turn != null) {
-            val salvaged = turn.toolCalls.firstNotNullOfOrNull { artifactFromToolCall(it) }
+        if (!sawArtifact) {
+            // Only some transports report how the turn ended; without it there is nothing to salvage.
+            val salvaged = turn?.toolCalls?.firstNotNullOfOrNull { artifactFromToolCall(it) }
             if (salvaged != null) {
                 sawArtifact = true
                 out.add(StreamChunk.ArtifactStarted(salvaged.title, salvaged.artifactType))
@@ -114,6 +116,19 @@ class ArtifactStreamParser {
     }
 
     private fun drainOutside(out: MutableList<StreamChunk>): Boolean {
+        swallowCloseFence?.takeIf { sawArtifact }?.let { marker ->
+            // Once the wrapped sentinel block is done, drop the fence line that closed around it.
+            val lead = pending.indexOfFirst { !it.isWhitespace() }
+            if (lead < 0) return false.also { if (ending) swallowCloseFence = null }
+            val nl = pending.indexOf('\n', lead)
+            val line = if (nl < 0) pending.substring(lead) else pending.substring(lead, nl)
+            if (nl < 0 && !ending && marker.startsWith(line)) return false
+            swallowCloseFence = null
+            if (line.trimEnd().let { it.length >= marker.length && it.all { c -> c == marker[0] } }) {
+                pending = StringBuilder(if (nl < 0) "" else pending.substring(nl))
+                return pending.isNotEmpty()
+            }
+        }
         val text = pending
         val tagAt = text.indexOf(OPEN_PREFIX)
         // Fences only matter until the reply has its artifact; after that they are plain prose.
@@ -140,10 +155,13 @@ class ArtifactStreamParser {
                 artifactBuf = StringBuilder(text.substring(nl + 1))
                 pending = StringBuilder()
             } else {
-                // An ordinary code block: show it, and skip to its closing fence.
-                out.add(StreamChunk.Content(text.substring(0, nl + 1)))
+                // Another code block: skip to its closing fence. Its opening line waits until the
+                // body shows whether it only wraps a sentinel block.
+                emitBefore(fenceAt, out)
+                codeOpener = text.substring(fenceAt, nl + 1)
                 pending = StringBuilder(text.substring(nl + 1))
                 fenceMarker = marker
+                codeAtLineStart = true
                 state = State.CODE
             }
             return true
@@ -180,9 +198,23 @@ class ArtifactStreamParser {
     }
 
     private fun drainCode(out: MutableList<StreamChunk>): Boolean {
-        val text = pending
         val marker = fenceMarker ?: FENCE_OPENERS.first()
-        val close = findFenceClose(text, marker)
+        codeOpener?.let { opener ->
+            val lead = pending.trimStart().toString()
+            if (!sawArtifact && lead.startsWith(OPEN_PREFIX)) {
+                // The fence only wraps a sentinel block: parse the block, drop both fence lines.
+                codeOpener = null
+                fenceMarker = null
+                swallowCloseFence = marker
+                state = State.OUTSIDE
+                return true
+            }
+            if (!sawArtifact && !ending && OPEN_PREFIX.startsWith(lead)) return false
+            out.add(StreamChunk.Content(opener))
+            codeOpener = null
+        }
+        val text = pending
+        val close = findFenceClose(text, marker, codeAtLineStart)
         if (close != null && (close.lineEnd >= 0 || ending)) {
             val end = if (close.lineEnd >= 0) close.lineEnd else text.length
             out.add(StreamChunk.Content(text.substring(0, end)))
@@ -196,6 +228,7 @@ class ArtifactStreamParser {
         if (emitLen > 0) {
             out.add(StreamChunk.Content(text.substring(0, emitLen)))
             pending = StringBuilder(text.substring(emitLen))
+            codeAtLineStart = text[emitLen - 1] == '\n'
         }
         return false
     }
@@ -204,10 +237,11 @@ class ArtifactStreamParser {
         val body = artifactBuf
         val marker = fenceMarker
         if (marker != null) {
-            val close = findFenceClose(body, marker)
+            // The body starts right after the opening fence's newline and is never trimmed.
+            val close = findFenceClose(body, marker, startsAtLine = true)
             if (close != null && (close.lineEnd >= 0 || ending)) {
                 out.add(completed(body.substring(0, close.contentEnd), truncated = false))
-                val rest = if (close.lineEnd >= 0) body.substring(close.lineEnd) else 
+                val rest = if (close.lineEnd >= 0) body.substring(close.lineEnd) else ""
                 reset()
                 pending = StringBuilder(rest)
                 return rest.isNotEmpty()
@@ -267,6 +301,7 @@ class ArtifactStreamParser {
         type = Artifact.TYPE_HTML
         closeMarker = CLOSE_TAG
         fenceMarker = null
+        codeOpener = null
     }
 
     /** A closing fence line: body ends at [contentEnd], the fence starts at [fenceStart], and its
@@ -308,19 +343,25 @@ class ArtifactStreamParser {
          * character at least as many times, then only whitespace (CommonMark's rule). A shorter
          * or info-bearing fence inside the block is content, not the close.
          */
-        private fun findFenceClose(buf: CharSequence, marker: String): FenceClose? {
+        private fun findFenceClose(buf: CharSequence, marker: String, startsAtLine: Boolean): FenceClose? {
             val fenceChar = marker[0]
             var from = 0
             while (true) {
                 val p = buf.indexOf(marker, from)
                 if (p < 0) return null
-                if (p > 0 && buf[p - 1] != '\n') { from = p + 1; continue }
+                from = p + 1
+                // At most three spaces of indent, and a real line start before them.
+                var i = p - 1
+                while (i >= 0 && buf[i] == ' ') i--
+                val atLineStart = if (i < 0) startsAtLine else buf[i] == '\n'
+                if (!atLineStart || p - 1 - i > 3) continue
                 var q = p + marker.length
                 while (q < buf.length && buf[q] == fenceChar) q++
                 val nl = buf.indexOf('\n', q)
                 val tail = if (nl < 0) buf.substring(q) else buf.substring(q, nl)
-                if (tail.isNotBlank()) { from = q; continue }
-                return FenceClose(contentEnd = maxOf(p - 1, 0), fenceStart = p, lineEnd = nl)
+                if (tail.isNotBlank()) continue
+                val lineStart = i + 1
+                return FenceClose(contentEnd = maxOf(lineStart - 1, 0), fenceStart = lineStart, lineEnd = nl)
             }
         }
 
@@ -328,7 +369,9 @@ class ArtifactStreamParser {
         private fun undecidedTailStart(buf: CharSequence, fenceChar: Char): Int {
             val lineStart = buf.lastIndexOf('\n') + 1
             val tail = buf.substring(lineStart)
-            return if (tail.isEmpty() || tail.all { it == fenceChar }) lineStart else buf.length
+            val indent = tail.length - tail.trimStart(' ').length
+            val undecided = indent <= 3 && tail.substring(indent).all { it == fenceChar }
+            return if (undecided) lineStart else buf.length
         }
 
         private fun looksLikeArtifact(text: String): Boolean {
@@ -382,15 +425,15 @@ class ArtifactStreamParser {
         }
 
         /** Plain-language reason a reply came back without an artifact, from how the turn ended. */
-        internal fun missingArtifactNote(turn: StreamChunk.TurnEnded): String {
-            val toolNames = turn.toolCalls.map { it.name }
+        internal fun missingArtifactNote(turn: StreamChunk.TurnEnded?): String {
+            val toolNames = turn?.toolCalls.orEmpty().map { it.name }
                 .filter { name -> SEARCH_TOOL_NAMES.none { it in name.lowercase() } }
             val reason = when {
                 toolNames.isNotEmpty() -> "it called a tool (${toolNames.joinToString()}) instead of writing the artifact"
-                turn.finishReason == "length" -> "it hit the output token limit"
-                turn.finishReason == "content_filter" -> "a content filter stopped it"
-                turn.finishReason.isNullOrBlank() || turn.finishReason == "stop" -> "it finished without writing the artifact block"
-                else -> "it ended with \"${turn.finishReason}\""
+                turn?.finishReason == "length" -> "it hit the output token limit"
+                turn?.finishReason == "content_filter" -> "a content filter stopped it"
+                turn?.finishReason.isNullOrBlank() || turn?.finishReason == "stop" -> "it finished without writing the artifact block"
+                else -> "it ended with \"${turn?.finishReason}\""
             }
             return "\n\n_No artifact came back: $reason. Try again, or pick another model for artifacts._"
         }
