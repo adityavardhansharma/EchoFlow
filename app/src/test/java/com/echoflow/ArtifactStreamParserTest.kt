@@ -191,4 +191,18 @@ class ArtifactStreamParserTest {
         assertTrue(!done.truncated)
         assertEquals("  \nEnjoy", proseOf(out))
     }
+
+    @Test
+    fun `a fence in the middle of a sentence is prose`() {
+        val out = run("Wrap it between ```html and ``` markers.\n<echo:artifact type=\"html\">page</echo:artifact>")
+        assertEquals("page", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+        assertEquals("Wrap it between ```html and ``` markers.\n", proseOf(out))
+    }
+
+    @Test
+    fun `a long closing fence split across chunks is dropped whole`() {
+        val out = run("```\n<echo:artifact type=\"html\">page</echo:artifact>\n````", "``\nbye")
+        assertEquals("page", out.filterIsInstance<StreamChunk.ArtifactCompleted>().single().content)
+        assertEquals("\nbye", proseOf(out))
+    }
 }

@@ -53,6 +53,7 @@ class ArtifactStreamParser {
     private var ending = false                 // stream is over: an unterminated fence line counts
     private var codeOpener: String? = null     // CODE: opening fence line, held until the body shows it is not a sentinel
     private var codeAtLineStart = true         // CODE: [pending] starts at the beginning of a line
+    private var lastProseChar: Char? = null    // last character sent to the bubble; null before any
     private var swallowCloseFence: String? = null // a sentinel came wrapped in a fence: drop that fence's close line
 
     fun onChunk(chunk: StreamChunk): List<StreamChunk> {
@@ -77,7 +78,7 @@ class ArtifactStreamParser {
             State.OUTSIDE, State.CODE -> {
                 // Flush any held-back tail (it never became an open tag).
                 if (pending.isNotEmpty()) {
-                    out.add(StreamChunk.Content(pending.toString()))
+                    emitProse(out, pending.toString())
                     pending.clear()
                 }
             }
@@ -96,7 +97,7 @@ class ArtifactStreamParser {
                 out.add(StreamChunk.ArtifactStarted(salvaged.title, salvaged.artifactType))
                 out.add(salvaged)
             } else {
-                out.add(StreamChunk.Content(missingArtifactNote(turn)))
+                emitProse(out, missingArtifactNote(turn))
             }
         }
         return out
@@ -122,7 +123,8 @@ class ArtifactStreamParser {
             if (lead < 0) return false.also { if (ending) swallowCloseFence = null }
             val nl = pending.indexOf('\n', lead)
             val line = if (nl < 0) pending.substring(lead) else pending.substring(lead, nl)
-            if (nl < 0 && !ending && marker.startsWith(line)) return false
+            // Wait for the whole line: a closing fence may be longer than the opener.
+            if (nl < 0 && !ending && line.all { it == marker[0] }) return false
             swallowCloseFence = null
             if (line.trimEnd().let { it.length >= marker.length && it.all { c -> c == marker[0] } }) {
                 pending = StringBuilder(if (nl < 0) "" else pending.substring(nl))
@@ -132,7 +134,7 @@ class ArtifactStreamParser {
         val text = pending
         val tagAt = text.indexOf(OPEN_PREFIX)
         // Fences only matter until the reply has its artifact; after that they are plain prose.
-        val fenceAt = if (sawArtifact) -1 else FENCE_OPENERS.map { text.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
+        val fenceAt = if (sawArtifact) -1 else findFenceOpen(text, startsAtLine = lastProseChar == null || lastProseChar == '\n')
         val useFence = fenceAt >= 0 && (tagAt < 0 || fenceAt < tagAt)
 
         if (useFence) {
@@ -176,7 +178,7 @@ class ArtifactStreamParser {
                 return false
             }
             // Emit prose before the tag.
-            if (tagAt > 0) out.add(StreamChunk.Content(text.substring(0, tagAt)))
+            if (tagAt > 0) emitProse(out, text.substring(0, tagAt))
             val openTag = text.substring(tagAt, gt + 1)
             startArtifact(attr(openTag, "title"), attr(openTag, "type"), CLOSE_TAG, out)
             artifactBuf = StringBuilder(text.substring(gt + 1))
@@ -191,7 +193,7 @@ class ArtifactStreamParser {
         )
         val emitLen = text.length - keep
         if (emitLen > 0) {
-            out.add(StreamChunk.Content(text.substring(0, emitLen)))
+            emitProse(out, text.substring(0, emitLen))
             pending = StringBuilder(text.substring(emitLen))
         }
         return false
@@ -210,14 +212,14 @@ class ArtifactStreamParser {
                 return true
             }
             if (!sawArtifact && !ending && OPEN_PREFIX.startsWith(lead)) return false
-            out.add(StreamChunk.Content(opener))
+            emitProse(out, opener)
             codeOpener = null
         }
         val text = pending
         val close = findFenceClose(text, marker, codeAtLineStart)
         if (close != null && (close.lineEnd >= 0 || ending)) {
             val end = if (close.lineEnd >= 0) close.lineEnd else text.length
-            out.add(StreamChunk.Content(text.substring(0, end)))
+            emitProse(out, text.substring(0, end))
             pending = StringBuilder(text.substring(end))
             fenceMarker = null
             state = State.OUTSIDE
@@ -226,7 +228,7 @@ class ArtifactStreamParser {
         // Hold back a line that may still turn into the closing fence.
         val emitLen = close?.fenceStart ?: undecidedTailStart(text, marker[0])
         if (emitLen > 0) {
-            out.add(StreamChunk.Content(text.substring(0, emitLen)))
+            emitProse(out, text.substring(0, emitLen))
             pending = StringBuilder(text.substring(emitLen))
             codeAtLineStart = text[emitLen - 1] == '\n'
         }
@@ -263,9 +265,15 @@ class ArtifactStreamParser {
         return false
     }
 
+    private fun emitProse(out: MutableList<StreamChunk>, text: String) {
+        if (text.isEmpty()) return
+        out.add(StreamChunk.Content(text))
+        lastProseChar = text.last()
+    }
+
     private fun emitBefore(index: Int, out: MutableList<StreamChunk>) {
         if (index > 0) {
-            out.add(StreamChunk.Content(pending.substring(0, index)))
+            emitProse(out, pending.substring(0, index))
             pending = StringBuilder(pending.substring(index))
         }
     }
@@ -363,6 +371,27 @@ class ArtifactStreamParser {
                 val lineStart = i + 1
                 return FenceClose(contentEnd = maxOf(lineStart - 1, 0), fenceStart = lineStart, lineEnd = nl)
             }
+        }
+
+        /**
+         * First fence opener that starts a line (after at most three spaces), as CommonMark
+         * requires; backticks in the middle of a sentence are prose. -1 when there is none.
+         */
+        private fun findFenceOpen(text: CharSequence, startsAtLine: Boolean): Int {
+            var best = -1
+            for (opener in FENCE_OPENERS) {
+                var from = 0
+                while (true) {
+                    val p = text.indexOf(opener, from)
+                    if (p < 0 || (best in 0 until p)) break
+                    from = p + 1
+                    var i = p - 1
+                    while (i >= 0 && text[i] == ' ') i--
+                    val atLineStart = if (i < 0) startsAtLine else text[i] == '\n'
+                    if (atLineStart && p - 1 - i <= 3) { best = p; break }
+                }
+            }
+            return best
         }
 
         /** Start of a trailing partial line that could still become a fence (else the length). */
