@@ -48,13 +48,23 @@ class ProviderHttpSupportTest {
         )
     }
 
-    @Test fun `keeps only current chat models from the Gemini catalogue`() {
+    @Test fun `keeps new Gemini chat models and drops deprecated and non-chat ones`() {
         val body = """{"models":[
             {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent","countTokens"]},
             {"name":"models/gemini-2.5-flash","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-flash-latest","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-pro-latest","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-4-argon","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.8-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.1-pro-preview","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-9-flash-preview-01-2030","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.7-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.1-flash-lite","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.8-live","supportedGenerationMethods":["bidiGenerateContent"]},
+            {"name":"models/gemini-3.8-flash-tts","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-nano-banana-2.1","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.5-transcribe","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemma-3-27b-it","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-2.5-flash-preview-tts","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-2.5-flash-image","supportedGenerationMethods":["generateContent"]},
@@ -69,11 +79,14 @@ class ProviderHttpSupportTest {
             {"name":"models/gemini-2.0-flash","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-1.5-pro","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-2.5-flash-preview-09-2025","supportedGenerationMethods":["generateContent"]},
-            {"name":"models/gemini-exp-1206","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-2.5-flash-lite","description":"Deprecated: use gemini-flash-lite-latest.","supportedGenerationMethods":["generateContent"]}
         ],"nextPageToken":"abc"}"""
         assertEquals(
-            listOf("gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-pro-latest", "gemini-3-pro-preview", "gemma-3-27b-it"),
+            listOf(
+                "gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-pro-latest",
+                "gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-9-flash-preview-01-2030",
+                "gemma-3-27b-it",
+            ),
             ProviderHttpSupport.parseGeminiChatModelIds(body),
         )
         assertEquals("abc", ProviderHttpSupport.geminiNextPageToken(body))

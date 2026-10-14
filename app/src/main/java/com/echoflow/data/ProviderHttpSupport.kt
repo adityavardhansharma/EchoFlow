@@ -73,8 +73,8 @@ internal object ProviderHttpSupport {
 
     /**
      * Gemini's `/v1beta/models` lists every model the key can reach: embeddings, Imagen, Veo,
-     * Lyria music, TTS, Live/native-audio, image output, and retired or superseded snapshots.
-     * Keeps only current text chat models, without the `models/` prefix.
+     * Lyria music, TTS, Live/native-audio, image output, and deprecated or shut-down models.
+     * Keeps the text chat models that are still current, without the `models/` prefix.
      */
     fun parseGeminiChatModelIds(body: String): List<String> {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
@@ -97,27 +97,45 @@ internal object ProviderHttpSupport {
         return (map["nextPageToken"] as? String)?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * New models pass automatically; only non-chat families and models Google has deprecated or
+     * shut down are dropped. The API has no deprecation field, so [GEMINI_DEPRECATED_IDS] mirrors
+     * https://ai.google.dev/gemini-api/docs/deprecations and needs updating when Google adds to it.
+     */
     internal fun isGeminiChatModelId(id: String): Boolean {
         val lower = id.lowercase()
         if (GEMINI_NON_CHAT_MARKERS.any { it in lower }) return false
         if (GEMINI_RETIRED_PREFIXES.any { lower.startsWith(it) }) return false
-        // Dated previews (`-preview-09-2025`, `-preview-05-20`) are snapshots superseded by the
-        // stable or `-latest` id; experimental builds (`-exp`, `-exp-1206`) are rotated out.
-        if (GEMINI_DATED_SNAPSHOT.containsMatchIn(lower)) return false
-        if (GEMINI_EXPERIMENTAL.containsMatchIn(lower)) return false
+        if (lower in GEMINI_DEPRECATED_IDS) return false
         return true
     }
 
     private val GEMINI_NON_CHAT_MARKERS = listOf(
-        "embedding", "imagen", "veo-", "lyria", "tts", "native-audio", "-live", "-audio",
-        "-image", "aqa", "computer-use", "robotics", "deep-research",
+        "embedding", "imagen", "veo-", "lyria", "tts", "native-audio", "-live", "-audio", "transcribe",
+        "-image", "nano-banana", "omni", "aqa", "computer-use", "robotics", "deep-research", "antigravity",
     )
+
+    /** Whole generations Google has shut down. */
     private val GEMINI_RETIRED_PREFIXES = listOf(
-        "gemini-1.", "gemini-2.0", "gemini-pro-vision", "learnlm", "chat-bison", "text-bison",
+        "gemini-1.", "gemini-2.0-", "gemini-pro-vision", "learnlm", "chat-bison", "text-bison",
     )
     private val GEMINI_RETIRED_DESCRIPTION = listOf("deprecated", "discontinued", "will be retired", "shut down")
-    private val GEMINI_DATED_SNAPSHOT = Regex("""-preview-\d{2}-\d{2,4}$""")
-    private val GEMINI_EXPERIMENTAL = Regex("""(^|-)exp(-\d+)?$|-exp-""")
+
+    /** Chat models on Google's deprecations page: shut down, scheduled to shut down, or auto-routed. */
+    private val GEMINI_DEPRECATED_IDS = setOf(
+        "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-flash-preview-09-25",
+        "gemini-2.5-flash-preview-09-2025",
+        "gemini-2.5-flash-lite-preview-09-2025",
+        "gemini-2.5-pro-preview-03-25",
+        "gemini-2.5-pro-preview-05-06",
+        "gemini-2.5-pro-preview-06-05",
+        "gemini-3-pro-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-3.7-flash",
+    )
 
     /** Workers AI model search: `{"result":[{"name":"@cf/meta/llama-3.1-8b-instruct",…}]}`. */
     fun parseCloudflareModelNames(body: String): List<String> {
