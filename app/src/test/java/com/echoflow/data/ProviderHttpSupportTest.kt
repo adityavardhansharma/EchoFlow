@@ -48,7 +48,7 @@ class ProviderHttpSupportTest {
         )
     }
 
-    @Test fun `keeps new Gemini chat models and drops deprecated and non-chat ones`() {
+    @Test fun `keeps current Gemini series and newer chat models and drops older and non-chat ones`() {
         val body = """{"models":[
             {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent","countTokens"]},
             {"name":"models/gemini-2.5-flash","supportedGenerationMethods":["generateContent"]},
@@ -58,6 +58,10 @@ class ProviderHttpSupportTest {
             {"name":"models/gemini-3.8-flash","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.1-pro-preview","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-9-flash-preview-01-2030","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.10-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.8-flash-lite","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.6-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.5-flash-lite","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.7-flash","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.1-flash-lite","supportedGenerationMethods":["generateContent"]},
@@ -83,9 +87,8 @@ class ProviderHttpSupportTest {
         ],"nextPageToken":"abc"}"""
         assertEquals(
             listOf(
-                "gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-pro-latest",
-                "gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-9-flash-preview-01-2030",
-                "gemma-3-27b-it",
+                "gemini-flash-latest", "gemini-pro-latest", "gemini-4-argon", "gemini-3.8-flash",
+                "gemini-9-flash-preview-01-2030", "gemini-3.10-flash", "gemini-3.8-flash-lite", "gemma-3-27b-it",
             ),
             ProviderHttpSupport.parseGeminiChatModelIds(body),
         )
