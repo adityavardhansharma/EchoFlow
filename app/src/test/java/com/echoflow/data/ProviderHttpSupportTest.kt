@@ -89,7 +89,7 @@ class ProviderHttpSupportTest {
         assertEquals(
             listOf(
                 "gemini-flash-latest", "gemini-pro-latest", "gemini-4-argon", "gemini-3.8-flash",
-                "gemini-9-flash-preview-01-2030", "gemini-3.10-flash", "gemini-3.8-flash-lite", "gemini-3.7-flash-lite",
+                "gemini-9-flash-preview-01-2030", "gemini-3.10-flash", "gemini-3.8-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash-lite",
                 "gemini-3.7-flash", "gemma-3-27b-it",
             ),
             ProviderHttpSupport.parseGeminiChatModelIds(body),
