@@ -545,6 +545,11 @@ class SettingsRepository(context: Context) {
             enclaveModel = prefs.getString("direct_enclave_model", "").orEmpty(),
             enclaveModels = prefs.getString("direct_enclave_models", "").orEmpty(),
             enclaveSelectedModels = prefs.getString("direct_enclave_selected_models", "").orEmpty(),
+            experientialEnabled = prefs.getBoolean("direct_experiential_enabled", false),
+            experientialApiKey = prefs.getString("direct_experiential_api_key", "").orEmpty(),
+            experientialModel = prefs.getString("direct_experiential_model", "").orEmpty(),
+            experientialModels = prefs.getString("direct_experiential_models", "").orEmpty(),
+            experientialSelectedModels = prefs.getString("direct_experiential_selected_models", "").orEmpty(),
             cloudflareEnabled = prefs.getBoolean("direct_cloudflare_enabled", false),
             cloudflareApiKey = prefs.getString("direct_cloudflare_api_key", "").orEmpty(),
             cloudflareModel = prefs.getString("direct_cloudflare_model", "").orEmpty(),
@@ -591,6 +596,8 @@ class SettingsRepository(context: Context) {
             togetherModel = config.togetherModel.trim(),
             enclaveApiKey = config.enclaveApiKey.trim(),
             enclaveModel = config.enclaveModel.trim(),
+            experientialApiKey = config.experientialApiKey.trim(),
+            experientialModel = config.experientialModel.trim(),
             cloudflareApiKey = config.cloudflareApiKey.trim(),
             cloudflareModel = config.cloudflareModel.trim(),
             cloudflareAccountId = config.cloudflareAccountId.trim(),
@@ -656,6 +663,11 @@ class SettingsRepository(context: Context) {
             .putString("direct_enclave_model", clean.enclaveModel)
             .putString("direct_enclave_models", clean.enclaveModels)
             .putString("direct_enclave_selected_models", clean.enclaveSelectedModels)
+            .putBoolean("direct_experiential_enabled", clean.experientialEnabled)
+            .putString("direct_experiential_api_key", clean.experientialApiKey)
+            .putString("direct_experiential_model", clean.experientialModel)
+            .putString("direct_experiential_models", clean.experientialModels)
+            .putString("direct_experiential_selected_models", clean.experientialSelectedModels)
             .putBoolean("direct_cloudflare_enabled", clean.cloudflareEnabled)
             .putString("direct_cloudflare_api_key", clean.cloudflareApiKey)
             .putString("direct_cloudflare_model", clean.cloudflareModel)

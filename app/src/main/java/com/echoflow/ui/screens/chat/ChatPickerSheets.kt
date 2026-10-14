@@ -501,6 +501,7 @@ internal fun ModelRow(
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GROQ) -> "Groq"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_TOGETHER) -> "Together AI"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_ENCLAVE) -> "Enclave"
+        modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL) -> "Experiential Labs"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CLOUDFLARE) -> "Cloudflare Workers AI"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> "Ollama API"
         modelId.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "OpenAI-compatible API"

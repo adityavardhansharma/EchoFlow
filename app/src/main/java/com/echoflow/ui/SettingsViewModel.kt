@@ -413,6 +413,7 @@ class SettingsViewModel(
                     CustomModelProvider.Groq -> customProviderService.fetchModels(provider, apiKey = config.groqApiKey)
                     CustomModelProvider.Together -> customProviderService.fetchModels(provider, apiKey = config.togetherApiKey)
                     CustomModelProvider.Enclave -> customProviderService.fetchModels(provider, apiKey = config.enclaveApiKey)
+                    CustomModelProvider.Experiential -> customProviderService.fetchModels(provider, apiKey = config.experientialApiKey)
                     CustomModelProvider.Cloudflare -> customProviderService.fetchModels(
                         provider,
                         baseUrl = config.cloudflareBaseUrl,
@@ -438,6 +439,7 @@ class SettingsViewModel(
                         CustomModelProvider.Groq -> config.copy(groqModels = result.message)
                         CustomModelProvider.Together -> config.copy(togetherModels = result.message)
                         CustomModelProvider.Enclave -> config.copy(enclaveModels = result.message)
+                        CustomModelProvider.Experiential -> config.copy(experientialModels = result.message)
                         CustomModelProvider.Cloudflare -> config.copy(cloudflareModels = result.message)
                         CustomModelProvider.Deepgram -> config
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)

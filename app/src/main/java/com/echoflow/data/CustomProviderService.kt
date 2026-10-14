@@ -94,6 +94,12 @@ data class CustomProviderConfig(
     val enclaveModel: String = "",
     val enclaveModels: String = "",
     val enclaveSelectedModels: String = "",
+    /** Experiential Labs: OpenAI-compatible gateway with failover routes per model slug. */
+    val experientialEnabled: Boolean = false,
+    val experientialApiKey: String = "",
+    val experientialModel: String = "",
+    val experientialModels: String = "",
+    val experientialSelectedModels: String = "",
     val cloudflareEnabled: Boolean = false,
     val cloudflareApiKey: String = "",
     val cloudflareModel: String = "",
@@ -135,6 +141,8 @@ data class CustomProviderConfig(
         const val TOGETHER_BASE_URL = "https://api.together.xyz/v1"
         const val PREFIX_ENCLAVE = "custom/enclave/"
         const val ENCLAVE_BASE_URL = "https://router.enclave.ai/v1"
+        const val PREFIX_EXPERIENTIAL = "custom/experiential/"
+        const val EXPERIENTIAL_BASE_URL = "https://api.experientiallabs.ai/v1"
         const val PREFIX_CLOUDFLARE = "custom/cloudflare/"
 
         fun cloudflareBaseUrl(accountId: String): String =
@@ -151,7 +159,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Experiential, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -207,6 +215,9 @@ object CustomProviderCapabilities {
     fun vercelSupportsImages(model: String): Boolean = model.isNotBlank()
 
     fun vercelSupportsPdfs(model: String): Boolean = false
+
+    /** Experiential Labs is a gateway like Vercel: images go to any model, and a text-only route says so. */
+    fun experientialSupportsImages(model: String): Boolean = model.isNotBlank()
 
     /**
      * Groq, Together AI, Enclave and Workers AI host open-weight models that are mostly text-only and
@@ -629,6 +640,9 @@ class CustomProviderService(
                     .filterNot { id -> listOf("whisper", "tts", "orpheus", "playai").any { it in id.lowercase() } }
                 CustomModelProvider.Together -> fetchTogetherModels(apiKey)
                 CustomModelProvider.Enclave -> fetchOpenAiStyleModels(CustomProviderConfig.ENCLAVE_BASE_URL, apiKey)
+                // `/models` has no chat flag and also lists embedding and native-API models.
+                CustomModelProvider.Experiential -> fetchOpenAiStyleModels(CustomProviderConfig.EXPERIENTIAL_BASE_URL, apiKey)
+                    .filterNot { id -> listOf("embed", "rerank", "tts", "whisper", "transcribe", "jev").any { it in id.lowercase() } }
                 CustomModelProvider.Cloudflare -> fetchCloudflareModels(baseUrl, apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
