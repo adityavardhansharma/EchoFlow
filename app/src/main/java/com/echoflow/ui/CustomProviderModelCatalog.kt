@@ -19,6 +19,7 @@ internal object CustomProviderModelCatalog {
         addProvider(config.cloudApisEnabled && config.groqEnabled, config.groqSelectedModels, config.groqModel, CustomProviderConfig.PREFIX_GROQ, "Groq", false)
         addProvider(config.cloudApisEnabled && config.togetherEnabled, config.togetherSelectedModels, config.togetherModel, CustomProviderConfig.PREFIX_TOGETHER, "Together AI", false)
         addProvider(config.cloudApisEnabled && config.enclaveEnabled, config.enclaveSelectedModels, config.enclaveModel, CustomProviderConfig.PREFIX_ENCLAVE, "Enclave", false)
+        addProvider(config.cloudApisEnabled && config.experientialEnabled, config.experientialSelectedModels, config.experientialModel, CustomProviderConfig.PREFIX_EXPERIENTIAL, "Experiential Labs", false)
         addProvider(config.cloudApisEnabled && config.cloudflareEnabled, config.cloudflareSelectedModels, config.cloudflareModel, CustomProviderConfig.PREFIX_CLOUDFLARE, "Cloudflare Workers AI", false)
         addProvider(config.ollamaEnabled, config.ollamaSelectedModels, config.ollamaModel, CustomProviderConfig.PREFIX_OLLAMA, "Ollama", true)
         addProvider(config.openAiCompatibleEnabled, config.openAiCompatibleSelectedModels, config.openAiCompatibleModel, CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE, "OpenAI-compatible", true)

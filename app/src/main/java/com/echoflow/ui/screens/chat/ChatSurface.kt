@@ -326,6 +326,8 @@ internal fun ChatSurface(
                 CustomProviderCapabilities.xAiSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_XAI))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL) ->
                 CustomProviderCapabilities.vercelSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL) ->
+                CustomProviderCapabilities.experientialSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GROQ) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_TOGETHER) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_ENCLAVE) ||

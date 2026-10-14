@@ -139,6 +139,7 @@ internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderB
     CustomModelProvider.Groq -> DirectProviderBrand("Groq", "Fast open models on Groq", "gsk_...", "llama-3.3-70b-versatile", R.drawable.logo_compatible, Color(0xFFF55036))
     CustomModelProvider.Together -> DirectProviderBrand("Together AI", "Open models on Together AI", "Together API key", "meta-llama/Llama-3.3-70B-Instruct-Turbo", R.drawable.logo_compatible, Color(0xFF0F6FFF))
     CustomModelProvider.Enclave -> DirectProviderBrand("Enclave", "Open-weight models via Enclave's router", "Enclave API key", "auto", R.drawable.logo_compatible, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.onSecondary)
+    CustomModelProvider.Experiential -> DirectProviderBrand("Experiential Labs", "Many labs' models through one gateway", "xpl_...", "qwen3.8-27b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.Cloudflare -> DirectProviderBrand("Cloudflare Workers AI", "Models on Cloudflare's network", "Cloudflare API token", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", R.drawable.logo_compatible, Color(0xFFF38020))
     CustomModelProvider.Deepgram -> DirectProviderBrand("Deepgram", "Nova-3 Multilingual dictation", "Deepgram API key", "nova-3", R.drawable.logo_deepgram, Color(0xFF101014))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
@@ -652,6 +653,7 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Groq -> config.groqEnabled
     CustomModelProvider.Together -> config.togetherEnabled
     CustomModelProvider.Enclave -> config.enclaveEnabled
+    CustomModelProvider.Experiential -> config.experientialEnabled
     CustomModelProvider.Cloudflare -> config.cloudflareEnabled
     CustomModelProvider.Deepgram -> config.deepgramEnabled
     else -> false
@@ -668,6 +670,7 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Groq -> config.copy(groqEnabled = enabled)
     CustomModelProvider.Together -> config.copy(togetherEnabled = enabled)
     CustomModelProvider.Enclave -> config.copy(enclaveEnabled = enabled)
+    CustomModelProvider.Experiential -> config.copy(experientialEnabled = enabled)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareEnabled = enabled)
     CustomModelProvider.Deepgram -> config.copy(deepgramEnabled = enabled)
     else -> config
@@ -684,6 +687,7 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Groq -> config.groqApiKey
     CustomModelProvider.Together -> config.togetherApiKey
     CustomModelProvider.Enclave -> config.enclaveApiKey
+    CustomModelProvider.Experiential -> config.experientialApiKey
     CustomModelProvider.Cloudflare -> config.cloudflareApiKey
     CustomModelProvider.Deepgram -> config.deepgramApiKey
     else -> ""
@@ -700,6 +704,7 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Groq -> config.copy(groqApiKey = value)
     CustomModelProvider.Together -> config.copy(togetherApiKey = value)
     CustomModelProvider.Enclave -> config.copy(enclaveApiKey = value)
+    CustomModelProvider.Experiential -> config.copy(experientialApiKey = value)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareApiKey = value)
     CustomModelProvider.Deepgram -> config.copy(deepgramApiKey = value)
     else -> config
@@ -716,6 +721,7 @@ internal fun directProviderManualModel(config: CustomProviderConfig, provider: C
     CustomModelProvider.Groq -> config.groqModel
     CustomModelProvider.Together -> config.togetherModel
     CustomModelProvider.Enclave -> config.enclaveModel
+    CustomModelProvider.Experiential -> config.experientialModel
     CustomModelProvider.Cloudflare -> config.cloudflareModel
     else -> ""
 }
@@ -731,6 +737,7 @@ internal fun setDirectProviderManualModel(config: CustomProviderConfig, provider
     CustomModelProvider.Groq -> config.copy(groqModel = value)
     CustomModelProvider.Together -> config.copy(togetherModel = value)
     CustomModelProvider.Enclave -> config.copy(enclaveModel = value)
+    CustomModelProvider.Experiential -> config.copy(experientialModel = value)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareModel = value)
     else -> config
 }
@@ -746,6 +753,7 @@ internal fun directProviderAvailableModels(config: CustomProviderConfig, provide
     CustomModelProvider.Groq -> config.groqModels
     CustomModelProvider.Together -> config.togetherModels
     CustomModelProvider.Enclave -> config.enclaveModels
+    CustomModelProvider.Experiential -> config.experientialModels
     CustomModelProvider.Cloudflare -> config.cloudflareModels
     else -> ""
 }
@@ -761,6 +769,7 @@ internal fun directProviderSelectedModels(config: CustomProviderConfig, provider
     CustomModelProvider.Groq -> config.groqSelectedModels
     CustomModelProvider.Together -> config.togetherSelectedModels
     CustomModelProvider.Enclave -> config.enclaveSelectedModels
+    CustomModelProvider.Experiential -> config.experientialSelectedModels
     CustomModelProvider.Cloudflare -> config.cloudflareSelectedModels
     else -> ""
 }
@@ -776,6 +785,7 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
     CustomModelProvider.Groq -> config.copy(groqSelectedModels = value)
     CustomModelProvider.Together -> config.copy(togetherSelectedModels = value)
     CustomModelProvider.Enclave -> config.copy(enclaveSelectedModels = value)
+    CustomModelProvider.Experiential -> config.copy(experientialSelectedModels = value)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareSelectedModels = value)
     else -> config
 }
@@ -796,7 +806,8 @@ internal fun directProviderAttachmentText(provider: CustomModelProvider): String
     CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
     CustomModelProvider.Sarvam -> "Sarvam 105B is text-only — documents are parsed on-device and sent as text. Your key also enables Saaras v4 in Dictation."
     CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
-    CustomModelProvider.Vercel -> "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."
+    CustomModelProvider.Vercel, CustomModelProvider.Experiential ->
+        "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."
     CustomModelProvider.Groq, CustomModelProvider.Together, CustomModelProvider.Enclave, CustomModelProvider.Cloudflare ->
         "Images are available for vision models such as Llama 4. Other models are text-only; PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."
@@ -813,6 +824,7 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Groq -> "Groq"
     CustomModelProvider.Together -> "Together AI"
     CustomModelProvider.Enclave -> "Enclave"
+    CustomModelProvider.Experiential -> "Experiential Labs"
     CustomModelProvider.Cloudflare -> "Cloudflare Workers AI"
     CustomModelProvider.Deepgram -> "Deepgram"
     CustomModelProvider.Ollama -> "Ollama"

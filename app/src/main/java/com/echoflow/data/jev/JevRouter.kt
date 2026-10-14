@@ -15,7 +15,7 @@ object JevRouter {
     /** Direct cloud brands eligible for Jev. Null = OpenRouter cloud. */
     private val cloudProviders = setOf(
         "openai", "claude", "gemini", "cerebras", "sarvam", "xai", "vercel",
-        "groq", "together", "enclave", "cloudflare",
+        "groq", "together", "enclave", "experiential", "cloudflare",
     )
 
     fun isCloudChat(isLocal: Boolean, customProvider: String?): Boolean {

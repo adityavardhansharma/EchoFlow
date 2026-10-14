@@ -20,6 +20,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         "groq" -> service.streamOpenAiCompatible(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params)
         "together" -> service.streamOpenAiCompatible(CustomProviderConfig.TOGETHER_BASE_URL, config.togetherApiKey, model, history, prompt, params)
         "enclave" -> service.streamOpenAiCompatible(CustomProviderConfig.ENCLAVE_BASE_URL, config.enclaveApiKey, model, history, prompt, params)
+        "experiential" -> service.streamOpenAiCompatible(CustomProviderConfig.EXPERIENTIAL_BASE_URL, config.experientialApiKey, model, history, prompt, params)
         "cloudflare" -> flow {
             if (config.cloudflareAccountId.isBlank()) error("Cloudflare account ID is missing. Add it under Settings → Custom → Cloudflare Workers AI.")
             emitAll(service.streamOpenAiCompatible(config.cloudflareBaseUrl, config.cloudflareApiKey, model, history, prompt, params))
@@ -40,6 +41,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         "vercel" -> service.streamOpenAiTools(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params, search)
         "groq" -> service.streamOpenAiTools(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params, search)
         "together" -> service.streamOpenAiTools(CustomProviderConfig.TOGETHER_BASE_URL, config.togetherApiKey, model, history, prompt, params, search)
+        "experiential" -> service.streamOpenAiTools(CustomProviderConfig.EXPERIENTIAL_BASE_URL, config.experientialApiKey, model, history, prompt, params, search)
         // Workers AI supports tool calls on only a few models, and Enclave doesn't document tool
         // calling, so both keep the plain stream.
         "openai-compatible" -> service.streamOpenAiTools(config.openAiBaseUrl, config.openAiCompatibleApiKey, model, history, prompt, params, search)

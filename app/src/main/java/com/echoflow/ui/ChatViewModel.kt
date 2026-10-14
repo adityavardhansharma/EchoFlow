@@ -1503,6 +1503,7 @@ class ChatViewModel(
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_GROQ) -> "groq"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_TOGETHER) -> "together"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_ENCLAVE) -> "enclave"
+                selectedModel.startsWith(CustomProviderConfig.PREFIX_EXPERIENTIAL) -> "experiential"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_CLOUDFLARE) -> "cloudflare"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
                 selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
@@ -1526,6 +1527,7 @@ class ChatViewModel(
                 "groq" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GROQ)
                 "together" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_TOGETHER)
                 "enclave" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_ENCLAVE)
+                "experiential" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_EXPERIENTIAL)
                 "cloudflare" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLOUDFLARE)
                 "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
                 "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
@@ -1595,6 +1597,7 @@ class ChatViewModel(
                 "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
                 "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
                 "vercel" -> CustomProviderCapabilities.vercelSupportsImages(requestModel)
+                "experiential" -> CustomProviderCapabilities.experientialSupportsImages(requestModel)
                 "groq", "together", "enclave", "cloudflare" -> CustomProviderCapabilities.openModelSupportsImages(requestModel)
                 "ollama" -> customProviderConfig.ollamaImagesEnabled
                 "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled

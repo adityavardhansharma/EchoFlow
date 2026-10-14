@@ -362,6 +362,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Groq to PageCustomProviderGroq,
         CustomModelProvider.Together to PageCustomProviderTogether,
         CustomModelProvider.Enclave to PageCustomProviderEnclave,
+        CustomModelProvider.Experiential to PageCustomProviderExperiential,
         CustomModelProvider.Cloudflare to PageCustomProviderCloudflare,
         CustomModelProvider.Deepgram to PageCustomProviderDeepgram,
     )
