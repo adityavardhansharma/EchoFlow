@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -495,6 +496,7 @@ internal fun ProviderModelPicker(
         return
     }
     var query by rememberSaveable { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     val visible = remember(available, query) {
         val q = query.trim()
         if (q.isEmpty()) available else available.filter { it.contains(q, ignoreCase = true) }
@@ -513,6 +515,7 @@ internal fun ProviderModelPicker(
             }
         },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
         shape = CircleShape,
         modifier = Modifier.fillMaxWidth(),
     )
