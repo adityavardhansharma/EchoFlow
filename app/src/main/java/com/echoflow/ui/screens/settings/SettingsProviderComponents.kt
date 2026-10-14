@@ -494,17 +494,54 @@ internal fun ProviderModelPicker(
         }
         return
     }
+    var query by rememberSaveable { mutableStateOf("") }
+    val visible = remember(available, query) {
+        val q = query.trim()
+        if (q.isEmpty()) available else available.filter { it.contains(q, ignoreCase = true) }
+    }
     Text("Models in chat", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(Spacing.s))
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        singleLine = true,
+        placeholder = { Text("Search ${available.size} models") },
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear") }
+            }
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        shape = CircleShape,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(Spacing.m))
+    if (visible.isEmpty()) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = Spacing.l),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "No models match “${query.trim()}”.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        return
+    }
     Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-        available.forEachIndexed { index, model ->
+        visible.forEachIndexed { index, model ->
             val checked = model in selected
             Surface(
                 onClick = {
                     val next = if (checked) selected - model else selected + model
                     onSelectedModels(next.joinToString("\n"))
                 },
-                shape = groupedItemShape(index, available.size),
+                shape = groupedItemShape(index, visible.size),
                 color = if (checked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
