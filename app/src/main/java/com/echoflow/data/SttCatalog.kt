@@ -118,9 +118,21 @@ object SttCatalog {
     fun usesDirectKey(modelId: String): Boolean =
         modelId == SARVAM_MODEL_ID || modelId == DEEPGRAM_MODEL_ID
 
-    fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String = when (modelId) {
-        SARVAM_MODEL_ID -> if (sarvamAvailable(config)) config.sarvamApiKey else ""
-        DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""
+    /**
+     * Gemini 3.5 Transcribe goes straight to the Gemini API, billed to the user's own key, while a
+     * Gemini key is saved under Custom; otherwise it runs through OpenRouter like the rest.
+     */
+    fun usesGeminiDirect(modelId: String, config: CustomProviderConfig): Boolean =
+        modelId == GEMINI_TRANSCRIBE_MODEL_ID && config.geminiAvailable
+
+    /** Rambler (Gemini's smart mode) exists only on the direct Gemini route; OpenRouter drops it. */
+    fun supportsRambler(modelId: String, config: CustomProviderConfig): Boolean =
+        usesGeminiDirect(modelId, config)
+
+    fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String = when {
+        modelId == SARVAM_MODEL_ID -> if (sarvamAvailable(config)) config.sarvamApiKey else ""
+        modelId == DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""
+        usesGeminiDirect(modelId, config) -> config.geminiApiKey
         else -> openRouterKey
     }
 

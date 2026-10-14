@@ -70,7 +70,15 @@ class SettingsRepository(context: Context) {
         }
         val model = if (SttCatalog.usesDirectKey(stored) && directKey.isBlank())
             SttCatalog.DEFAULT_MODEL_ID else SttCatalog.resolve(stored).id
-        val key = if (SttCatalog.usesDirectKey(model)) directKey else getApiKeyDirect()
+        // Gemini Transcribe uses the Gemini key whenever one is saved and Gemini is on.
+        val geminiKey = if (cloudApis && prefs.getBoolean("direct_gemini_enabled", cloudApis))
+            prefs.getString("direct_gemini_api_key", "").orEmpty() else ""
+        val geminiDirect = model == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID && geminiKey.isNotBlank()
+        val key = when {
+            SttCatalog.usesDirectKey(model) -> directKey
+            geminiDirect -> geminiKey
+            else -> getApiKeyDirect()
+        }
         // System-wide dictation remains cloud-backed while on-device transcription is only a
         // settings preview. Switching that preview must not disable the user's system-wide opt-in.
         // Hinglish romanizes any model's output, so it needs only a live Sarvam key.
@@ -78,7 +86,9 @@ class SettingsRepository(context: Context) {
         return DictationConfiguration(model, key,
             sarvamKey.isNotBlank() && getSarvamHinglishEnabledDirect(),
             if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList(),
-            sarvamKey)
+            sarvamKey,
+            geminiDirect = geminiDirect,
+            rambler = geminiDirect && getSttRamblerEnabledDirect())
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
     fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
@@ -185,6 +195,10 @@ class SettingsRepository(context: Context) {
     // Kept independently of the selected model so switching away and back never loses the list.
     private val _sttVocabulary = MutableStateFlow(getSttVocabularyDirect())
     val sttVocabulary: StateFlow<List<String>> = _sttVocabulary.asStateFlow()
+
+    // Rambler: Gemini Transcribe's smart mode, available only when dictation runs on a Gemini key.
+    private val _sttRamblerEnabled = MutableStateFlow(getSttRamblerEnabledDirect())
+    val sttRamblerEnabled: StateFlow<Boolean> = _sttRamblerEnabled.asStateFlow()
 
     // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
     private val _appMode = MutableStateFlow(getAppModeDirect())
@@ -825,6 +839,13 @@ class SettingsRepository(context: Context) {
     fun saveSarvamHinglishEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("sarvam_hinglish_enabled", enabled).apply()
         _sarvamHinglishEnabled.value = enabled
+    }
+
+    fun getSttRamblerEnabledDirect(): Boolean = prefs.getBoolean("stt_gemini_rambler_enabled", false)
+
+    fun saveSttRamblerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("stt_gemini_rambler_enabled", enabled).apply()
+        _sttRamblerEnabled.value = enabled
     }
 
     fun getSttVocabularyDirect(): List<String> =

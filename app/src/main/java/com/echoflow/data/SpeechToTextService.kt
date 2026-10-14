@@ -191,6 +191,7 @@ class SpeechToTextTranscriber(
         .build(),
     private val sarvamBaseUrl: String = "https://api.sarvam.ai",
     private val deepgramBaseUrl: String = "https://api.deepgram.com",
+    private val geminiBaseUrl: String = GeminiDictation.BASE_URL,
 ) {
     suspend fun transcribe(
         apiKey: String,
@@ -200,8 +201,12 @@ class SpeechToTextTranscriber(
         vocabulary: List<String> = emptyList(),
         /** Sarvam key used for Hinglish romanization; any STT model's output can be romanized. */
         sarvamKey: String = apiKey,
+        /** True when [apiKey] is a Gemini key and Gemini Transcribe should call the Gemini API directly. */
+        geminiDirect: Boolean = false,
+        /** Gemini's smart mode (Rambler); only honoured on the direct Gemini route. */
+        rambler: Boolean = false,
     ): Result<String> =
-        transcribeRaw(apiKey, modelId, wav, vocabulary).map { transcript ->
+        transcribeRaw(apiKey, modelId, wav, vocabulary, geminiDirect, rambler).map { transcript ->
             // Hinglish: the whole transcript goes to Sarvam in one request (split only past its
             // per-request limit) so the model sees full context. Pure non-Devanagari text is
             // returned untouched, and a transliteration miss keeps the original script rather
@@ -218,6 +223,8 @@ class SpeechToTextTranscriber(
         modelId: String,
         wav: ByteArray,
         vocabulary: List<String>,
+        geminiDirect: Boolean,
+        rambler: Boolean,
     ): Result<String> =
         withContext(Dispatchers.IO) {
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
@@ -260,6 +267,31 @@ class SpeechToTextTranscriber(
                         ProviderHttpSupport.errorMessage("Deepgram dictation", code, body)
                     }
                     DeepgramDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
+                }.onFailure { if (it is CancellationException) throw it }
+            }
+            if (geminiDirect && modelId == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No Gemini key" }
+                    val wavBase64 = Base64.encodeToString(wav, Base64.NO_WRAP)
+                    // Vocabulary only biases recognition, so like OpenRouter's route a 400 on the
+                    // vocabulary request retries once without it rather than failing dictation.
+                    val terms = DictationVocabulary.normalize(vocabulary)
+                    val attempts = if (terms.isEmpty()) listOf(terms) else listOf(terms, emptyList())
+                    var code = 0
+                    var body = ""
+                    for ((index, attemptTerms) in attempts.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val response = executeCancellable(
+                            GeminiDictation.request(apiKey, wavBase64, attemptTerms, rambler, geminiBaseUrl),
+                        )
+                        code = response.first
+                        body = response.second
+                        if (code != 400 || index == attempts.lastIndex) break
+                    }
+                    check(code in 200..299) {
+                        ProviderHttpSupport.errorMessage("Gemini dictation", code, body)
+                    }
+                    GeminiDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
                 }.onFailure { if (it is CancellationException) throw it }
             }
             if (apiKey.isBlank()) {
