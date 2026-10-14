@@ -111,9 +111,9 @@ internal object ProviderHttpSupport {
         return major > GEMINI_MIN_MAJOR || (major == GEMINI_MIN_MAJOR && minor >= GEMINI_MIN_MINOR)
     }
 
-    /** Oldest Gemini series shown in the chat catalogue: 3.8. */
+    /** Oldest Gemini series shown in the chat catalogue: 3.7. */
     private const val GEMINI_MIN_MAJOR = 3
-    private const val GEMINI_MIN_MINOR = 8
+    private const val GEMINI_MIN_MINOR = 7
 
     private val GEMINI_VERSION = Regex("""^gemini-(\d+)(?:\.(\d+))?-""")
 

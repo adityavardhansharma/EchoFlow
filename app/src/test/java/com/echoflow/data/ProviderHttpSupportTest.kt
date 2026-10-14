@@ -61,6 +61,7 @@ class ProviderHttpSupportTest {
             {"name":"models/gemini-3.10-flash","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.8-flash-lite","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.6-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3.7-flash-lite","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.5-flash-lite","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
             {"name":"models/gemini-3.7-flash","supportedGenerationMethods":["generateContent"]},
@@ -88,7 +89,8 @@ class ProviderHttpSupportTest {
         assertEquals(
             listOf(
                 "gemini-flash-latest", "gemini-pro-latest", "gemini-4-argon", "gemini-3.8-flash",
-                "gemini-9-flash-preview-01-2030", "gemini-3.10-flash", "gemini-3.8-flash-lite", "gemma-3-27b-it",
+                "gemini-9-flash-preview-01-2030", "gemini-3.10-flash", "gemini-3.8-flash-lite", "gemini-3.7-flash-lite",
+                "gemini-3.7-flash", "gemma-3-27b-it",
             ),
             ProviderHttpSupport.parseGeminiChatModelIds(body),
         )
