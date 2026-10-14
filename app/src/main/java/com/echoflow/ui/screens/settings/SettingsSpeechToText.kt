@@ -227,7 +227,8 @@ private fun SttRamblerRow(viewModel: SettingsViewModel) {
                 )
             }
             Spacer(Modifier.width(Spacing.s))
-            Switch(checked = enabled, onCheckedChange = viewModel::saveSttRamblerEnabled)
+            Switch(checked = enabled, onCheckedChange = viewModel::saveSttRamblerEnabled,
+                modifier = Modifier.semantics { contentDescription = "Rambler" })
         }
     }
 }
