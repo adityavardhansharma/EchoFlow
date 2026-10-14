@@ -71,6 +71,54 @@ internal object ProviderHttpSupport {
         }.distinct()
     }
 
+    /**
+     * Gemini's `/v1beta/models` lists every model the key can reach: embeddings, Imagen, Veo,
+     * Lyria music, TTS, Live/native-audio, image output, and retired or superseded snapshots.
+     * Keeps only current text chat models, without the `models/` prefix.
+     */
+    fun parseGeminiChatModelIds(body: String): List<String> {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["models"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (entry["name"] as? String)?.removePrefix("models/") ?: return@mapNotNull null
+            val methods = (entry["supportedGenerationMethods"] as? List<*>).orEmpty()
+            if ("generateContent" !in methods) return@mapNotNull null
+            val description = (entry["description"] as? String).orEmpty().lowercase()
+            if (GEMINI_RETIRED_DESCRIPTION.any { it in description }) return@mapNotNull null
+            if (!isGeminiChatModelId(id)) return@mapNotNull null
+            id
+        }.distinct()
+    }
+
+    /** Next-page token from a Gemini model list, or null on the last page. */
+    fun geminiNextPageToken(body: String): String? {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
+        return (map["nextPageToken"] as? String)?.takeIf { it.isNotBlank() }
+    }
+
+    internal fun isGeminiChatModelId(id: String): Boolean {
+        val lower = id.lowercase()
+        if (GEMINI_NON_CHAT_MARKERS.any { it in lower }) return false
+        if (GEMINI_RETIRED_PREFIXES.any { lower.startsWith(it) }) return false
+        // Dated previews (`-preview-09-2025`, `-preview-05-20`) are snapshots superseded by the
+        // stable or `-latest` id; experimental builds (`-exp`, `-exp-1206`) are rotated out.
+        if (GEMINI_DATED_SNAPSHOT.containsMatchIn(lower)) return false
+        if (GEMINI_EXPERIMENTAL.containsMatchIn(lower)) return false
+        return true
+    }
+
+    private val GEMINI_NON_CHAT_MARKERS = listOf(
+        "embedding", "imagen", "veo-", "lyria", "tts", "native-audio", "-live", "-audio",
+        "-image", "aqa", "computer-use", "robotics", "deep-research",
+    )
+    private val GEMINI_RETIRED_PREFIXES = listOf(
+        "gemini-1.", "gemini-2.0", "gemini-pro-vision", "learnlm", "chat-bison", "text-bison",
+    )
+    private val GEMINI_RETIRED_DESCRIPTION = listOf("deprecated", "discontinued", "will be retired", "shut down")
+    private val GEMINI_DATED_SNAPSHOT = Regex("""-preview-\d{2}-\d{2,4}$""")
+    private val GEMINI_EXPERIMENTAL = Regex("""(^|-)exp(-\d+)?$|-exp-""")
+
     /** Workers AI model search: `{"result":[{"name":"@cf/meta/llama-3.1-8b-instruct",…}]}`. */
     fun parseCloudflareModelNames(body: String): List<String> {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()

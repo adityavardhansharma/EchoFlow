@@ -17,6 +17,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 data class CustomProviderConfig(
@@ -263,6 +264,8 @@ data class ProviderValidationResult(
     val ok: Boolean,
     val message: String,
 )
+
+private const val GEMINI_MAX_MODEL_PAGES = 5
 
 class CustomProviderService(
     private val context: Context? = null,
@@ -800,16 +803,22 @@ class CustomProviderService(
 
     private fun fetchGeminiModels(apiKey: String): List<String> {
         if (apiKey.isBlank()) throw Exception("Gemini API key is missing.")
-        val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}")
-            .get()
-            .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, body))
-            val raw = ProviderHttpSupport.parseModelIds(body)
-            return raw.map { it.removePrefix("models/") }
+        // The list is paged (50 per page by default), so newer models can sit past page one.
+        val models = mutableListOf<String>()
+        var pageToken: String? = null
+        repeat(GEMINI_MAX_MODEL_PAGES) {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${apiKey.trim()}" +
+                pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" }.orEmpty()
+            val request = Request.Builder().url(url).get().build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, body))
+                models += ProviderHttpSupport.parseGeminiChatModelIds(body)
+                pageToken = ProviderHttpSupport.geminiNextPageToken(body)
+            }
+            if (pageToken == null) return models.distinct()
         }
+        return models.distinct()
     }
 
     private fun fetchOllamaModels(baseUrl: String): List<String> {

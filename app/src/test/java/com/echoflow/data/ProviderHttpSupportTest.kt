@@ -48,6 +48,38 @@ class ProviderHttpSupportTest {
         )
     }
 
+    @Test fun `keeps only current chat models from the Gemini catalogue`() {
+        val body = """{"models":[
+            {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent","countTokens"]},
+            {"name":"models/gemini-2.5-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-flash-latest","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-pro-latest","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemma-3-27b-it","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-flash-preview-tts","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-flash-image","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-flash-native-audio-latest","supportedGenerationMethods":["bidiGenerateContent"]},
+            {"name":"models/gemini-2.5-computer-use-preview-10-2025","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-robotics-er-1.5-preview","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/lyria-realtime-exp","supportedGenerationMethods":["bidiGenerateMusic"]},
+            {"name":"models/imagen-4.0-generate-001","supportedGenerationMethods":["predict"]},
+            {"name":"models/veo-3.0-generate-001","supportedGenerationMethods":["predictLongRunning"]},
+            {"name":"models/gemini-embedding-001","supportedGenerationMethods":["embedContent"]},
+            {"name":"models/aqa","supportedGenerationMethods":["generateAnswer"]},
+            {"name":"models/gemini-2.0-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-1.5-pro","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-flash-preview-09-2025","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-exp-1206","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-flash-lite","description":"Deprecated: use gemini-flash-lite-latest.","supportedGenerationMethods":["generateContent"]}
+        ],"nextPageToken":"abc"}"""
+        assertEquals(
+            listOf("gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash-latest", "gemini-pro-latest", "gemini-3-pro-preview", "gemma-3-27b-it"),
+            ProviderHttpSupport.parseGeminiChatModelIds(body),
+        )
+        assertEquals("abc", ProviderHttpSupport.geminiNextPageToken(body))
+        assertEquals(null, ProviderHttpSupport.geminiNextPageToken("""{"models":[]}"""))
+    }
+
     @Test fun `reads model names from Workers AI model search`() {
         val body = """{"success":true,"result":[
             {"id":"a1","name":"@cf/meta/llama-3.1-8b-instruct","task":{"name":"Text Generation"}},
