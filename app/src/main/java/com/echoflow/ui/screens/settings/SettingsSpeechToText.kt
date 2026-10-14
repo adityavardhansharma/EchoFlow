@@ -134,6 +134,7 @@ private fun SttCloudSection(
     val config by viewModel.customProviderConfig.collectAsState()
     val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
     val isDeepgram = selectedId == SttCatalog.DEEPGRAM_MODEL_ID
+    val isGeminiDirect = SttCatalog.usesGeminiDirect(selectedId, config)
     val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
@@ -143,6 +144,7 @@ private fun SttCloudSection(
             provider = when {
                 isSarvam -> "Sarvam"
                 isDeepgram -> "Deepgram"
+                isGeminiDirect -> "Gemini"
                 else -> "OpenRouter"
             },
             onOpenCloudModels = when {
@@ -174,6 +176,20 @@ private fun SttCloudSection(
                 SttVocabularyCard(viewModel, SttCatalog.resolve(selectedId))
             }
         }
+        // Rambler is a Gemini API option OpenRouter doesn't forward, so like vocabulary it opens in
+        // place only while Gemini Transcribe is selected and runs on the user's Gemini key.
+        AnimatedVisibility(
+            visible = SttCatalog.supportsRambler(selectedId, config),
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        ) {
+            Column {
+                Spacer(Modifier.height(Spacing.m))
+                SttRamblerRow(viewModel)
+            }
+        }
         // Hinglish post-processes any model's output through Sarvam, so it shows with a Sarvam key.
         if (config.sarvamAvailable) {
             Spacer(Modifier.height(Spacing.m))
@@ -182,12 +198,38 @@ private fun SttCloudSection(
         Spacer(Modifier.height(Spacing.m))
         Text(
             "Prices are per hour of audio. Saaras and Nova-3 are billed directly to your Sarvam and " +
-                "Deepgram keys, and appear once those keys are saved under Custom; the rest use OpenRouter. " +
+                "Deepgram keys, and appear once those keys are saved under Custom. Gemini 3.5 Transcribe " +
+                "uses your Gemini key when one is saved there; the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
                 "Best is the recommended dictation model; Custom vocabulary and Keyterms models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun SttRamblerRow(viewModel: SettingsViewModel) {
+    val enabled by viewModel.sttRamblerEnabled.collectAsState()
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Spacing.base), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Rambler", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Cleans up as you talk: drops filler words and false starts, keeps only your corrected " +
+                        "version, and formats lists and numbers. Uses your Gemini key.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(Spacing.s))
+            Switch(checked = enabled, onCheckedChange = viewModel::saveSttRamblerEnabled,
+                modifier = Modifier.semantics { contentDescription = "Rambler" })
+        }
     }
 }
 

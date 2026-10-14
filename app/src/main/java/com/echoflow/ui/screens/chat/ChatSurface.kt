@@ -265,6 +265,10 @@ internal fun ChatSurface(
     val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
     val dictationVocabulary =
         if (com.echoflow.data.SttCatalog.supportsCustomVocabulary(sttCloudModelId)) sttVocabulary else emptyList()
+    // With a Gemini key saved, Gemini Transcribe runs on it directly, where Rambler is available.
+    val geminiDictation = com.echoflow.data.SttCatalog.usesGeminiDirect(sttCloudModelId, customProviderConfig)
+    val ramblerEnabled by settingsViewModel.sttRamblerEnabled.collectAsState()
+    val dictationRambler = geminiDictation && ramblerEnabled
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -706,7 +710,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary, hinglishSarvamKey) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary, hinglishSarvamKey, geminiDictation, dictationRambler) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

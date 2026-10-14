@@ -111,6 +111,9 @@ data class CustomProviderConfig(
     val sarvamAvailable: Boolean
         get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
 
+    val geminiAvailable: Boolean
+        get() = cloudApisEnabled && geminiEnabled && geminiApiKey.isNotBlank()
+
     fun sarvamConfigurationError(): String? = when {
         !cloudApisEnabled || !sarvamEnabled -> "Sarvam is disabled. Enable it under Settings → Custom or choose another model."
         sarvamApiKey.isBlank() -> "Sarvam API key is missing. Add it under Settings → Custom → Sarvam."

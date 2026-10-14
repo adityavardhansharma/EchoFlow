@@ -153,6 +153,8 @@ class SettingsViewModel(
     fun removeSttVocabulary(term: String) =
         repository.saveSttVocabulary(sttVocabulary.value.filterNot { it.equals(term, ignoreCase = true) })
     fun clearSttVocabulary() = repository.saveSttVocabulary(emptyList())
+    val sttRamblerEnabled: StateFlow<Boolean> = repository.sttRamblerEnabled
+    fun saveSttRamblerEnabled(enabled: Boolean) = repository.saveSttRamblerEnabled(enabled)
 
     // Image generation
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
