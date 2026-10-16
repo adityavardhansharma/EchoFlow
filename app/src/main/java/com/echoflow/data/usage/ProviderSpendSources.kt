@@ -9,6 +9,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.Buffer
+import okio.buffer
 
 /**
  * OpenRouter's own spend figures for one key, from `GET /api/v1/key`. These include everything the
@@ -160,10 +161,24 @@ object ElevenLabsCosts {
     /** Length of a PCM WAV part, from its header's byte rate and data size. */
     private fun wavSeconds(part: MultipartBody.Part): Double? {
         val length = part.body.contentLength().takeIf { it > 44 } ?: return null
-        val header = Buffer().also { part.body.writeTo(it) }.readByteArray(44)
-        if (String(header, 0, 4, Charsets.US_ASCII) != "RIFF") return null
-        val byteRate = (header[28].toInt() and 0xff) or ((header[29].toInt() and 0xff) shl 8) or
-            ((header[30].toInt() and 0xff) shl 16) or ((header[31].toInt() and 0xff) shl 24)
+        // Keep only the 44-byte header; the rest of the recording is skipped, not copied.
+        val header = Buffer()
+        val sink = object : okio.Sink {
+            override fun write(source: Buffer, byteCount: Long) {
+                val keep = minOf(byteCount, 44 - header.size).coerceAtLeast(0)
+                if (keep > 0) source.read(header, keep)
+                source.skip(byteCount - keep)
+            }
+            override fun flush() = Unit
+            override fun timeout() = okio.Timeout.NONE
+            override fun close() = Unit
+        }
+        sink.buffer().use { part.body.writeTo(it) }
+        if (header.size < 44) return null
+        val bytes = header.readByteArray(44)
+        if (String(bytes, 0, 4, Charsets.US_ASCII) != "RIFF") return null
+        val byteRate = (bytes[28].toInt() and 0xff) or ((bytes[29].toInt() and 0xff) shl 8) or
+            ((bytes[30].toInt() and 0xff) shl 16) or ((bytes[31].toInt() and 0xff) shl 24)
         if (byteRate <= 0) return null
         return (length - 44).toDouble() / byteRate
     }

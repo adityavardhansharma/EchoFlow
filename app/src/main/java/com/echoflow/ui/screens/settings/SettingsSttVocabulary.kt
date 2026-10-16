@@ -192,8 +192,8 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
                     if (model.id == SttCatalog.SCRIBE_MODEL_ID) {
                         "Sent as ElevenLabs keyterms in chat and system-wide. They bias recognition toward " +
                             "these spellings; they don't rewrite what you say. Up to " +
-                            "${ElevenLabsDictation.MAX_KEYTERMS} terms of five words or fewer are sent per " +
-                            "recording, adding 20% (~\$0.044 / hr)."
+                            "${ElevenLabsDictation.MAX_KEYTERMS} terms are sent per recording, adding 20% (~\$0.044 / hr). " +
+                            "Scribe skips terms over five words or 49 characters, so keep each one short."
                     } else if (keyterms) {
                         "Sent as Deepgram keyterms in chat and system-wide. They bias recognition toward " +
                             "these spellings; they don't rewrite what you say. Up to " +
