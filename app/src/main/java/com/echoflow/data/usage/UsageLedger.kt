@@ -77,6 +77,21 @@ object UsageLedger {
     }
 
     /**
+     * Stores a row the app priced itself, for work no HTTP response describes: a voice-mode call
+     * is one WebSocket session, priced from the transcript ElevenLabs keeps afterwards.
+     */
+    fun record(record: UsageRecord) {
+        val target = dao ?: return
+        scope.launch {
+            try {
+                target.put(record)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not record ${record.provider} usage", e)
+            }
+        }
+    }
+
+    /**
      * Parses [capture] and upserts its row. Returns the stored record, or null if nothing was
      * reported. Token-only providers are priced with [priceFor] when their model is listed.
      */

@@ -40,7 +40,7 @@ enum class UsageProvider(val label: String, val unit: UsageUnit, private val hos
 }
 
 /** The kind of call, read from the endpoint path. Shown in a record's detail. */
-enum class UsageKind { Chat, Image, Video, Transcription, Search, Research, Browse, Other;
+enum class UsageKind { Chat, Image, Video, Transcription, Voice, Search, Research, Browse, Other;
     companion object {
         fun forPath(path: String): UsageKind = when {
             path.endsWith("/chat/completions") || path.endsWith("/messages") ||
