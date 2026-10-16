@@ -221,7 +221,7 @@ private fun providerNote(provider: UsageProvider, window: SpendWindow, records: 
     provider in ListPrices.priced -> "${provider.label} reports tokens, not prices. Each request is priced at the model's list rate for input, cached input and output."
     provider.unit == UsageUnit.Tokens -> "${provider.label} reports tokens but not prices, so these requests aren't counted in dollars."
     provider == UsageProvider.Deepgram -> "Deepgram prices each request after it settles. If your key can't read usage, the cost stays blank."
-    provider == UsageProvider.ElevenLabs -> "ElevenLabs doesn't report a price, so each dictation is priced from its length at Scribe v2's list rate, plus 20% when keyterms were sent."
+    provider == UsageProvider.ElevenLabs -> "ElevenLabs doesn't report a price for dictation, so each one is priced from its length at Scribe v2's list rate, plus 20% when keyterms were sent. Voice mode calls use the price ElevenLabs records for the call, or the call's length at the Agents list rate when it records none."
     provider == UsageProvider.Parallel -> "Parallel reports what it billed, not a price."
     else -> null
 }
@@ -433,6 +433,9 @@ private fun RecordSheet(provider: UsageProvider, record: UsageRecord, onDismiss:
                     when {
                         provider in ListPrices.priced -> "at list prices"
                         // ElevenLabs returns no price; this one is estimated from the audio length.
+                        provider == UsageProvider.ElevenLabs && record.kind == UsageKind.Voice.name &&
+                            record.detail?.contains("estimated") != true -> "charged by ElevenLabs"
+                        provider == UsageProvider.ElevenLabs && record.kind == UsageKind.Voice.name -> "estimated from call length"
                         provider == UsageProvider.ElevenLabs -> "estimated from audio length"
                         else -> "charged by ${provider.label}"
                     },
@@ -501,6 +504,7 @@ private fun kindLabel(kind: String): String = when (runCatching { UsageKind.valu
     UsageKind.Image -> "Image"
     UsageKind.Video -> "Video"
     UsageKind.Transcription -> "Dictation"
+    UsageKind.Voice -> "Voice mode"
     UsageKind.Search -> "Search"
     UsageKind.Research -> "Research"
     UsageKind.Browse -> "Browse"
