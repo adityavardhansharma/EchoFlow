@@ -51,13 +51,13 @@ class GeminiDictationIntegrationTest {
         repository.saveSttRamblerEnabled(true)
         val snapshot = SettingsRepository(context).getDictationConfiguration()
         assertEquals("gm-key", snapshot.key)
-        assertTrue(snapshot.geminiDirect)
+        assertTrue(snapshot.providerDirect)
         assertTrue(snapshot.rambler)
 
         repository.saveCustomProviderConfig(geminiConfig().copy(geminiApiKey = ""))
         val viaRouter = SettingsRepository(context).getDictationConfiguration()
         assertEquals("router-key", viaRouter.key)
-        assertFalse(viaRouter.geminiDirect)
+        assertFalse(viaRouter.providerDirect)
         assertFalse(viaRouter.rambler)
     }
 
@@ -71,7 +71,7 @@ class GeminiDictationIntegrationTest {
         })
         val result = transcriber.transcribe(
             "gm-key", SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID, ByteArray(64),
-            vocabulary = listOf("EchoFlow"), geminiDirect = true, rambler = true,
+            vocabulary = listOf("EchoFlow"), providerDirect = true, rambler = true,
         )
         assertEquals("hello", result.getOrThrow())
         assertEquals(2, bodies.size)

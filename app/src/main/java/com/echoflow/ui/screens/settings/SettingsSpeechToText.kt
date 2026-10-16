@@ -88,6 +88,7 @@ internal fun SpeechToTextPage(
     onOpenCloudModels: () -> Unit,
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
+    onOpenElevenLabs: () -> Unit,
     onBack: () -> Unit,
 ) {
     val mode by viewModel.sttMode.collectAsState()
@@ -115,7 +116,7 @@ internal fun SpeechToTextPage(
             label = "sttSections",
         ) { current ->
             when (current) {
-                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram)
+                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram, onOpenElevenLabs)
                 SttMode.OnDevice -> SttOnDeviceSection()
             }
         }
@@ -128,6 +129,7 @@ private fun SttCloudSection(
     onOpenCloudModels: () -> Unit,
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
+    onOpenElevenLabs: () -> Unit,
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedId by viewModel.sttCloudModel.collectAsState()
@@ -135,6 +137,7 @@ private fun SttCloudSection(
     val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
     val isDeepgram = selectedId == SttCatalog.DEEPGRAM_MODEL_ID
     val isGeminiDirect = SttCatalog.usesGeminiDirect(selectedId, config)
+    val isElevenLabsDirect = SttCatalog.usesElevenLabsDirect(selectedId, config)
     val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
@@ -145,11 +148,13 @@ private fun SttCloudSection(
                 isSarvam -> "Sarvam"
                 isDeepgram -> "Deepgram"
                 isGeminiDirect -> "Gemini"
+                isElevenLabsDirect -> "ElevenLabs"
                 else -> "OpenRouter"
             },
             onOpenCloudModels = when {
                 isSarvam -> onOpenSarvam
                 isDeepgram -> onOpenDeepgram
+                isElevenLabsDirect -> onOpenElevenLabs
                 else -> onOpenCloudModels
             },
         )
@@ -199,7 +204,7 @@ private fun SttCloudSection(
         Text(
             "Prices are per hour of audio. Saaras and Nova-3 are billed directly to your Sarvam and " +
                 "Deepgram keys, and appear once those keys are saved under Custom. Gemini 3.5 Transcribe " +
-                "uses your Gemini key when one is saved there; the rest use OpenRouter. " +
+                "and Scribe v2 use your Gemini and ElevenLabs keys when saved there; the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
                 "Best is the recommended dictation model; Custom vocabulary and Keyterms models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,

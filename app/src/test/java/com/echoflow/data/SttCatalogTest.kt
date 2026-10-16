@@ -14,6 +14,8 @@ import org.junit.Test
  * - microsoft/mai-transcribe-2 = $0.10/hour
  * - meta/muse-voice-transcribe-1.0 = $0.18/hour
  * - openai/gpt-transcribe = $0.0045/min = $0.27/hour
+ * - elevenlabs/scribe-v2 = $0.000061/sec = $0.00366/min ≈ $0.22/hour (full list price; a launch
+ *   promo halves it until 2026-10-19), +20% with keyterms
  * - x-ai/grok-stt-1.0 = $0.10/hour
  * - nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b = $0.000003/sec = $0.0108/hour
  * - google/chirp-3 = $0.016/min = $0.96/hour
@@ -30,6 +32,7 @@ class SttCatalogTest {
                 "google/gemini-3.5-transcribe",
                 "meta/muse-voice-transcribe-1.0",
                 "openai/gpt-transcribe",
+                "elevenlabs/scribe-v2",
                 "x-ai/grok-stt-1.0",
                 "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
                 "google/chirp-3",
@@ -41,6 +44,7 @@ class SttCatalogTest {
     @Test fun `user-facing prices match current OpenRouter STT listings`() {
         assertEquals("~\$0.10 / hr", SttCatalog.byId("microsoft/mai-transcribe-2")!!.pricing)
         assertEquals("~\$0.27 / hr", SttCatalog.byId("openai/gpt-transcribe")!!.pricing)
+        assertEquals("~\$0.22 / hr", SttCatalog.byId("elevenlabs/scribe-v2")!!.pricing)
         assertEquals("~\$0.10 / hr", SttCatalog.byId("x-ai/grok-stt-1.0")!!.pricing)
         assertEquals(
             "~\$0.0108 / hr",
@@ -68,6 +72,10 @@ class SttCatalogTest {
     @Test fun `dollar tags follow OpenRouter per-minute price`() {
         assertEquals(SttCostTier.Moderate, SttCatalog.byId("microsoft/mai-transcribe-2")!!.costTier)
         assertEquals(SttCostTier.Moderate, SttCatalog.byId("openai/gpt-transcribe")!!.costTier)
+        val scribe = SttCatalog.byId("elevenlabs/scribe-v2")!!
+        assertEquals(SttCostTier.Moderate, scribe.costTier)
+        assertTrue(scribe.supportsCustomVocabulary)
+        assertEquals("Keyterms", scribe.vocabularyLabel)
         assertEquals(SttCostTier.Cheap, SttCatalog.byId("x-ai/grok-stt-1.0")!!.costTier)
         assertEquals(
             SttCostTier.Cheap,

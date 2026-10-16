@@ -8,9 +8,9 @@ internal class DictationConfiguration(
     /** Custom vocabulary terms; empty unless [model] accepts them. */
     val vocabulary: List<String> = emptyList(),
     val sarvamKey: String = "",
-    /** Gemini Transcribe runs on the user's Gemini key; [key] is then that key. */
-    val geminiDirect: Boolean = false,
-    /** Gemini smart mode; false unless [geminiDirect]. */
+    /** Gemini Transcribe or Scribe v2 runs on its maker's API with the user's key; [key] is then that key. */
+    val providerDirect: Boolean = false,
+    /** Gemini smart mode; false unless Gemini Transcribe is on [providerDirect]. */
     val rambler: Boolean = false,
 ) {
     val ready: Boolean get() = key.isNotBlank()

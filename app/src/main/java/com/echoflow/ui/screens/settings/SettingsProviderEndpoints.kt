@@ -243,35 +243,36 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
 }
 
 /**
- * Deepgram is dictation-only, so its page is just the switch and key: no chat models to fetch.
- * A saved key adds Nova-3 Multilingual to the dictation picker; clearing it hides the model again.
+ * Deepgram and ElevenLabs are dictation-only, so their page is just the switch and key: no chat
+ * models to fetch. A saved Deepgram key adds Nova-3 Multilingual to the dictation picker; a saved
+ * ElevenLabs key moves Scribe v2 off OpenRouter onto the user's own ElevenLabs account.
  */
 @Composable
-internal fun DeepgramKeyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val provider = CustomModelProvider.Deepgram
+internal fun DictationKeyPage(viewModel: SettingsViewModel, provider: CustomModelProvider, onBack: () -> Unit) {
     val saved by viewModel.customProviderConfig.collectAsState()
     var draft by remember(saved) { mutableStateOf(saved) }
     var keyVisible by remember { mutableStateOf(false) }
     val brand = directProviderBrand(provider)
+    val enabled = directProviderEnabled(draft, provider)
 
     SettingsPageScaffold(title = brand.title, subtitle = brand.subtitle, onBack = onBack) {
         BrandEndpointToggle(
             provider = provider,
-            enabled = draft.deepgramEnabled,
+            enabled = enabled,
             onToggle = {
-                draft = draft.copy(deepgramEnabled = it, cloudApisEnabled = draft.cloudApisEnabled || it)
+                draft = setDirectProviderEnabled(draft, provider, it).copy(cloudApisEnabled = draft.cloudApisEnabled || it)
                 viewModel.saveCustomProviderConfig(draft)
             },
         )
 
-        AnimatedVisibility(visible = draft.deepgramEnabled, enter = sectionEnter(), exit = sectionExit()) {
+        AnimatedVisibility(visible = enabled, enter = sectionEnter(), exit = sectionExit()) {
             Column {
                 Spacer(Modifier.height(CustomProviderSectionGap))
                 PageSection("API key")
                 FormCard {
                     OutlinedTextField(
-                        value = draft.deepgramApiKey,
-                        onValueChange = { draft = draft.copy(deepgramApiKey = it) },
+                        value = directProviderApiKey(draft, provider),
+                        onValueChange = { draft = setDirectProviderApiKey(draft, provider, it) },
                         placeholder = { Text(brand.keyPlaceholder) },
                         singleLine = true,
                         shape = MaterialTheme.shapes.medium,
@@ -284,7 +285,7 @@ internal fun DeepgramKeyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (saved.deepgramApiKey.isNotBlank()) {
+                    if (directProviderApiKey(saved, provider).isNotBlank()) {
                         Spacer(Modifier.height(Spacing.s))
                         SavedKeyBadge("A key is saved on this device")
                     }
@@ -301,19 +302,28 @@ internal fun DeepgramKeyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     Text("Dictation", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "Your key adds Nova-3 Multilingual to Settings → Dictation. It transcribes many " +
-                            "languages, formats punctuation and casing, and can use your vocabulary as " +
-                            "keyterms. Usage is billed to your Deepgram account.",
+                        dictationKeyAbout(provider),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-        AnimatedVisibility(visible = !draft.deepgramEnabled, enter = sectionEnter(), exit = sectionExit()) {
+        AnimatedVisibility(visible = !enabled, enter = sectionEnter(), exit = sectionExit()) {
             EndpointOffState("Turn on ${brand.title} to add a key for dictation.")
         }
     }
+}
+
+private fun dictationKeyAbout(provider: CustomModelProvider): String = when (provider) {
+    CustomModelProvider.ElevenLabs ->
+        "Your key runs Scribe v2 in Settings → Dictation on ElevenLabs instead of OpenRouter. It " +
+            "transcribes 90+ languages and can use your vocabulary as keyterms. Usage is billed to " +
+            "your ElevenLabs account."
+    else ->
+        "Your key adds Nova-3 Multilingual to Settings → Dictation. It transcribes many " +
+            "languages, formats punctuation and casing, and can use your vocabulary as " +
+            "keyterms. Usage is billed to your Deepgram account."
 }
 
 @Composable

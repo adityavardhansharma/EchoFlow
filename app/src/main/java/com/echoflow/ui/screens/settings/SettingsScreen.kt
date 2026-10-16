@@ -181,6 +181,7 @@ internal const val PageCustomProviderEnclave = "custom_provider_enclave"
 internal const val PageCustomProviderExperiential = "custom_provider_experiential"
 internal const val PageCustomProviderCloudflare = "custom_provider_cloudflare"
 internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
+internal const val PageCustomProviderElevenLabs = "custom_provider_elevenlabs"
 internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal const val PageLicenses = "open_source_licenses"
@@ -203,7 +204,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi, PageCustomProviderVercel,
     PageCustomProviderGroq, PageCustomProviderTogether, PageCustomProviderEnclave, PageCustomProviderExperiential, PageCustomProviderCloudflare,
-    PageCustomProviderDeepgram,
+    PageCustomProviderDeepgram, PageCustomProviderElevenLabs,
     -> PageCustomProviderCloud
     else -> PageHome
 }
@@ -280,6 +281,7 @@ fun SettingsScreen(
                 onOpenCloudModels = { page = PageCloudModels },
                 onOpenSarvam = { page = PageCustomProviderSarvam },
                 onOpenDeepgram = { page = PageCustomProviderDeepgram },
+                onOpenElevenLabs = { page = PageCustomProviderElevenLabs },
                 onBack = navigateBack,
             )
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
@@ -303,7 +305,8 @@ fun SettingsScreen(
             PageCustomProviderEnclave -> DirectCloudBrandPage(viewModel, CustomModelProvider.Enclave, onBack = navigateBack)
             PageCustomProviderExperiential -> DirectCloudBrandPage(viewModel, CustomModelProvider.Experiential, onBack = navigateBack)
             PageCustomProviderCloudflare -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cloudflare, onBack = navigateBack)
-            PageCustomProviderDeepgram -> DeepgramKeyPage(viewModel, onBack = navigateBack)
+            PageCustomProviderDeepgram -> DictationKeyPage(viewModel, CustomModelProvider.Deepgram, onBack = navigateBack)
+            PageCustomProviderElevenLabs -> DictationKeyPage(viewModel, CustomModelProvider.ElevenLabs, onBack = navigateBack)
             PageCustomProviderOllama -> OllamaEndpointPage(viewModel, onBack = navigateBack)
             PageCustomProviderCompatible -> OpenAiCompatibleEndpointPage(viewModel, onBack = navigateBack)
             PageLicenses -> OpenSourceLicensesPage(onBack = navigateBack)

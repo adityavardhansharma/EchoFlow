@@ -192,6 +192,7 @@ class SpeechToTextTranscriber(
     private val sarvamBaseUrl: String = "https://api.sarvam.ai",
     private val deepgramBaseUrl: String = "https://api.deepgram.com",
     private val geminiBaseUrl: String = GeminiDictation.BASE_URL,
+    private val elevenLabsBaseUrl: String = ElevenLabsDictation.BASE_URL,
 ) {
     suspend fun transcribe(
         apiKey: String,
@@ -201,12 +202,15 @@ class SpeechToTextTranscriber(
         vocabulary: List<String> = emptyList(),
         /** Sarvam key used for Hinglish romanization; any STT model's output can be romanized. */
         sarvamKey: String = apiKey,
-        /** True when [apiKey] is a Gemini key and Gemini Transcribe should call the Gemini API directly. */
-        geminiDirect: Boolean = false,
+        /**
+         * True when [apiKey] is the model maker's own key (Gemini for Gemini Transcribe, ElevenLabs
+         * for Scribe v2) and the request should skip OpenRouter. See [SttCatalog.usesProviderDirect].
+         */
+        providerDirect: Boolean = false,
         /** Gemini's smart mode (Rambler); only honoured on the direct Gemini route. */
         rambler: Boolean = false,
     ): Result<String> =
-        transcribeRaw(apiKey, modelId, wav, vocabulary, geminiDirect, rambler).map { transcript ->
+        transcribeRaw(apiKey, modelId, wav, vocabulary, providerDirect, rambler).map { transcript ->
             // Hinglish: the whole transcript goes to Sarvam in one request (split only past its
             // per-request limit) so the model sees full context. Pure non-Devanagari text is
             // returned untouched, and a transliteration miss keeps the original script rather
@@ -223,7 +227,7 @@ class SpeechToTextTranscriber(
         modelId: String,
         wav: ByteArray,
         vocabulary: List<String>,
-        geminiDirect: Boolean,
+        providerDirect: Boolean,
         rambler: Boolean,
     ): Result<String> =
         withContext(Dispatchers.IO) {
@@ -269,7 +273,31 @@ class SpeechToTextTranscriber(
                     DeepgramDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
                 }.onFailure { if (it is CancellationException) throw it }
             }
-            if (geminiDirect && modelId == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID) {
+            if (providerDirect && modelId == SttCatalog.SCRIBE_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No ElevenLabs key" }
+                    // Keyterms only bias recognition, so like Deepgram's they never gate dictation:
+                    // a rejected keyterm request (400 or 422) retries once without them.
+                    val keyterms = ElevenLabsDictation.keyterms(vocabulary)
+                    val attempts = if (keyterms.isEmpty()) listOf(keyterms) else listOf(keyterms, emptyList())
+                    var code = 0
+                    var body = ""
+                    for ((index, terms) in attempts.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val response = executeCancellable(
+                            ElevenLabsDictation.request(apiKey, wav, terms, elevenLabsBaseUrl),
+                        )
+                        code = response.first
+                        body = response.second
+                        if ((code != 400 && code != 422) || index == attempts.lastIndex) break
+                    }
+                    check(code in 200..299) {
+                        ProviderHttpSupport.errorMessage("ElevenLabs dictation", code, body)
+                    }
+                    ElevenLabsDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
+                }.onFailure { if (it is CancellationException) throw it }
+            }
+            if (providerDirect && modelId == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID) {
                 return@withContext runCatching {
                     check(apiKey.isNotBlank()) { "No Gemini key" }
                     val wavBase64 = Base64.encodeToString(wav, Base64.NO_WRAP)
@@ -412,6 +440,7 @@ internal object SttPayloads {
     const val DEFAULT_TRANSCRIBE_STYLE = "simple"
     const val CLEAN_TRANSCRIBE_STYLE = "clean"
     const val GOOGLE_AI_STUDIO_PROVIDER = "google-ai-studio"
+    const val ELEVENLABS_PROVIDER = "elevenlabs"
 
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
@@ -446,6 +475,17 @@ internal object SttPayloads {
             put("provider", mapOf(
                 "options" to mapOf(
                     GOOGLE_AI_STUDIO_PROVIDER to mapOf("custom_vocabulary" to terms),
+                ),
+            ))
+        }
+        // Scribe v2 takes OpenRouter's top-level `keyterms`, trimmed to ElevenLabs' limits, and
+        // drops "(laughter)"-style audio-event tags so dictated text stays clean.
+        if (modelId == SttCatalog.SCRIBE_MODEL_ID) {
+            val keyterms = ElevenLabsDictation.keyterms(vocabulary)
+            if (keyterms.isNotEmpty()) put("keyterms", keyterms)
+            put("provider", mapOf(
+                "options" to mapOf(
+                    ELEVENLABS_PROVIDER to mapOf("tag_audio_events" to false),
                 ),
             ))
         }

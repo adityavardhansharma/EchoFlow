@@ -420,6 +420,7 @@ class SettingsViewModel(
                         apiKey = config.cloudflareApiKey,
                     )
                     CustomModelProvider.Deepgram -> customProviderService.fetchModels(provider, apiKey = config.deepgramApiKey)
+                    CustomModelProvider.ElevenLabs -> customProviderService.fetchModels(provider, apiKey = config.elevenLabsApiKey)
                     CustomModelProvider.Ollama -> customProviderService.fetchModels(provider, baseUrl = config.ollamaBaseUrl)
                     CustomModelProvider.OpenAiCompatible -> customProviderService.fetchModels(
                         provider,
@@ -441,7 +442,7 @@ class SettingsViewModel(
                         CustomModelProvider.Enclave -> config.copy(enclaveModels = result.message)
                         CustomModelProvider.Experiential -> config.copy(experientialModels = result.message)
                         CustomModelProvider.Cloudflare -> config.copy(cloudflareModels = result.message)
-                        CustomModelProvider.Deepgram -> config
+                        CustomModelProvider.Deepgram, CustomModelProvider.ElevenLabs -> config
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)
                         CustomModelProvider.OpenAiCompatible -> config.copy(openAiCompatibleModels = result.message)
                     }

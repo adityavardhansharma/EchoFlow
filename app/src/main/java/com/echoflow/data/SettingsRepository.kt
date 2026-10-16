@@ -74,9 +74,14 @@ class SettingsRepository(context: Context) {
         val geminiKey = if (cloudApis && prefs.getBoolean("direct_gemini_enabled", cloudApis))
             prefs.getString("direct_gemini_api_key", "").orEmpty() else ""
         val geminiDirect = model == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID && geminiKey.isNotBlank()
+        // Scribe v2 likewise uses the ElevenLabs key whenever one is saved and ElevenLabs is on.
+        val elevenLabsKey = if (cloudApis && prefs.getBoolean("direct_elevenlabs_enabled", false))
+            prefs.getString("direct_elevenlabs_api_key", "").orEmpty() else ""
+        val elevenLabsDirect = model == SttCatalog.SCRIBE_MODEL_ID && elevenLabsKey.isNotBlank()
         val key = when {
             SttCatalog.usesDirectKey(model) -> directKey
             geminiDirect -> geminiKey
+            elevenLabsDirect -> elevenLabsKey
             else -> getApiKeyDirect()
         }
         // System-wide dictation remains cloud-backed while on-device transcription is only a
@@ -87,7 +92,7 @@ class SettingsRepository(context: Context) {
             sarvamKey.isNotBlank() && getSarvamHinglishEnabledDirect(),
             if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList(),
             sarvamKey,
-            geminiDirect = geminiDirect,
+            providerDirect = geminiDirect || elevenLabsDirect,
             rambler = geminiDirect && getSttRamblerEnabledDirect())
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
@@ -520,6 +525,8 @@ class SettingsRepository(context: Context) {
             sarvamSelectedModels = prefs.getString("direct_sarvam_selected_models", "sarvam-105b").orEmpty(),
             deepgramEnabled = prefs.getBoolean("direct_deepgram_enabled", false),
             deepgramApiKey = prefs.getString("direct_deepgram_api_key", "").orEmpty(),
+            elevenLabsEnabled = prefs.getBoolean("direct_elevenlabs_enabled", false),
+            elevenLabsApiKey = prefs.getString("direct_elevenlabs_api_key", "").orEmpty(),
             xAiEnabled = prefs.getBoolean("direct_xai_enabled", false),
             xAiApiKey = prefs.getString("direct_xai_api_key", "").orEmpty(),
             xAiModel = prefs.getString("direct_xai_model", "").orEmpty(),
@@ -586,6 +593,7 @@ class SettingsRepository(context: Context) {
             sarvamApiKey = config.sarvamApiKey.trim(),
             sarvamModel = config.sarvamModel.trim(),
             deepgramApiKey = config.deepgramApiKey.trim(),
+            elevenLabsApiKey = config.elevenLabsApiKey.trim(),
             xAiApiKey = config.xAiApiKey.trim(),
             xAiModel = config.xAiModel.trim(),
             vercelApiKey = config.vercelApiKey.trim(),
@@ -638,6 +646,8 @@ class SettingsRepository(context: Context) {
             .putString("direct_sarvam_selected_models", clean.sarvamSelectedModels)
             .putBoolean("direct_deepgram_enabled", clean.deepgramEnabled)
             .putString("direct_deepgram_api_key", clean.deepgramApiKey)
+            .putBoolean("direct_elevenlabs_enabled", clean.elevenLabsEnabled)
+            .putString("direct_elevenlabs_api_key", clean.elevenLabsApiKey)
             .putBoolean("direct_xai_enabled", clean.xAiEnabled)
             .putString("direct_xai_api_key", clean.xAiApiKey)
             .putString("direct_xai_model", clean.xAiModel)

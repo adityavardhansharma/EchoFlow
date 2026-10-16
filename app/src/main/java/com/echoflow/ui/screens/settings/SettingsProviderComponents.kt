@@ -142,6 +142,7 @@ internal fun directProviderBrand(provider: CustomModelProvider): DirectProviderB
     CustomModelProvider.Experiential -> DirectProviderBrand("Experiential Labs", "Many labs' models through one gateway", "xpl_...", "qwen3.8-27b", R.drawable.logo_compatible, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary)
     CustomModelProvider.Cloudflare -> DirectProviderBrand("Cloudflare Workers AI", "Models on Cloudflare's network", "Cloudflare API token", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", R.drawable.logo_compatible, Color(0xFFF38020))
     CustomModelProvider.Deepgram -> DirectProviderBrand("Deepgram", "Nova-3 Multilingual dictation", "Deepgram API key", "nova-3", R.drawable.logo_deepgram, Color(0xFF101014))
+    CustomModelProvider.ElevenLabs -> DirectProviderBrand("ElevenLabs", "Scribe v2 dictation", "sk_...", "scribe_v2", R.drawable.logo_elevenlabs, Color(0xFF000000))
     CustomModelProvider.Ollama -> DirectProviderBrand("Ollama API", "Use a local or LAN Ollama server", "Optional for local servers", "llama3.1", R.drawable.logo_ollama, Color(0xFF2B2B2B))
     CustomModelProvider.OpenAiCompatible -> DirectProviderBrand("OpenAI-Compatible API", "Use LM Studio, Jan, vLLM or similar", "Optional for local servers", "local-model", R.drawable.logo_compatible, Color(0xFF5B6472))
 }
@@ -656,6 +657,7 @@ internal fun directProviderEnabled(config: CustomProviderConfig, provider: Custo
     CustomModelProvider.Experiential -> config.experientialEnabled
     CustomModelProvider.Cloudflare -> config.cloudflareEnabled
     CustomModelProvider.Deepgram -> config.deepgramEnabled
+    CustomModelProvider.ElevenLabs -> config.elevenLabsEnabled
     else -> false
 }
 
@@ -673,6 +675,7 @@ internal fun setDirectProviderEnabled(config: CustomProviderConfig, provider: Cu
     CustomModelProvider.Experiential -> config.copy(experientialEnabled = enabled)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareEnabled = enabled)
     CustomModelProvider.Deepgram -> config.copy(deepgramEnabled = enabled)
+    CustomModelProvider.ElevenLabs -> config.copy(elevenLabsEnabled = enabled)
     else -> config
 }
 
@@ -690,6 +693,7 @@ internal fun directProviderApiKey(config: CustomProviderConfig, provider: Custom
     CustomModelProvider.Experiential -> config.experientialApiKey
     CustomModelProvider.Cloudflare -> config.cloudflareApiKey
     CustomModelProvider.Deepgram -> config.deepgramApiKey
+    CustomModelProvider.ElevenLabs -> config.elevenLabsApiKey
     else -> ""
 }
 
@@ -707,6 +711,7 @@ internal fun setDirectProviderApiKey(config: CustomProviderConfig, provider: Cus
     CustomModelProvider.Experiential -> config.copy(experientialApiKey = value)
     CustomModelProvider.Cloudflare -> config.copy(cloudflareApiKey = value)
     CustomModelProvider.Deepgram -> config.copy(deepgramApiKey = value)
+    CustomModelProvider.ElevenLabs -> config.copy(elevenLabsApiKey = value)
     else -> config
 }
 
@@ -792,8 +797,8 @@ internal fun setDirectProviderSelectedModels(config: CustomProviderConfig, provi
 
 internal fun directProviderSummary(config: CustomProviderConfig, provider: CustomModelProvider): String {
     if (!directProviderEnabled(config, provider)) return "Off"
-    if (provider == CustomModelProvider.Deepgram) {
-        return if (config.deepgramApiKey.isBlank()) "On · no key" else "On · dictation only"
+    if (provider == CustomModelProvider.Deepgram || provider == CustomModelProvider.ElevenLabs) {
+        return if (directProviderApiKey(config, provider).isBlank()) "On · no key" else "On · dictation only"
     }
     val count = (
         listOf(directProviderManualModel(config, provider).trim()).filter { it.isNotEmpty() } +
@@ -827,6 +832,7 @@ internal fun providerLabel(provider: CustomModelProvider): String = when (provid
     CustomModelProvider.Experiential -> "Experiential Labs"
     CustomModelProvider.Cloudflare -> "Cloudflare Workers AI"
     CustomModelProvider.Deepgram -> "Deepgram"
+    CustomModelProvider.ElevenLabs -> "ElevenLabs"
     CustomModelProvider.Ollama -> "Ollama"
     CustomModelProvider.OpenAiCompatible -> "OpenAI-compatible"
 }

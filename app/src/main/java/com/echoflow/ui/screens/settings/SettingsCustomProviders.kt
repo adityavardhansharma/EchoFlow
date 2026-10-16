@@ -365,6 +365,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Experiential to PageCustomProviderExperiential,
         CustomModelProvider.Cloudflare to PageCustomProviderCloudflare,
         CustomModelProvider.Deepgram to PageCustomProviderDeepgram,
+        CustomModelProvider.ElevenLabs to PageCustomProviderElevenLabs,
     )
 
     SettingsPageScaffold(title = "Custom", subtitle = "OpenAI · Claude · Gemini · xAI · Groq · Vercel · and more", onBack = onBack) {
