@@ -49,7 +49,7 @@ class SystemDictationService : AccessibilityService() {
     private var sarvamKey = ""
     private var vocabulary = emptyList<String>()
     private var providerDirect = false
-    private var rambler = false
+    private var smartMode = false
     private var prerequisitesReady = false
     private var systemWideEnabled = false
     private var starting = false
@@ -339,7 +339,7 @@ class SystemDictationService : AccessibilityService() {
                 sarvamKey = config.sarvamKey
                 vocabulary = config.vocabulary
                 providerDirect = config.providerDirect
-                rambler = config.rambler
+                smartMode = config.smartMode
                 try {
                     // This service is bound by the system. Promote that same service only on a user tap.
                     foreground("Recording dictation")
@@ -389,7 +389,7 @@ class SystemDictationService : AccessibilityService() {
         val sessionSarvamKey = sarvamKey
         val sessionVocabulary = vocabulary
         val sessionProviderDirect = providerDirect
-        val sessionRambler = rambler
+        val sessionSmartMode = smartMode
         session = scope.launch {
             try {
                 val wav = release.await() ?: return@launch
@@ -398,7 +398,7 @@ class SystemDictationService : AccessibilityService() {
                 if (runCatching { foreground("Transcribing dictation") }.isFailure) { disable(); return@launch }
                 transcriber.transcribe(
                     sessionKey, sessionModel, wav, sessionHinglish, sessionVocabulary, sessionSarvamKey,
-                    sessionProviderDirect, sessionRambler,
+                    sessionProviderDirect, sessionSmartMode,
                 ).onSuccess { transcript ->
                     ensureActive()
                     if (!refreshPrerequisites()) return@onSuccess

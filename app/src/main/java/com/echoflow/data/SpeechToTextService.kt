@@ -207,10 +207,13 @@ class SpeechToTextTranscriber(
          * for Scribe v2) and the request should skip OpenRouter. See [SttCatalog.usesProviderDirect].
          */
         providerDirect: Boolean = false,
-        /** Gemini's smart mode (Rambler); only honoured on the direct Gemini route. */
-        rambler: Boolean = false,
+        /**
+         * Smart mode on a direct route: Rambler for Gemini Transcribe, transcript editing for
+         * Scribe v2. Ignored on OpenRouter, which forwards neither.
+         */
+        smartMode: Boolean = false,
     ): Result<String> =
-        transcribeRaw(apiKey, modelId, wav, vocabulary, providerDirect, rambler).map { transcript ->
+        transcribeRaw(apiKey, modelId, wav, vocabulary, providerDirect, smartMode).map { transcript ->
             // Hinglish: the whole transcript goes to Sarvam in one request (split only past its
             // per-request limit) so the model sees full context. Pure non-Devanagari text is
             // returned untouched, and a transliteration miss keeps the original script rather
@@ -228,7 +231,7 @@ class SpeechToTextTranscriber(
         wav: ByteArray,
         vocabulary: List<String>,
         providerDirect: Boolean,
-        rambler: Boolean,
+        smartMode: Boolean,
     ): Result<String> =
         withContext(Dispatchers.IO) {
             if (modelId == SttCatalog.SARVAM_MODEL_ID) {
@@ -285,7 +288,7 @@ class SpeechToTextTranscriber(
                     for ((index, terms) in attempts.withIndex()) {
                         currentCoroutineContext().ensureActive()
                         val response = executeCancellable(
-                            ElevenLabsDictation.request(apiKey, wav, terms, elevenLabsBaseUrl),
+                            ElevenLabsDictation.request(apiKey, wav, terms, smartMode, elevenLabsBaseUrl),
                         )
                         code = response.first
                         body = response.second
@@ -310,7 +313,7 @@ class SpeechToTextTranscriber(
                     for ((index, attemptTerms) in attempts.withIndex()) {
                         currentCoroutineContext().ensureActive()
                         val response = executeCancellable(
-                            GeminiDictation.request(apiKey, wavBase64, attemptTerms, rambler, geminiBaseUrl),
+                            GeminiDictation.request(apiKey, wavBase64, attemptTerms, smartMode, geminiBaseUrl),
                         )
                         code = response.first
                         body = response.second

@@ -61,18 +61,26 @@ class ElevenLabsIntegrationTest {
         repository.saveApiKey("router-key")
         repository.saveCustomProviderConfig(enabledConfig())
         repository.saveSttCloudModel(SttCatalog.SCRIBE_MODEL_ID)
+        // Gemini's Rambler switch never turns on Scribe's Smart mode; only its own switch does.
         repository.saveSttRamblerEnabled(true)
         val snapshot = SettingsRepository(context).getDictationConfiguration()
         assertEquals(SttCatalog.SCRIBE_MODEL_ID, snapshot.model)
         assertEquals("el-test-key", snapshot.key)
         assertTrue(snapshot.providerDirect)
-        assertFalse(snapshot.rambler)
+        assertFalse(snapshot.smartMode)
+        assertTrue(SttCatalog.supportsScribeSmartMode(SttCatalog.SCRIBE_MODEL_ID, enabledConfig()))
+
+        repository.saveSttScribeSmartEnabled(true)
+        assertTrue(SettingsRepository(context).getDictationConfiguration().smartMode)
 
         repository.saveCustomProviderConfig(enabledConfig().copy(elevenLabsApiKey = ""))
         val viaRouter = SettingsRepository(context).getDictationConfiguration()
         assertEquals(SttCatalog.SCRIBE_MODEL_ID, viaRouter.model)
         assertEquals("router-key", viaRouter.key)
         assertFalse(viaRouter.providerDirect)
+        // Smart mode is ElevenLabs-only: through OpenRouter it stays off even when switched on.
+        assertFalse(viaRouter.smartMode)
+        assertFalse(SttCatalog.supportsScribeSmartMode(SttCatalog.SCRIBE_MODEL_ID, enabledConfig().copy(elevenLabsApiKey = "")))
     }
 
     @Test fun `request uploads the WAV with xi-api-key, scribe_v2, no audio tags, and repeated keyterms`() {
@@ -86,11 +94,21 @@ class ElevenLabsIntegrationTest {
         assertEquals("scribe_v2", parts["model_id"])
         assertEquals("false", parts["tag_audio_events"])
         assertEquals("none", parts["timestamps_granularity"])
+        assertEquals("true", parts["no_verbatim"])
+        assertNull(parts["transcript_edit"])
         val keyterms = (request.body as MultipartBody).parts
             .filter { it.headers!!["Content-Disposition"]!!.contains("name=\"keyterms\"") }
             .map { Buffer().also { b -> it.body.writeTo(b) }.readUtf8() }
         assertEquals(listOf("EchoFlow", "Aditya Sharma"), keyterms)
         assertEquals("audio/wav", (request.body as MultipartBody).parts.last().body.contentType().toString())
+    }
+
+    @Test fun `smart mode sends the formatting prompt as transcript_edit`() {
+        val request = ElevenLabsDictation.request("el-test-key", ByteArray(64), smartMode = true)
+        val edit = (request.body as MultipartBody).parts
+            .single { it.headers!!["Content-Disposition"]!!.contains("name=\"transcript_edit\"") }
+        assertEquals(ElevenLabsDictation.SMART_MODE_PROMPT, Buffer().also { edit.body.writeTo(it) }.readUtf8())
+        assertTrue(ElevenLabsDictation.SMART_MODE_PROMPT.length <= 2000)
     }
 
     @Test fun `keyterms drop forbidden characters and stay within ElevenLabs' limits`() {
@@ -105,6 +123,17 @@ class ElevenLabsIntegrationTest {
         assertEquals("Kal meeting hai.", ElevenLabsDictation.parseTranscript("""{"language_code":"hin","text":" Kal meeting hai. ","words":[]}"""))
         assertNull(ElevenLabsDictation.parseTranscript("""{"text":""}"""))
         assertNull(ElevenLabsDictation.parseTranscript("not json"))
+    }
+
+    @Test fun `prefers the smart-mode edit and falls back to the plain text when it fails`() {
+        assertEquals(
+            "Meet at 5:30 PM.",
+            ElevenLabsDictation.parseTranscript("""{"text":"meet at five thirty pm","edited_transcript":{"kind":"transcript","text":" Meet at 5:30 PM. "}}"""),
+        )
+        assertEquals(
+            "meet at five thirty pm",
+            ElevenLabsDictation.parseTranscript("""{"text":"meet at five thirty pm","edited_transcript":{"kind":"error","error_type":"llm_error","message":"x"}}"""),
+        )
     }
 
     @Test fun `direct route retries once without rejected keyterms`() = runTest {

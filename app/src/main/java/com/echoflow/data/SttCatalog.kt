@@ -141,6 +141,13 @@ object SttCatalog {
     fun supportsRambler(modelId: String, config: CustomProviderConfig): Boolean =
         usesGeminiDirect(modelId, config)
 
+    /**
+     * Scribe's Smart mode (ElevenLabs transcript editing, +30%) and its always-on clean-up
+     * (`no_verbatim`) exist only on the direct ElevenLabs route; OpenRouter forwards neither.
+     */
+    fun supportsScribeSmartMode(modelId: String, config: CustomProviderConfig): Boolean =
+        usesElevenLabsDirect(modelId, config)
+
     fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String = when {
         modelId == SARVAM_MODEL_ID -> if (sarvamAvailable(config)) config.sarvamApiKey else ""
         modelId == DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""

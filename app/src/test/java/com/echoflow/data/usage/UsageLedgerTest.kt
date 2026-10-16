@@ -161,6 +161,14 @@ class UsageLedgerTest {
         val plain = com.echoflow.data.ElevenLabsDictation.request("el-key", wav)
         val (_, again) = capture(plain, "application/json", """{"text":"hello"}""")
         assertEquals(2.0 / 60.0 * 0.000061 * 60.0, UsageLedger.write(dao, again.single())!!.costUsd!!, 1e-12)
+
+        // Smart mode adds 30%, billed on at least 10 seconds of audio.
+        val smart = com.echoflow.data.ElevenLabsDictation.request("el-key", wav, smartMode = true)
+        val (_, edited) = capture(smart, "application/json", """{"text":"hello"}""")
+        assertEquals(
+            2.0 * 0.000061 + 10.0 * 0.000061 * 0.3,
+            UsageLedger.write(dao, edited.single())!!.costUsd!!, 1e-12,
+        )
     }
 
     @Test fun `openrouter key figures parse`() {

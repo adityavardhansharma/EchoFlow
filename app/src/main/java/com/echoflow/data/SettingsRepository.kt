@@ -78,6 +78,11 @@ class SettingsRepository(context: Context) {
         val elevenLabsKey = if (cloudApis && prefs.getBoolean("direct_elevenlabs_enabled", false))
             prefs.getString("direct_elevenlabs_api_key", "").orEmpty() else ""
         val elevenLabsDirect = model == SttCatalog.SCRIBE_MODEL_ID && elevenLabsKey.isNotBlank()
+        val smartMode = when {
+            geminiDirect -> getSttRamblerEnabledDirect()
+            elevenLabsDirect -> getSttScribeSmartEnabledDirect()
+            else -> false
+        }
         val key = when {
             SttCatalog.usesDirectKey(model) -> directKey
             geminiDirect -> geminiKey
@@ -93,7 +98,7 @@ class SettingsRepository(context: Context) {
             if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList(),
             sarvamKey,
             providerDirect = geminiDirect || elevenLabsDirect,
-            rambler = geminiDirect && getSttRamblerEnabledDirect())
+            smartMode = smartMode)
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
     fun getDictationBubbleY() = dictationPrefs.getFloat("bubble_y", 0.5f).let {
@@ -204,6 +209,10 @@ class SettingsRepository(context: Context) {
     // Rambler: Gemini Transcribe's smart mode, available only when dictation runs on a Gemini key.
     private val _sttRamblerEnabled = MutableStateFlow(getSttRamblerEnabledDirect())
     val sttRamblerEnabled: StateFlow<Boolean> = _sttRamblerEnabled.asStateFlow()
+
+    // Scribe Smart mode: ElevenLabs transcript editing, available only when Scribe runs on an ElevenLabs key.
+    private val _sttScribeSmartEnabled = MutableStateFlow(getSttScribeSmartEnabledDirect())
+    val sttScribeSmartEnabled: StateFlow<Boolean> = _sttScribeSmartEnabled.asStateFlow()
 
     // Which surface the app is on. Persisted so a relaunch resumes where the user left off.
     private val _appMode = MutableStateFlow(getAppModeDirect())
@@ -868,6 +877,13 @@ class SettingsRepository(context: Context) {
     fun saveSttRamblerEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("stt_gemini_rambler_enabled", enabled).apply()
         _sttRamblerEnabled.value = enabled
+    }
+
+    fun getSttScribeSmartEnabledDirect(): Boolean = prefs.getBoolean("stt_scribe_smart_enabled", false)
+
+    fun saveSttScribeSmartEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("stt_scribe_smart_enabled", enabled).apply()
+        _sttScribeSmartEnabled.value = enabled
     }
 
     fun getSttVocabularyDirect(): List<String> =

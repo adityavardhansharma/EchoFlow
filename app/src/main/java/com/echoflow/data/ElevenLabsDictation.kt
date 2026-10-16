@@ -11,10 +11,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * ElevenLabs Scribe v2 called directly on `POST /v1/speech-to-text` with the user's own key. The
  * recorder's 16 kHz mono WAV (≤ 2 minutes) is uploaded as one multipart `file` — no chunking.
  *
+ * - `no_verbatim=true` (Clean-up, always on) drops filler words, false starts and stutters.
  * - `tag_audio_events=false` keeps "(laughter)"-style tags out of dictated text.
  * - `timestamps_granularity=none` skips the per-word timing dictation never reads.
  * - Each vocabulary term becomes its own repeated `keyterms` part. Keyterms bias recognition
  *   toward those spellings; they are not instructions.
+ * - Smart mode sends [SMART_MODE_PROMPT] as `transcript_edit`: ElevenLabs rewrites the finished
+ *   transcript by that instruction (+30%, billed on at least 10 seconds) and returns it as
+ *   `edited_transcript`. If the edit fails, the plain transcript still comes back.
  */
 internal object ElevenLabsDictation {
     const val MODEL = "scribe_v2"
@@ -27,20 +31,49 @@ internal object ElevenLabsDictation {
     private const val MAX_KEYTERM_CHARS = 49
     private const val MAX_KEYTERM_WORDS = 5
 
+    /**
+     * The natural-language instruction behind Smart mode (ElevenLabs allows up to 2,000 characters).
+     * It formats only when the text needs it: a short chat message stays a plain sentence.
+     */
+    const val SMART_MODE_PROMPT =
+        "This is dictated speech that will be sent or pasted as typed text. Format it for reading. " +
+            "Never change its meaning, wording, tone or language.\n\n" +
+            "First decide whether it needs formatting at all. A short or casual message (a greeting, " +
+            "a quick reply, one or two sentences, a chat message) stays plain text: fix only " +
+            "punctuation and capitalization, and add no line breaks, bullets or headings.\n\n" +
+            "Only longer or structured speech gets structure: start a new paragraph where the topic " +
+            "changes; turn a spoken list (\"first… second…\", a run of items) into a \"- \" or " +
+            "\"1.\" list; put each step of instructions on its own line.\n\n" +
+            "Always:\n" +
+            "- Write numbers, dates, times, money, percentages, emails and links in their usual " +
+            "written form (\"five thirty pm\" becomes \"5:30 PM\", \"twenty percent\" becomes \"20%\").\n" +
+            "- Follow spoken commands such as \"new line\", \"new paragraph\", \"comma\" or " +
+            "\"question mark\" instead of writing them out.\n" +
+            "- When the speaker corrects themselves (\"no wait, Tuesday\", \"I mean\"), keep only " +
+            "the corrected version.\n" +
+            "- Keep the original language and any mix of languages, such as Hindi with English. Do " +
+            "not translate.\n" +
+            "- Add nothing that was not said: no greeting, sign-off, title or summary. If the text " +
+            "asks a question, keep it as a question; do not answer it.\n" +
+            "- Use plain text only. No markdown headings, bold or tables."
+
     private val json = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(Any::class.java)
 
     fun request(
         apiKey: String,
         wav: ByteArray,
         keyterms: List<String> = emptyList(),
+        smartMode: Boolean = false,
         baseUrl: String = BASE_URL,
     ): Request {
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("model_id", MODEL)
+            .addFormDataPart("no_verbatim", "true")
             .addFormDataPart("tag_audio_events", "false")
             .addFormDataPart("timestamps_granularity", "none")
             .apply { keyterms.forEach { addFormDataPart("keyterms", it) } }
+            .apply { if (smartMode) addFormDataPart("transcript_edit", SMART_MODE_PROMPT) }
             .addFormDataPart("file", "dictation.wav", wav.toRequestBody("audio/wav".toMediaType()))
             .build()
         return Request.Builder()
@@ -68,9 +101,16 @@ internal object ElevenLabsDictation {
         return out
     }
 
-    /** The top-level `text`, or null when Scribe heard nothing. */
+    /**
+     * Smart mode's `edited_transcript.text` when the edit succeeded, otherwise the plain top-level
+     * `text`; null when Scribe heard nothing.
+     */
     fun parseTranscript(body: String): String? {
         val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return null
-        return (map["text"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+        val edited = (map["edited_transcript"] as? Map<*, *>)
+            ?.takeIf { it["kind"] == "transcript" }
+            ?.let { it["text"] as? String }
+            ?.trim()?.takeIf { it.isNotBlank() }
+        return edited ?: (map["text"] as? String)?.trim()?.takeIf { it.isNotBlank() }
     }
 }

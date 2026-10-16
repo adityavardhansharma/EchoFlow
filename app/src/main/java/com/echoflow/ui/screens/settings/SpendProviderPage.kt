@@ -428,7 +428,15 @@ private fun RecordSheet(provider: UsageProvider, record: UsageRecord, onDismiss:
             }
             Spacer(Modifier.height(Spacing.l))
             record.costUsd?.let {
-                DetailHeadline(SpendFormat.usd(it), if (provider in ListPrices.priced) "at list prices" else "charged by ${provider.label}")
+                DetailHeadline(
+                    SpendFormat.usd(it),
+                    when {
+                        provider in ListPrices.priced -> "at list prices"
+                        // ElevenLabs returns no price; this one is estimated from the audio length.
+                        provider == UsageProvider.ElevenLabs -> "estimated from audio length"
+                        else -> "charged by ${provider.label}"
+                    },
+                )
             }
             record.credits?.let { DetailHeadline(SpendFormat.credits(it), "credits") }
             val lines = listOfNotNull(

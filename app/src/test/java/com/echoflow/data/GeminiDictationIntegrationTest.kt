@@ -52,13 +52,13 @@ class GeminiDictationIntegrationTest {
         val snapshot = SettingsRepository(context).getDictationConfiguration()
         assertEquals("gm-key", snapshot.key)
         assertTrue(snapshot.providerDirect)
-        assertTrue(snapshot.rambler)
+        assertTrue(snapshot.smartMode)
 
         repository.saveCustomProviderConfig(geminiConfig().copy(geminiApiKey = ""))
         val viaRouter = SettingsRepository(context).getDictationConfiguration()
         assertEquals("router-key", viaRouter.key)
         assertFalse(viaRouter.providerDirect)
-        assertFalse(viaRouter.rambler)
+        assertFalse(viaRouter.smartMode)
     }
 
     @Test fun `direct route sends smart mode and retries once without a rejected vocabulary`() = runTest {
@@ -71,7 +71,7 @@ class GeminiDictationIntegrationTest {
         })
         val result = transcriber.transcribe(
             "gm-key", SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID, ByteArray(64),
-            vocabulary = listOf("EchoFlow"), providerDirect = true, rambler = true,
+            vocabulary = listOf("EchoFlow"), providerDirect = true, smartMode = true,
         )
         assertEquals("hello", result.getOrThrow())
         assertEquals(2, bodies.size)

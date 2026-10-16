@@ -155,6 +155,8 @@ class SettingsViewModel(
     fun clearSttVocabulary() = repository.saveSttVocabulary(emptyList())
     val sttRamblerEnabled: StateFlow<Boolean> = repository.sttRamblerEnabled
     fun saveSttRamblerEnabled(enabled: Boolean) = repository.saveSttRamblerEnabled(enabled)
+    val sttScribeSmartEnabled: StateFlow<Boolean> = repository.sttScribeSmartEnabled
+    fun saveSttScribeSmartEnabled(enabled: Boolean) = repository.saveSttScribeSmartEnabled(enabled)
 
     // Image generation
     val imageGenModelId: StateFlow<String> = repository.imageGenModel
