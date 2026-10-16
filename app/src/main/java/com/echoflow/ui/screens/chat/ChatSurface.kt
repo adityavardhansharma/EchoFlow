@@ -261,14 +261,20 @@ internal fun ChatSurface(
     val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
     val hinglishSarvamKey = if (customProviderConfig.sarvamAvailable) customProviderConfig.sarvamApiKey else ""
     val romanizeHindi = hinglishEnabled && hinglishSarvamKey.isNotBlank()
-    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram keyterms).
+    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram and Scribe keyterms).
     val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
     val dictationVocabulary =
         if (com.echoflow.data.SttCatalog.supportsCustomVocabulary(sttCloudModelId)) sttVocabulary else emptyList()
-    // With a Gemini key saved, Gemini Transcribe runs on it directly, where Rambler is available.
-    val geminiDictation = com.echoflow.data.SttCatalog.usesGeminiDirect(sttCloudModelId, customProviderConfig)
+    // With a Gemini or ElevenLabs key saved, Gemini Transcribe or Scribe v2 runs on it directly.
+    // Smart mode exists only on those direct routes: Rambler for Gemini, transcript editing for Scribe.
+    val providerDictation = com.echoflow.data.SttCatalog.usesProviderDirect(sttCloudModelId, customProviderConfig)
     val ramblerEnabled by settingsViewModel.sttRamblerEnabled.collectAsState()
-    val dictationRambler = geminiDictation && ramblerEnabled
+    val scribeSmartEnabled by settingsViewModel.sttScribeSmartEnabled.collectAsState()
+    val dictationSmartMode = when {
+        com.echoflow.data.SttCatalog.supportsRambler(sttCloudModelId, customProviderConfig) -> ramblerEnabled
+        com.echoflow.data.SttCatalog.supportsScribeSmartMode(sttCloudModelId, customProviderConfig) -> scribeSmartEnabled
+        else -> false
+    }
     val sttContext = LocalContext.current
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -712,7 +718,7 @@ internal fun ChatSurface(
                         if (granted) voice.startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary, hinglishSarvamKey, geminiDictation, dictationRambler) { transcript ->
+                    VoicePhase.Recording -> voice.stopAndTranscribe(dictationKey, sttCloudModelId, romanizeHindi, dictationVocabulary, hinglishSarvamKey, providerDictation, dictationSmartMode) { transcript ->
                         // Append at the end of whatever is already in the box.
                         textInput = if (textInput.isBlank()) transcript
                         else textInput.trimEnd() + " " + transcript

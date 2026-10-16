@@ -114,6 +114,7 @@ private fun identity(provider: UsageProvider): SpendIdentity = when (provider) {
     UsageProvider.Cerebras -> SpendIdentity(MaterialShapes.Pentagon, SpendTone.Secondary, R.drawable.logo_cerebras)
     UsageProvider.Sarvam -> SpendIdentity(MaterialShapes.Flower, SpendTone.Tertiary, glyph = Icons.Default.Translate)
     UsageProvider.Deepgram -> SpendIdentity(MaterialShapes.Cookie4Sided, SpendTone.Secondary, R.drawable.logo_deepgram)
+    UsageProvider.ElevenLabs -> SpendIdentity(MaterialShapes.Cookie7Sided, SpendTone.Primary, R.drawable.logo_elevenlabs)
     UsageProvider.Exa -> SpendIdentity(MaterialShapes.Gem, SpendTone.Tertiary, glyph = Icons.Default.TravelExplore)
     UsageProvider.Parallel -> SpendIdentity(MaterialShapes.Pill, SpendTone.Primary, glyph = Icons.Default.Stream)
     UsageProvider.Firecrawl -> SpendIdentity(MaterialShapes.Burst, SpendTone.Tertiary, glyph = Icons.Default.LocalFireDepartment)

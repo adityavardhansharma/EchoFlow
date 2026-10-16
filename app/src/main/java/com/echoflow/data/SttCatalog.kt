@@ -74,6 +74,7 @@ object SttCatalog {
     const val MUSE_MODEL_ID = "meta/muse-voice-transcribe-1.0"
     const val GROK_MODEL_ID = "x-ai/grok-stt-1.0"
     const val GEMINI_TRANSCRIBE_MODEL_ID = "google/gemini-3.5-transcribe"
+    const val SCRIBE_MODEL_ID = "elevenlabs/scribe-v2"
     const val SARVAM_MODEL_ID = "saaras:v4"
     val SARVAM_MODEL = SttModel(
         id = SARVAM_MODEL_ID,
@@ -125,14 +126,33 @@ object SttCatalog {
     fun usesGeminiDirect(modelId: String, config: CustomProviderConfig): Boolean =
         modelId == GEMINI_TRANSCRIBE_MODEL_ID && config.geminiAvailable
 
+    /**
+     * Scribe v2 goes straight to ElevenLabs, billed to the user's own key, while an ElevenLabs key
+     * is saved under Custom; otherwise it runs through OpenRouter like the rest.
+     */
+    fun usesElevenLabsDirect(modelId: String, config: CustomProviderConfig): Boolean =
+        modelId == SCRIBE_MODEL_ID && config.elevenLabsAvailable
+
+    /** True when an OpenRouter-listed model runs on its maker's own API with the user's key instead. */
+    fun usesProviderDirect(modelId: String, config: CustomProviderConfig): Boolean =
+        usesGeminiDirect(modelId, config) || usesElevenLabsDirect(modelId, config)
+
     /** Rambler (Gemini's smart mode) exists only on the direct Gemini route; OpenRouter drops it. */
     fun supportsRambler(modelId: String, config: CustomProviderConfig): Boolean =
         usesGeminiDirect(modelId, config)
+
+    /**
+     * Scribe's Smart mode (ElevenLabs transcript editing, +30%) and its always-on clean-up
+     * (`no_verbatim`) exist only on the direct ElevenLabs route; OpenRouter forwards neither.
+     */
+    fun supportsScribeSmartMode(modelId: String, config: CustomProviderConfig): Boolean =
+        usesElevenLabsDirect(modelId, config)
 
     fun apiKey(modelId: String, openRouterKey: String, config: CustomProviderConfig): String = when {
         modelId == SARVAM_MODEL_ID -> if (sarvamAvailable(config)) config.sarvamApiKey else ""
         modelId == DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""
         usesGeminiDirect(modelId, config) -> config.geminiApiKey
+        usesElevenLabsDirect(modelId, config) -> config.elevenLabsApiKey
         else -> openRouterKey
     }
 
@@ -180,6 +200,19 @@ object SttCatalog {
             pricing = "~\$0.27 / hr",
             blurb = "High-accuracy dictation, strong on mixed or quiet speech.",
             usdPerMinute = 0.0045,
+        ),
+        SttModel(
+            id = SCRIBE_MODEL_ID,
+            name = "Scribe v2",
+            provider = "ElevenLabs",
+            // OpenRouter lists $0.000061/second → $0.00366/min → ~$0.22/hour. A launch promo
+            // halves that until 2026-10-19; the price and tag use the full list price. Keyterms
+            // add 20% while vocabulary is sent.
+            pricing = "~\$0.22 / hr",
+            blurb = "Accurate dictation in 90+ languages that learns your names and terms.",
+            usdPerMinute = 0.000061 * 60.0,
+            supportsCustomVocabulary = true,
+            vocabularyLabel = "Keyterms",
         ),
         SttModel(
             id = GROK_MODEL_ID,

@@ -48,8 +48,8 @@ class SystemDictationService : AccessibilityService() {
     private var hinglish = false
     private var sarvamKey = ""
     private var vocabulary = emptyList<String>()
-    private var geminiDirect = false
-    private var rambler = false
+    private var providerDirect = false
+    private var smartMode = false
     private var prerequisitesReady = false
     private var systemWideEnabled = false
     private var starting = false
@@ -338,8 +338,8 @@ class SystemDictationService : AccessibilityService() {
                 hinglish = config.hinglish
                 sarvamKey = config.sarvamKey
                 vocabulary = config.vocabulary
-                geminiDirect = config.geminiDirect
-                rambler = config.rambler
+                providerDirect = config.providerDirect
+                smartMode = config.smartMode
                 try {
                     // This service is bound by the system. Promote that same service only on a user tap.
                     foreground("Recording dictation")
@@ -388,8 +388,8 @@ class SystemDictationService : AccessibilityService() {
         val sessionHinglish = hinglish
         val sessionSarvamKey = sarvamKey
         val sessionVocabulary = vocabulary
-        val sessionGeminiDirect = geminiDirect
-        val sessionRambler = rambler
+        val sessionProviderDirect = providerDirect
+        val sessionSmartMode = smartMode
         session = scope.launch {
             try {
                 val wav = release.await() ?: return@launch
@@ -398,7 +398,7 @@ class SystemDictationService : AccessibilityService() {
                 if (runCatching { foreground("Transcribing dictation") }.isFailure) { disable(); return@launch }
                 transcriber.transcribe(
                     sessionKey, sessionModel, wav, sessionHinglish, sessionVocabulary, sessionSarvamKey,
-                    sessionGeminiDirect, sessionRambler,
+                    sessionProviderDirect, sessionSmartMode,
                 ).onSuccess { transcript ->
                     ensureActive()
                     if (!refreshPrerequisites()) return@onSuccess

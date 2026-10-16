@@ -88,6 +88,7 @@ internal fun SpeechToTextPage(
     onOpenCloudModels: () -> Unit,
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
+    onOpenElevenLabs: () -> Unit,
     onBack: () -> Unit,
 ) {
     val mode by viewModel.sttMode.collectAsState()
@@ -115,7 +116,7 @@ internal fun SpeechToTextPage(
             label = "sttSections",
         ) { current ->
             when (current) {
-                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram)
+                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram, onOpenElevenLabs)
                 SttMode.OnDevice -> SttOnDeviceSection()
             }
         }
@@ -128,6 +129,7 @@ private fun SttCloudSection(
     onOpenCloudModels: () -> Unit,
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
+    onOpenElevenLabs: () -> Unit,
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedId by viewModel.sttCloudModel.collectAsState()
@@ -135,6 +137,7 @@ private fun SttCloudSection(
     val isSarvam = selectedId == SttCatalog.SARVAM_MODEL_ID
     val isDeepgram = selectedId == SttCatalog.DEEPGRAM_MODEL_ID
     val isGeminiDirect = SttCatalog.usesGeminiDirect(selectedId, config)
+    val isElevenLabsDirect = SttCatalog.usesElevenLabsDirect(selectedId, config)
     val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
@@ -145,11 +148,13 @@ private fun SttCloudSection(
                 isSarvam -> "Sarvam"
                 isDeepgram -> "Deepgram"
                 isGeminiDirect -> "Gemini"
+                isElevenLabsDirect -> "ElevenLabs"
                 else -> "OpenRouter"
             },
             onOpenCloudModels = when {
                 isSarvam -> onOpenSarvam
                 isDeepgram -> onOpenDeepgram
+                isElevenLabsDirect -> onOpenElevenLabs
                 else -> onOpenCloudModels
             },
         )
@@ -190,6 +195,20 @@ private fun SttCloudSection(
                 SttRamblerRow(viewModel)
             }
         }
+        // Scribe's Clean-up and Smart mode are ElevenLabs API options OpenRouter doesn't forward.
+        // On the ElevenLabs key they show as settings; on OpenRouter, as a pointer to that key.
+        AnimatedVisibility(
+            visible = selectedId == SttCatalog.SCRIBE_MODEL_ID,
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        ) {
+            Column {
+                Spacer(Modifier.height(Spacing.m))
+                SttScribeExtras(viewModel, direct = isElevenLabsDirect, onOpenElevenLabs = onOpenElevenLabs)
+            }
+        }
         // Hinglish post-processes any model's output through Sarvam, so it shows with a Sarvam key.
         if (config.sarvamAvailable) {
             Spacer(Modifier.height(Spacing.m))
@@ -199,7 +218,7 @@ private fun SttCloudSection(
         Text(
             "Prices are per hour of audio. Saaras and Nova-3 are billed directly to your Sarvam and " +
                 "Deepgram keys, and appear once those keys are saved under Custom. Gemini 3.5 Transcribe " +
-                "uses your Gemini key when one is saved there; the rest use OpenRouter. " +
+                "and Scribe v2 use your Gemini and ElevenLabs keys when saved there; the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
                 "Best is the recommended dictation model; Custom vocabulary and Keyterms models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,
@@ -229,6 +248,64 @@ private fun SttRamblerRow(viewModel: SettingsViewModel) {
             Spacer(Modifier.width(Spacing.s))
             Switch(checked = enabled, onCheckedChange = viewModel::saveSttRamblerEnabled,
                 modifier = Modifier.semantics { contentDescription = "Rambler" })
+        }
+    }
+}
+
+/**
+ * Scribe v2's two ElevenLabs-only extras. Clean-up (`no_verbatim`) is always on with an ElevenLabs
+ * key, so it reads as a fact rather than a switch; Smart mode (transcript editing) costs extra, so
+ * it is opt-in. Through OpenRouter neither exists, and the card says how to get them.
+ */
+@Composable
+private fun SttScribeExtras(viewModel: SettingsViewModel, direct: Boolean, onOpenElevenLabs: () -> Unit) {
+    val smart by viewModel.sttScribeSmartEnabled.collectAsState()
+    Surface(
+        onClick = onOpenElevenLabs,
+        enabled = !direct,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Text(
+                if (direct) "2 ElevenLabs features available" else "2 more features with an ElevenLabs key",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            if (direct) {
+                Text("Clean-up · Always on", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Text(
+                if (direct) {
+                    "Drops filler words, false starts and stutters. Included at no extra cost."
+                } else {
+                    "Running through OpenRouter. Save an ElevenLabs key under Custom to add Clean-up, " +
+                        "which drops filler words and is always on, and Smart mode, which formats " +
+                        "longer messages for +30%."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (direct) {
+                Spacer(Modifier.height(Spacing.m))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Smart mode · +30%", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            "Formats longer messages into paragraphs and lists, writes numbers and dates " +
+                                "properly, and keeps your corrected version. Short messages stay as they are. " +
+                                "Adds ~\$0.066 / hr, billed on at least 10 seconds per recording.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(Spacing.s))
+                    Switch(checked = smart, onCheckedChange = viewModel::saveSttScribeSmartEnabled,
+                        modifier = Modifier.semantics { contentDescription = "Smart mode" })
+                }
+            }
         }
     }
 }

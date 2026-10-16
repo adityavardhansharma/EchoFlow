@@ -29,6 +29,7 @@ enum class UsageProvider(val label: String, val unit: UsageUnit, private val hos
     XAi("xAI", UsageUnit.Usd, "api.x.ai"),
     Sarvam("Sarvam", UsageUnit.Tokens, "api.sarvam.ai"),
     Deepgram("Deepgram", UsageUnit.Usd, "api.deepgram.com"),
+    ElevenLabs("ElevenLabs", UsageUnit.Usd, "api.elevenlabs.io"),
     Exa("Exa", UsageUnit.Usd, "api.exa.ai"),
     Parallel("Parallel", UsageUnit.Requests, "api.parallel.ai"),
     Firecrawl("Firecrawl", UsageUnit.Credits, "api.firecrawl.dev");

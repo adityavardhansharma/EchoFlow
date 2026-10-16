@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.echoflow.data.DeepgramDictation
+import com.echoflow.data.ElevenLabsDictation
 import com.echoflow.data.DictationVocabulary
 import com.echoflow.data.SttCatalog
 import com.echoflow.data.SttModel
@@ -61,15 +62,15 @@ import com.echoflow.ui.theme.Spacing
 
 /**
  * Custom vocabulary for models that accept it, shown directly under the model list while one is
- * selected. Gemini 3.5 Transcribe receives it as `custom_vocabulary`; Deepgram Nova-3 receives the
- * same terms as keyterms, so the card is labelled after whichever model will use them. Terms can be typed or pasted comma-separated ("Aditya, Jyoti") and turn into
+ * selected. Gemini 3.5 Transcribe receives it as `custom_vocabulary`; Deepgram Nova-3 and ElevenLabs
+ * Scribe v2 receive the same terms as keyterms, so the card is labelled after whichever model will use them. Terms can be typed or pasted comma-separated ("Aditya, Jyoti") and turn into
  * chips as soon as a separator lands, so the list always shows exactly what is sent. The same
  * list applies to in-app and system-wide dictation.
  */
 @Composable
 internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
     val terms by viewModel.sttVocabulary.collectAsState()
-    val keyterms = model.id == SttCatalog.DEEPGRAM_MODEL_ID
+    val keyterms = model.id == SttCatalog.DEEPGRAM_MODEL_ID || model.id == SttCatalog.SCRIBE_MODEL_ID
     var draft by rememberSaveable { mutableStateOf("") }
     val full = terms.size >= DictationVocabulary.MAX_TERMS
 
@@ -105,7 +106,7 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        if (keyterms) "Words and phrases Deepgram listens for and spells your way."
+                        if (keyterms) "Words and phrases ${model.provider} listens for and spells your way."
                         else "Names and terms Gemini should hear and spell your way.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -188,7 +189,12 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (keyterms) {
+                    if (model.id == SttCatalog.SCRIBE_MODEL_ID) {
+                        "Sent as ElevenLabs keyterms in chat and system-wide. They bias recognition toward " +
+                            "these spellings; they don't rewrite what you say. Up to " +
+                            "${ElevenLabsDictation.MAX_KEYTERMS} terms are sent per recording, adding 20% (~\$0.044 / hr). " +
+                            "Scribe skips terms over five words or 49 characters, so keep each one short."
+                    } else if (keyterms) {
                         "Sent as Deepgram keyterms in chat and system-wide. They bias recognition toward " +
                             "these spellings; they don't rewrite what you say. Up to " +
                             "${DeepgramDictation.MAX_KEYTERMS} are sent per recording, adding ~\$0.078 / hr."

@@ -5,8 +5,11 @@ import com.squareup.moshi.Moshi
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.Buffer
+import okio.buffer
 
 /**
  * OpenRouter's own spend figures for one key, from `GET /api/v1/key`. These include everything the
@@ -121,4 +124,71 @@ object DeepgramCosts {
         val request = Request.Builder().url(url).header("Authorization", "Token ${apiKey.trim()}").get().build()
         client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }.getOrNull()
+}
+
+/**
+ * ElevenLabs puts neither a price nor a duration on a transcription response, and has no
+ * per-request billing API. Each Scribe request is therefore priced from what was sent: the WAV's
+ * length at Scribe v2's list rate, plus ElevenLabs' 20% keyterm surcharge when keyterms were sent
+ * and its 30% transcript-editing surcharge (on at least 10 seconds) when Smart mode was on.
+ */
+object ElevenLabsCosts {
+    /** Scribe v2 list price per minute of audio (see [com.echoflow.data.SttCatalog]). */
+    private val usdPerMinute: Double
+        get() = com.echoflow.data.SttCatalog.byId(com.echoflow.data.SttCatalog.SCRIBE_MODEL_ID)?.usdPerMinute ?: 0.0
+
+    const val KEYTERM_SURCHARGE = 0.20
+    const val SMART_MODE_SURCHARGE = 0.30
+    /** ElevenLabs bills transcript editing on at least this much audio per request. */
+    const val SMART_MODE_MIN_SECONDS = 10.0
+
+    fun reading(request: Request): UsageReading? {
+        val body = request.body as? MultipartBody ?: return null
+        fun nameOf(part: MultipartBody.Part): String? =
+            part.headers?.get("Content-Disposition")?.let { Regex("name=\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
+        val file = body.parts.firstOrNull { nameOf(it) == "file" } ?: return null
+        val seconds = wavSeconds(file) ?: return null
+        val model = body.parts.firstOrNull { nameOf(it) == "model_id" }?.let { part ->
+            Buffer().also { part.body.writeTo(it) }.readUtf8().trim().takeIf { it.isNotEmpty() }
+        }
+        val keyterms = body.parts.any { nameOf(it) == "keyterms" }
+        val smartMode = body.parts.any { nameOf(it) == "transcript_edit" }
+        return UsageReading(
+            model = model,
+            audioSeconds = seconds,
+            costUsd = cost(seconds, keyterms, smartMode),
+        )
+    }
+
+    fun cost(seconds: Double, keyterms: Boolean, smartMode: Boolean = false): Double {
+        val base = seconds / 60.0 * usdPerMinute
+        val terms = if (keyterms) base * KEYTERM_SURCHARGE else 0.0
+        val edit = if (smartMode) maxOf(seconds, SMART_MODE_MIN_SECONDS) / 60.0 * usdPerMinute * SMART_MODE_SURCHARGE else 0.0
+        return base + terms + edit
+    }
+
+    /** Length of a PCM WAV part, from its header's byte rate and data size. */
+    private fun wavSeconds(part: MultipartBody.Part): Double? {
+        val length = part.body.contentLength().takeIf { it > 44 } ?: return null
+        // Keep only the 44-byte header; the rest of the recording is skipped, not copied.
+        val header = Buffer()
+        val sink = object : okio.Sink {
+            override fun write(source: Buffer, byteCount: Long) {
+                val keep = minOf(byteCount, 44 - header.size).coerceAtLeast(0)
+                if (keep > 0) source.read(header, keep)
+                source.skip(byteCount - keep)
+            }
+            override fun flush() = Unit
+            override fun timeout() = okio.Timeout.NONE
+            override fun close() = Unit
+        }
+        sink.buffer().use { part.body.writeTo(it) }
+        if (header.size < 44) return null
+        val bytes = header.readByteArray(44)
+        if (String(bytes, 0, 4, Charsets.US_ASCII) != "RIFF") return null
+        val byteRate = (bytes[28].toInt() and 0xff) or ((bytes[29].toInt() and 0xff) shl 8) or
+            ((bytes[30].toInt() and 0xff) shl 16) or ((bytes[31].toInt() and 0xff) shl 24)
+        if (byteRate <= 0) return null
+        return (length - 44).toDouble() / byteRate
+    }
 }

@@ -72,6 +72,9 @@ data class CustomProviderConfig(
     /** Deepgram is dictation-only: a key here unlocks Nova-3 Multilingual, never chat models. */
     val deepgramEnabled: Boolean = false,
     val deepgramApiKey: String = "",
+    /** ElevenLabs is dictation-only: a key here runs Scribe v2 on ElevenLabs instead of OpenRouter. */
+    val elevenLabsEnabled: Boolean = false,
+    val elevenLabsApiKey: String = "",
     /** Vercel AI Gateway: one key, OpenAI-compatible, routes to models from many labs. */
     val vercelEnabled: Boolean = false,
     val vercelApiKey: String = "",
@@ -113,6 +116,9 @@ data class CustomProviderConfig(
 
     val deepgramAvailable: Boolean
         get() = cloudApisEnabled && deepgramEnabled && deepgramApiKey.isNotBlank()
+
+    val elevenLabsAvailable: Boolean
+        get() = cloudApisEnabled && elevenLabsEnabled && elevenLabsApiKey.isNotBlank()
 
     val sarvamAvailable: Boolean
         get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
@@ -159,7 +165,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Experiential, Cloudflare, Deepgram, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Experiential, Cloudflare, Deepgram, ElevenLabs, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -645,6 +651,7 @@ class CustomProviderService(
                     .filterNot { id -> listOf("embed", "rerank", "tts", "whisper", "transcribe", "jev").any { it in id.lowercase() } }
                 CustomModelProvider.Cloudflare -> fetchCloudflareModels(baseUrl, apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
+                CustomModelProvider.ElevenLabs -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.Ollama -> fetchOllamaModels(baseUrl)
                 CustomModelProvider.OpenAiCompatible -> fetchOpenAiCompatibleModels(baseUrl, apiKey)
             }

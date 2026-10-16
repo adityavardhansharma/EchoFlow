@@ -24,6 +24,7 @@ object UsageKeys {
             request.header("x-api-key"),
             request.header("x-goog-api-key"),
             request.header("api-subscription-key"),
+            request.header("xi-api-key"),
             request.url.queryParameter("key"),
         ).firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
     }
@@ -86,7 +87,10 @@ object UsageLedger {
     ): UsageRecord? {
         val accumulator = UsageAccumulator(capture.provider)
         capture.documents.forEach { doc -> UsageJson.read(doc)?.let(accumulator::accept) }
-        val reading = accumulator.reading()
+        // ElevenLabs returns no usage at all, so its reading comes from the request itself.
+        val reading = if (capture.provider == UsageProvider.ElevenLabs) {
+            ElevenLabsCosts.reading(capture.request) ?: return null
+        } else accumulator.reading()
         if (!reading.hasUsage) return null
 
         val externalId = reading.externalId

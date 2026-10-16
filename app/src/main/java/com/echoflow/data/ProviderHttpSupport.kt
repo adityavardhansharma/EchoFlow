@@ -139,8 +139,10 @@ internal object ProviderHttpSupport {
             when (val error = map?.get("error")) {
                 is String -> error
                 is Map<*, *> -> error["message"] as? String
-                // Deepgram reports `err_msg`; most other providers use `message`.
+                // Deepgram reports `err_msg`, ElevenLabs `detail.message`; most others use `message`.
                 else -> (map?.get("message") ?: map?.get("err_msg")) as? String
+                    ?: (map?.get("detail") as? Map<*, *>)?.get("message") as? String
+                    ?: map?.get("detail") as? String
             }
         }.getOrNull()
         return when (code) {

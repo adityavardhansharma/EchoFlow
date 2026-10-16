@@ -180,7 +180,7 @@ private fun ProviderHero(
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
             StatTile("Requests", SpendFormat.compact(records.size.toLong()))
             when (provider) {
-                UsageProvider.Deepgram -> StatTile("Audio", SpendFormat.seconds(records.sumOf { it.audioSeconds ?: 0.0 }))
+                UsageProvider.Deepgram, UsageProvider.ElevenLabs -> StatTile("Audio", SpendFormat.seconds(records.sumOf { it.audioSeconds ?: 0.0 }))
                 UsageProvider.Firecrawl -> StatTile("Per request", SpendFormat.credits(records.sumOf { it.credits ?: 0.0 } / records.size.coerceAtLeast(1)))
                 UsageProvider.Exa -> StatTile("Per request", SpendFormat.usd(records.sumOf { it.costUsd ?: 0.0 } / records.size.coerceAtLeast(1)))
                 UsageProvider.Parallel -> Unit
@@ -221,6 +221,7 @@ private fun providerNote(provider: UsageProvider, window: SpendWindow, records: 
     provider in ListPrices.priced -> "${provider.label} reports tokens, not prices. Each request is priced at the model's list rate for input, cached input and output."
     provider.unit == UsageUnit.Tokens -> "${provider.label} reports tokens but not prices, so these requests aren't counted in dollars."
     provider == UsageProvider.Deepgram -> "Deepgram prices each request after it settles. If your key can't read usage, the cost stays blank."
+    provider == UsageProvider.ElevenLabs -> "ElevenLabs doesn't report a price, so each dictation is priced from its length at Scribe v2's list rate, plus 20% when keyterms were sent."
     provider == UsageProvider.Parallel -> "Parallel reports what it billed, not a price."
     else -> null
 }
@@ -266,7 +267,7 @@ private fun logColumns(provider: UsageProvider): List<LogColumn> {
     return when (provider) {
         UsageProvider.OpenRouter -> listOf(lab, model, input, output, cost)
         UsageProvider.XAi -> listOf(model, input, output, cost)
-        UsageProvider.Deepgram -> listOf(model, LogColumn("Audio", 84.dp) { FigureCell(it.audioSeconds?.let(SpendFormat::seconds)) }, cost)
+        UsageProvider.Deepgram, UsageProvider.ElevenLabs -> listOf(model, LogColumn("Audio", 84.dp) { FigureCell(it.audioSeconds?.let(SpendFormat::seconds)) }, cost)
         UsageProvider.Exa -> listOf(kind, model, cost)
         UsageProvider.Firecrawl -> listOf(kind, LogColumn("Credits", 84.dp) { FigureCell(it.credits?.let(SpendFormat::credits), strong = true) })
         UsageProvider.Parallel -> listOf(kind, LogColumn("Billed", 220.dp, end = false) { TextCell(it.detail ?: "—") })
@@ -427,7 +428,15 @@ private fun RecordSheet(provider: UsageProvider, record: UsageRecord, onDismiss:
             }
             Spacer(Modifier.height(Spacing.l))
             record.costUsd?.let {
-                DetailHeadline(SpendFormat.usd(it), if (provider in ListPrices.priced) "at list prices" else "charged by ${provider.label}")
+                DetailHeadline(
+                    SpendFormat.usd(it),
+                    when {
+                        provider in ListPrices.priced -> "at list prices"
+                        // ElevenLabs returns no price; this one is estimated from the audio length.
+                        provider == UsageProvider.ElevenLabs -> "estimated from audio length"
+                        else -> "charged by ${provider.label}"
+                    },
+                )
             }
             record.credits?.let { DetailHeadline(SpendFormat.credits(it), "credits") }
             val lines = listOfNotNull(
