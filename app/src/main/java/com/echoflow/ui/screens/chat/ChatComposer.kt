@@ -106,6 +106,9 @@ internal fun InputToolbar(
     memoryAvailable: Boolean = false,
     memoryOn: Boolean = false,
     onToggleMemory: () -> Unit = {},
+    /** An authenticated ElevenLabs key: an empty composer offers voice mode in the send slot. */
+    voiceModeAvailable: Boolean = false,
+    onStartVoiceMode: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
@@ -332,15 +335,25 @@ internal fun InputToolbar(
                 }
                 // Inert while capturing/transcribing — the mic owns that phase, not send.
                 val canSend = hasContent && attachmentsSettled && !showStop && blockedReason == null && voicePhase == VoicePhase.Idle
-                SendButton(
-                    enabled = canSend,
-                    isStreaming = showStop,
-                    research = researchMode,
-                    transcribing = transcribing,
-                    onStop = onStop,
-                    onCancelTranscribe = onCancelTranscribe,
+                // An empty composer offers voice mode where Send sits; the first typed character
+                // (or an attachment) turns it back into Send. Modes that answer with something
+                // other than a conversation (research, the browser) keep plain Send.
+                val offerVoice = voiceModeAvailable && !hasContent && attachments.isEmpty() && !showStop &&
+                    voicePhase == VoicePhase.Idle && !researchMode && browserSession == null && blockedReason == null
+                SendSlot(
+                    offerVoice = offerVoice,
+                    onStartVoiceMode = onStartVoiceMode,
                 ) {
-                    if (canSend) onSend()
+                    SendButton(
+                        enabled = canSend,
+                        isStreaming = showStop,
+                        research = researchMode,
+                        transcribing = transcribing,
+                        onStop = onStop,
+                        onCancelTranscribe = onCancelTranscribe,
+                    ) {
+                        if (canSend) onSend()
+                    }
                 }
             }
         }

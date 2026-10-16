@@ -8,6 +8,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -118,6 +119,59 @@ internal fun SendButton(
                 tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * The composer's trailing slot: the voice-mode waveform while the box is empty, Send as soon as
+ * there is something to send. The two cross-fade with a small scale so the swap reads as one
+ * control changing its mind, not two buttons trading places.
+ */
+@Composable
+internal fun SendSlot(
+    offerVoice: Boolean,
+    onStartVoiceMode: () -> Unit,
+    send: @Composable () -> Unit,
+) {
+    val reducedMotion = com.echoflow.ui.theme.rememberReducedMotion()
+    androidx.compose.animation.AnimatedContent(
+        targetState = offerVoice,
+        transitionSpec = {
+            if (reducedMotion) {
+                androidx.compose.animation.fadeIn(tween(90)) togetherWith androidx.compose.animation.fadeOut(tween(90))
+            } else {
+                (androidx.compose.animation.fadeIn(tween(160)) + androidx.compose.animation.scaleIn(tween(200), initialScale = 0.7f)) togetherWith
+                    (androidx.compose.animation.fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(160), targetScale = 0.7f))
+            }
+        },
+        contentAlignment = Alignment.Center,
+        label = "send-slot",
+    ) { voice ->
+        if (voice) VoiceModeButton(onClick = onStartVoiceMode) else send()
+    }
+}
+
+/** Starts voice mode. Same hero shape as Send, so the slot keeps its weight. */
+@Composable
+internal fun VoiceModeButton(onClick: () -> Unit) {
+    val haptics = rememberActionHaptics()
+    ShapedIconButton(
+        onClick = {
+            haptics.send()
+            onClick()
+        },
+        enabled = true,
+        size = 48.dp,
+        restShape = MaterialShapes.Sunny,
+        pressedShape = MaterialShapes.Cookie12Sided,
+        container = MaterialTheme.colorScheme.primary,
+    ) {
+        Icon(
+            Icons.Default.GraphicEq,
+            "Start voice mode",
+            Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 
