@@ -142,6 +142,27 @@ class UsageLedgerTest {
         assertNull(DeepgramCosts.requestUsd("""{"request":{"response":{"details":{}}}}"""))
     }
 
+    @Test fun `elevenlabs dictation is priced from the WAV length at Scribe's list rate`() = runBlocking {
+        // A 2-second 16 kHz mono 16-bit WAV: 32,000 bytes per second after the 44-byte header.
+        val wav = ByteArray(44 + 64_000).also {
+            "RIFF".toByteArray().copyInto(it, 0)
+            byteArrayOf(0x00, 0x7D, 0x00, 0x00).copyInto(it, 28) // byte rate 32,000, little-endian
+        }
+        val withTerms = com.echoflow.data.ElevenLabsDictation.request("el-key", wav, listOf("EchoFlow"))
+        val (_, captured) = capture(withTerms, "application/json", """{"language_code":"eng","text":"hello"}""")
+        val record = UsageLedger.write(dao, captured.single())!!
+        assertEquals("ElevenLabs", record.provider)
+        assertEquals(UsageKind.Transcription.name, record.kind)
+        assertEquals(UsageKeys.hash("el-key"), record.keyHash)
+        assertEquals("scribe_v2", record.model)
+        assertEquals(2.0, record.audioSeconds!!, 1e-9)
+        assertEquals(2.0 / 60.0 * 0.000061 * 60.0 * 1.2, record.costUsd!!, 1e-12)
+
+        val plain = com.echoflow.data.ElevenLabsDictation.request("el-key", wav)
+        val (_, again) = capture(plain, "application/json", """{"text":"hello"}""")
+        assertEquals(2.0 / 60.0 * 0.000061 * 60.0, UsageLedger.write(dao, again.single())!!.costUsd!!, 1e-12)
+    }
+
     @Test fun `openrouter key figures parse`() {
         val spend = OpenRouterKeyUsage.parse(
             """{"data":{"label":"sk-or-v1-abc","usage":42.5,"usage_daily":0.5,"usage_weekly":3.25,"usage_monthly":12.0,"limit":100,"limit_remaining":57.5}}""",

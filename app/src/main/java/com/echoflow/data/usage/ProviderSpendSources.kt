@@ -5,8 +5,10 @@ import com.squareup.moshi.Moshi
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.Buffer
 
 /**
  * OpenRouter's own spend figures for one key, from `GET /api/v1/key`. These include everything the
@@ -121,4 +123,48 @@ object DeepgramCosts {
         val request = Request.Builder().url(url).header("Authorization", "Token ${apiKey.trim()}").get().build()
         client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }.getOrNull()
+}
+
+/**
+ * ElevenLabs puts neither a price nor a duration on a transcription response, and has no
+ * per-request billing API. Each Scribe request is therefore priced from what was sent: the WAV's
+ * length at Scribe v2's list rate, plus ElevenLabs' 20% keyterm surcharge when keyterms were sent.
+ */
+object ElevenLabsCosts {
+    /** Scribe v2 list price per minute of audio (see [com.echoflow.data.SttCatalog]). */
+    private val usdPerMinute: Double
+        get() = com.echoflow.data.SttCatalog.byId(com.echoflow.data.SttCatalog.SCRIBE_MODEL_ID)?.usdPerMinute ?: 0.0
+
+    const val KEYTERM_SURCHARGE = 0.20
+
+    fun reading(request: Request): UsageReading? {
+        val body = request.body as? MultipartBody ?: return null
+        fun nameOf(part: MultipartBody.Part): String? =
+            part.headers?.get("Content-Disposition")?.let { Regex("name=\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
+        val file = body.parts.firstOrNull { nameOf(it) == "file" } ?: return null
+        val seconds = wavSeconds(file) ?: return null
+        val model = body.parts.firstOrNull { nameOf(it) == "model_id" }?.let { part ->
+            Buffer().also { part.body.writeTo(it) }.readUtf8().trim().takeIf { it.isNotEmpty() }
+        }
+        val keyterms = body.parts.any { nameOf(it) == "keyterms" }
+        return UsageReading(
+            model = model,
+            audioSeconds = seconds,
+            costUsd = cost(seconds, keyterms),
+        )
+    }
+
+    fun cost(seconds: Double, keyterms: Boolean): Double =
+        seconds / 60.0 * usdPerMinute * (if (keyterms) 1.0 + KEYTERM_SURCHARGE else 1.0)
+
+    /** Length of a PCM WAV part, from its header's byte rate and data size. */
+    private fun wavSeconds(part: MultipartBody.Part): Double? {
+        val length = part.body.contentLength().takeIf { it > 44 } ?: return null
+        val header = Buffer().also { part.body.writeTo(it) }.readByteArray(44)
+        if (String(header, 0, 4, Charsets.US_ASCII) != "RIFF") return null
+        val byteRate = (header[28].toInt() and 0xff) or ((header[29].toInt() and 0xff) shl 8) or
+            ((header[30].toInt() and 0xff) shl 16) or ((header[31].toInt() and 0xff) shl 24)
+        if (byteRate <= 0) return null
+        return (length - 44).toDouble() / byteRate
+    }
 }

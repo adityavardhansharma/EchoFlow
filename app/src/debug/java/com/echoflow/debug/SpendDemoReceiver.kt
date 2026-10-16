@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.echoflow.data.AppDatabase
 import com.echoflow.data.SettingsRepository
+import com.echoflow.data.usage.ElevenLabsCosts
 import com.echoflow.data.usage.OpenRouterKeyUsage
 import com.echoflow.data.usage.UsageKeys
 import com.echoflow.data.usage.UsageKind
@@ -49,6 +50,7 @@ class SpendDemoReceiver : BroadcastReceiver() {
                 claudeApiKey = config.claudeApiKey.ifBlank { "sk-ant-demo" },
                 xAiApiKey = config.xAiApiKey.ifBlank { "xai-demo" },
                 deepgramApiKey = config.deepgramApiKey.ifBlank { "demo-deepgram" },
+                elevenLabsApiKey = config.elevenLabsApiKey.ifBlank { "demo-elevenlabs" },
             )
         )
         val saved = settings.customProviderConfig.value
@@ -58,6 +60,7 @@ class SpendDemoReceiver : BroadcastReceiver() {
             UsageProvider.Claude to saved.claudeApiKey,
             UsageProvider.XAi to saved.xAiApiKey,
             UsageProvider.Deepgram to saved.deepgramApiKey,
+            UsageProvider.ElevenLabs to saved.elevenLabsApiKey,
             UsageProvider.Exa to settings.getSearchApiKeyDirect("exa"),
             UsageProvider.Firecrawl to settings.getSearchApiKeyDirect("firecrawl"),
         ).mapValues { UsageKeys.hash(it.value) }
@@ -120,6 +123,10 @@ class SpendDemoReceiver : BroadcastReceiver() {
         repeat(14) { i -> put(UsageProvider.Deepgram, 1.1 + i * 9.7, UsageKind.Transcription, "nova-3") {
             val seconds = random.nextDouble(3.0, 48.0)
             copy(audioSeconds = seconds, costUsd = if (i == 0) null else seconds / 60.0 * 0.0092)
+        } }
+        repeat(8) { i -> put(UsageProvider.ElevenLabs, 2.6 + i * 12.4, UsageKind.Transcription, "scribe_v2") {
+            val seconds = random.nextDouble(3.0, 60.0)
+            copy(audioSeconds = seconds, costUsd = ElevenLabsCosts.cost(seconds, keyterms = i % 2 == 0))
         } }
         repeat(11) { i -> put(UsageProvider.Exa, 3.4 + i * 13.1, if (i % 4 == 0) UsageKind.Research else UsageKind.Search, if (i % 4 == 0) "exa-research" else "exa") {
             copy(costUsd = if (i % 4 == 0) 0.25 else 0.007)

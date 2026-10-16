@@ -69,6 +69,7 @@ object SpendMath {
     val order = listOf(
         UsageProvider.OpenRouter, UsageProvider.OpenAi, UsageProvider.Claude, UsageProvider.Gemini,
         UsageProvider.XAi, UsageProvider.Cerebras, UsageProvider.Sarvam, UsageProvider.Deepgram,
+        UsageProvider.ElevenLabs,
         UsageProvider.Exa, UsageProvider.Parallel, UsageProvider.Firecrawl,
     )
 
