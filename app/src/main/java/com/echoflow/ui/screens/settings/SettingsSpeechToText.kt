@@ -296,7 +296,7 @@ private fun SttScribeExtras(viewModel: SettingsViewModel, direct: Boolean, onOpe
                         Text(
                             "Formats longer messages into paragraphs and lists, writes numbers and dates " +
                                 "properly, and keeps your corrected version. Short messages stay as they are. " +
-                                "Adds ~\$0.066 / hr.",
+                                "Adds ~\$0.066 / hr, billed on at least 10 seconds per recording.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
