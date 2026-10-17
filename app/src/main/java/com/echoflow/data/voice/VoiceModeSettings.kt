@@ -34,9 +34,19 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
 
     fun markVerified(apiKey: String, account: VoiceAccount?) {
         val hash = UsageKeys.hash(apiKey)
+        val keyChanged = _verifiedKeyHash.value != hash
         prefs.edit().putString(KEY_VERIFIED, hash).apply()
         _verifiedKeyHash.value = hash
-        if (account != null) saveAccount(account)
+        when {
+            account != null -> saveAccount(account)
+            // A new key that can't read its plan must not show the previous key's plan.
+            keyChanged -> clearAccount()
+        }
+    }
+
+    private fun clearAccount() {
+        prefs.edit().remove(KEY_ACCOUNT_TIER).apply()
+        _account.value = null
     }
 
     fun markUnverified() {
@@ -158,24 +168,28 @@ class VoiceModeAuth(
 ) {
     enum class Outcome { Valid, Invalid, Offline }
 
-    suspend fun verify(apiKey: String): Outcome {
+    /**
+     * Checks [apiKey] and records the result. [stillCurrent] is asked just before writing, so a
+     * slow check for a key the user has since replaced can't overwrite the newer key's result.
+     */
+    suspend fun verify(apiKey: String, stillCurrent: () -> Boolean = { true }): Outcome {
         if (apiKey.isBlank()) {
-            settings.markUnverified()
+            if (stillCurrent()) settings.markUnverified()
             return Outcome.Invalid
         }
         val result = api.account(apiKey)
         result.onSuccess {
-            settings.markVerified(apiKey, it)
+            if (stillCurrent()) settings.markVerified(apiKey, it)
             return Outcome.Valid
         }
         val error = result.exceptionOrNull()
         return when {
             error is ElevenLabsApiException && error.missingPermission -> {
-                settings.markVerified(apiKey, null)
+                if (stillCurrent()) settings.markVerified(apiKey, null)
                 Outcome.Valid
             }
             error is ElevenLabsApiException && (error.unauthorized || error.code == 403) -> {
-                settings.markUnverified()
+                if (stillCurrent()) settings.markUnverified()
                 Outcome.Invalid
             }
             // A network failure says nothing about the key; keep whatever was known.

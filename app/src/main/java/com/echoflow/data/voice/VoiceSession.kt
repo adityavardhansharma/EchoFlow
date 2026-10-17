@@ -25,6 +25,8 @@ internal interface VoiceSessionListener {
     fun onAgentCorrection(original: String, corrected: String)
     /** Anything that counts as the conversation being alive (speech, typing, a reply). */
     fun onActivity()
+    /** The mic couldn't be opened (held by another app, or failed): the call is typing-only. */
+    fun onMicUnavailable()
     /** The socket closed. [error] is null when the user ended it. */
     fun onEnded(error: String?)
 }
@@ -131,27 +133,36 @@ internal class VoiceSession(
         if (endedByUser) null else reason.takeIf { it.isNotBlank() && !it.equals("User ended conversation", ignoreCase = true) }
 
     private fun handle(webSocket: WebSocket, event: VoiceServerEvent) {
+        if (finished) return
         when (event) {
             is VoiceServerEvent.Metadata -> {
-                player = VoicePlayer(event.outputSampleRate) { level -> _outputLevel.value = level }.also {
-                    it.muted = speakerMuted
-                    it.start()
-                }
-                if (micAllowed) {
-                    microphone = VoiceMicrophone(
-                        sampleRate = event.inputSampleRate,
-                        onChunk = { pcm ->
-                            socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
-                        },
-                        onLevel = { level -> _inputLevel.value = level },
-                    ).also {
-                        it.muted = micMuted
-                        if (!it.start()) {
+                var micFailed = false
+                // Audio is opened under the same lock finish() closes it under, so an End that
+                // lands mid-setup can never leave the mic recording after the call is over.
+                synchronized(this) {
+                    if (finished) return
+                    val newPlayer = VoicePlayer(event.outputSampleRate) { level -> _outputLevel.value = level }
+                    newPlayer.muted = speakerMuted
+                    player = newPlayer
+                    newPlayer.start()
+                    if (micAllowed) {
+                        val mic = VoiceMicrophone(
+                            sampleRate = event.inputSampleRate,
+                            onChunk = { pcm ->
+                                socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
+                            },
+                            onLevel = { level -> _inputLevel.value = level },
+                        )
+                        mic.muted = micMuted
+                        microphone = mic
+                        if (!mic.start()) {
                             microphone = null
+                            micFailed = true
                             Log.w(TAG, "Microphone unavailable; typing only")
                         }
                     }
                 }
+                if (micFailed) listener.onMicUnavailable()
                 _activity.value = VoiceAgentActivity.Listening
                 listener.onConnected(event.conversationId)
             }
@@ -255,11 +266,11 @@ internal class VoiceSession(
         synchronized(this) {
             if (finished) return
             finished = true
+            microphone?.stop()
+            microphone = null
+            player?.stop()
+            player = null
         }
-        microphone?.stop()
-        microphone = null
-        player?.stop()
-        player = null
         routing.release()
         _inputLevel.value = 0f
         _outputLevel.value = 0f

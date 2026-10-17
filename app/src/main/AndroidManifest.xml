@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Speech to text: record the composer dictation. Runtime-prompted the first time. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Voice mode: call audio mode and speaker routing. Normal permission, no runtime prompt. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

@@ -861,27 +861,59 @@ class ChatViewModel(
      * the user says. The chat is the record: when the call ends it shows as ordinary messages,
      * and the next typed message continues it with the chat's own model.
      */
+    /** New temporary chats a voice call made after the user had already left them. */
+    private val orphanedVoiceChats = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     // Lazy: navigation can run during construction (restoring the last chat), before this line.
     private val voiceMode by lazy { com.echoflow.ui.chat.VoiceModeController(
         app = getApplication(),
         scope = viewModelScope,
         settingsRepository = settingsRepository,
         sink = object : com.echoflow.ui.chat.VoiceTranscriptSink {
-            override suspend fun chatFor(startChatId: String?, firstUserText: String): String {
+            override suspend fun prepare(chatId: String?): com.echoflow.ui.chat.VoiceChatContext {
+                // Same project context a typed turn gets: the open chat's project, or the one a
+                // new project chat is about to join.
+                val projectId = chatId?.let { chatRepository.thread(it)?.projectId } ?: pendingProjectIfStillExists()
+                if (projectId != null) projectManager.backfillProject(projectId)
+                return com.echoflow.ui.chat.VoiceChatContext(
+                    history = chatId?.let { chatRepository.history(it) }.orEmpty(),
+                    projectContext = projectId?.let { projectManager.buildSystemContext(it) }.orEmpty(),
+                    projectId = projectId,
+                    temporary = isTemporaryNow(),
+                )
+            }
+
+            override suspend fun chatFor(
+                startChatId: String?,
+                firstUserText: String,
+                context: com.echoflow.ui.chat.VoiceChatContext,
+            ): String {
                 if (startChatId != null) return startChatId
                 val chatId = chatRepository.createThread(mode = AppMode.Chat).id
                 chatRepository.renameThread(chatId, fallbackThreadTitle(firstUserText))
-                consumePendingProjectForNewThread(chatId)
-                // Open it only if the user is still on the blank chat voice mode started from.
-                if (_currentChatThreadId.value == null) {
+                context.projectId?.takeIf { projectManager.getProject(it) != null }?.let { projectId ->
+                    chatDao.setProjectId(chatId, projectId)
+                    projectManager.touch(projectId)
+                    if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
+                }
+                val stillOnBlank = _currentChatThreadId.value == null
+                if (context.temporary) {
+                    // Keep it out of memory before any turn is written, wherever the user is now.
+                    runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
+                    if (stillOnBlank) {
+                        _temporaryArmed.value = true
+                        openNewThread(chatId)
+                    } else {
+                        // The user left the temporary chat mid-call: delete it once the call is saved.
+                        orphanedVoiceChats += chatId
+                    }
+                } else if (stillOnBlank) {
+                    // Open it only if the user is still on the blank chat voice mode started from.
                     openNewThread(chatId)
                     settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
                 }
                 return chatId
             }
-
-            override suspend fun history(chatId: String?): List<ChatMessage> =
-                chatId?.let { chatRepository.history(it) }.orEmpty()
 
             override suspend fun put(message: ChatMessage) {
                 chatRepository.insertMessage(message)
@@ -889,6 +921,19 @@ class ChatViewModel(
             }
 
             override suspend fun remove(messageId: String) = messageDao.deleteMessageById(messageId)
+
+            override suspend fun replace(chatId: String, removeIds: List<String>, inserts: List<ChatMessage>) {
+                AppDatabase.getDatabase(getApplication()).withTransaction {
+                    removeIds.forEach { messageDao.deleteMessageById(it) }
+                    inserts.forEach { messageDao.insertMessage(it) }
+                }
+                chatRepository.touchThread(chatId)
+            }
+
+            override suspend fun sessionEnded(chatId: String?, context: com.echoflow.ui.chat.VoiceChatContext) {
+                if (chatId == null || !orphanedVoiceChats.remove(chatId)) return
+                chatRepository.thread(chatId)?.let { deleteThreadNow(it) }
+            }
         },
     ) }
 
@@ -908,7 +953,7 @@ class ChatViewModel(
     }
 
     fun endVoiceMode() = voiceMode.end()
-    fun sendVoiceText(text: String) = voiceMode.sendText(text)
+    fun sendVoiceText(text: String): Boolean = voiceMode.sendText(text)
     fun voiceTyping() = voiceMode.typing()
     fun toggleVoiceMic() = voiceMode.toggleMic()
     fun toggleVoiceSpeaker() = voiceMode.toggleSpeaker()

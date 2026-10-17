@@ -92,13 +92,14 @@ internal object VoiceAgentSpec {
     fun initiation(
         config: VoiceModeConfig,
         history: List<ChatMessage>,
+        projectContext: String = "",
         now: Date = Date(),
     ): Map<String, Any?> = linkedMapOf(
         "type" to "conversation_initiation_client_data",
         "conversation_config_override" to linkedMapOf(
             "agent" to linkedMapOf(
                 "prompt" to linkedMapOf(
-                    "prompt" to sessionPrompt(history, now),
+                    "prompt" to sessionPrompt(history, now, projectContext),
                     "llm" to config.llm,
                 ),
                 // A new chat opens with a short hello; a continued one waits for the user.
@@ -127,13 +128,19 @@ internal object VoiceAgentSpec {
             "reply in the same mix.\n" +
             "- If you are interrupted, stop and listen; don't repeat what you already said unless asked."
 
-    /** [basePrompt] plus today's date and the chat so far, so a voice turn continues the chat. */
-    fun sessionPrompt(history: List<ChatMessage>, now: Date = Date()): String {
+    /**
+     * [basePrompt] plus today's date, the project's instructions and documents when the chat is
+     * in a project (the same context a typed turn gets), and the chat so far.
+     */
+    fun sessionPrompt(history: List<ChatMessage>, now: Date = Date(), projectContext: String = ""): String {
         val date = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.ENGLISH).format(now)
         val transcript = historyTranscript(history)
         return buildString {
             append(basePrompt())
             append("\n\nToday is ").append(date).append('.')
+            if (projectContext.isNotBlank()) {
+                append("\n\n").append(projectContext.trim())
+            }
             if (transcript.isNotEmpty()) {
                 append(
                     "\n\nThis call continues an existing EchoFlow chat. The conversation so far, oldest first, " +
