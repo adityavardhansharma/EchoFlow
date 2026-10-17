@@ -1,7 +1,6 @@
 package com.echoflow.ui.chat
 
 import android.app.Application
-import com.echoflow.BuildConfig
 import com.echoflow.data.ChatMessage
 import com.echoflow.data.SettingsRepository
 import com.echoflow.data.usage.UsageKeys
@@ -183,7 +182,7 @@ class VoiceModeController(
                 _state.update { it.copy(step = "Connecting…") }
                 val url = api.signedUrl(key, agentId).getOrThrow()
                 val history = sink.history(chatId)
-                val initiation = VoiceApiJson.write(VoiceAgentSpec.initiation(config, history, BuildConfig.VERSION_NAME))
+                val initiation = VoiceApiJson.write(VoiceAgentSpec.initiation(config, history))
                 if (!isActive || log !== sessionLog) return@launch
                 val live = VoiceSession(app, listenerFor(sessionLog))
                 live.micMuted = !micAllowed
