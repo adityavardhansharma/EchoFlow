@@ -105,6 +105,12 @@
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/system_dictation_accessibility" />
         </service>
 
+        <!-- Voice mode: keeps a live ElevenLabs conversation on the mic with the screen off. -->
+        <service
+            android:name=".data.voice.VoiceModeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <service
             android:name=".data.KeepAliveService"
             android:exported="false"

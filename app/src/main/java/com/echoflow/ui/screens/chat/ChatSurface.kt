@@ -302,6 +302,28 @@ internal fun ChatSurface(
             }
         }
     }
+    val voiceModeState by chatViewModel.voiceModeState.collectAsState()
+    val voiceModeAvailable by chatViewModel.voiceModeAvailable.collectAsState()
+    val voiceModeNotice by chatViewModel.voiceModeNotice.collectAsState()
+    // Voice mode gets the mic if it can; if the user says no it still starts, typing only.
+    val voiceModePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> chatViewModel.startVoiceMode(micAllowed = granted) }
+    val startVoiceMode = {
+        val granted = ContextCompat.checkSelfPermission(
+            sttContext, Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) chatViewModel.startVoiceMode(micAllowed = true)
+        else voiceModePermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    LaunchedEffect(voiceModeNotice) {
+        voiceModeNotice?.let {
+            Toast.makeText(sttContext, it, Toast.LENGTH_LONG).show()
+            chatViewModel.consumeVoiceModeNotice()
+        }
+    }
+    // Back ends the call first (saving it into the chat) instead of leaving the screen mid-call.
+    androidx.activity.compose.BackHandler(enabled = voiceModeState.active) { chatViewModel.endVoiceMode() }
     LaunchedEffect(voice.error) {
         voice.error?.let {
             Toast.makeText(sttContext, it, Toast.LENGTH_SHORT).show()
@@ -507,7 +529,24 @@ internal fun ChatSurface(
     var inputHeightPx by remember { mutableStateOf(0) }
     val messageBottomInset = if (inputHeightPx > 0) with(density) { inputHeightPx.toDp() } else 96.dp
     Box(Modifier.fillMaxSize()) {
-        if (messages.isEmpty() && !isStreaming && !progressLoading) {
+        if (voiceModeState.active) {
+            // While voice mode is open the turns aren't listed; they show as chat when it ends.
+            val voiceActivity by chatViewModel.voiceActivity.collectAsState()
+            val voiceInputLevel by chatViewModel.voiceInputLevel.collectAsState()
+            val voiceOutputLevel by chatViewModel.voiceOutputLevel.collectAsState()
+            val voiceUserCaption by chatViewModel.voiceUserCaption.collectAsState()
+            val voiceAgentCaption by chatViewModel.voiceAgentCaption.collectAsState()
+            com.echoflow.ui.screens.voice.VoiceModeStage(
+                state = voiceModeState,
+                activity = voiceActivity,
+                inputLevel = voiceInputLevel,
+                outputLevel = voiceOutputLevel,
+                userCaption = voiceUserCaption,
+                agentCaption = voiceAgentCaption,
+                topInset = topBarInset,
+                bottomInset = messageBottomInset,
+            )
+        } else if (messages.isEmpty() && !isStreaming && !progressLoading) {
             EmptyState(topInset = topBarInset, bottomInset = messageBottomInset)
         } else {
             // key() gives each conversation a fresh MessagesPane (own scroll state), so switching
@@ -613,7 +652,16 @@ internal fun ChatSurface(
                     }
                 }
             }
-        InputToolbar(
+        if (voiceModeState.active) {
+            com.echoflow.ui.screens.voice.VoiceModeComposer(
+                state = voiceModeState,
+                onToggleMic = chatViewModel::toggleVoiceMic,
+                onToggleSpeaker = chatViewModel::toggleVoiceSpeaker,
+                onSend = chatViewModel::sendVoiceText,
+                onTyping = chatViewModel::voiceTyping,
+                onEnd = chatViewModel::endVoiceMode,
+            )
+        } else InputToolbar(
             modifier = Modifier,
             text = textInput,
             onText = { textInput = it },
@@ -727,6 +775,8 @@ internal fun ChatSurface(
                 }
             },
             onCancelTranscribe = { voice.cancel() },
+            voiceModeAvailable = voiceModeAvailable,
+            onStartVoiceMode = startVoiceMode,
             projectName = currentThreadProject?.name,
             projectColorIndex = currentThreadProject?.colorIndex ?: 0,
             onOpenProject = { currentThreadProject?.let { chatViewModel.openProjectFromChat(it.id) } },

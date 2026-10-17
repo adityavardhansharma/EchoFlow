@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
@@ -186,6 +187,7 @@ internal const val PageCustomProviderOllama = "custom_provider_ollama"
 internal const val PageCustomProviderCompatible = "custom_provider_compatible"
 internal const val PageLicenses = "open_source_licenses"
 internal const val PageSpend = "spend"
+internal const val PageVoiceMode = "voice_mode"
 /** A provider's spend page: this prefix plus the [UsageProvider] name. */
 internal const val PageSpendProvider = "spend:"
 internal val CustomProviderSectionGap = 28.dp
@@ -195,7 +197,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     PageHome -> null
     PageMyMemories -> PageMemory
     PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
-    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud, PageSpend,
+    PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud, PageSpend, PageVoiceMode,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
     PageEchoAgent, PageCustomProvider, PageLicenses, PageJev,
@@ -281,6 +283,11 @@ fun SettingsScreen(
                 onOpenCloudModels = { page = PageCloudModels },
                 onOpenSarvam = { page = PageCustomProviderSarvam },
                 onOpenDeepgram = { page = PageCustomProviderDeepgram },
+                onOpenElevenLabs = { page = PageCustomProviderElevenLabs },
+                onBack = navigateBack,
+            )
+            PageVoiceMode -> VoiceModePage(
+                viewModel,
                 onOpenElevenLabs = { page = PageCustomProviderElevenLabs },
                 onBack = navigateBack,
             )
@@ -389,6 +396,12 @@ internal fun SettingsHomePage(
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
     val spendThisMonth by spendViewModel.monthTotal.collectAsState()
+    // Voice mode appears only once the ElevenLabs key has authenticated.
+    val voiceModeReady = rememberVoiceModeReady(viewModel)
+    val hubContext = androidx.compose.ui.platform.LocalContext.current
+    val voiceConfig by remember(hubContext) { com.echoflow.data.voice.VoiceModeSettings.get(hubContext.applicationContext) }.config.collectAsState()
+    val navCount = if (voiceModeReady) 10 else 9
+    val afterVoice = if (voiceModeReady) 1 else 0
 
     val themeLabel = when (darkMode) {
         "light" -> "Light"
@@ -475,7 +488,7 @@ internal fun SettingsHomePage(
                 subtitle = "$themeLabel theme · $accentLabel accent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 0, count = 9,
+                index = 0, count = navCount,
                 onClick = { onOpen(PageAppearance) },
             )
             SettingsNavRow(
@@ -485,7 +498,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenRouter & on-device",
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 1, count = 9,
+                index = 1, count = navCount,
                 onClick = { onOpen(PageModels) },
             )
             SettingsNavRow(
@@ -495,7 +508,7 @@ internal fun SettingsHomePage(
                 subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 2, count = 9,
+                index = 2, count = navCount,
                 onClick = { onOpen(PageCustomProviderCloud) },
             )
             SettingsNavRow(
@@ -505,7 +518,7 @@ internal fun SettingsHomePage(
                 subtitle = searchSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 3, count = 9,
+                index = 3, count = navCount,
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
@@ -515,7 +528,7 @@ internal fun SettingsHomePage(
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = 9,
+                index = 4, count = navCount,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -525,7 +538,7 @@ internal fun SettingsHomePage(
                 subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = 9,
+                index = 5, count = navCount,
                 onClick = { onOpen(PageImagine) },
             )
             SettingsNavRow(
@@ -535,9 +548,25 @@ internal fun SettingsHomePage(
                 subtitle = sttSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = 9,
+                index = 6, count = navCount,
                 onClick = { onOpen(PageSpeechToText) },
             )
+            if (voiceModeReady) {
+                SettingsNavRow(
+                    icon = Icons.Default.GraphicEq,
+                    polygon = MaterialShapes.Sunny,
+                    title = "Voice mode",
+                    subtitle = buildString {
+                        append(com.echoflow.data.voice.VoiceLlms.label(voiceConfig.llm))
+                        append(" · ")
+                        append(voiceConfig.voiceName?.takeIf { voiceConfig.voiceId != null } ?: "Default voice")
+                    },
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                    index = 7, count = navCount,
+                    onClick = { onOpen(PageVoiceMode) },
+                )
+            }
             SettingsNavRow(
                 icon = Icons.Default.AutoAwesome,
                 polygon = MaterialShapes.Pentagon,
@@ -545,7 +574,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7, count = 9,
+                index = 7 + afterVoice, count = navCount,
                 onClick = { onOpen(PageEchoLabs) },
             )
             SettingsNavRow(
@@ -555,7 +584,7 @@ internal fun SettingsHomePage(
                 subtitle = spendThisMonth?.let { "${SpendFormat.usd(it)} this month" } ?: "What your API keys have spent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 8, count = 9,
+                index = 8 + afterVoice, count = navCount,
                 onClick = { onOpen(PageSpend) },
             )
         }

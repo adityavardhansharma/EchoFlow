@@ -120,6 +120,7 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
+        if (voiceModeState.value.active) endVoiceMode()
         if (mode == AppMode.Chat) clearImagineArmedModes()
         parkCurrentPosition()
         settingsRepository.saveAppMode(mode)
@@ -853,6 +854,71 @@ class ChatViewModel(
         _pendingProjectId.value = null
     }
 
+    // ── Voice mode ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Voice mode writes its turns into the open chat, or into a new one made on the first thing
+     * the user says. The chat is the record: when the call ends it shows as ordinary messages,
+     * and the next typed message continues it with the chat's own model.
+     */
+    // Lazy: navigation can run during construction (restoring the last chat), before this line.
+    private val voiceMode by lazy { com.echoflow.ui.chat.VoiceModeController(
+        app = getApplication(),
+        scope = viewModelScope,
+        settingsRepository = settingsRepository,
+        sink = object : com.echoflow.ui.chat.VoiceTranscriptSink {
+            override suspend fun chatFor(startChatId: String?, firstUserText: String): String {
+                if (startChatId != null) return startChatId
+                val chatId = chatRepository.createThread(mode = AppMode.Chat).id
+                chatRepository.renameThread(chatId, fallbackThreadTitle(firstUserText))
+                consumePendingProjectForNewThread(chatId)
+                // Open it only if the user is still on the blank chat voice mode started from.
+                if (_currentChatThreadId.value == null) {
+                    openNewThread(chatId)
+                    settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
+                }
+                return chatId
+            }
+
+            override suspend fun history(chatId: String?): List<ChatMessage> =
+                chatId?.let { chatRepository.history(it) }.orEmpty()
+
+            override suspend fun put(message: ChatMessage) {
+                chatRepository.insertMessage(message)
+                chatRepository.touchThread(message.chatId)
+            }
+
+            override suspend fun remove(messageId: String) = messageDao.deleteMessageById(messageId)
+        },
+    ) }
+
+    val voiceModeState: StateFlow<com.echoflow.ui.chat.VoiceModeUiState> get() = voiceMode.state
+    val voiceModeAvailable: StateFlow<Boolean> get() = voiceMode.available
+    val voiceModeNotice: StateFlow<String?> get() = voiceMode.notice
+    val voiceActivity: StateFlow<com.echoflow.data.voice.VoiceAgentActivity> get() = voiceMode.activity
+    val voiceInputLevel: StateFlow<Float> get() = voiceMode.inputLevel
+    val voiceOutputLevel: StateFlow<Float> get() = voiceMode.outputLevel
+    val voiceUserCaption: StateFlow<String> get() = voiceMode.userCaption
+    val voiceAgentCaption: StateFlow<String> get() = voiceMode.agentCaption
+
+    /** Starts voice mode on the open chat; [micAllowed] false is a typing-only session. */
+    fun startVoiceMode(micAllowed: Boolean) {
+        if (appMode.value != AppMode.Chat) return
+        voiceMode.start(_currentChatThreadId.value, micAllowed)
+    }
+
+    fun endVoiceMode() = voiceMode.end()
+    fun sendVoiceText(text: String) = voiceMode.sendText(text)
+    fun voiceTyping() = voiceMode.typing()
+    fun toggleVoiceMic() = voiceMode.toggleMic()
+    fun toggleVoiceSpeaker() = voiceMode.toggleSpeaker()
+    fun consumeVoiceModeNotice() = voiceMode.consumeNotice()
+
+    override fun onCleared() {
+        voiceMode.release()
+        super.onCleared()
+    }
+
     fun addProjectDocument(projectId: String, uri: Uri) = projectImports.addProjectDocument(projectId, uri)
     fun addProjectDocuments(projectId: String, uris: List<Uri>) = projectImports.addProjectDocuments(projectId, uris)
 
@@ -1148,6 +1214,8 @@ class ChatViewModel(
     }
 
     fun selectThread(chatId: String?) {
+        // Opening another conversation hangs up; the call is saved into the chat it belongs to.
+        if (voiceModeState.value.active) endVoiceMode()
         openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a
         // null is parked too, because "I just started something new" is a position worth
