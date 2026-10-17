@@ -511,7 +511,8 @@ internal fun VoiceModeComposer(
     state: VoiceModeUiState,
     onToggleMic: () -> Unit,
     onToggleSpeaker: () -> Unit,
-    onSend: (String) -> Unit,
+    /** Returns true when the message was sent; the draft is kept otherwise. */
+    onSend: (String) -> Boolean,
     onTyping: () -> Unit,
     onEnd: () -> Unit,
     modifier: Modifier = Modifier,
@@ -521,10 +522,7 @@ internal fun VoiceModeComposer(
     val live = state.phase == VoiceModePhase.Live
     val canSend = live && text.isNotBlank()
     val send = {
-        if (canSend) {
-            onSend(text)
-            text = ""
-        }
+        if (canSend && onSend(text)) text = ""
     }
 
     Surface(

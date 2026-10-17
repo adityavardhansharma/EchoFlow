@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -63,13 +64,32 @@ data class VoiceModeUiState(
     val active: Boolean get() = phase != VoiceModePhase.Off
 }
 
+/** What a call needs from the chat it starts in, captured once when the call starts. */
+data class VoiceChatContext(
+    val history: List<ChatMessage> = emptyList(),
+    /** The owning project's instructions and reference documents, or "" outside a project. */
+    val projectContext: String = "",
+    val projectId: String? = null,
+    /** True when the call started in a temporary chat: its chat must not outlive it. */
+    val temporary: Boolean = false,
+    /** The sink's navigation marker when the call started; it tells whether the user moved on. */
+    val navigationToken: Long = 0L,
+)
+
 /** Where a voice conversation's turns are written: the open chat, or a new one. */
 interface VoiceTranscriptSink {
+    suspend fun prepare(chatId: String?): VoiceChatContext
+
     /** The chat the session writes into: [startChatId] when it had one, otherwise a new chat. */
-    suspend fun chatFor(startChatId: String?, firstUserText: String): String
-    suspend fun history(chatId: String?): List<ChatMessage>
+    suspend fun chatFor(startChatId: String?, firstUserText: String, context: VoiceChatContext): String
     suspend fun put(message: ChatMessage)
     suspend fun remove(messageId: String)
+
+    /** Swaps [removeIds] for [inserts] in one transaction: a failure keeps the original turns. */
+    suspend fun replace(chatId: String, removeIds: List<String>, inserts: List<ChatMessage>)
+
+    /** The call is over and every write for it has run. */
+    suspend fun sessionEnded(chatId: String?, context: VoiceChatContext)
 }
 
 /**
@@ -149,8 +169,15 @@ class VoiceModeController(
             settingsRepository.customProviderConfig
                 .map { if (it.elevenLabsAvailable) it.elevenLabsApiKey.trim() else "" }
                 .distinctUntilChanged()
-                .collect { key -> if (key.isNotEmpty() && !voiceSettings.isVerified(key)) auth.verify(key) }
+                .collectLatest { key ->
+                    if (key.isNotEmpty() && !voiceSettings.isVerified(key)) auth.verify(key) { currentKey() == key }
+                }
         }
+    }
+
+    private fun currentKey(): String {
+        val providers = settingsRepository.customProviderConfig.value
+        return if (providers.elevenLabsAvailable) providers.elevenLabsApiKey.trim() else ""
     }
 
     /**
@@ -180,12 +207,22 @@ class VoiceModeController(
             try {
                 val agentId = provisioner.ensureAgent(key, config).getOrThrow()
                 _state.update { it.copy(step = "Connecting…") }
-                val url = api.signedUrl(key, agentId).getOrThrow()
-                val history = sink.history(chatId)
-                val initiation = VoiceApiJson.write(VoiceAgentSpec.initiation(config, history))
+                val url = api.signedUrl(key, agentId).recoverCatching { error ->
+                    // The saved agent was deleted on ElevenLabs: make a new one and try once more.
+                    if (error !is ElevenLabsApiException || error.code != 404) throw error
+                    voiceSettings.forgetAgent()
+                    api.signedUrl(key, provisioner.ensureAgent(key, config).getOrThrow()).getOrThrow()
+                }.getOrThrow()
+                val context = sink.prepare(chatId)
+                sessionLog.context = context
+                val initiation = VoiceApiJson.write(
+                    VoiceAgentSpec.initiation(config, context.history, context.projectContext),
+                )
                 if (!isActive || log !== sessionLog) return@launch
                 val live = VoiceSession(app, listenerFor(sessionLog))
-                live.micMuted = !micAllowed
+                // Whatever the user toggled while the call was connecting carries into it.
+                live.micMuted = _state.value.micMuted
+                live.speakerMuted = _state.value.speakerMuted
                 session.value = live
                 VoiceModeService.endHandler = { scope.launch { end() } }
                 VoiceModeService.start(app)
@@ -221,17 +258,18 @@ class VoiceModeController(
         session.value?.end()
     }
 
-    fun sendText(text: String) {
+    /** Sends a typed message into the call. False when it wasn't sent, so the draft is kept. */
+    fun sendText(text: String): Boolean {
         val clean = text.trim()
-        val live = session.value ?: return
-        if (clean.isEmpty() || _state.value.phase != VoiceModePhase.Live) return
-        if (live.sendText(clean)) {
-            lastActivityAt = System.currentTimeMillis()
-            val sessionLog = log ?: return
-            writes.trySend { saveUserTurn(sessionLog, clean) }
-        } else {
+        val live = session.value ?: return false
+        if (clean.isEmpty() || _state.value.phase != VoiceModePhase.Live) return false
+        if (!live.sendText(clean)) {
             _notice.value = "Couldn't send that. The voice session isn't connected."
+            return false
         }
+        lastActivityAt = System.currentTimeMillis()
+        log?.let { sessionLog -> writes.trySend { saveUserTurn(sessionLog, clean) } }
+        return true
     }
 
     fun typing() {
@@ -291,6 +329,13 @@ class VoiceModeController(
             lastActivityAt = System.currentTimeMillis()
         }
 
+        override fun onMicUnavailable() {
+            scope.launch {
+                _state.update { it.copy(micAvailable = false, micMuted = true) }
+                _notice.value = "The microphone isn't available, so this call is typing only."
+            }
+        }
+
         override fun onEnded(error: String?) {
             scope.launch { finish(sessionLog, error) }
         }
@@ -303,7 +348,9 @@ class VoiceModeController(
                 delay(1_000)
                 val live = session.value ?: break
                 live.refreshActivity()
-                if (activity.value == VoiceAgentActivity.Speaking || activity.value == VoiceAgentActivity.Thinking) {
+                // Only audio actually playing keeps the call alive. A reply that never arrives
+                // ("Thinking" forever) must still reach the idle countdown.
+                if (activity.value == VoiceAgentActivity.Speaking) {
                     lastActivityAt = System.currentTimeMillis()
                 }
                 val idle = (System.currentTimeMillis() - lastActivityAt) / 1_000
@@ -321,6 +368,7 @@ class VoiceModeController(
     private suspend fun finish(sessionLog: SessionLog, error: String?) {
         if (sessionLog.finished) return
         sessionLog.finished = true
+        sessionLog.endedAt = System.currentTimeMillis()
         idleJob?.cancel()
         VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
@@ -332,7 +380,11 @@ class VoiceModeController(
             try {
                 reconcile(sessionLog)
             } finally {
-                done.complete(Unit)
+                try {
+                    sink.sessionEnded(sessionLog.chatId, sessionLog.context)
+                } finally {
+                    done.complete(Unit)
+                }
             }
         }
         withTimeoutOrNull(RECONCILE_TIMEOUT_MS + 2_000) { done.await() }
@@ -351,7 +403,8 @@ class VoiceModeController(
     // ── Turn persistence (runs on the write queue) ────────────────────────────────────────
 
     private suspend fun saveUserTurn(sessionLog: SessionLog, text: String) {
-        val chatId = sessionLog.chatId ?: sink.chatFor(sessionLog.startChatId, text).also { sessionLog.chatId = it }
+        val chatId = sessionLog.chatId
+            ?: sink.chatFor(sessionLog.startChatId, text, sessionLog.context).also { sessionLog.chatId = it }
         // A greeting spoken before the first user turn had nowhere to go yet.
         sessionLog.pendingAgent.forEach { insert(sessionLog, chatId, fromUser = false, text = it) }
         sessionLog.pendingAgent.clear()
@@ -400,21 +453,27 @@ class VoiceModeController(
      */
     private suspend fun reconcile(sessionLog: SessionLog) {
         val conversationId = sessionLog.conversationId ?: return
+        var latest: VoiceConversationRecord? = null
         val record = withTimeoutOrNull(RECONCILE_TIMEOUT_MS) {
-            var latest: VoiceConversationRecord? = null
             repeat(RECONCILE_ATTEMPTS) { attempt ->
-                latest = api.conversation(sessionLog.apiKey, conversationId).getOrNull()
-                val current = latest
-                if (current != null && (current.isFinal || current.status == "processing")) return@withTimeoutOrNull current
+                api.conversation(sessionLog.apiKey, conversationId).getOrNull()?.let { latest = it }
+                if (latest?.isFinal == true) return@withTimeoutOrNull latest
                 if (attempt < RECONCILE_ATTEMPTS - 1) delay(RECONCILE_POLL_MS)
             }
-            latest
-        } ?: return
-        recordSpend(sessionLog, record)
+            null
+        }
+        // Not final in time (still processing, or unreachable): keep the turns saved live and log
+        // an estimate, so the call still shows in Spend.
+        if (record == null) {
+            recordSpend(sessionLog, conversationId, latest?.durationSeconds, final = null)
+            return
+        }
+        recordSpend(sessionLog, conversationId, record.durationSeconds, final = record)
         val server = record.turns
         if (server.isEmpty() || server.none { it.fromUser }) return
         val chatId = sessionLog.chatId
-            ?: sink.chatFor(sessionLog.startChatId, server.first { it.fromUser }.text).also { sessionLog.chatId = it }
+            ?: sink.chatFor(sessionLog.startChatId, server.first { it.fromUser }.text, sessionLog.context)
+                .also { sessionLog.chatId = it }
         val local = sessionLog.saved
         val sameShape = local.size == server.size && local.zip(server).all { (l, s) -> l.fromUser == s.fromUser }
         if (sameShape) {
@@ -422,21 +481,19 @@ class VoiceModeController(
                 if (l.message.content != s.text) sink.put(l.message.copy(content = s.text))
             }
         } else {
-            local.forEach { sink.remove(it.message.id) }
             var previous = sessionLog.startedAt - 1
-            server.forEach { turn ->
+            val inserts = server.map { turn ->
                 val at = maxOf(previous + 1, sessionLog.startedAt + (turn.timeInCallSeconds * 1_000).toLong())
                 previous = at
-                sink.put(
-                    ChatMessage(
-                        id = UUID.randomUUID().toString(),
-                        chatId = chatId,
-                        role = if (turn.fromUser) "user" else "assistant",
-                        content = turn.text,
-                        createdAt = at,
-                    ),
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    chatId = chatId,
+                    role = if (turn.fromUser) "user" else "assistant",
+                    content = turn.text,
+                    createdAt = at,
                 )
             }
+            sink.replace(chatId, local.map { it.message.id }, inserts)
         }
     }
 
@@ -444,22 +501,31 @@ class VoiceModeController(
      * One Spend row per call. ElevenLabs reports the call's credits and, on most plans, its price;
      * otherwise the price is estimated from the call's length at the Agents list rate.
      */
-    private fun recordSpend(sessionLog: SessionLog, record: VoiceConversationRecord) {
-        val seconds = record.durationSeconds ?: ((System.currentTimeMillis() - sessionLog.startedAt) / 1_000.0)
-        val usd = record.costFiat ?: (seconds / 60.0 * AGENT_USD_PER_MINUTE + (record.llmChargeUsd ?: 0.0))
+    private fun recordSpend(
+        sessionLog: SessionLog,
+        conversationId: String,
+        durationSeconds: Double?,
+        final: VoiceConversationRecord?,
+    ) {
+        // The call's own end, not now: saving and polling time isn't part of the call.
+        val endedAt = sessionLog.endedAt ?: System.currentTimeMillis()
+        // A processing record can report 0 s: only a positive server duration beats our own.
+        val seconds = durationSeconds?.takeIf { it > 0.0 } ?: ((endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0)
+        val charged = final?.costFiat
+        val usd = charged ?: (seconds / 60.0 * AGENT_USD_PER_MINUTE + (final?.llmChargeUsd ?: 0.0))
         UsageLedger.record(
             UsageRecord(
-                id = "${UsageProvider.ElevenLabs.name}:voice:${record.conversationId}",
+                id = "${UsageProvider.ElevenLabs.name}:voice:$conversationId",
                 provider = UsageProvider.ElevenLabs.name,
                 keyHash = UsageKeys.hash(sessionLog.apiKey),
                 createdAt = sessionLog.startedAt,
                 kind = UsageKind.Voice.name,
                 model = sessionLog.llm,
-                externalId = record.conversationId,
+                externalId = conversationId,
                 costUsd = usd,
-                credits = record.credits,
+                credits = final?.credits,
                 audioSeconds = seconds,
-                detail = if (record.costFiat != null) "Voice mode" else "Voice mode · estimated from call length",
+                detail = if (charged != null) "Voice mode" else "Voice mode · estimated from call length",
             ),
         )
     }
@@ -470,7 +536,9 @@ class VoiceModeController(
         var chatId: String? = null
         var conversationId: String? = null
         var startedAt: Long = System.currentTimeMillis()
+        var endedAt: Long? = null
         var finished = false
+        var context = VoiceChatContext()
         val saved = mutableListOf<SavedTurn>()
         val pendingAgent = mutableListOf<String>()
         private var lastTimestamp = 0L
@@ -487,8 +555,8 @@ class VoiceModeController(
         private const val TAG = "VoiceMode"
         const val IDLE_TIMEOUT_SECONDS = 5 * 60
         const val IDLE_WARNING_SECONDS = 30
-        private const val RECONCILE_TIMEOUT_MS = 8_000L
-        private const val RECONCILE_ATTEMPTS = 5
+        private const val RECONCILE_TIMEOUT_MS = 12_000L
+        private const val RECONCILE_ATTEMPTS = 8
         private const val RECONCILE_POLL_MS = 1_500L
         /** ElevenLabs Agents list price per minute, used only when a call reports no price. */
         private const val AGENT_USD_PER_MINUTE = 0.10

@@ -66,6 +66,7 @@ class VoiceModeSettingsViewModel(application: Application) : AndroidViewModel(ap
     val previewing: StateFlow<String?> = _previewing.asStateFlow()
 
     private var key = ""
+    private var bindJob: Job? = null
     private var nextToken: String? = null
     private var libraryPage = 0
     private var searchJob: Job? = null
@@ -76,15 +77,21 @@ class VoiceModeSettingsViewModel(application: Application) : AndroidViewModel(ap
         val clean = apiKey.trim()
         if (clean == key && (clean.isEmpty() || _llms.value.isNotEmpty())) return
         key = clean
+        // A newer key replaces any check still running for the old one.
+        bindJob?.cancel()
         if (clean.isEmpty()) {
+            _verifying.value = false
             settings.markUnverified()
             return
         }
-        viewModelScope.launch {
+        bindJob = viewModelScope.launch {
             _verifying.value = true
-            auth.verify(clean)
-            _verifying.value = false
-            if (settings.isVerified(clean)) loadLlms()
+            try {
+                auth.verify(clean) { key == clean }
+            } finally {
+                if (key == clean) _verifying.value = false
+            }
+            if (key == clean && settings.isVerified(clean)) loadLlms()
         }
     }
 
@@ -117,12 +124,15 @@ class VoiceModeSettingsViewModel(application: Application) : AndroidViewModel(ap
 
     fun setSource(source: VoiceSource) {
         if (source == _picker.value.source) return
-        _picker.update { it.copy(source = source, voices = emptyList(), error = null) }
+        _picker.update { it.copy(source = source, voices = emptyList(), error = null, loading = true, canLoadMore = false) }
         load(reset = true)
     }
 
     fun setQuery(query: String) {
-        _picker.update { it.copy(query = query) }
+        // The old results' paging no longer applies: block "load more" until page one is in.
+        nextToken = null
+        libraryPage = 0
+        _picker.update { it.copy(query = query, loading = true, canLoadMore = false) }
         load(reset = true, debounceMs = 350)
     }
 
