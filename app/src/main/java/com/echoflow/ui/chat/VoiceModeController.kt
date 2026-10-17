@@ -509,7 +509,8 @@ class VoiceModeController(
     ) {
         // The call's own end, not now: saving and polling time isn't part of the call.
         val endedAt = sessionLog.endedAt ?: System.currentTimeMillis()
-        val seconds = durationSeconds ?: ((endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0)
+        // A processing record can report 0 s: only a positive server duration beats our own.
+        val seconds = durationSeconds?.takeIf { it > 0.0 } ?: ((endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0)
         val charged = final?.costFiat
         val usd = charged ?: (seconds / 60.0 * AGENT_USD_PER_MINUTE + (final?.llmChargeUsd ?: 0.0))
         UsageLedger.record(
