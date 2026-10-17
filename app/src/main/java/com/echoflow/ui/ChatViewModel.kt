@@ -120,6 +120,7 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
+        navigationEpoch++
         if (voiceModeState.value.active) endVoiceMode()
         if (mode == AppMode.Chat) clearImagineArmedModes()
         parkCurrentPosition()
@@ -864,6 +865,12 @@ class ChatViewModel(
     /** New temporary chats a voice call made after the user had already left them. */
     private val orphanedVoiceChats = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
+    /**
+     * Bumped on every explicit navigation. A voice call compares it with the value at its start,
+     * so a late first save never opens its chat over a different blank chat the user moved to.
+     */
+    @Volatile private var navigationEpoch = 0L
+
     // Lazy: navigation can run during construction (restoring the last chat), before this line.
     private val voiceMode by lazy { com.echoflow.ui.chat.VoiceModeController(
         app = getApplication(),
@@ -880,6 +887,7 @@ class ChatViewModel(
                     projectContext = projectId?.let { projectManager.buildSystemContext(it) }.orEmpty(),
                     projectId = projectId,
                     temporary = isTemporaryNow(),
+                    navigationToken = navigationEpoch,
                 )
             }
 
@@ -896,7 +904,7 @@ class ChatViewModel(
                     projectManager.touch(projectId)
                     if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
                 }
-                val stillOnBlank = _currentChatThreadId.value == null
+                val stillOnBlank = _currentChatThreadId.value == null && navigationEpoch == context.navigationToken
                 if (context.temporary) {
                     // Keep it out of memory before any turn is written, wherever the user is now.
                     runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
@@ -1260,6 +1268,7 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         // Opening another conversation hangs up; the call is saved into the chat it belongs to.
+        navigationEpoch++
         if (voiceModeState.value.active) endVoiceMode()
         openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a

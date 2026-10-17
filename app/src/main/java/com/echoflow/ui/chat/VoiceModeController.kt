@@ -72,6 +72,8 @@ data class VoiceChatContext(
     val projectId: String? = null,
     /** True when the call started in a temporary chat: its chat must not outlive it. */
     val temporary: Boolean = false,
+    /** The sink's navigation marker when the call started; it tells whether the user moved on. */
+    val navigationToken: Long = 0L,
 )
 
 /** Where a voice conversation's turns are written: the open chat, or a new one. */
@@ -366,6 +368,7 @@ class VoiceModeController(
     private suspend fun finish(sessionLog: SessionLog, error: String?) {
         if (sessionLog.finished) return
         sessionLog.finished = true
+        sessionLog.endedAt = System.currentTimeMillis()
         idleJob?.cancel()
         VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
@@ -504,7 +507,9 @@ class VoiceModeController(
         durationSeconds: Double?,
         final: VoiceConversationRecord?,
     ) {
-        val seconds = durationSeconds ?: ((System.currentTimeMillis() - sessionLog.startedAt) / 1_000.0)
+        // The call's own end, not now: saving and polling time isn't part of the call.
+        val endedAt = sessionLog.endedAt ?: System.currentTimeMillis()
+        val seconds = durationSeconds ?: ((endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0)
         val charged = final?.costFiat
         val usd = charged ?: (seconds / 60.0 * AGENT_USD_PER_MINUTE + (final?.llmChargeUsd ?: 0.0))
         UsageLedger.record(
@@ -530,6 +535,7 @@ class VoiceModeController(
         var chatId: String? = null
         var conversationId: String? = null
         var startedAt: Long = System.currentTimeMillis()
+        var endedAt: Long? = null
         var finished = false
         var context = VoiceChatContext()
         val saved = mutableListOf<SavedTurn>()
