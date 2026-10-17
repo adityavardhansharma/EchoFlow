@@ -92,7 +92,6 @@ internal object VoiceAgentSpec {
     fun initiation(
         config: VoiceModeConfig,
         history: List<ChatMessage>,
-        appVersion: String,
         now: Date = Date(),
     ): Map<String, Any?> = linkedMapOf(
         "type" to "conversation_initiation_client_data",
@@ -108,7 +107,8 @@ internal object VoiceAgentSpec {
             ),
             "tts" to config.voiceId?.let { linkedMapOf("voice_id" to it) },
         ),
-        "source_info" to linkedMapOf("source" to "echoflow_android", "version" to appVersion),
+        // No source_info: ElevenLabs only accepts its own SDK names there and rejects the whole
+        // message for any other value.
     )
 
     /** How the agent talks. Everything it writes is spoken aloud, so the rules are about speech. */
