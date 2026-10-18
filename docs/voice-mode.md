@@ -33,7 +33,8 @@ ElevenLabs key.
   countdown) closes the call. A recap shows at once, while the call saves: the call's length and
   turns, the card (or the agent's last words), and **Open chat** / **Keep talking**. A call where
   nothing was said goes straight back to the chat. The chat shows every turn as normal messages,
-  so typing can continue with the chat's own model.
+  so typing can continue with the chat's own model. A card from the call is saved after the turns
+  as its own message, since the agent doesn't read it out word for word.
 
 ## Settings (Settings → Voice mode)
 
@@ -60,7 +61,7 @@ The page appears in the hub only once the key has authenticated.
   settings. It creates the agent once and PATCHes it when the settings hash changes, so an
   unchanged config costs no request. If the agent was deleted on ElevenLabs, it recreates it. The
   agent carries the `show_card` client tool (and asks for `client_tool_call` events); an account
-  that rejects it gets the same agent without the tool.
+  that rejects it gets the same agent without the tool, and then the prompt doesn't mention it.
 - **Session.** `VoiceSession` connects to the signed WebSocket URL, sends
   `conversation_initiation_client_data` (the prompt with the chat so far, the LLM, the voice and the
   language), and then:

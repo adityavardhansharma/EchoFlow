@@ -212,8 +212,6 @@ class VoiceModeController(
      */
     fun start(chatId: String?, micAllowed: Boolean) {
         if (_state.value.active) return
-        prewarmJob?.cancel()
-        prewarmJob = null
         val providers = settingsRepository.customProviderConfig.value
         val key = if (providers.elevenLabsAvailable) providers.elevenLabsApiKey.trim() else ""
         if (key.isEmpty()) {
@@ -249,7 +247,13 @@ class VoiceModeController(
                 sessionLog.context = context
                 if (!isActive || log !== sessionLog) return@launch
                 val initiation = VoiceApiJson.write(
-                    VoiceAgentSpec.initiation(config, context.history, context.projectContext, greet = !live.spokeEarly),
+                    VoiceAgentSpec.initiation(
+                        config,
+                        context.history,
+                        context.projectContext,
+                        greet = !live.spokeEarly,
+                        withCard = voiceSettings.agentFor(key)?.hasTools == true,
+                    ),
                 )
                 // Whatever the user toggled while the call was connecting carries into it.
                 live.micMuted = _state.value.micMuted
@@ -472,10 +476,11 @@ class VoiceModeController(
         VoiceModeService.stop(app)
         if (error != null) _notice.value = error
         val live = session.value
+        val card = live?.plan?.value
         val recap = VoiceRecap(
             durationSeconds = sessionLog.connectedSeconds(),
             turns = sessionLog.saved.size,
-            plan = live?.plan?.value,
+            plan = card,
             lastAgentTurn = sessionLog.saved.lastOrNull { !it.fromUser }?.message?.content.orEmpty(),
         )
         _state.update {
@@ -486,6 +491,9 @@ class VoiceModeController(
         writes.trySend {
             try {
                 reconcile(sessionLog)
+                // The card isn't in the spoken transcript (the agent doesn't read it out), so it is
+                // kept in the chat as its own message, after the call's turns.
+                if (card != null) saveCard(sessionLog, card)
             } finally {
                 try {
                     sink.sessionEnded(sessionLog.chatId, sessionLog.context)
@@ -540,6 +548,19 @@ class VoiceModeController(
             return
         }
         insert(sessionLog, chatId, fromUser = false, text = text)
+    }
+
+    private suspend fun saveCard(sessionLog: SessionLog, card: com.echoflow.data.voice.VoicePlan) {
+        val chatId = sessionLog.chatId ?: sessionLog.startChatId ?: return
+        sink.put(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                chatId = chatId,
+                role = "assistant",
+                content = cardMarkdown(card),
+                createdAt = sessionLog.nextTimestamp(),
+            ),
+        )
     }
 
     private suspend fun correctAgentTurn(sessionLog: SessionLog, original: String, corrected: String) {
@@ -697,3 +718,13 @@ class VoiceModeController(
         private const val PREWARM_FRESH_MS = 8 * 60_000L
     }
 }
+
+/** A voice call's card as a chat message: its title, then a line per item. */
+internal fun cardMarkdown(card: com.echoflow.data.voice.VoicePlan): String = buildString {
+    if (card.title.isNotBlank()) append("**").append(card.title).append("**\n\n")
+    card.rows.forEach { row ->
+        append("- ")
+        if (row.label.isNotBlank()) append("**").append(row.label).append(":** ")
+        append(row.text).append('\n')
+    }
+}.trimEnd()

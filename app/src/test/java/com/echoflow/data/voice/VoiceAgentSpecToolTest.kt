@@ -27,10 +27,13 @@ class VoiceAgentSpecToolTest {
     }
 
     @Test
-    fun `without tools neither the tool nor its event is sent`() {
+    fun `without tools neither the tool, its event nor its instructions are sent`() {
         val body = VoiceAgentSpec.agentBody(config, withTools = false)
         assertNull(prompt(body)["tools"])
         assertFalse(VoiceAgentSpec.TOOL_EVENT in events(body))
+        assertFalse("show_card" in (prompt(body)["prompt"] as String))
+        assertFalse("show_card" in VoiceAgentSpec.sessionPrompt(emptyList(), withCard = false))
+        assertTrue("show_card" in VoiceAgentSpec.sessionPrompt(emptyList(), withCard = true))
     }
 
     @Suppress("UNCHECKED_CAST")

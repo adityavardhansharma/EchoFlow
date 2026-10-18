@@ -41,6 +41,13 @@ class VoicePlanToolTest {
     }
 
     @Test
+    fun `moving a line to another day marks it`() {
+        val first = VoicePlanTool.parse(mapOf("title" to "Week", "items" to listOf("Monday: Visit the museum")), null)
+        val moved = VoicePlanTool.parse(mapOf("title" to "Week", "items" to listOf("Tuesday: Visit the museum")), first)!!
+        assertTrue(moved.rows.single().edited)
+    }
+
+    @Test
     fun `a different card starts clean`() {
         val first = VoicePlanTool.parse(lisbon, previous = null)
         val other = VoicePlanTool.parse(mapOf("title" to "Pasta", "items" to listOf("Step 1: Boil water")), first)!!

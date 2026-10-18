@@ -53,7 +53,7 @@ internal object VoiceAgentSpec {
     ): Map<String, Any?> {
         val style = config.effectiveStyle
         val prompt = linkedMapOf<String, Any?>(
-            "prompt" to basePrompt(),
+            "prompt" to basePrompt(withTools),
             "llm" to config.llm,
         )
         if (withTools) prompt["tools"] = listOf(VoicePlanTool.definition())
@@ -108,12 +108,14 @@ internal object VoiceAgentSpec {
         now: Date = Date(),
         /** False when the user is already talking: a hello would talk over them. */
         greet: Boolean = true,
+        /** False when the agent has no card tool, so the prompt doesn't mention it. */
+        withCard: Boolean = true,
     ): Map<String, Any?> = linkedMapOf(
         "type" to "conversation_initiation_client_data",
         "conversation_config_override" to linkedMapOf(
             "agent" to linkedMapOf(
                 "prompt" to linkedMapOf(
-                    "prompt" to sessionPrompt(history, now, projectContext),
+                    "prompt" to sessionPrompt(history, now, projectContext, withCard),
                     "llm" to config.llm,
                 ),
                 // A new chat opens with a short hello; a continued one waits for the user.
@@ -127,7 +129,8 @@ internal object VoiceAgentSpec {
     )
 
     /** How the agent talks. Everything it writes is spoken aloud, so the rules are about speech. */
-    fun basePrompt(): String =
+    /** [withCard]: the agent has the card tool, so the prompt says when to use it. */
+    fun basePrompt(withCard: Boolean = true): String =
         "You are Echo, the voice of the EchoFlow app, talking with the user out loud in real time.\n\n" +
             "How to speak:\n" +
             "- Talk like a thoughtful friend on a call: warm, direct and natural. Use short sentences.\n" +
@@ -140,7 +143,10 @@ internal object VoiceAgentSpec {
             "- The user may type some messages instead of speaking. Answer typed and spoken messages the same way.\n" +
             "- Reply in the language the user speaks. If they mix languages, such as Hindi and English, " +
             "reply in the same mix.\n" +
-            "- If you are interrupted, stop and listen; don't repeat what you already said unless asked.\n\n" +
+            "- If you are interrupted, stop and listen; don't repeat what you already said unless asked." +
+            if (withCard) CARD_PROMPT else ""
+
+    private const val CARD_PROMPT = "\n\n" +
             "The user's screen:\n" +
             "- When an answer has a shape worth seeing, such as a plan, steps, a short list of options or a " +
             "schedule, also call the show_card tool with a short title and one line per item, then keep talking " +
@@ -152,11 +158,16 @@ internal object VoiceAgentSpec {
      * [basePrompt] plus today's date, the project's instructions and documents when the chat is
      * in a project (the same context a typed turn gets), and the chat so far.
      */
-    fun sessionPrompt(history: List<ChatMessage>, now: Date = Date(), projectContext: String = ""): String {
+    fun sessionPrompt(
+        history: List<ChatMessage>,
+        now: Date = Date(),
+        projectContext: String = "",
+        withCard: Boolean = true,
+    ): String {
         val date = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.ENGLISH).format(now)
         val transcript = historyTranscript(history)
         return buildString {
-            append(basePrompt())
+            append(basePrompt(withCard))
             append("\n\nToday is ").append(date).append('.')
             if (projectContext.isNotBlank()) {
                 append("\n\n").append(projectContext.trim())

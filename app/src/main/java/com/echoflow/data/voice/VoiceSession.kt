@@ -97,7 +97,6 @@ internal class VoiceSession(
     @Volatile private var micRate = 0
     /** The user tapped to cut the agent off: the rest of that reply's audio is dropped. */
     @Volatile private var droppingReply = false
-    @Volatile private var lastAudioEventAt = 0L
     /** Mic audio recorded before the socket was ready, sent the moment it is. */
     private val early = ArrayDeque<ByteArray>()
     private var streamedText = StringBuilder()
@@ -153,15 +152,16 @@ internal class VoiceSession(
         return true
     }
 
+    /** Holds audio until the socket is ready, then sends it; one lock keeps the order exact. */
     private fun onMicChunk(pcm: ByteArray) {
         synchronized(early) {
             if (!connected) {
                 early.addLast(pcm)
                 while (early.size > MAX_EARLY_CHUNKS) early.removeFirst()
-                return
+            } else {
+                socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
             }
         }
-        socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
     }
 
     /**
@@ -229,21 +229,19 @@ internal class VoiceSession(
                         if (!openMic(event.inputSampleRate)) micFailed = true
                     }
                 }
-                // Send what the user already said, then let the mic stream straight through.
-                val held = synchronized(early) {
+                // Send what the user already said, then let the mic stream straight through. Under
+                // the same lock as the mic's sends, so no new chunk can slip in between.
+                synchronized(early) {
+                    early.forEach { pcm -> webSocket.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP))) }
+                    early.clear()
                     connected = true
-                    early.toList().also { early.clear() }
                 }
-                held.forEach { pcm -> webSocket.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP))) }
                 if (micFailed) listener.onMicUnavailable()
                 _activity.value = VoiceAgentActivity.Listening
                 listener.onConnected(event.conversationId)
             }
             is VoiceServerEvent.Audio -> {
-                val now = System.currentTimeMillis()
-                // A pause in the stream after a cut-in means this is a new reply: play it.
-                if (droppingReply && now - lastAudioEventAt > NEW_REPLY_GAP_MS) droppingReply = false
-                lastAudioEventAt = now
+                // After a cut-in the rest of that reply is dropped until a new turn starts.
                 if (!droppingReply) {
                     player?.enqueue(event.pcm)
                     awaitingReply = false
@@ -294,6 +292,8 @@ internal class VoiceSession(
                 listener.onAgentCorrection(event.original, event.corrected)
             }
             is VoiceServerEvent.Interruption -> {
+                // The server cut the reply off too: whatever plays next is a new reply.
+                droppingReply = false
                 player?.interrupt()
                 _activity.value = VoiceAgentActivity.Listening
             }
@@ -352,7 +352,6 @@ internal class VoiceSession(
     fun cutIn(): Boolean {
         if (finished || _activity.value != VoiceAgentActivity.Speaking) return false
         droppingReply = true
-        lastAudioEventAt = System.currentTimeMillis()
         player?.interrupt()
         _activity.value = VoiceAgentActivity.Listening
         socket?.send(VoiceSessionProtocol.userActivity())
@@ -402,6 +401,5 @@ internal class VoiceSession(
         /** About 20 s of 100 ms chunks: enough for a slow connection, bounded if it never comes. */
         const val MAX_EARLY_CHUNKS = 200
         const val EARLY_SPEECH_LEVEL = 0.45f
-        const val NEW_REPLY_GAP_MS = 1_500L
     }
 }

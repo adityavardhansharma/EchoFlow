@@ -65,7 +65,10 @@ internal object VoicePlanTool {
         val update = previous != null && previous.title.equals(title, ignoreCase = true)
         val marked = if (!update) rows else rows.mapIndexed { i, row ->
             val before = previous!!.rows.getOrNull(i)
-            row.copy(edited = before != null && !before.text.equals(row.text, ignoreCase = true))
+            row.copy(
+                edited = before != null &&
+                    (!before.text.equals(row.text, ignoreCase = true) || !before.label.equals(row.label, ignoreCase = true)),
+            )
         }
         return VoicePlan(title = title, rows = marked)
     }

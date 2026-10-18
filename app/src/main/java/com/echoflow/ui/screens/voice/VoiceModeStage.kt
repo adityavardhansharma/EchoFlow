@@ -28,6 +28,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -241,6 +243,8 @@ private fun CallScreen(
     val mode = lineModeFor(state, activity)
     val speaking = mode == LineMode.Speak
     var typing by rememberSaveable { mutableStateOf(false) }
+    // Kept here, not in the field, so a draft survives hiding and reopening the keyboard row.
+    var draft by rememberSaveable { mutableStateOf("") }
 
     PocketMode(enabled = state.phase == VoiceModePhase.Live || state.phase == VoiceModePhase.Starting)
 
@@ -310,10 +314,14 @@ private fun CallScreen(
             exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
         ) {
             if (plan != null) {
+                // Bounded and scrollable, so a long card never squeezes out the line or the controls.
                 PlanCard(
                     plan = plan,
                     tag = "Live",
-                    modifier = Modifier.padding(horizontal = Spacing.base, vertical = Spacing.s),
+                    scrollable = true,
+                    modifier = Modifier
+                        .padding(horizontal = Spacing.base, vertical = Spacing.s)
+                        .heightIn(max = 220.dp),
                 )
             }
         }
@@ -418,7 +426,7 @@ private fun CallScreen(
                 enter = fadeIn(tween(180)) + expandVertically(),
                 exit = fadeOut(tween(120)) + shrinkVertically(),
             ) {
-                TypeRow(state, actions)
+                TypeRow(state, draft, onDraft = { draft = it }, actions = actions)
             }
             CallControls(
                 state = state,
@@ -602,7 +610,13 @@ private fun HeardChip(label: String) {
 
 /** The card the agent builds: a title, then a line per item. Changed lines carry a mark. */
 @Composable
-internal fun PlanCard(plan: VoicePlan, tag: String, modifier: Modifier = Modifier) {
+internal fun PlanCard(
+    plan: VoicePlan,
+    tag: String,
+    modifier: Modifier = Modifier,
+    /** True when the card has a bounded height of its own (the call screen); the recap scrolls as a whole. */
+    scrollable: Boolean = false,
+) {
     val scheme = MaterialTheme.colorScheme
     Surface(
         shape = RoundedCornerShape(24.dp),
@@ -614,6 +628,7 @@ internal fun PlanCard(plan: VoicePlan, tag: String, modifier: Modifier = Modifie
     ) {
         Column(
             Modifier
+                .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                 .padding(horizontal = Spacing.base, vertical = Spacing.m)
                 .animateContentSize(tween(260)),
         ) {
@@ -687,12 +702,11 @@ internal fun PlanCard(plan: VoicePlan, tag: String, modifier: Modifier = Modifie
 
 /** A field to type into the call, opened from the keyboard button. Typing asks the agent to wait. */
 @Composable
-private fun TypeRow(state: VoiceModeUiState, actions: VoiceStageActions) {
+private fun TypeRow(state: VoiceModeUiState, text: String, onDraft: (String) -> Unit, actions: VoiceStageActions) {
     val scheme = MaterialTheme.colorScheme
-    var text by rememberSaveable { mutableStateOf("") }
     val live = state.phase == VoiceModePhase.Live
     val canSend = live && text.isNotBlank()
-    val send = { if (canSend && actions.onSend(text)) text = "" }
+    val send = { if (canSend && actions.onSend(text)) onDraft("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Surface(
@@ -720,7 +734,7 @@ private fun TypeRow(state: VoiceModeUiState, actions: VoiceStageActions) {
                 BasicTextField(
                     value = text,
                     onValueChange = {
-                        text = it
+                        onDraft(it)
                         if (it.isNotEmpty()) actions.onTyping()
                     },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
@@ -855,50 +869,56 @@ private fun RecapScreen(state: VoiceModeUiState, recap: VoiceRecap, actions: Voi
             .padding(horizontal = Spacing.xl)
             .testTag("voice-recap"),
     ) {
-        Spacer(Modifier.height(Spacing.huge))
-        AnimatedContent(
-            targetState = eyebrow,
-            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
-            label = "recap-eyebrow",
-        ) { line ->
-            Text(line.uppercase(), style = MonoLabel, color = scheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            recap.plan?.title?.takeIf { it.isNotBlank() } ?: "That's in your chat",
-            style = MaterialTheme.typography.headlineMedium,
-            color = scheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(Spacing.xl))
-        val plan = recap.plan
-        if (plan != null) {
-            PlanCard(plan = plan.copy(rows = plan.rows.map { it.copy(edited = false) }), tag = if (saved) "Saved" else "Saving")
-        } else if (recap.lastAgentTurn.isNotBlank()) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = scheme.surfaceContainerHigh,
-                contentColor = scheme.onSurface,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(Spacing.base)) {
-                    Text(
-                        "LAST WORD",
-                        style = MonoLabel,
-                        color = scheme.tertiary,
-                    )
-                    Spacer(Modifier.height(Spacing.s))
-                    Text(
-                        recap.lastAgentTurn,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Spacer(Modifier.height(Spacing.huge))
+            AnimatedContent(
+                targetState = eyebrow,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+                label = "recap-eyebrow",
+            ) { line ->
+                Text(line.uppercase(), style = MonoLabel, color = scheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                recap.plan?.title?.takeIf { it.isNotBlank() } ?: "That's in your chat",
+                style = MaterialTheme.typography.headlineMedium,
+                color = scheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Spacing.xl))
+            val plan = recap.plan
+            if (plan != null) {
+                PlanCard(plan = plan.copy(rows = plan.rows.map { it.copy(edited = false) }), tag = if (saved) "Saved" else "Saving")
+            } else if (recap.lastAgentTurn.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = scheme.surfaceContainerHigh,
+                    contentColor = scheme.onSurface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(Spacing.base)) {
+                        Text(
+                            "LAST WORD",
+                            style = MonoLabel,
+                            color = scheme.tertiary,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                        Text(
+                            recap.lastAgentTurn,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+            Spacer(Modifier.height(Spacing.base))
         }
-        Spacer(Modifier.weight(1f))
         Row(
             Modifier
                 .fillMaxWidth()
