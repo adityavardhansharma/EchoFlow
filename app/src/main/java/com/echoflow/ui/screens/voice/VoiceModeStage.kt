@@ -92,6 +92,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -301,141 +302,160 @@ private fun CallScreen(
         flash = scheme.onSurface,
     )
 
-    Column(
+    // The keyboard and system bars come off the whole screen, so [compact] sees the room that's
+    // really left. The controls are measured first and keep their size; the header, card and
+    // line share whatever remains, so the controls stay usable on short screens and with the
+    // keyboard open.
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
+            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.ime).union(WindowInsets.navigationBars)),
     ) {
-        CallHeader(state, activity, onToggleSpeaker = actions.onToggleSpeaker)
+        val compact = maxHeight < COMPACT_HEIGHT
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                CallHeader(state, activity, onToggleSpeaker = actions.onToggleSpeaker)
 
-        AnimatedVisibility(
-            visible = plan != null,
-            enter = fadeIn(tween(260)) + expandVertically(tween(320)),
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
-        ) {
-            if (plan != null) {
-                // Bounded and scrollable, so a long card never squeezes out the line or the controls.
-                PlanCard(
-                    plan = plan,
-                    tag = "Live",
-                    scrollable = true,
-                    modifier = Modifier
-                        .padding(horizontal = Spacing.base, vertical = Spacing.s)
-                        .heightIn(max = 220.dp),
-                )
-            }
-        }
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    // The card takes at most 40% of what's left; with too little room it steps
+                    // aside and comes back when the keyboard closes.
+                    val cardRoom = minOf(220.dp, maxHeight * 0.4f)
+                    val cardShown = plan != null && cardRoom >= MIN_CARD
+                    Column(Modifier.fillMaxSize()) {
+                        AnimatedVisibility(
+                            visible = cardShown,
+                            enter = fadeIn(tween(260)) + expandVertically(tween(320)),
+                            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+                        ) {
+                            if (plan != null) {
+                                // Bounded and scrollable, so a long card never squeezes out the line or the controls.
+                                PlanCard(
+                                    plan = plan,
+                                    tag = "Live",
+                                    scrollable = true,
+                                    modifier = Modifier
+                                        .padding(horizontal = Spacing.base, vertical = Spacing.s)
+                                        .heightIn(max = cardRoom),
+                                )
+                            }
+                        }
 
-        BoxWithConstraints(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .pointerInput(speaking) {
-                    detectTapGestures { at ->
-                        if (speaking) {
-                            tapAt = at
-                            actions.onCutIn()
+                        BoxWithConstraints(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                // Captions stay inside the line's area and never spill onto the controls.
+                                .clipToBounds()
+                                .pointerInput(speaking) {
+                                    detectTapGestures { at ->
+                                        if (speaking) {
+                                            tapAt = at
+                                            actions.onCutIn()
+                                        }
+                                    }
+                                }
+                                .semantics { if (speaking) contentDescription = "Tap to interrupt" },
+                        ) {
+                            val area = maxHeight
+                            val lineY by animateDpAsState(area * (if (cardShown) 0.56f else 0.5f), tween(420), label = "line-y")
+
+                            Canvas(Modifier.fillMaxSize()) {
+                                drawHorizon(
+                                    hy = lineY.toPx(),
+                                    t = time,
+                                    weights = LineWeights(listenW, thinkW, speakW, restW),
+                                    inLevel = inLevel,
+                                    outLevel = outLevel,
+                                    grow = grow.value,
+                                    flash = flash.value,
+                                    colors = colors,
+                                )
+                                tapAt?.let { at ->
+                                    val p = tapRing.value
+                                    if (p < 1f) {
+                                        drawCircle(
+                                            color = colors.flash.copy(alpha = 0.35f * (1f - p)),
+                                            radius = (12.dp + 60.dp * p).toPx(),
+                                            center = at,
+                                            style = Stroke(width = 1.5.dp.toPx()),
+                                        )
+                                    }
+                                }
+                            }
+
+                            // The agent, above the line.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    // Clear of the line even at the top of its swing while the agent talks.
+                                    .height((lineY - 44.dp).coerceAtLeast(0.dp))
+                                    .padding(horizontal = Spacing.xl),
+                                contentAlignment = Alignment.BottomStart,
+                            ) {
+                                AgentZone(state, activity, agentCaption, room = lineY - 44.dp)
+                            }
+
+                            // What was heard, riding the line.
+                            HeardChipRow(
+                                text = when {
+                                    userCaption.isNotBlank() -> userCaption
+                                    mode == LineMode.Think -> lastUserTurn
+                                    else -> ""
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = lineY - 15.dp),
+                            )
+
+                            // The user, below it.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = lineY + 22.dp)
+                                    .padding(horizontal = Spacing.xl),
+                            ) {
+                                UserZone(state, userCaption, lastUserTurn, room = area - lineY - 22.dp)
+                            }
                         }
                     }
                 }
-                .semantics { if (speaking) contentDescription = "Tap to interrupt" },
-        ) {
-            val area = maxHeight
-            val lineY by animateDpAsState(area * (if (plan != null) 0.56f else 0.5f), tween(420), label = "line-y")
+            }
 
-            Canvas(Modifier.fillMaxSize()) {
-                drawHorizon(
-                    hy = lineY.toPx(),
-                    t = time,
-                    weights = LineWeights(listenW, thinkW, speakW, restW),
-                    inLevel = inLevel,
-                    outLevel = outLevel,
-                    grow = grow.value,
-                    flash = flash.value,
-                    colors = colors,
-                )
-                tapAt?.let { at ->
-                    val p = tapRing.value
-                    if (p < 1f) {
-                        drawCircle(
-                            color = colors.flash.copy(alpha = 0.35f * (1f - p)),
-                            radius = (12.dp + 60.dp * p).toPx(),
-                            center = at,
-                            style = Stroke(width = 1.5.dp.toPx()),
-                        )
-                    }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = if (compact) Spacing.xs else Spacing.base),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                AnimatedVisibility(
+                    visible = speaking && userTurns <= 1 && !typing && !compact,
+                    enter = fadeIn(tween(200)),
+                    exit = fadeOut(tween(160)),
+                ) {
+                    Text(
+                        "TAP ANYWHERE TO CUT IN",
+                        style = MonoLabel,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = Spacing.s),
+                    )
                 }
-            }
-
-            // The agent, above the line.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    // Clear of the line even at the top of its swing while the agent talks.
-                    .height((lineY - 44.dp).coerceAtLeast(0.dp))
-                    .padding(horizontal = Spacing.xl),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                AgentZone(state, activity, agentCaption)
-            }
-
-            // What was heard, riding the line.
-            HeardChipRow(
-                text = when {
-                    userCaption.isNotBlank() -> userCaption
-                    mode == LineMode.Think -> lastUserTurn
-                    else -> ""
-                },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = lineY - 15.dp),
-            )
-
-            // The user, below it.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .offset(y = lineY + 22.dp)
-                    .padding(horizontal = Spacing.xl),
-            ) {
-                UserZone(state, userCaption, lastUserTurn)
-            }
-        }
-
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-                .padding(bottom = Spacing.base),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AnimatedVisibility(
-                visible = speaking && userTurns <= 1 && !typing,
-                enter = fadeIn(tween(200)),
-                exit = fadeOut(tween(160)),
-            ) {
-                Text(
-                    "TAP ANYWHERE TO CUT IN",
-                    style = MonoLabel,
-                    color = scheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = Spacing.s),
+                AnimatedVisibility(
+                    visible = typing,
+                    enter = fadeIn(tween(180)) + expandVertically(),
+                    exit = fadeOut(tween(120)) + shrinkVertically(),
+                ) {
+                    TypeRow(state, draft, onDraft = { draft = it }, actions = actions)
+                }
+                CallControls(
+                    state = state,
+                    speaking = speaking,
+                    inLevel = inLevel,
+                    typing = typing,
+                    compact = compact,
+                    onToggleTyping = { typing = !typing },
+                    actions = actions,
                 )
             }
-            AnimatedVisibility(
-                visible = typing,
-                enter = fadeIn(tween(180)) + expandVertically(),
-                exit = fadeOut(tween(120)) + shrinkVertically(),
-            ) {
-                TypeRow(state, draft, onDraft = { draft = it }, actions = actions)
-            }
-            CallControls(
-                state = state,
-                speaking = speaking,
-                inLevel = inLevel,
-                typing = typing,
-                onToggleTyping = { typing = !typing },
-                actions = actions,
-            )
         }
     }
 }
@@ -512,12 +532,13 @@ private fun CallHeader(state: VoiceModeUiState, activity: VoiceAgentActivity, on
 
 /** The agent's words, newest last; older lines fall away above. */
 @Composable
-private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, caption: String) {
+private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, caption: String, room: Dp) {
     val scheme = MaterialTheme.colorScheme
     val name = (state.voiceName?.takeIf { it.isNotBlank() } ?: "Echo").uppercase()
     val thinking = state.phase == VoiceModePhase.Live && activity == VoiceAgentActivity.Thinking
+    val fit = fitLines(room, lineHeight = 31.dp, max = 5)
     Column(Modifier.fillMaxWidth().animateContentSize(tween(220))) {
-        if (caption.isNotBlank() || thinking) {
+        if ((caption.isNotBlank() || thinking) && fit.label) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(name, style = MonoLabel, color = scheme.tertiary)
                 if (thinking) {
@@ -527,13 +548,13 @@ private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, cap
             }
             Spacer(Modifier.height(Spacing.s))
         }
-        if (caption.isNotBlank()) {
+        if (caption.isNotBlank() && fit.lines > 0) {
             Text(
                 tail(caption, 240),
                 style = MaterialTheme.typography.headlineSmall.copy(fontSize = 24.sp, lineHeight = 31.sp),
                 fontWeight = FontWeight.Medium,
                 color = scheme.onSurface,
-                maxLines = 5,
+                maxLines = fit.lines,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
@@ -541,10 +562,26 @@ private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, cap
     }
 }
 
+/** How many caption lines fit in [room], and whether the small name label above them fits too. */
+private data class LineFit(val label: Boolean, val lines: Int)
+
+private fun fitLines(room: Dp, lineHeight: Dp, max: Int): LineFit {
+    val label = 24.dp // the mono label and the gap under it
+    val withLabel = ((room - label) / lineHeight).toInt()
+    return if (withLabel >= 1) {
+        LineFit(label = true, lines = withLabel.coerceAtMost(max))
+    } else {
+        // Too tight for the label: show the words alone, if even one line fits.
+        LineFit(label = false, lines = (room / lineHeight).toInt().coerceIn(0, max))
+    }
+}
+
 /** What the user is saying now (bright), or what they said last (quiet). */
 @Composable
-private fun UserZone(state: VoiceModeUiState, live: String, last: String) {
+private fun UserZone(state: VoiceModeUiState, live: String, last: String, room: Dp) {
     val scheme = MaterialTheme.colorScheme
+    val fit = fitLines(room, lineHeight = 28.dp, max = 3)
+    if (fit.lines == 0) return
     val text = live.ifBlank { last }
     val hint = when {
         text.isNotBlank() -> null
@@ -557,13 +594,15 @@ private fun UserZone(state: VoiceModeUiState, live: String, last: String) {
         label = "you-color",
     )
     Column(Modifier.fillMaxWidth()) {
-        Text("YOU", style = MonoLabel, color = scheme.primary)
-        Spacer(Modifier.height(Spacing.s))
+        if (fit.label) {
+            Text("YOU", style = MonoLabel, color = scheme.primary)
+            Spacer(Modifier.height(Spacing.s))
+        }
         Text(
             if (hint != null) hint else tail(text, 160),
             style = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 28.sp, fontWeight = FontWeight.Normal),
             color = if (hint != null) scheme.onSurfaceVariant else color,
-            maxLines = 3,
+            maxLines = fit.lines,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -765,11 +804,15 @@ private fun CallControls(
     speaking: Boolean,
     inLevel: Float,
     typing: Boolean,
+    compact: Boolean,
     onToggleTyping: () -> Unit,
     actions: VoiceStageActions,
 ) {
     val scheme = MaterialTheme.colorScheme
     val ended = state.phase == VoiceModePhase.Saving
+    // Smaller on short screens, but never below a comfortable 48dp touch target.
+    val side = if (compact) 48.dp else 56.dp
+    val main = if (compact) 64.dp else 80.dp
     Row(
         Modifier
             .fillMaxWidth()
@@ -781,17 +824,17 @@ private fun CallControls(
             checked = typing,
             onCheckedChange = { onToggleTyping() },
             enabled = !ended,
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier.size(side),
         ) {
             Icon(Icons.Default.Keyboard, contentDescription = if (typing) "Hide keyboard" else "Type instead")
         }
 
         val micOn = !state.micMuted && state.micAvailable
         val ring by animateFloatAsState(if (micOn && !speaking) inLevel else 0f, tween(90), label = "mic-ring")
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(104.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(main + 24.dp)) {
             Box(
                 Modifier
-                    .size(84.dp)
+                    .size(main + 4.dp)
                     .scale(1f + 0.22f * ring)
                     .border(1.5.dp, scheme.primary.copy(alpha = if (micOn && !speaking) 0.35f + 0.5f * ring else 0f), CircleShape),
             )
@@ -808,9 +851,9 @@ private fun CallControls(
             FilledIconButton(
                 onClick = { if (speaking) actions.onCutIn() else actions.onToggleMic() },
                 enabled = !ended && (speaking || state.micAvailable),
-                shape = RoundedCornerShape(if (speaking) 28.dp else 40.dp),
+                shape = RoundedCornerShape(if (speaking) main * 0.35f else main / 2),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content),
-                modifier = Modifier.size(80.dp).testTag("voice-main-button"),
+                modifier = Modifier.size(main).testTag("voice-main-button"),
             ) {
                 AnimatedContent(
                     targetState = when {
@@ -837,7 +880,7 @@ private fun CallControls(
                 containerColor = scheme.errorContainer,
                 contentColor = scheme.onErrorContainer,
             ),
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier.size(side),
         ) {
             Icon(Icons.Default.CallEnd, contentDescription = "End call")
         }
@@ -972,6 +1015,12 @@ private fun PocketMode(enabled: Boolean) {
     }
 }
 
+/** Below this height (a landscape phone, or the keyboard open) the call controls shrink. */
+private val COMPACT_HEIGHT = 560.dp
+
+/** The live card needs at least this much room to be worth showing. */
+private val MIN_CARD = 72.dp
+
 private const val POCKET_LOCK_MAX_MS = 60 * 60 * 1000L
 
 // ── The line ─────────────────────────────────────────────────────────────────────────────
@@ -1099,8 +1148,12 @@ private fun DrawScope.bloom(hy: Float, above: Boolean, color: Color, alpha: Floa
     val r = w * 0.78f
     val top = if (above) 0f else hy
     val bottom = if (above) hy else size.height
+    // Squash the glow to fit the room on its side of the line, so it fades out before the
+    // edge instead of being cut off in a hard band (landscape, or the keyboard open).
+    val squash = minOf(0.62f, (bottom - top) / r)
+    if (squash <= 0f) return
     clipRect(top = top, bottom = bottom) {
-        scale(scaleX = 1f, scaleY = 0.62f, pivot = Offset(w / 2f, hy)) {
+        scale(scaleX = 1f, scaleY = squash, pivot = Offset(w / 2f, hy)) {
             drawCircle(
                 brush = Brush.radialGradient(
                     0f to color.copy(alpha = alpha),
