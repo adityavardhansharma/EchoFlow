@@ -28,8 +28,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -50,11 +48,13 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -81,7 +81,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -91,12 +93,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -104,9 +109,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -119,8 +127,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.echoflow.data.voice.HeardChips
 import com.echoflow.data.voice.VoiceAgentActivity
@@ -303,161 +311,192 @@ private fun CallScreen(
         think = scheme.secondary,
         rest = scheme.outline,
         flash = scheme.onSurface,
+        // Glows read much stronger on a light background, so they're toned down there.
+        glow = if (scheme.surface.luminance() < 0.5f) 1f else 0.55f,
     )
+    val weights = LineWeights(listenW, thinkW, speakW, restW)
+
+    // Where the line sits on screen, so the bottom glow can reach up to it.
+    var glowTop by remember { mutableFloatStateOf(0f) }
+    var lineAreaTop by remember { mutableFloatStateOf(0f) }
+    var lineAt by remember { mutableFloatStateOf(Float.NaN) } // within the line's area
 
     // The keyboard and system bars come off the whole screen, so [compact] sees the room that's
     // really left. The controls are measured first and keep their size; the header, card and
     // line share whatever remains, so the controls stay usable on short screens and with the
     // keyboard open.
-    BoxWithConstraints(
+    Box(
         Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.ime).union(WindowInsets.navigationBars)),
+            .onGloballyPositioned { glowTop = it.positionInRoot().y },
     ) {
-        val compact = maxHeight < COMPACT_HEIGHT
-        Column(Modifier.fillMaxSize()) {
-            Column(Modifier.weight(1f).fillMaxWidth()) {
-                CallHeader(state, activity, onToggleSpeaker = actions.onToggleSpeaker)
+        // Light rising from the bottom, behind the controls and under the system bars. It takes the
+        // line's colour and reaches up to touch the line while the user talks.
+        Canvas(Modifier.fillMaxSize().blur(26.dp)) {
+            val hy = if (lineAt.isNaN()) size.height * 0.5f else lineAreaTop + lineAt - glowTop
+            drawRisingGlow(
+                hy = hy,
+                t = time,
+                weights = weights,
+                inLevel = inLevel,
+                outLevel = outLevel,
+                flash = flash.value,
+                colors = colors,
+            )
+        }
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.ime).union(WindowInsets.navigationBars)),
+        ) {
+            val compact = maxHeight < COMPACT_HEIGHT
+            Column(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxWidth()) {
+                    CallHeader(state, activity, onToggleSpeaker = actions.onToggleSpeaker)
 
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                    // The card takes at most 40% of what's left; with too little room it steps
-                    // aside and comes back when the keyboard closes.
-                    val cardRoom = minOf(220.dp, maxHeight * 0.4f)
-                    val cardShown = plan != null && cardRoom >= MIN_CARD
-                    Column(Modifier.fillMaxSize()) {
-                        AnimatedVisibility(
-                            visible = cardShown,
-                            enter = fadeIn(tween(260)) + expandVertically(tween(320)),
-                            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
-                        ) {
-                            if (plan != null) {
-                                // Bounded and scrollable, so a long card never squeezes out the line or the controls.
-                                PlanCard(
-                                    plan = plan,
-                                    tag = "Live",
-                                    scrollable = true,
-                                    modifier = Modifier
-                                        .padding(horizontal = Spacing.base, vertical = Spacing.s)
-                                        .heightIn(max = cardRoom),
-                                )
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                        // The card takes at most 40% of what's left; with too little room it steps
+                        // aside and comes back when the keyboard closes.
+                        val cardRoom = minOf(220.dp, maxHeight * 0.4f)
+                        val cardShown = plan != null && cardRoom >= MIN_CARD
+                        Column(Modifier.fillMaxSize()) {
+                            AnimatedVisibility(
+                                visible = cardShown,
+                                enter = fadeIn(tween(260)) + expandVertically(tween(320)),
+                                exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+                            ) {
+                                if (plan != null) {
+                                    // Bounded and scrollable, so a long card never squeezes out the line or the controls.
+                                    PlanCard(
+                                        plan = plan,
+                                        tag = "Live",
+                                        scrollable = true,
+                                        modifier = Modifier
+                                            .padding(horizontal = Spacing.base, vertical = Spacing.s)
+                                            .heightIn(max = cardRoom),
+                                    )
+                                }
                             }
-                        }
 
-                        BoxWithConstraints(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                // Captions stay inside the line's area and never spill onto the controls.
-                                .clipToBounds()
-                                .pointerInput(speaking) {
-                                    detectTapGestures { at ->
-                                        if (speaking) {
-                                            tapAt = at
-                                            actions.onCutIn()
+                            BoxWithConstraints(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    // Captions stay inside the line's area and never spill onto the controls.
+                                    .clipToBounds()
+                                    .onGloballyPositioned { lineAreaTop = it.positionInRoot().y }
+                                    .pointerInput(speaking) {
+                                        detectTapGestures { at ->
+                                            if (speaking) {
+                                                tapAt = at
+                                                actions.onCutIn()
+                                            }
+                                        }
+                                    }
+                                    .semantics { if (speaking) contentDescription = "Tap to interrupt" },
+                            ) {
+                                val area = maxHeight
+                                val lineY by animateDpAsState(area * (if (cardShown) 0.56f else 0.5f), tween(420), label = "line-y")
+                                val lineYPx = with(LocalDensity.current) { lineY.toPx() }
+                                SideEffect { lineAt = lineYPx }
+
+                                Canvas(Modifier.fillMaxSize()) {
+                                    drawHorizon(
+                                        hy = lineY.toPx(),
+                                        t = time,
+                                        weights = weights,
+                                        inLevel = inLevel,
+                                        outLevel = outLevel,
+                                        grow = grow.value,
+                                        flash = flash.value,
+                                        colors = colors,
+                                    )
+                                    tapAt?.let { at ->
+                                        val p = tapRing.value
+                                        if (p < 1f) {
+                                            drawCircle(
+                                                color = colors.flash.copy(alpha = 0.35f * (1f - p)),
+                                                radius = (12.dp + 60.dp * p).toPx(),
+                                                center = at,
+                                                style = Stroke(width = 1.5.dp.toPx()),
+                                            )
                                         }
                                     }
                                 }
-                                .semantics { if (speaking) contentDescription = "Tap to interrupt" },
-                        ) {
-                            val area = maxHeight
-                            val lineY by animateDpAsState(area * (if (cardShown) 0.56f else 0.5f), tween(420), label = "line-y")
 
-                            Canvas(Modifier.fillMaxSize()) {
-                                drawHorizon(
-                                    hy = lineY.toPx(),
-                                    t = time,
-                                    weights = LineWeights(listenW, thinkW, speakW, restW),
-                                    inLevel = inLevel,
-                                    outLevel = outLevel,
-                                    grow = grow.value,
-                                    flash = flash.value,
-                                    colors = colors,
-                                )
-                                tapAt?.let { at ->
-                                    val p = tapRing.value
-                                    if (p < 1f) {
-                                        drawCircle(
-                                            color = colors.flash.copy(alpha = 0.35f * (1f - p)),
-                                            radius = (12.dp + 60.dp * p).toPx(),
-                                            center = at,
-                                            style = Stroke(width = 1.5.dp.toPx()),
-                                        )
-                                    }
+                                // The agent, above the line.
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        // Clear of the line even at the top of its swing while the agent talks.
+                                        .height((lineY - 44.dp).coerceAtLeast(0.dp))
+                                        .padding(horizontal = Spacing.xl),
+                                    contentAlignment = Alignment.BottomStart,
+                                ) {
+                                    AgentZone(state, activity, agentCaption, room = lineY - 44.dp)
                                 }
-                            }
 
-                            // The agent, above the line.
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    // Clear of the line even at the top of its swing while the agent talks.
-                                    .height((lineY - 44.dp).coerceAtLeast(0.dp))
-                                    .padding(horizontal = Spacing.xl),
-                                contentAlignment = Alignment.BottomStart,
-                            ) {
-                                AgentZone(state, activity, agentCaption, room = lineY - 44.dp)
-                            }
+                                // What was heard, riding the line.
+                                HeardChipRow(
+                                    text = when {
+                                        userCaption.isNotBlank() -> userCaption
+                                        mode == LineMode.Think -> lastUserTurn
+                                        else -> ""
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .offset(y = lineY - 15.dp),
+                                )
 
-                            // What was heard, riding the line.
-                            HeardChipRow(
-                                text = when {
-                                    userCaption.isNotBlank() -> userCaption
-                                    mode == LineMode.Think -> lastUserTurn
-                                    else -> ""
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .offset(y = lineY - 15.dp),
-                            )
-
-                            // The user, below it.
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = lineY + 22.dp)
-                                    .padding(horizontal = Spacing.xl),
-                            ) {
-                                UserZone(state, userCaption, lastUserTurn, room = area - lineY - 22.dp)
+                                // The user, below it.
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .offset(y = lineY + 22.dp)
+                                        .padding(horizontal = Spacing.xl),
+                                ) {
+                                    UserZone(state, userCaption, lastUserTurn, room = area - lineY - 22.dp)
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = if (compact) Spacing.xs else Spacing.base),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                AnimatedVisibility(
-                    visible = speaking && userTurns <= 1 && !typing && !compact,
-                    enter = fadeIn(tween(200)),
-                    exit = fadeOut(tween(160)),
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = if (compact) Spacing.xs else Spacing.base),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(
-                        "TAP ANYWHERE TO CUT IN",
-                        style = MonoLabel,
-                        color = scheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = Spacing.s),
+                    AnimatedVisibility(
+                        visible = speaking && userTurns <= 1 && !typing && !compact,
+                        enter = fadeIn(tween(200)),
+                        exit = fadeOut(tween(160)),
+                    ) {
+                        Text(
+                            "TAP ANYWHERE TO CUT IN",
+                            style = MonoLabel,
+                            color = scheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = Spacing.s),
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = typing,
+                        enter = fadeIn(tween(180)) + expandVertically(),
+                        exit = fadeOut(tween(120)) + shrinkVertically(),
+                    ) {
+                        TypeRow(state, draft, onDraft = { draft = it }, actions = actions)
+                    }
+                    CallControls(
+                        state = state,
+                        speaking = speaking,
+                        inLevel = inLevel,
+                        typing = typing,
+                        compact = compact,
+                        onToggleTyping = { typing = !typing },
+                        actions = actions,
                     )
                 }
-                AnimatedVisibility(
-                    visible = typing,
-                    enter = fadeIn(tween(180)) + expandVertically(),
-                    exit = fadeOut(tween(120)) + shrinkVertically(),
-                ) {
-                    TypeRow(state, draft, onDraft = { draft = it }, actions = actions)
-                }
-                CallControls(
-                    state = state,
-                    speaking = speaking,
-                    inLevel = inLevel,
-                    typing = typing,
-                    compact = compact,
-                    onToggleTyping = { typing = !typing },
-                    actions = actions,
-                )
             }
         }
     }
@@ -851,13 +890,22 @@ private fun CallControls(
                     .scale(1f + 0.22f * ring)
                     .border(1.5.dp, scheme.primary.copy(alpha = if (micOn && !speaking) 0.35f + 0.5f * ring else 0f), CircleShape),
             )
+            // The button takes the line's colour: the user's while listening, the agent's while it talks.
             val container by animateColorAsState(
-                if (speaking || micOn) scheme.inverseSurface else scheme.surfaceContainerHighest,
+                when {
+                    speaking -> scheme.tertiary
+                    micOn -> scheme.primary
+                    else -> scheme.surfaceContainerHighest
+                },
                 tween(200),
                 label = "mic-container",
             )
             val content by animateColorAsState(
-                if (speaking || micOn) scheme.inverseOnSurface else scheme.onSurfaceVariant,
+                when {
+                    speaking -> scheme.onTertiary
+                    micOn -> scheme.onPrimary
+                    else -> scheme.onSurfaceVariant
+                },
                 tween(200),
                 label = "mic-content",
             )
@@ -1040,7 +1088,15 @@ private const val POCKET_LOCK_MAX_MS = 60 * 60 * 1000L
 
 internal data class LineWeights(val listen: Float, val think: Float, val speak: Float, val rest: Float)
 
-internal data class LineColors(val listen: Color, val speak: Color, val think: Color, val rest: Color, val flash: Color)
+internal data class LineColors(
+    val listen: Color,
+    val speak: Color,
+    val think: Color,
+    val rest: Color,
+    val flash: Color,
+    /** How strong glows are: 1 on dark backgrounds, less on light ones. */
+    val glow: Float = 1f,
+)
 
 private data class Strand(val alpha: Float, val width: Dp, val freq: Float, val speed: Float, val phase: Float)
 
@@ -1070,8 +1126,8 @@ internal fun DrawScope.drawHorizon(
     val unit = density
     val color = blend(colors, weights)
 
-    bloom(hy, above = true, color = colors.speak, alpha = weights.speak * (0.05f + 0.32f * outLevel))
-    bloom(hy, above = false, color = colors.listen, alpha = weights.listen * (0.05f + 0.32f * inLevel))
+    bloom(hy, above = true, color = colors.speak, alpha = weights.speak * (0.05f + 0.32f * outLevel) * colors.glow)
+    bloom(hy, above = false, color = colors.listen, alpha = weights.listen * (0.05f + 0.32f * inLevel) * colors.glow)
 
     val half = w / 2f * grow
     if (half <= 1f) return
@@ -1157,30 +1213,97 @@ internal fun DrawScope.drawHorizon(
 /** A soft wash of [color] on one side of the line, strongest at the centre. */
 private fun DrawScope.bloom(hy: Float, above: Boolean, color: Color, alpha: Float) {
     if (alpha <= 0.005f) return
+    // A soft pool of light on one side of the line. It isn't clipped at the line: it sits a
+    // little to its side and fades out in every direction, so there's never a hard edge.
     val w = size.width
-    val r = w * 0.78f
-    val top = if (above) 0f else hy
-    val bottom = if (above) hy else size.height
-    // Squash the glow to fit the room on its side of the line, so it fades out before the
-    // edge instead of being cut off in a hard band (landscape, or the keyboard open).
-    val squash = minOf(0.62f, (bottom - top) / r)
+    val r = w * 0.62f
+    val room = if (above) hy else size.height - hy
+    val squash = minOf(0.5f, room / r * 0.8f)
     if (squash <= 0f) return
-    clipRect(top = top, bottom = bottom) {
-        scale(scaleX = 1f, scaleY = squash, pivot = Offset(w / 2f, hy)) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0f to color.copy(alpha = alpha),
-                    0.55f to color.copy(alpha = alpha * 0.35f),
-                    1f to color.copy(alpha = 0f),
-                    center = Offset(w / 2f, hy),
-                    radius = r,
-                ),
+    val centre = Offset(w / 2f, hy + (if (above) -1f else 1f) * r * squash * 0.38f)
+    scale(scaleX = 1f, scaleY = squash, pivot = centre) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to color.copy(alpha = alpha),
+                0.45f to color.copy(alpha = alpha * 0.42f),
+                0.8f to color.copy(alpha = alpha * 0.08f),
+                1f to color.copy(alpha = 0f),
+                center = centre,
                 radius = r,
-                center = Offset(w / 2f, hy),
-            )
-        }
+            ),
+            radius = r,
+            center = centre,
+        )
     }
 }
+
+/**
+ * Light rising from the bottom of the screen: soft beams that take the line's colour. While the
+ * user talks they stretch with their voice and the middle ones reach up to the line; while the
+ * agent talks they sink, and the glow above the line carries its voice. Drawn under a blur.
+ */
+internal fun DrawScope.drawRisingGlow(
+    hy: Float,
+    t: Float,
+    weights: LineWeights,
+    inLevel: Float,
+    outLevel: Float,
+    flash: Float,
+    colors: LineColors,
+) {
+    val w = size.width
+    val h = size.height
+    val room = h - hy
+    if (room <= 0f) return
+    val color = blend(colors, weights)
+    val tints = listOf(
+        color,
+        lerp(color, colors.speak, 0.35f),
+        lerp(color, colors.think, 0.3f),
+        lerp(color, colors.listen, 0.4f),
+    )
+    val breath = 0.5f + 0.5f * sin(t * 1.6f)
+    val level = (weights.listen * inLevel + weights.speak * outLevel * 0.45f +
+        weights.think * (0.12f + 0.12f * breath) + flash * 0.7f).coerceIn(0f, 1f)
+    val sink = 1f - 0.42f * weights.speak - 0.25f * weights.rest
+    val strength = if (colors.glow < 1f) 0.7f else 1f
+    val count = GLOW_BEAMS.size
+    val slot = w / count
+    val beamWidth = slot * 0.86f
+    val mid = (count - 1) / 2f
+    for (i in 0 until count) {
+        val bias = 1f - abs(i - mid) / mid
+        val beat = 0.5f + 0.5f * sin(t * (1f + i * 0.17f) + i * 1.9f)
+        val reach = ((GLOW_BEAMS[i] * (0.6f + 0.4f * bias) + weights.listen * inLevel * (0.35f + 0.45f * bias) +
+            flash * 0.35f * bias + beat * 0.06f) * sink).coerceIn(0.08f, 1.02f)
+        val height = room * reach
+        val top = h - height
+        val tint = tints[i % tints.size]
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                0f to tint.copy(alpha = 0f),
+                0.5f to tint.copy(alpha = (0.12f + 0.16f * level) * strength),
+                1f to tint.copy(alpha = (0.30f + 0.28f * level) * strength),
+                startY = top,
+                endY = h,
+            ),
+            topLeft = Offset(i * slot + (slot - beamWidth) / 2f, top),
+            size = Size(beamWidth, height),
+            cornerRadius = CornerRadius(beamWidth / 2f),
+        )
+    }
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.Transparent,
+            1f to color.copy(alpha = (0.18f + 0.18f * level) * strength),
+            startY = h * 0.66f,
+            endY = h,
+        ),
+    )
+}
+
+/** Resting height of each beam, as a share of the room between the line and the bottom. */
+private val GLOW_BEAMS = floatArrayOf(0.30f, 0.46f, 0.38f, 0.62f, 0.54f, 0.74f, 0.58f, 0.66f, 0.42f, 0.52f, 0.34f)
 
 /** A horizontal brush that is [color] at [alpha] across the middle and fades out at both ends. */
 private fun fadeEnds(color: Color, alpha: Float, x0: Float, x1: Float): Brush = Brush.horizontalGradient(

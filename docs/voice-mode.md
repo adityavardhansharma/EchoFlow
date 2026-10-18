@@ -18,15 +18,19 @@ ElevenLabs key.
   carries a moving bead while the agent thinks, and flashes outward when the user's turn lands.
   The agent's words sit above the line, the user's below. A header shows the voice's name, the
   call time and a sound toggle, with a quiet note for Connecting, Mic off and the idle countdown.
+- **Glow.** A soft pool of light sits on the speaker's side of the line, and blurred beams rise
+  from the bottom of the screen in the line's colour. While the user talks the beams stretch up to
+  touch the line; while the agent talks they sink. Glows are toned down in light themes.
 - **Heard chips.** Key details in what the user is saying (amounts, dates, names) rise onto the
   line as chips while they talk. `HeardChips` picks them from the live transcript on the device.
 - **Live card.** When an answer has a shape (a plan, steps, options), the agent calls the
   `show_card` client tool and a card builds at the top of the screen. When the user changes
   something, the agent sends the whole card again and changed lines are marked.
 - **Controls.** Keyboard (opens a "Type to talk…" field; typing asks the agent to hold off), one
-  big button (mic on/off; Stop while the agent talks), and End. While the agent talks, a tap
-  anywhere also stops it and drops the rest of that reply. If the mic permission is refused, the
-  session runs typing-only and the agent still answers out loud.
+  big button in the line's colour (mic on/off in primary; Stop in tertiary while the agent talks),
+  and End. While the agent talks, a tap anywhere also stops it and drops the rest of that reply.
+  If the mic permission is refused, the session runs typing-only and the agent still answers out
+  loud.
 - **At the ear.** Holding the phone to the ear turns the screen off (proximity wake lock) and moves
   the sound to the earpiece, unless a headset is connected.
 - **Ending.** End, Back, the notification's End action, or 5 minutes of quiet (with a 30 s
