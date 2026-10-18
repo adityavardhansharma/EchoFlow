@@ -324,6 +324,11 @@ internal fun ChatSurface(
     }
     // Back ends the call first (saving it into the chat) instead of leaving the screen mid-call.
     androidx.activity.compose.BackHandler(enabled = voiceModeState.active) { chatViewModel.endVoiceMode() }
+    // While the waveform button is on offer, a call is got ready in the background, so tapping it
+    // starts talking at once instead of waiting on setup.
+    LaunchedEffect(voiceModeAvailable, voiceModeState.active) {
+        if (voiceModeAvailable && !voiceModeState.active) chatViewModel.prewarmVoiceMode()
+    }
     LaunchedEffect(voice.error) {
         voice.error?.let {
             Toast.makeText(sttContext, it, Toast.LENGTH_SHORT).show()
@@ -536,6 +541,9 @@ internal fun ChatSurface(
             val voiceOutputLevel by chatViewModel.voiceOutputLevel.collectAsState()
             val voiceUserCaption by chatViewModel.voiceUserCaption.collectAsState()
             val voiceAgentCaption by chatViewModel.voiceAgentCaption.collectAsState()
+            val voiceLastUserTurn by chatViewModel.voiceLastUserTurn.collectAsState()
+            val voiceUserTurns by chatViewModel.voiceUserTurns.collectAsState()
+            val voicePlan by chatViewModel.voicePlan.collectAsState()
             com.echoflow.ui.screens.voice.VoiceModeStage(
                 state = voiceModeState,
                 activity = voiceActivity,
@@ -543,8 +551,22 @@ internal fun ChatSurface(
                 outputLevel = voiceOutputLevel,
                 userCaption = voiceUserCaption,
                 agentCaption = voiceAgentCaption,
-                topInset = topBarInset,
-                bottomInset = messageBottomInset,
+                lastUserTurn = voiceLastUserTurn,
+                userTurns = voiceUserTurns,
+                plan = voicePlan,
+                actions = com.echoflow.ui.screens.voice.VoiceStageActions(
+                    onToggleMic = chatViewModel::toggleVoiceMic,
+                    onToggleSpeaker = chatViewModel::toggleVoiceSpeaker,
+                    onSend = chatViewModel::sendVoiceText,
+                    onTyping = chatViewModel::voiceTyping,
+                    onEnd = chatViewModel::endVoiceMode,
+                    onCutIn = chatViewModel::cutInVoice,
+                    onOpenChat = chatViewModel::dismissVoiceRecap,
+                    onKeepTalking = {
+                        chatViewModel.dismissVoiceRecap()
+                        startVoiceMode()
+                    },
+                ),
             )
         } else if (messages.isEmpty() && !isStreaming && !progressLoading) {
             EmptyState(topInset = topBarInset, bottomInset = messageBottomInset)
@@ -594,8 +616,9 @@ internal fun ChatSurface(
 
 
         // Floating composer stack (optional edit banner + input). Measure the whole stack so
-        // the message list clears both the banner and the toolbar.
-        Column(
+        // the message list clears both the banner and the toolbar. Voice mode brings its own
+        // controls, so the stack steps aside while a call is open.
+        if (!voiceModeState.active) Column(
             Modifier
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { inputHeightPx = it.height },
@@ -652,16 +675,7 @@ internal fun ChatSurface(
                     }
                 }
             }
-        if (voiceModeState.active) {
-            com.echoflow.ui.screens.voice.VoiceModeComposer(
-                state = voiceModeState,
-                onToggleMic = chatViewModel::toggleVoiceMic,
-                onToggleSpeaker = chatViewModel::toggleVoiceSpeaker,
-                onSend = chatViewModel::sendVoiceText,
-                onTyping = chatViewModel::voiceTyping,
-                onEnd = chatViewModel::endVoiceMode,
-            )
-        } else InputToolbar(
+        InputToolbar(
             modifier = Modifier,
             text = textInput,
             onText = { textInput = it },

@@ -37,11 +37,26 @@ internal object VoiceAgentSpec {
         "vad_score",
     )
 
+    /** Asked for only when the agent carries the card tool, since that's the event that runs it. */
+    const val TOOL_EVENT = "client_tool_call"
+
     const val GREETING = "Hey! What's on your mind?"
 
-    /** The full agent definition, for create and update alike. */
-    fun agentBody(config: VoiceModeConfig, ttsModelId: String = config.effectiveStyle.modelId): Map<String, Any?> {
+    /**
+     * The full agent definition, for create and update alike. [withTools] adds the card tool; an
+     * account that rejects it still gets a working agent without it.
+     */
+    fun agentBody(
+        config: VoiceModeConfig,
+        ttsModelId: String = config.effectiveStyle.modelId,
+        withTools: Boolean = true,
+    ): Map<String, Any?> {
         val style = config.effectiveStyle
+        val prompt = linkedMapOf<String, Any?>(
+            "prompt" to basePrompt(),
+            "llm" to config.llm,
+        )
+        if (withTools) prompt["tools"] = listOf(VoicePlanTool.definition())
         return linkedMapOf(
             "name" to AGENT_NAME,
             "tags" to listOf("echoflow"),
@@ -49,10 +64,7 @@ internal object VoiceAgentSpec {
                 "agent" to linkedMapOf(
                     "first_message" to "",
                     "language" to config.language,
-                    "prompt" to linkedMapOf(
-                        "prompt" to basePrompt(),
-                        "llm" to config.llm,
-                    ),
+                    "prompt" to prompt,
                 ),
                 "tts" to linkedMapOf(
                     "model_id" to ttsModelId,
@@ -62,7 +74,7 @@ internal object VoiceAgentSpec {
                 "asr" to linkedMapOf("user_input_audio_format" to INPUT_AUDIO_FORMAT),
                 "conversation" to linkedMapOf(
                     "max_duration_seconds" to MAX_DURATION_SECONDS,
-                    "client_events" to CLIENT_EVENTS,
+                    "client_events" to if (withTools) CLIENT_EVENTS + TOOL_EVENT else CLIENT_EVENTS,
                 ),
             ),
             "platform_settings" to linkedMapOf(
@@ -94,6 +106,8 @@ internal object VoiceAgentSpec {
         history: List<ChatMessage>,
         projectContext: String = "",
         now: Date = Date(),
+        /** False when the user is already talking: a hello would talk over them. */
+        greet: Boolean = true,
     ): Map<String, Any?> = linkedMapOf(
         "type" to "conversation_initiation_client_data",
         "conversation_config_override" to linkedMapOf(
@@ -103,7 +117,7 @@ internal object VoiceAgentSpec {
                     "llm" to config.llm,
                 ),
                 // A new chat opens with a short hello; a continued one waits for the user.
-                "first_message" to if (spokenHistory(history).isEmpty()) GREETING else null,
+                "first_message" to if (greet && spokenHistory(history).isEmpty()) GREETING else null,
                 "language" to config.language,
             ),
             "tts" to config.voiceId?.let { linkedMapOf("voice_id" to it) },
@@ -126,7 +140,13 @@ internal object VoiceAgentSpec {
             "- The user may type some messages instead of speaking. Answer typed and spoken messages the same way.\n" +
             "- Reply in the language the user speaks. If they mix languages, such as Hindi and English, " +
             "reply in the same mix.\n" +
-            "- If you are interrupted, stop and listen; don't repeat what you already said unless asked."
+            "- If you are interrupted, stop and listen; don't repeat what you already said unless asked.\n\n" +
+            "The user's screen:\n" +
+            "- When an answer has a shape worth seeing, such as a plan, steps, a short list of options or a " +
+            "schedule, also call the show_card tool with a short title and one line per item, then keep talking " +
+            "as usual. Don't read the card out word for word and never mention the tool.\n" +
+            "- When the user changes something on the card, call show_card again with the whole updated card.\n" +
+            "- Small talk and one-line answers need no card."
 
     /**
      * [basePrompt] plus today's date, the project's instructions and documents when the chat is

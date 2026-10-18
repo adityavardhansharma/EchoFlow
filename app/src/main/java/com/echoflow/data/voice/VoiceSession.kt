@@ -63,7 +63,25 @@ internal class VoiceSession(
     private val _agentCaption = MutableStateFlow("")
     val agentCaption: StateFlow<String> = _agentCaption.asStateFlow()
 
+    /** The user's last finished turn, spoken or typed, kept on screen under the line. */
+    private val _lastUserTurn = MutableStateFlow("")
+    val lastUserTurn: StateFlow<String> = _lastUserTurn.asStateFlow()
+
+    /** Counts the user's finished turns, so the screen can pulse the moment one lands. */
+    private val _userTurns = MutableStateFlow(0)
+    val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
+
+    /** The card the agent is building, if it made one. */
+    private val _plan = MutableStateFlow<VoicePlan?>(null)
+    val plan: StateFlow<VoicePlan?> = _plan.asStateFlow()
+
+    /** True once the user spoke before the call connected, so the greeting is skipped. */
+    @Volatile var spokeEarly = false
+        private set
+
     private val routing = VoiceAudioRouting(context)
+    /** Held to the ear: the earpiece plays, as on a phone call (the screen goes dark separately). */
+    private val proximity = VoiceProximity(context) { atEar -> routing.holdToEar(atEar) }
     private var socket: WebSocket? = null
     private var microphone: VoiceMicrophone? = null
     private var player: VoicePlayer? = null
@@ -74,6 +92,14 @@ internal class VoiceSession(
     @Volatile private var lastTypedAt = 0L
     @Volatile private var lastActivitySentAt = 0L
     @Volatile private var micAllowed = true
+    @Volatile private var audioOpen = false
+    @Volatile private var connected = false
+    @Volatile private var micRate = 0
+    /** The user tapped to cut the agent off: the rest of that reply's audio is dropped. */
+    @Volatile private var droppingReply = false
+    @Volatile private var lastAudioEventAt = 0L
+    /** Mic audio recorded before the socket was ready, sent the moment it is. */
+    private val early = ArrayDeque<ByteArray>()
     private var streamedText = StringBuilder()
 
     var micMuted: Boolean = false
@@ -90,12 +116,61 @@ internal class VoiceSession(
         }
 
     /**
+     * Opens the call's audio the moment the user taps: call mode, and the mic when [micAllowed].
+     * What the user says before the socket is ready is held and sent as soon as it is, so they
+     * can start talking straight away. [micAllowed] false (no permission) runs a typing-only call.
+     */
+    fun openAudio(micAllowed: Boolean) {
+        this.micAllowed = micAllowed
+        var micFailed = false
+        synchronized(this) {
+            if (finished || audioOpen) return
+            audioOpen = true
+            routing.acquire()
+            proximity.start()
+            if (micAllowed && !openMic(EARLY_SAMPLE_RATE)) micFailed = true
+        }
+        if (micFailed) listener.onMicUnavailable()
+    }
+
+    /** Caller holds the lock. False when the mic couldn't be opened. */
+    private fun openMic(sampleRate: Int): Boolean {
+        val mic = VoiceMicrophone(
+            sampleRate = sampleRate,
+            onChunk = ::onMicChunk,
+            onLevel = { level ->
+                _inputLevel.value = level
+                if (!connected && level > EARLY_SPEECH_LEVEL) spokeEarly = true
+            },
+        )
+        mic.muted = micMuted
+        if (!mic.start()) {
+            Log.w(TAG, "Microphone unavailable; typing only")
+            return false
+        }
+        microphone = mic
+        micRate = sampleRate
+        return true
+    }
+
+    private fun onMicChunk(pcm: ByteArray) {
+        synchronized(early) {
+            if (!connected) {
+                early.addLast(pcm)
+                while (early.size > MAX_EARLY_CHUNKS) early.removeFirst()
+                return
+            }
+        }
+        socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
+    }
+
+    /**
      * Opens the socket on [signedUrl] and sends [initiation] first, as the protocol requires.
-     * [micAllowed] false (no permission) runs a typing-only session.
+     * Audio is opened here too if [openAudio] wasn't called first.
      */
     fun start(signedUrl: String, initiation: String, micAllowed: Boolean) {
-        this.micAllowed = micAllowed
-        routing.acquire()
+        openAudio(micAllowed)
+        if (finished) return
         socket = client.newWebSocket(
             Request.Builder().url(signedUrl).build(),
             object : WebSocketListener() {
@@ -145,32 +220,36 @@ internal class VoiceSession(
                     newPlayer.muted = speakerMuted
                     player = newPlayer
                     newPlayer.start()
-                    if (micAllowed) {
-                        val mic = VoiceMicrophone(
-                            sampleRate = event.inputSampleRate,
-                            onChunk = { pcm ->
-                                socket?.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
-                            },
-                            onLevel = { level -> _inputLevel.value = level },
-                        )
-                        mic.muted = micMuted
-                        microphone = mic
-                        if (!mic.start()) {
-                            microphone = null
-                            micFailed = true
-                            Log.w(TAG, "Microphone unavailable; typing only")
-                        }
+                    // The mic opened at the tap in the agent's usual format; a different one
+                    // means reopening it, and the early audio (in the wrong format) is dropped.
+                    if (micAllowed && microphone != null && micRate != event.inputSampleRate) {
+                        microphone?.stop()
+                        microphone = null
+                        synchronized(early) { early.clear() }
+                        if (!openMic(event.inputSampleRate)) micFailed = true
                     }
                 }
+                // Send what the user already said, then let the mic stream straight through.
+                val held = synchronized(early) {
+                    connected = true
+                    early.toList().also { early.clear() }
+                }
+                held.forEach { pcm -> webSocket.send(VoiceSessionProtocol.userAudio(Base64.encodeToString(pcm, Base64.NO_WRAP))) }
                 if (micFailed) listener.onMicUnavailable()
                 _activity.value = VoiceAgentActivity.Listening
                 listener.onConnected(event.conversationId)
             }
             is VoiceServerEvent.Audio -> {
-                player?.enqueue(event.pcm)
-                awaitingReply = false
-                _activity.value = VoiceAgentActivity.Speaking
-                listener.onActivity()
+                val now = System.currentTimeMillis()
+                // A pause in the stream after a cut-in means this is a new reply: play it.
+                if (droppingReply && now - lastAudioEventAt > NEW_REPLY_GAP_MS) droppingReply = false
+                lastAudioEventAt = now
+                if (!droppingReply) {
+                    player?.enqueue(event.pcm)
+                    awaitingReply = false
+                    _activity.value = VoiceAgentActivity.Speaking
+                    listener.onActivity()
+                }
             }
             is VoiceServerEvent.TentativeUserTranscript -> {
                 if (event.text.isNotEmpty()) {
@@ -186,15 +265,21 @@ internal class VoiceSession(
                 if (!echo) {
                     _agentCaption.value = ""
                     streamedText = StringBuilder()
+                    droppingReply = false
                     awaitingReply = true
                     _activity.value = VoiceAgentActivity.Thinking
+                    _lastUserTurn.value = event.text
+                    _userTurns.value += 1
                     listener.onUserTurn(event.text)
                 }
                 listener.onActivity()
             }
             is VoiceServerEvent.AgentTextPart -> {
                 when (event.kind) {
-                    "start" -> streamedText = StringBuilder(event.text)
+                    "start" -> {
+                        streamedText = StringBuilder(event.text)
+                        droppingReply = false
+                    }
                     else -> streamedText.append(event.text)
                 }
                 if (streamedText.isNotBlank()) _agentCaption.value = streamedText.toString().trim()
@@ -215,6 +300,16 @@ internal class VoiceSession(
             is VoiceServerEvent.Ping -> webSocket.send(VoiceSessionProtocol.pong(event.eventId))
             is VoiceServerEvent.Vad -> if (event.score > SPEECH_VAD) listener.onActivity()
             is VoiceServerEvent.Error -> Log.w(TAG, "Agent error: ${event.message}")
+            is VoiceServerEvent.ClientToolCall -> {
+                val reply = if (event.name == VoicePlanTool.NAME) {
+                    val card = VoicePlanTool.parse(event.parameters, _plan.value)
+                    if (card != null) _plan.value = card
+                    VoiceSessionProtocol.clientToolResult(event.callId, if (card != null) "Shown on the user's screen." else "The card was empty.", isError = card == null)
+                } else {
+                    VoiceSessionProtocol.clientToolResult(event.callId, "This app has no tool called ${event.name}.", isError = true)
+                }
+                webSocket.send(reply)
+            }
             VoiceServerEvent.Ignored -> Unit
         }
         // Speaking ends when the last audio has played out, not when the reply text arrives.
@@ -242,9 +337,27 @@ internal class VoiceSession(
         player?.interrupt()
         _agentCaption.value = ""
         streamedText = StringBuilder()
+        droppingReply = false
+        _lastUserTurn.value = clean
+        _userTurns.value += 1
         awaitingReply = true
         _activity.value = VoiceAgentActivity.Thinking
         return ws.send(VoiceSessionProtocol.userMessage(clean))
+    }
+
+    /**
+     * The user tapped to cut in: the agent stops at once and the rest of its reply is dropped,
+     * and it is asked to hold off while the user talks. False when the agent wasn't speaking.
+     */
+    fun cutIn(): Boolean {
+        if (finished || _activity.value != VoiceAgentActivity.Speaking) return false
+        droppingReply = true
+        lastAudioEventAt = System.currentTimeMillis()
+        player?.interrupt()
+        _activity.value = VoiceAgentActivity.Listening
+        socket?.send(VoiceSessionProtocol.userActivity())
+        listener.onActivity()
+        return true
     }
 
     /** The user is typing: ask the agent to hold off, at most about once a second. */
@@ -271,7 +384,9 @@ internal class VoiceSession(
             player?.stop()
             player = null
         }
-        routing.release()
+        synchronized(early) { early.clear() }
+        proximity.stop()
+        if (audioOpen) routing.release()
         _inputLevel.value = 0f
         _outputLevel.value = 0f
         socket = null
@@ -282,5 +397,11 @@ internal class VoiceSession(
         const val TAG = "VoiceSession"
         const val TYPED_ECHO_WINDOW_MS = 4_000L
         const val SPEECH_VAD = 0.6f
+        /** What the agent records in (VoiceAgentSpec.INPUT_AUDIO_FORMAT), so the mic can open before it says so. */
+        const val EARLY_SAMPLE_RATE = 16_000
+        /** About 20 s of 100 ms chunks: enough for a slow connection, bounded if it never comes. */
+        const val MAX_EARLY_CHUNKS = 200
+        const val EARLY_SPEECH_LEVEL = 0.45f
+        const val NEW_REPLY_GAP_MS = 1_500L
     }
 }

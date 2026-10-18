@@ -45,7 +45,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class VoiceModePhase { Off, Starting, Live, Saving }
+/**
+ * Starting: the call screen is up and the mic is already recording, while the socket connects.
+ * Live: connected. Saving: the call is over and is being written into the chat, behind the recap.
+ * Recap: saved; the recap stays until the user opens the chat or keeps talking.
+ */
+enum class VoiceModePhase { Off, Starting, Live, Saving, Recap }
+
+/** What a finished call leaves behind, shown on the recap. */
+data class VoiceRecap(
+    val durationSeconds: Long,
+    val turns: Int,
+    val plan: com.echoflow.data.voice.VoicePlan?,
+    val lastAgentTurn: String,
+)
 
 /** What the voice-mode screen shows. Live levels and captions are separate flows (they change fast). */
 data class VoiceModeUiState(
@@ -60,6 +73,10 @@ data class VoiceModeUiState(
     val voiceName: String? = null,
     /** Counts down the last [VoiceModeController.IDLE_WARNING_SECONDS] before an idle session ends. */
     val idleSecondsLeft: Int? = null,
+    /** When the socket connected (wall clock), for the call timer. Null until then. */
+    val connectedAt: Long? = null,
+    /** Set while [VoiceModePhase.Saving] and [VoiceModePhase.Recap]. */
+    val recap: VoiceRecap? = null,
 ) {
     val active: Boolean get() = phase != VoiceModePhase.Off
 }
@@ -136,6 +153,12 @@ class VoiceModeController(
         .stateIn(scope, SharingStarted.Eagerly, "")
     val agentCaption: StateFlow<String> = session.flatMapLatest { it?.agentCaption ?: flowOf("") }
         .stateIn(scope, SharingStarted.Eagerly, "")
+    val lastUserTurn: StateFlow<String> = session.flatMapLatest { it?.lastUserTurn ?: flowOf("") }
+        .stateIn(scope, SharingStarted.Eagerly, "")
+    val userTurns: StateFlow<Int> = session.flatMapLatest { it?.userTurns ?: flowOf(0) }
+        .stateIn(scope, SharingStarted.Eagerly, 0)
+    val plan: StateFlow<com.echoflow.data.voice.VoicePlan?> = session.flatMapLatest { it?.plan ?: flowOf(null) }
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
     /** Voice mode is offered only once the saved ElevenLabs key has authenticated. */
     val available: StateFlow<Boolean> = combine(
@@ -150,6 +173,9 @@ class VoiceModeController(
     private var log: SessionLog? = null
     private var startJob: Job? = null
     private var idleJob: Job? = null
+    private var prewarmJob: Job? = null
+    /** A signed URL fetched ahead of the tap, so starting a call needs no round trip. */
+    @Volatile private var prewarmed: Prewarmed? = null
     @Volatile private var lastActivityAt = 0L
 
     init {
@@ -186,6 +212,8 @@ class VoiceModeController(
      */
     fun start(chatId: String?, micAllowed: Boolean) {
         if (_state.value.active) return
+        prewarmJob?.cancel()
+        prewarmJob = null
         val providers = settingsRepository.customProviderConfig.value
         val key = if (providers.elevenLabsAvailable) providers.elevenLabsApiKey.trim() else ""
         if (key.isEmpty()) {
@@ -195,7 +223,7 @@ class VoiceModeController(
         val config = voiceSettings.config.value
         _state.value = VoiceModeUiState(
             phase = VoiceModePhase.Starting,
-            step = "Setting up your voice…",
+            step = "Connecting…",
             micMuted = !micAllowed,
             micAvailable = micAllowed,
             llmLabel = VoiceLlms.label(config.llm),
@@ -203,29 +231,29 @@ class VoiceModeController(
         )
         val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = config.llm)
         log = sessionLog
+        // The call is open from the tap: the mic records now and what the user says is sent the
+        // moment the socket is up, so nobody waits on "Connecting…" to start talking. Nothing
+        // is billed until the socket opens.
+        val live = VoiceSession(app, listenerFor(sessionLog))
+        live.micMuted = !micAllowed
+        session.value = live
+        VoiceModeService.endHandler = { scope.launch { end() } }
+        VoiceModeService.start(app)
+        live.openAudio(micAllowed)
         startJob = scope.launch {
             try {
-                val agentId = provisioner.ensureAgent(key, config).getOrThrow()
-                _state.update { it.copy(step = "Connecting…") }
-                val url = api.signedUrl(key, agentId).recoverCatching { error ->
-                    // The saved agent was deleted on ElevenLabs: make a new one and try once more.
-                    if (error !is ElevenLabsApiException || error.code != 404) throw error
-                    voiceSettings.forgetAgent()
-                    api.signedUrl(key, provisioner.ensureAgent(key, config).getOrThrow()).getOrThrow()
-                }.getOrThrow()
+                // A prewarm already in flight is about to have the URL: wait for it, not a new one.
+                prewarmJob?.join()
+                val url = takePrewarmed(key, config) ?: fetchSignedUrl(key, config)
                 val context = sink.prepare(chatId)
                 sessionLog.context = context
-                val initiation = VoiceApiJson.write(
-                    VoiceAgentSpec.initiation(config, context.history, context.projectContext),
-                )
                 if (!isActive || log !== sessionLog) return@launch
-                val live = VoiceSession(app, listenerFor(sessionLog))
+                val initiation = VoiceApiJson.write(
+                    VoiceAgentSpec.initiation(config, context.history, context.projectContext, greet = !live.spokeEarly),
+                )
                 // Whatever the user toggled while the call was connecting carries into it.
                 live.micMuted = _state.value.micMuted
                 live.speakerMuted = _state.value.speakerMuted
-                session.value = live
-                VoiceModeService.endHandler = { scope.launch { end() } }
-                VoiceModeService.start(app)
                 sessionLog.startedAt = System.currentTimeMillis()
                 lastActivityAt = sessionLog.startedAt
                 live.start(url, initiation, micAllowed)
@@ -235,18 +263,72 @@ class VoiceModeController(
                 android.util.Log.w(TAG, "Voice mode couldn't start", e)
                 if (e is ElevenLabsApiException && e.unauthorized) voiceSettings.markUnverified()
                 _notice.value = "Voice mode couldn't start: ${e.message ?: "unknown error"}"
-                reset()
+                abandon(sessionLog)
             }
         }
+    }
+
+    /** The agent (made or updated if the settings changed) and a fresh signed URL for it. */
+    private suspend fun fetchSignedUrl(key: String, config: com.echoflow.data.voice.VoiceModeConfig): String {
+        val agentId = provisioner.ensureAgent(key, config).getOrThrow()
+        return api.signedUrl(key, agentId).recoverCatching { error ->
+            // The saved agent was deleted on ElevenLabs: make a new one and try once more.
+            if (error !is ElevenLabsApiException || error.code != 404) throw error
+            voiceSettings.forgetAgent()
+            api.signedUrl(key, provisioner.ensureAgent(key, config).getOrThrow()).getOrThrow()
+        }.getOrThrow()
+    }
+
+    /**
+     * Gets a call ready before it's asked for: the agent is synced and a signed URL fetched while
+     * the waveform button is on screen, so the tap only has to open the socket. Free: nothing is
+     * billed until a socket opens. Safe to call often; a fresh URL is kept until it's used.
+     */
+    fun prewarm() {
+        if (_state.value.active || prewarmJob?.isActive == true || !available.value) return
+        val key = currentKey().takeIf { it.isNotEmpty() } ?: return
+        val config = voiceSettings.config.value
+        val fingerprint = prewarmFingerprint(key, config)
+        if (prewarmed?.let { it.fingerprint == fingerprint && it.fresh() } == true) return
+        prewarmJob = scope.launch {
+            val url = runCatching { fetchSignedUrl(key, config) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull() ?: return@launch
+            prewarmed = Prewarmed(fingerprint, url, System.currentTimeMillis())
+        }
+    }
+
+    /** The prewarmed URL when it was made for this key and these settings and is still fresh. Used once. */
+    private fun takePrewarmed(key: String, config: com.echoflow.data.voice.VoiceModeConfig): String? {
+        val ready = prewarmed ?: return null
+        prewarmed = null
+        return ready.url.takeIf { ready.fingerprint == prewarmFingerprint(key, config) && ready.fresh() }
+    }
+
+    private fun prewarmFingerprint(key: String, config: com.echoflow.data.voice.VoiceModeConfig) =
+        UsageKeys.hash(key) + ":" + VoiceAgentSpec.configHash(config)
+
+    /** A call that never connected: close its audio and the screen, with nothing to save. */
+    private fun abandon(sessionLog: SessionLog) {
+        sessionLog.finished = true
+        session.value?.end()
+        VoiceModeService.endHandler = null
+        VoiceModeService.stop(app)
+        if (log === sessionLog) reset()
     }
 
     /** Ends the session and saves it into the chat. Safe to call in any phase. */
     fun end(note: String? = null) {
         when (_state.value.phase) {
-            VoiceModePhase.Off, VoiceModePhase.Saving -> return
-            VoiceModePhase.Starting -> if (session.value == null) {
+            VoiceModePhase.Off -> return
+            VoiceModePhase.Saving, VoiceModePhase.Recap -> {
+                dismissRecap()
+                return
+            }
+            VoiceModePhase.Starting -> if (log?.conversationId == null) {
+                // Not connected yet: there is nothing to save, so just close.
                 startJob?.cancel()
-                reset()
+                log?.let(::abandon) ?: reset()
                 return
             }
             VoiceModePhase.Live -> Unit
@@ -270,6 +352,22 @@ class VoiceModeController(
         lastActivityAt = System.currentTimeMillis()
         log?.let { sessionLog -> writes.trySend { saveUserTurn(sessionLog, clean) } }
         return true
+    }
+
+    /** The user tapped the screen while the agent talked: stop it and hand them the turn. */
+    fun cutIn() {
+        if (_state.value.phase == VoiceModePhase.Live) session.value?.cutIn()
+    }
+
+    /**
+     * Leaves the recap for the chat, where the call now is. Allowed while it's still saving too:
+     * the writes carry on in the background and the chat fills in as they land.
+     */
+    fun dismissRecap() {
+        val phase = _state.value.phase
+        if (phase != VoiceModePhase.Recap && phase != VoiceModePhase.Saving) return
+        reset()
+        prewarm()
     }
 
     fun typing() {
@@ -307,7 +405,7 @@ class VoiceModeController(
             scope.launch {
                 sessionLog.conversationId = conversationId
                 if (_state.value.phase == VoiceModePhase.Starting) {
-                    _state.update { it.copy(phase = VoiceModePhase.Live, step = null) }
+                    _state.update { it.copy(phase = VoiceModePhase.Live, step = null, connectedAt = System.currentTimeMillis()) }
                 }
                 startIdleWatch()
             }
@@ -373,7 +471,16 @@ class VoiceModeController(
         VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
         if (error != null) _notice.value = error
-        _state.update { it.copy(phase = VoiceModePhase.Saving, step = "Saving your conversation…", idleSecondsLeft = null) }
+        val live = session.value
+        val recap = VoiceRecap(
+            durationSeconds = sessionLog.connectedSeconds(),
+            turns = sessionLog.saved.size,
+            plan = live?.plan?.value,
+            lastAgentTurn = sessionLog.saved.lastOrNull { !it.fromUser }?.message?.content.orEmpty(),
+        )
+        _state.update {
+            it.copy(phase = VoiceModePhase.Saving, step = "Saving your conversation…", idleSecondsLeft = null, recap = recap)
+        }
         // Runs after every turn already queued, so the reconcile sees the whole live record.
         val done = CompletableDeferred<Unit>()
         writes.trySend {
@@ -388,7 +495,22 @@ class VoiceModeController(
             }
         }
         withTimeoutOrNull(RECONCILE_TIMEOUT_MS + 2_000) { done.await() }
-        if (log === sessionLog) reset()
+        if (log !== sessionLog) return
+        // A call where nothing was said has nothing to recap: straight back to the chat.
+        if (sessionLog.turnCount() == 0) {
+            reset()
+            prewarm()
+            return
+        }
+        session.value = null
+        log = null
+        _state.update {
+            it.copy(
+                phase = VoiceModePhase.Recap,
+                step = null,
+                recap = it.recap?.copy(turns = sessionLog.turnCount()),
+            )
+        }
     }
 
     private fun reset() {
@@ -470,6 +592,7 @@ class VoiceModeController(
         }
         recordSpend(sessionLog, conversationId, record.durationSeconds, final = record)
         val server = record.turns
+        sessionLog.serverTurns = server.size
         if (server.isEmpty() || server.none { it.fromUser }) return
         val chatId = sessionLog.chatId
             ?: sink.chatFor(sessionLog.startChatId, server.first { it.fromUser }.text, sessionLog.context)
@@ -532,16 +655,26 @@ class VoiceModeController(
 
     private data class SavedTurn(val fromUser: Boolean, val message: ChatMessage)
 
+    private class Prewarmed(val fingerprint: String, val url: String, val at: Long) {
+        fun fresh() = System.currentTimeMillis() - at < PREWARM_FRESH_MS
+    }
+
     private class SessionLog(val startChatId: String?, val apiKey: String, val llm: String) {
         var chatId: String? = null
         var conversationId: String? = null
         var startedAt: Long = System.currentTimeMillis()
         var endedAt: Long? = null
         var finished = false
+        var serverTurns: Int? = null
         var context = VoiceChatContext()
         val saved = mutableListOf<SavedTurn>()
         val pendingAgent = mutableListOf<String>()
         private var lastTimestamp = 0L
+
+        fun turnCount(): Int = serverTurns?.takeIf { it > 0 } ?: saved.size
+
+        fun connectedSeconds(): Long =
+            if (conversationId == null) 0 else ((endedAt ?: System.currentTimeMillis()) - startedAt).coerceAtLeast(0) / 1_000
 
         /** Strictly increasing, so the chat (ordered by createdAt) keeps the turns in order. */
         fun nextTimestamp(): Long {
@@ -560,5 +693,7 @@ class VoiceModeController(
         private const val RECONCILE_POLL_MS = 1_500L
         /** ElevenLabs Agents list price per minute, used only when a call reports no price. */
         private const val AGENT_USD_PER_MINUTE = 0.10
+        /** ElevenLabs signed URLs last 15 minutes; a prewarmed one is used well inside that. */
+        private const val PREWARM_FRESH_MS = 8 * 60_000L
     }
 }

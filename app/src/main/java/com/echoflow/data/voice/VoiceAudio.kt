@@ -243,6 +243,42 @@ internal class VoicePlayer(
 }
 
 /**
+ * Tells when the phone is held to the ear, from the proximity sensor. Phones without one never
+ * report it, and the call simply stays on the loudspeaker.
+ */
+internal class VoiceProximity(context: Context, private val onChange: (atEar: Boolean) -> Unit) {
+    private val sensors = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+    private val sensor = sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_PROXIMITY)
+    private var atEar = false
+    private val listener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(event: android.hardware.SensorEvent) {
+            val distance = event.values.firstOrNull() ?: return
+            val near = distance < minOf(event.sensor.maximumRange, NEAR_CM)
+            if (near != atEar) {
+                atEar = near
+                onChange(near)
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+    }
+
+    fun start() {
+        val s = sensor ?: return
+        runCatching { sensors?.registerListener(listener, s, android.hardware.SensorManager.SENSOR_DELAY_NORMAL) }
+    }
+
+    fun stop() {
+        runCatching { sensors?.unregisterListener(listener) }
+        atEar = false
+    }
+
+    private companion object {
+        const val NEAR_CM = 5f
+    }
+}
+
+/**
  * Puts the phone in call mode for the session — what makes echo cancellation work — and plays
  * through the loudspeaker unless headphones or a headset are connected. Everything is restored
  * on [release].
@@ -276,6 +312,24 @@ internal class VoiceAudioRouting(context: Context) {
             abandonFocus()
             audio.mode = previousMode
         }.onFailure { Log.w(TAG, "Couldn't restore audio", it) }
+    }
+
+    /**
+     * The phone is held to the ear (or taken away): play through the earpiece like a normal call,
+     * then back to the loudspeaker. Only when the app chose the loudspeaker itself; a headset
+     * stays as it is.
+     */
+    fun holdToEar(atEar: Boolean) {
+        if (!speakerForced) return
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val type = if (atEar) AudioDeviceInfo.TYPE_BUILTIN_EARPIECE else AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                audio.availableCommunicationDevices.firstOrNull { it.type == type }?.let { audio.setCommunicationDevice(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = !atEar
+            }
+        }.onFailure { Log.w(TAG, "Couldn't switch the earpiece", it) }
     }
 
     private fun routeToSpeakerUnlessHeadset() {

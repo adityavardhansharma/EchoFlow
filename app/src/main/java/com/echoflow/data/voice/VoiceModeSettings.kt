@@ -216,9 +216,12 @@ class VoiceAgentProvisioner(
             add(config.effectiveStyle.modelId)
             if (config.effectiveStyle == VoiceStyle.Expressive) add(VoiceStyle.EXPRESSIVE_FALLBACK_MODEL_ID)
         }
+        // Each model is tried with the card tool first, then without it, so an account that
+        // rejects the tool still gets a working agent (just without the live card).
+        val attempts = models.flatMap { model -> listOf(model to true, model to false) }
         var lastError: Throwable? = null
-        for (model in models) {
-            val body = VoiceAgentSpec.agentBody(config, model)
+        for ((model, withTools) in attempts) {
+            val body = VoiceAgentSpec.agentBody(config, model, withTools)
             // The hash always names the requested model, so a fallback agent isn't re-patched on
             // every session; picking a different style or voice still changes it.
             val hash = VoiceAgentSpec.configHash(config)
@@ -245,7 +248,7 @@ class VoiceAgentProvisioner(
                     }.onFailure { lastError = it }
                     if ((lastError as? ElevenLabsApiException)?.code != 422) throw lastError!!
                 }
-                // 422 is a rejected field, most likely the TTS model: try the next one.
+                // 422 is a rejected field (the TTS model or the tool): try the next combination.
                 error is ElevenLabsApiException && error.code == 422 -> Unit
                 else -> throw error ?: IllegalStateException("Couldn't set up the voice agent.")
             }

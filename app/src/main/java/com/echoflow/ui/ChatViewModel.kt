@@ -953,6 +953,9 @@ class ChatViewModel(
     val voiceOutputLevel: StateFlow<Float> get() = voiceMode.outputLevel
     val voiceUserCaption: StateFlow<String> get() = voiceMode.userCaption
     val voiceAgentCaption: StateFlow<String> get() = voiceMode.agentCaption
+    val voiceLastUserTurn: StateFlow<String> get() = voiceMode.lastUserTurn
+    val voiceUserTurns: StateFlow<Int> get() = voiceMode.userTurns
+    val voicePlan: StateFlow<com.echoflow.data.voice.VoicePlan?> get() = voiceMode.plan
 
     /** Starts voice mode on the open chat; [micAllowed] false is a typing-only session. */
     fun startVoiceMode(micAllowed: Boolean) {
@@ -961,6 +964,13 @@ class ChatViewModel(
     }
 
     fun endVoiceMode() = voiceMode.end()
+    fun cutInVoice() = voiceMode.cutIn()
+    fun dismissVoiceRecap() = voiceMode.dismissRecap()
+
+    /** Gets a voice call ready while the waveform button shows, so the tap starts it at once. */
+    fun prewarmVoiceMode() {
+        if (appMode.value == AppMode.Chat) voiceMode.prewarm()
+    }
     fun sendVoiceText(text: String): Boolean = voiceMode.sendText(text)
     fun voiceTyping() = voiceMode.typing()
     fun toggleVoiceMic() = voiceMode.toggleMic()
