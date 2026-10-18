@@ -108,6 +108,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -117,6 +118,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echoflow.data.voice.HeardChips
@@ -536,7 +539,7 @@ private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, cap
     val scheme = MaterialTheme.colorScheme
     val name = (state.voiceName?.takeIf { it.isNotBlank() } ?: "Echo").uppercase()
     val thinking = state.phase == VoiceModePhase.Live && activity == VoiceAgentActivity.Thinking
-    val fit = fitLines(room, lineHeight = 31.dp, max = 5)
+    val fit = fitLines(room, lineHeight = 31.sp, max = 5)
     Column(Modifier.fillMaxWidth().animateContentSize(tween(220))) {
         if ((caption.isNotBlank() || thinking) && fit.label) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -565,14 +568,24 @@ private fun AgentZone(state: VoiceModeUiState, activity: VoiceAgentActivity, cap
 /** How many caption lines fit in [room], and whether the small name label above them fits too. */
 private data class LineFit(val label: Boolean, val lines: Int)
 
-private fun fitLines(room: Dp, lineHeight: Dp, max: Int): LineFit {
-    val label = 24.dp // the mono label and the gap under it
-    val withLabel = ((room - label) / lineHeight).toInt()
+/**
+ * Text is sized in sp, so it grows with the system font size; the line and label heights are
+ * converted with the current font scale before they're counted against [room].
+ */
+@Composable
+private fun fitLines(room: Dp, lineHeight: TextUnit, max: Int): LineFit {
+    val mono = MonoLabel
+    val monoLine = if (mono.lineHeight.isSpecified) mono.lineHeight else mono.fontSize * 1.45f
+    val (label, line) = with(LocalDensity.current) {
+        // The mono label, plus the gap under it.
+        (monoLine.toDp() + Spacing.s) to lineHeight.toDp()
+    }
+    val withLabel = ((room - label) / line).toInt()
     return if (withLabel >= 1) {
         LineFit(label = true, lines = withLabel.coerceAtMost(max))
     } else {
         // Too tight for the label: show the words alone, if even one line fits.
-        LineFit(label = false, lines = (room / lineHeight).toInt().coerceIn(0, max))
+        LineFit(label = false, lines = (room / line).toInt().coerceIn(0, max))
     }
 }
 
@@ -580,7 +593,7 @@ private fun fitLines(room: Dp, lineHeight: Dp, max: Int): LineFit {
 @Composable
 private fun UserZone(state: VoiceModeUiState, live: String, last: String, room: Dp) {
     val scheme = MaterialTheme.colorScheme
-    val fit = fitLines(room, lineHeight = 28.dp, max = 3)
+    val fit = fitLines(room, lineHeight = 28.sp, max = 3)
     if (fit.lines == 0) return
     val text = live.ifBlank { last }
     val hint = when {
