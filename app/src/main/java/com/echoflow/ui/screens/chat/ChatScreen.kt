@@ -61,6 +61,9 @@ fun ChatScreen(
     val renderingModes by chatViewModel.renderingModes.collectAsState()
     val errorMessage by chatViewModel.errorMessage.collectAsState()
     val temporaryChat by chatViewModel.isTemporaryChat.collectAsState()
+    // A voice call takes the whole screen: the app's bar steps aside so nothing competes with it.
+    val voiceModeState by chatViewModel.voiceModeState.collectAsState()
+    val voiceCallOpen = voiceModeState.active
 
     // Top inset so content scrolls behind the floating bar without hiding its first item.
     val topBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp
@@ -102,19 +105,25 @@ fun ChatScreen(
                 }
             }
 
-            ChatTopBar(
+            AnimatedVisibility(
+                visible = !voiceCallOpen,
                 modifier = Modifier.align(Alignment.TopCenter),
-                mode = mode,
-                onSelectMode = chatViewModel::switchMode,
-                renderingModes = renderingModes,
-                onMenu = onMenuClicked,
-                onNewChat = { chatViewModel.startNewChat() },
-                onNewTemporaryChat = { chatViewModel.startTemporaryChat() },
-            )
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                ChatTopBar(
+                    mode = mode,
+                    onSelectMode = chatViewModel::switchMode,
+                    renderingModes = renderingModes,
+                    onMenu = onMenuClicked,
+                    onNewChat = { chatViewModel.startNewChat() },
+                    onNewTemporaryChat = { chatViewModel.startTemporaryChat() },
+                )
+            }
 
             // A chat a schedule produced says so under the title bar, one tap from its schedule.
             AnimatedVisibility(
-                visible = scheduleThread != null && errorMessage == null,
+                visible = scheduleThread != null && errorMessage == null && !voiceCallOpen,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset - 12.dp),
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
@@ -124,7 +133,7 @@ fun ChatScreen(
 
             // A temporary chat says so for as long as it is open; it vanishes when you leave.
             AnimatedVisibility(
-                visible = temporaryChat && mode == AppMode.Chat && errorMessage == null,
+                visible = temporaryChat && mode == AppMode.Chat && errorMessage == null && !voiceCallOpen,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset - 12.dp),
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),

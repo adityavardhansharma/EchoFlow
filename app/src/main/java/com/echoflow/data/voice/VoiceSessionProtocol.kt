@@ -14,6 +14,8 @@ sealed interface VoiceServerEvent {
     data class Ping(val eventId: Int) : VoiceServerEvent
     data class Vad(val score: Float) : VoiceServerEvent
     data class Error(val message: String) : VoiceServerEvent
+    /** The agent asked the app to run one of its client tools, such as showing a card. */
+    data class ClientToolCall(val name: String, val callId: String, val parameters: Map<*, *>?) : VoiceServerEvent
     data object Ignored : VoiceServerEvent
 }
 
@@ -64,6 +66,14 @@ internal object VoiceSessionProtocol {
             "interruption" -> VoiceServerEvent.Interruption(int(obj("interruption_event"), "event_id"))
             "ping" -> VoiceServerEvent.Ping(int(obj("ping_event"), "event_id"))
             "vad_score" -> VoiceServerEvent.Vad(((obj("vad_score_event")?.get("vad_score") as? Number)?.toFloat()) ?: 0f)
+            "client_tool_call" -> {
+                val call = obj("client_tool_call") ?: return VoiceServerEvent.Ignored
+                VoiceServerEvent.ClientToolCall(
+                    name = call["tool_name"] as? String ?: return VoiceServerEvent.Ignored,
+                    callId = call["tool_call_id"] as? String ?: return VoiceServerEvent.Ignored,
+                    parameters = call["parameters"] as? Map<*, *>,
+                )
+            }
             "error" -> {
                 val event = obj("error_event")
                 val message = (event?.get("message") as? String)?.takeIf { it.isNotBlank() }
@@ -82,6 +92,10 @@ internal object VoiceSessionProtocol {
     fun userAudio(base64: String): String = VoiceApiJson.write(mapOf("user_audio_chunk" to base64))
     fun pong(eventId: Int): String = VoiceApiJson.write(mapOf("type" to "pong", "event_id" to eventId))
     fun userMessage(text: String): String = VoiceApiJson.write(mapOf("type" to "user_message", "text" to text))
+    fun clientToolResult(callId: String, result: String, isError: Boolean = false): String = VoiceApiJson.write(
+        linkedMapOf("type" to "client_tool_result", "tool_call_id" to callId, "result" to result, "is_error" to isError),
+    )
+
     /** Tells the agent the user is busy (typing): it holds off speaking for a moment. */
     fun userActivity(): String = VoiceApiJson.write(mapOf("type" to "user_activity"))
 }

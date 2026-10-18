@@ -79,19 +79,21 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
     fun agentFor(apiKey: String): StoredAgent? {
         val id = prefs.getString(KEY_AGENT_ID, null) ?: return null
         if (prefs.getString(KEY_AGENT_KEY, null) != UsageKeys.hash(apiKey)) return null
-        return StoredAgent(id, prefs.getString(KEY_AGENT_HASH, null))
+        return StoredAgent(id, prefs.getString(KEY_AGENT_HASH, null), prefs.getBoolean(KEY_AGENT_TOOLS, false))
     }
 
-    fun saveAgent(apiKey: String, agentId: String, configHash: String) {
+    /** [hasTools]: the agent took the card tool (an account may reject it; see VoiceAgentProvisioner). */
+    fun saveAgent(apiKey: String, agentId: String, configHash: String, hasTools: Boolean = false) {
         prefs.edit()
             .putString(KEY_AGENT_ID, agentId)
             .putString(KEY_AGENT_KEY, UsageKeys.hash(apiKey))
             .putString(KEY_AGENT_HASH, configHash)
+            .putBoolean(KEY_AGENT_TOOLS, hasTools)
             .apply()
     }
 
     fun forgetAgent() {
-        prefs.edit().remove(KEY_AGENT_ID).remove(KEY_AGENT_KEY).remove(KEY_AGENT_HASH).apply()
+        prefs.edit().remove(KEY_AGENT_ID).remove(KEY_AGENT_KEY).remove(KEY_AGENT_HASH).remove(KEY_AGENT_TOOLS).apply()
     }
 
     private fun update(change: (VoiceModeConfig) -> VoiceModeConfig) {
@@ -127,7 +129,7 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
         )
     }
 
-    data class StoredAgent(val agentId: String, val configHash: String?)
+    data class StoredAgent(val agentId: String, val configHash: String?, val hasTools: Boolean = false)
 
     companion object {
         private const val FILE = "voice_mode"
@@ -141,6 +143,7 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
         private const val KEY_AGENT_ID = "agent_id"
         private const val KEY_AGENT_KEY = "agent_key_hash"
         private const val KEY_AGENT_HASH = "agent_config_hash"
+        private const val KEY_AGENT_TOOLS = "agent_has_tools"
         private const val KEY_ACCOUNT_TIER = "account_tier"
         private const val KEY_ACCOUNT_STATUS = "account_status"
         private const val KEY_ACCOUNT_USED = "account_used"
@@ -216,9 +219,12 @@ class VoiceAgentProvisioner(
             add(config.effectiveStyle.modelId)
             if (config.effectiveStyle == VoiceStyle.Expressive) add(VoiceStyle.EXPRESSIVE_FALLBACK_MODEL_ID)
         }
+        // Each model is tried with the card tool first, then without it, so an account that
+        // rejects the tool still gets a working agent (just without the live card).
+        val attempts = models.flatMap { model -> listOf(model to true, model to false) }
         var lastError: Throwable? = null
-        for (model in models) {
-            val body = VoiceAgentSpec.agentBody(config, model)
+        for ((model, withTools) in attempts) {
+            val body = VoiceAgentSpec.agentBody(config, model, withTools)
             // The hash always names the requested model, so a fallback agent isn't re-patched on
             // every session; picking a different style or voice still changes it.
             val hash = VoiceAgentSpec.configHash(config)
@@ -229,7 +235,7 @@ class VoiceAgentProvisioner(
                 api.createAgent(apiKey, body)
             }
             result.onSuccess { id ->
-                settings.saveAgent(apiKey, id, hash)
+                settings.saveAgent(apiKey, id, hash, withTools)
                 return@runCatching id
             }
             val error = result.exceptionOrNull()
@@ -240,12 +246,12 @@ class VoiceAgentProvisioner(
                     settings.forgetAgent()
                     agentId = null
                     api.createAgent(apiKey, body).onSuccess { id ->
-                        settings.saveAgent(apiKey, id, hash)
+                        settings.saveAgent(apiKey, id, hash, withTools)
                         return@runCatching id
                     }.onFailure { lastError = it }
                     if ((lastError as? ElevenLabsApiException)?.code != 422) throw lastError!!
                 }
-                // 422 is a rejected field, most likely the TTS model: try the next one.
+                // 422 is a rejected field (the TTS model or the tool): try the next combination.
                 error is ElevenLabsApiException && error.code == 422 -> Unit
                 else -> throw error ?: IllegalStateException("Couldn't set up the voice agent.")
             }
