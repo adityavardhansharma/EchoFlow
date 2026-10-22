@@ -139,19 +139,35 @@ internal class VoicePlayer(
     private val generation = AtomicInteger(0)
     @Volatile private var running = false
     @Volatile private var lastWriteAt = 0L
-    /** Bytes written to the speaker since [markReplyStart]: how much of a reply was played. */
-    @Volatile private var playedBytes = 0L
+    /** Frames handed to the track since it started or was last flushed. */
+    @Volatile private var framesWritten = 0L
+    /** Where the current reply starts, in the same frames as [framesWritten]. */
+    @Volatile private var replyStartFrame = 0L
+    /** Bytes of the current reply received so far. */
+    @Volatile private var replyBytes = 0L
     private var track: AudioTrack? = null
     private var thread: Thread? = null
 
-    /** A new reply begins: [playedMillis] counts from here. */
+    /** A new reply begins: [playedMillis] counts from here, after anything still queued. */
     fun markReplyStart() {
-        playedBytes = 0L
+        replyStartFrame = framesWritten + queue.sumOf { it.second.size.toLong() } / 2
+        replyBytes = 0L
     }
 
-    /** About how much of the current reply has gone out to the speaker, in milliseconds. */
+    /**
+     * How much of the current reply the user has heard, in milliseconds: the track's playback
+     * position, not what was written to it, since the track buffers ahead and [interrupt] drops that.
+     */
     val playedMillis: Long
-        get() = playedBytes * 1_000L / (sampleRate * 2L)
+        get() {
+            val head = runCatching { track?.playbackHeadPosition?.toLong()?.and(0xFFFFFFFFL) }.getOrNull() ?: 0L
+            val frames = (head - replyStartFrame).coerceIn(0L, (framesWritten - replyStartFrame).coerceAtLeast(0L))
+            return frames * 1_000L / sampleRate
+        }
+
+    /** How long the current reply is so far, in milliseconds of audio received. */
+    val replyMillis: Long
+        get() = replyBytes / 2 * 1_000L / sampleRate
 
     /** True while audio is queued or was written in the last moment: the agent is talking. */
     val isSpeaking: Boolean
@@ -210,7 +226,7 @@ internal class VoicePlayer(
                     val written = audioTrack.write(pcm, offset, length)
                     if (written <= 0) break
                     offset += written
-                    playedBytes += written
+                    framesWritten += written / 2
                     lastWriteAt = System.currentTimeMillis()
                 }
             }
@@ -219,7 +235,9 @@ internal class VoicePlayer(
     }
 
     fun enqueue(pcm: ByteArray) {
-        if (running && pcm.isNotEmpty()) queue.offer(generation.get() to pcm)
+        if (!running || pcm.isEmpty()) return
+        replyBytes += pcm.size
+        queue.offer(generation.get() to pcm)
     }
 
     /** The user cut in: drop everything queued and whatever is still in the track's buffer. */
@@ -233,6 +251,9 @@ internal class VoicePlayer(
                 t.play()
             }
         }
+        // A flush resets the track's playback position, so the counts start over too.
+        framesWritten = 0L
+        replyStartFrame = 0L
         lastWriteAt = 0L
         onLevel(0f)
     }

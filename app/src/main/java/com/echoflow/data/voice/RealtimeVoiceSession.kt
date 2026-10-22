@@ -97,8 +97,12 @@ internal class RealtimeVoiceSession(
     private val agentText = StringBuilder()
     /** OpenAI user turns committed but not transcribed yet; replies wait so the chat stays in order. */
     private val pendingUserItems = LinkedHashSet<String?>()
-    private val heldAgentTurns = ArrayList<String>()
-    @Volatile private var heldSince = 0L
+    /** Replies waiting on the user turns that came before them, in order. */
+    private val heldAgentTurns = ArrayList<HeldTurn>()
+    /** The last reply saved whole while its audio may still be playing; a cut-in shortens it. */
+    private var savedReply: String? = null
+
+    private class HeldTurn(val waitingOn: Set<String?>, var text: String, val since: Long)
 
     override var micMuted: Boolean = false
         set(value) {
@@ -159,8 +163,9 @@ internal class RealtimeVoiceSession(
             if (!connected) {
                 early.addLast(pcm)
                 while (early.size > MAX_EARLY_CHUNKS) early.removeFirst()
-            } else {
-                socket?.send(protocol.audio(Base64.encodeToString(pcm, Base64.NO_WRAP)))
+            } else if (socket?.send(protocol.audio(Base64.encodeToString(pcm, Base64.NO_WRAP))) != true) {
+                // The socket is closing (a handover): keep the audio for the next one.
+                early.addLast(pcm)
             }
         }
     }
@@ -251,6 +256,9 @@ internal class RealtimeVoiceSession(
                 listener.onActivity()
             }
             is RealtimeEvent.UserTranscriptDelta -> {
+                // Gemini only reports cut-ins while it's still generating; a finished reply that's
+                // still playing stops here, when the user's words show they're talking over it.
+                if (!protocol.finalUserTranscripts && !replying && canCut()) cancelCurrentReply()
                 // Gemini's pieces carry their own spacing; OpenAI's are word pieces of one turn.
                 userText.append(event.text)
                 _userCaption.value = userText.toString().trim()
@@ -258,8 +266,9 @@ internal class RealtimeVoiceSession(
             }
             RealtimeEvent.UserSpeechStarted -> {
                 // The user talked over the reply: the server has stopped it, so stop playing and
-                // tell it how much was heard.
-                if (replying) stopReply(serverAlreadyStopped = true)
+                // tell it how much was heard. That includes a reply that's done generating but
+                // still playing.
+                if (canCut()) stopReply(serverAlreadyStopped = true)
                 userText.clear()
                 _activity.value = VoiceAgentActivity.Listening
                 listener.onActivity()
@@ -293,25 +302,27 @@ internal class RealtimeVoiceSession(
                 if (dropped(event.itemId)) return
                 val text = event.text.ifBlank { agentText.toString().trim() }
                 agentText.clear()
-                if (text.isNotBlank()) agentTurn(text)
+                if (text.isNotBlank()) {
+                    agentTurn(text)
+                    savedReply = text
+                }
             }
             RealtimeEvent.TurnComplete -> {
                 // Gemini's reply text ends here; OpenAI's already ended with its transcript.
                 val text = agentText.toString().trim()
                 agentText.clear()
-                if (text.isNotBlank()) agentTurn(text)
+                if (text.isNotBlank()) {
+                    agentTurn(text)
+                    savedReply = text
+                }
                 if (!protocol.finalUserTranscripts) flushUserTurn()
                 replying = false
                 droppingReply = false
                 awaitingReply = false
             }
             RealtimeEvent.Interrupted -> {
-                // Gemini heard the user over its reply and stopped it. What it said so far stands.
-                player?.interrupt()
-                val text = agentText.toString().trim()
-                agentText.clear()
-                if (text.isNotBlank()) agentTurn(text)
-                replying = false
+                // Gemini heard the user over its reply and stopped it. What was heard of it stands.
+                cancelCurrentReply()
                 droppingReply = false
                 _activity.value = VoiceAgentActivity.Listening
             }
@@ -322,13 +333,21 @@ internal class RealtimeVoiceSession(
             is RealtimeEvent.ResumeHandle -> resumeHandle = event.handle
             RealtimeEvent.GoAway -> if (protocol.resumable && resumeHandle != null) {
                 // Hand over before the server cuts us off: the next connection resumes the call.
+                // Speech from here on is held for it, not sent into the closing socket.
                 Log.i(TAG, "Server is closing this connection soon; resuming on a new one")
+                synchronized(early) { connected = false }
                 webSocket.close(1000, "Resuming")
             }
-            is RealtimeEvent.Error -> Log.w(TAG, "${protocol.provider.label} error: ${event.message}").also {
+            is RealtimeEvent.Error -> {
+                Log.w(TAG, "${protocol.provider.label} error: ${event.message}")
                 if (!everReady) {
                     // Rejected during setup (a bad model or field): end with the server's words.
                     finish("${protocol.provider.label}: ${event.message}")
+                } else {
+                    // The call goes on, but whatever was asked won't be answered: say so.
+                    awaitingReply = false
+                    if (_activity.value == VoiceAgentActivity.Thinking) _activity.value = VoiceAgentActivity.Listening
+                    listener.onNotice("${protocol.provider.label}: ${event.message}")
                 }
             }
         }
@@ -364,6 +383,7 @@ internal class RealtimeVoiceSession(
         if (sameReply) return
         agentText.clear()
         _agentCaption.value = ""
+        savedReply = null
         player?.markReplyStart()
     }
 
@@ -384,21 +404,52 @@ internal class RealtimeVoiceSession(
 
     private fun agentTurn(text: String) {
         _agentCaption.value = text
-        if (protocol.finalUserTranscripts && pendingUserItems.isNotEmpty()) {
-            // The user's transcript is still coming: hold the reply so it lands after it.
-            if (heldAgentTurns.isEmpty()) heldSince = System.currentTimeMillis()
-            heldAgentTurns += text
+        if (protocol.finalUserTranscripts && (pendingUserItems.isNotEmpty() || heldAgentTurns.isNotEmpty())) {
+            // The user turns before this reply are still being transcribed: hold it so it lands
+            // after them (and after any reply already held).
+            heldAgentTurns += HeldTurn(pendingUserItems.toSet(), text, System.currentTimeMillis())
         } else {
             listener.onAgentTurn(text)
         }
         listener.onActivity()
     }
 
+    /**
+     * Saves held replies, in order, once the user turns each one waits on are in. A transcript
+     * that doesn't come within [HOLD_MAX_MS] stops holding its reply back.
+     */
     private fun releaseHeldTurns() {
-        if (pendingUserItems.isNotEmpty() && System.currentTimeMillis() - heldSince < HOLD_MAX_MS) return
-        pendingUserItems.clear()
-        heldAgentTurns.forEach(listener::onAgentTurn)
-        heldAgentTurns.clear()
+        val now = System.currentTimeMillis()
+        while (heldAgentTurns.isNotEmpty()) {
+            val held = heldAgentTurns.first()
+            if (held.waitingOn.any { it in pendingUserItems }) {
+                if (now - held.since < HOLD_MAX_MS) return
+                pendingUserItems.removeAll(held.waitingOn)
+            }
+            heldAgentTurns.removeAt(0)
+            listener.onAgentTurn(held.text)
+        }
+    }
+
+    /** A saved reply turned out shorter than saved: fix it, whether it's still held or in the chat. */
+    private fun correctAgentTurn(original: String, heard: String) {
+        val held = heldAgentTurns.lastOrNull { it.text == original }
+        when {
+            held != null && heard.isBlank() -> heldAgentTurns.remove(held)
+            held != null -> held.text = heard
+            else -> listener.onAgentCorrection(original, heard)
+        }
+        _agentCaption.value = heard
+    }
+
+    /**
+     * A reply is still coming, or some of it hasn't played yet. A reply that has all but finished
+     * playing isn't cut: there's nothing left to truncate.
+     */
+    private fun canCut(): Boolean {
+        if (replying) return true
+        val p = player ?: return false
+        return p.isSpeaking && p.playedMillis < p.replyMillis - CUT_MARGIN_MS
     }
 
     private fun dropped(itemId: String?): Boolean =
@@ -410,12 +461,25 @@ internal class RealtimeVoiceSession(
      */
     private fun cancelCurrentReply(): RealtimeVoiceProtocol.Cancel {
         val played = player?.playedMillis ?: 0L
+        val received = player?.replyMillis ?: 0L
         player?.interrupt()
         val itemId = replyItemId
-        if (itemId != null) cancelledItems += itemId else droppingReply = true
+        // Only a reply still being generated has more on the way to drop.
+        if (replying) {
+            if (itemId != null) cancelledItems += itemId else droppingReply = true
+        }
         val said = agentText.toString().trim()
         agentText.clear()
-        if (said.isNotBlank()) agentTurn(said)
+        if (said.isNotBlank()) {
+            heardPart(said, played, received).takeIf { it.isNotBlank() }?.let(::agentTurn)
+        } else {
+            // Fully generated and saved, but cut off while it played: keep only what was heard.
+            savedReply?.let { full ->
+                val heard = heardPart(full, played, received)
+                if (heard != full) correctAgentTurn(full, heard)
+            }
+        }
+        savedReply = null
         replying = false
         return RealtimeVoiceProtocol.Cancel(itemId, played)
     }
@@ -436,7 +500,7 @@ internal class RealtimeVoiceSession(
             _activity.value = VoiceAgentActivity.Listening
         }
         // A user transcript that never came shouldn't hold the reply back forever.
-        if (heldAgentTurns.isNotEmpty() && System.currentTimeMillis() - heldSince >= HOLD_MAX_MS) releaseHeldTurns()
+        releaseHeldTurns()
     }
 
     override fun sendText(text: String): Boolean = synchronized(turnLock) {
@@ -444,7 +508,7 @@ internal class RealtimeVoiceSession(
         if (clean.isEmpty() || finished || !connected) return false
         val ws = socket ?: return false
         // Typing over the reply cuts it off, just like talking over it would.
-        val cancel = if (replying) cancelCurrentReply() else null
+        val cancel = if (canCut()) cancelCurrentReply() else null
         // Anything the user said before typing is its own turn, first.
         if (!protocol.finalUserTranscripts) flushUserTurn()
         _agentCaption.value = ""
@@ -497,21 +561,37 @@ internal class RealtimeVoiceSession(
         socket = null
         // Whatever was said last but never closed out still belongs in the chat.
         synchronized(turnLock) {
-            if (!protocol.finalUserTranscripts) flushUserTurn()
+            // OpenAI: words heard for a turn whose transcript never finished still go in, ahead
+            // of the replies waiting on it.
+            flushUserTurn()
+            heldAgentTurns.forEach { listener.onAgentTurn(it.text) }
+            heldAgentTurns.clear()
             agentText.toString().trim().takeIf { it.isNotBlank() }?.let(listener::onAgentTurn)
             agentText.clear()
-            heldAgentTurns.forEach(listener::onAgentTurn)
-            heldAgentTurns.clear()
         }
         listener.onEnded(error)
     }
 
-    private companion object {
-        const val TAG = "RealtimeVoiceSession"
+    internal companion object {
+        /**
+         * The part of [text] heard after [playedMillis] of a reply [receivedMillis] long, cut at a
+         * word, assuming the words are spread evenly through the audio.
+         */
+        fun heardPart(text: String, playedMillis: Long, receivedMillis: Long): String {
+            if (receivedMillis <= 0 || playedMillis >= receivedMillis) return text
+            val end = (text.length * playedMillis / receivedMillis).toInt()
+            if (end <= 0) return ""
+            val cut = text.lastIndexOf(' ', end).takeIf { it > 0 } ?: return ""
+            return text.substring(0, cut).trimEnd(',', ';', ':', ' ') + "…"
+        }
+
+        private const val TAG = "RealtimeVoiceSession"
         /** About 20 s of 100 ms chunks: enough for a slow connection or a resume. */
-        const val MAX_EARLY_CHUNKS = 200
-        const val EARLY_SPEECH_LEVEL = 0.45f
-        const val MAX_RECONNECTS = 12
-        const val HOLD_MAX_MS = 4_000L
+        private const val MAX_EARLY_CHUNKS = 200
+        private const val EARLY_SPEECH_LEVEL = 0.45f
+        private const val MAX_RECONNECTS = 12
+        private const val HOLD_MAX_MS = 4_000L
+        /** Less than this left of a reply isn't worth cutting off. */
+        private const val CUT_MARGIN_MS = 150L
     }
 }

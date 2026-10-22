@@ -537,6 +537,10 @@ class VoiceModeController(
         override fun onUsage(total: RealtimeUsage) {
             sessionLog.usage = total
         }
+
+        override fun onNotice(message: String) {
+            scope.launch { _notice.value = message }
+        }
     }
 
     private fun startIdleWatch() {
@@ -763,7 +767,8 @@ class VoiceModeController(
         val endedAt = sessionLog.endedAt ?: System.currentTimeMillis()
         val seconds = (endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0
         val usage = sessionLog.usage
-        val usd = RealtimePricing.usd(sessionLog.llm, usage)
+        // No report (the call dropped before one came) means an unknown bill, not a free call.
+        val usd = if (usage.isEmpty) null else RealtimePricing.usd(sessionLog.llm, usage)
         val provider = if (sessionLog.provider == VoiceProvider.Gemini) UsageProvider.Gemini else UsageProvider.OpenAi
         UsageLedger.record(
             UsageRecord(

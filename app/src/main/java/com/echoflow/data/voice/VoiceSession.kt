@@ -31,6 +31,8 @@ internal interface VoiceSessionListener {
     fun onEnded(error: String?)
     /** Tokens used so far (Gemini and OpenAI report them; ElevenLabs bills per minute). */
     fun onUsage(total: RealtimeUsage) = Unit
+    /** Something went wrong mid-call that the user should hear about, though the call goes on. */
+    fun onNotice(message: String) = Unit
 }
 
 /**

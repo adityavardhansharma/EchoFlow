@@ -201,4 +201,14 @@ class RealtimeVoiceProtocolTest {
         assertEquals("marin", RealtimeCatalog.voiceOrDefault(VoiceProvider.OpenAi, null))
         assertEquals("gpt-realtime-2.1", RealtimeCatalog.modelOrDefault(VoiceProvider.OpenAi, "gpt-realtime"))
     }
+
+    @Test
+    fun `a reply cut off while playing keeps only the words heard`() {
+        val text = "Sure, here are three ideas for the weekend trip."
+        assertEquals(text, RealtimeVoiceSession.heardPart(text, playedMillis = 4_000, receivedMillis = 4_000))
+        assertEquals(text, RealtimeVoiceSession.heardPart(text, playedMillis = 100, receivedMillis = 0))
+        assertEquals("", RealtimeVoiceSession.heardPart(text, playedMillis = 0, receivedMillis = 4_000))
+        assertEquals("Sure, here are three…", RealtimeVoiceSession.heardPart(text, playedMillis = 2_000, receivedMillis = 4_000))
+        assertEquals("", RealtimeVoiceSession.heardPart(text, playedMillis = 300, receivedMillis = 4_000))
+    }
 }
