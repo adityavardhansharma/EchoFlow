@@ -139,8 +139,19 @@ internal class VoicePlayer(
     private val generation = AtomicInteger(0)
     @Volatile private var running = false
     @Volatile private var lastWriteAt = 0L
+    /** Bytes written to the speaker since [markReplyStart]: how much of a reply was played. */
+    @Volatile private var playedBytes = 0L
     private var track: AudioTrack? = null
     private var thread: Thread? = null
+
+    /** A new reply begins: [playedMillis] counts from here. */
+    fun markReplyStart() {
+        playedBytes = 0L
+    }
+
+    /** About how much of the current reply has gone out to the speaker, in milliseconds. */
+    val playedMillis: Long
+        get() = playedBytes * 1_000L / (sampleRate * 2L)
 
     /** True while audio is queued or was written in the last moment: the agent is talking. */
     val isSpeaking: Boolean
@@ -199,6 +210,7 @@ internal class VoicePlayer(
                     val written = audioTrack.write(pcm, offset, length)
                     if (written <= 0) break
                     offset += written
+                    playedBytes += written
                     lastWriteAt = System.currentTimeMillis()
                 }
             }

@@ -29,6 +29,42 @@ internal interface VoiceSessionListener {
     fun onMicUnavailable()
     /** The socket closed. [error] is null when the user ended it. */
     fun onEnded(error: String?)
+    /** Tokens used so far (Gemini and OpenAI report them; ElevenLabs bills per minute). */
+    fun onUsage(total: RealtimeUsage) = Unit
+}
+
+/**
+ * A live voice call as the controller and the call screen see it, whoever runs it:
+ * [VoiceSession] for ElevenLabs, [RealtimeVoiceSession] for Gemini Live and OpenAI Realtime.
+ */
+internal interface LiveVoiceSession {
+    val activity: StateFlow<VoiceAgentActivity>
+    val inputLevel: StateFlow<Float>
+    val outputLevel: StateFlow<Float>
+    /** What the user is saying right now, before it's final. */
+    val userCaption: StateFlow<String>
+    /** The reply as it streams in, then as spoken. */
+    val agentCaption: StateFlow<String>
+    /** The user's last finished turn, spoken or typed. */
+    val lastUserTurn: StateFlow<String>
+    /** Counts the user's finished turns, so the screen can pulse the moment one lands. */
+    val userTurns: StateFlow<Int>
+    /** True once the user spoke before the call connected, so the greeting is skipped. */
+    val spokeEarly: Boolean
+    var micMuted: Boolean
+    var speakerMuted: Boolean
+
+    /** Opens the call's audio at the tap; [micAllowed] false runs a typing-only call. */
+    fun openAudio(micAllowed: Boolean)
+    /** Re-checks whether the reply is still playing; called on a short tick. */
+    fun refreshActivity()
+    /** Posts a typed message. False when the call isn't live. */
+    fun sendText(text: String): Boolean
+    /** The user tapped to cut in. False when nothing was playing. */
+    fun cutIn(): Boolean
+    /** The user is typing. */
+    fun typing()
+    fun end()
 }
 
 /**
@@ -45,35 +81,35 @@ internal class VoiceSession(
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build(),
-) {
+) : LiveVoiceSession {
     private val _activity = MutableStateFlow(VoiceAgentActivity.Connecting)
-    val activity: StateFlow<VoiceAgentActivity> = _activity.asStateFlow()
+    override val activity: StateFlow<VoiceAgentActivity> = _activity.asStateFlow()
 
     private val _inputLevel = MutableStateFlow(0f)
-    val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
+    override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
 
     private val _outputLevel = MutableStateFlow(0f)
-    val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
+    override val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
 
     /** What the user is saying right now, before ElevenLabs finalizes it. */
     private val _userCaption = MutableStateFlow("")
-    val userCaption: StateFlow<String> = _userCaption.asStateFlow()
+    override val userCaption: StateFlow<String> = _userCaption.asStateFlow()
 
     /** The reply as it streams in, then as spoken. Cleared when the user starts a new turn. */
     private val _agentCaption = MutableStateFlow("")
-    val agentCaption: StateFlow<String> = _agentCaption.asStateFlow()
+    override val agentCaption: StateFlow<String> = _agentCaption.asStateFlow()
 
     /** The user's last finished turn, spoken or typed, kept on screen under the line. */
     private val _lastUserTurn = MutableStateFlow("")
-    val lastUserTurn: StateFlow<String> = _lastUserTurn.asStateFlow()
+    override val lastUserTurn: StateFlow<String> = _lastUserTurn.asStateFlow()
 
     /** Counts the user's finished turns, so the screen can pulse the moment one lands. */
     private val _userTurns = MutableStateFlow(0)
-    val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
+    override val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
 
     /** True once the user spoke before the call connected, so the greeting is skipped. */
-    @Volatile var spokeEarly = false
-        private set
+    @Volatile private var heardEarly = false
+    override val spokeEarly: Boolean get() = heardEarly
 
     private val routing = VoiceAudioRouting(context)
     /** Held to the ear: the earpiece plays, as on a phone call (the screen goes dark separately). */
@@ -97,14 +133,14 @@ internal class VoiceSession(
     private val early = ArrayDeque<ByteArray>()
     private var streamedText = StringBuilder()
 
-    var micMuted: Boolean = false
+    override var micMuted: Boolean = false
         set(value) {
             field = value
             microphone?.muted = value
             if (value) _inputLevel.value = 0f
         }
 
-    var speakerMuted: Boolean = false
+    override var speakerMuted: Boolean = false
         set(value) {
             field = value
             player?.muted = value
@@ -115,7 +151,7 @@ internal class VoiceSession(
      * What the user says before the socket is ready is held and sent as soon as it is, so they
      * can start talking straight away. [micAllowed] false (no permission) runs a typing-only call.
      */
-    fun openAudio(micAllowed: Boolean) {
+    override fun openAudio(micAllowed: Boolean) {
         this.micAllowed = micAllowed
         var micFailed = false
         synchronized(this) {
@@ -135,7 +171,7 @@ internal class VoiceSession(
             onChunk = ::onMicChunk,
             onLevel = { level ->
                 _inputLevel.value = level
-                if (!connected && level > EARLY_SPEECH_LEVEL) spokeEarly = true
+                if (!connected && level > EARLY_SPEECH_LEVEL) heardEarly = true
             },
         )
         mic.muted = micMuted
@@ -309,7 +345,7 @@ internal class VoiceSession(
     }
 
     /** Re-checks whether the agent is still talking; called on a short tick by the controller. */
-    fun refreshActivity() {
+    override fun refreshActivity() {
         val current = _activity.value
         if (current == VoiceAgentActivity.Speaking && player?.isSpeaking == false) {
             _activity.value = VoiceAgentActivity.Listening
@@ -317,7 +353,7 @@ internal class VoiceSession(
     }
 
     /** Posts a typed message into the conversation. Returns false when the session isn't live. */
-    fun sendText(text: String): Boolean {
+    override fun sendText(text: String): Boolean {
         val clean = text.trim()
         if (clean.isEmpty() || finished) return false
         val ws = socket ?: return false
@@ -339,7 +375,7 @@ internal class VoiceSession(
      * The user tapped to cut in: the agent stops at once and the rest of its reply is dropped,
      * and it is asked to hold off while the user talks. False when the agent wasn't speaking.
      */
-    fun cutIn(): Boolean {
+    override fun cutIn(): Boolean {
         if (finished || _activity.value != VoiceAgentActivity.Speaking) return false
         droppingReply = true
         player?.interrupt()
@@ -350,7 +386,7 @@ internal class VoiceSession(
     }
 
     /** The user is typing: ask the agent to hold off, at most about once a second. */
-    fun typing() {
+    override fun typing() {
         val now = System.currentTimeMillis()
         if (now - lastActivitySentAt < 1_000) return
         lastActivitySentAt = now
@@ -358,7 +394,7 @@ internal class VoiceSession(
         listener.onActivity()
     }
 
-    fun end() {
+    override fun end() {
         endedByUser = true
         socket?.close(1000, "User ended conversation")
         finish(null)

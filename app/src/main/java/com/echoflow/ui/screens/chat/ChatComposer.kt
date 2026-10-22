@@ -106,7 +106,7 @@ internal fun InputToolbar(
     memoryAvailable: Boolean = false,
     memoryOn: Boolean = false,
     onToggleMemory: () -> Unit = {},
-    /** An authenticated ElevenLabs key: an empty composer offers voice mode in the send slot. */
+    /** A voice provider is set up (ElevenLabs, Gemini or OpenAI): an empty composer offers voice mode in the send slot. */
     voiceModeAvailable: Boolean = false,
     onStartVoiceMode: () -> Unit = {},
     modifier: Modifier = Modifier,

@@ -10,15 +10,28 @@ import com.echoflow.data.usage.UsageProvider
 import com.echoflow.data.usage.UsageRecord
 import com.echoflow.data.voice.ElevenLabsApiException
 import com.echoflow.data.voice.ElevenLabsVoiceApi
+import com.echoflow.data.voice.GeminiLiveProtocol
+import com.echoflow.data.voice.LiveVoiceSession
+import com.echoflow.data.voice.OpenAiRealtimeProtocol
+import com.echoflow.data.voice.RealtimeCatalog
+import com.echoflow.data.voice.RealtimePricing
+import com.echoflow.data.voice.RealtimeSessionSpec
+import com.echoflow.data.voice.RealtimeUsage
+import com.echoflow.data.voice.RealtimeVoice
+import com.echoflow.data.voice.RealtimeVoiceSession
 import com.echoflow.data.voice.VoiceAgentActivity
 import com.echoflow.data.voice.VoiceAgentProvisioner
 import com.echoflow.data.voice.VoiceAgentSpec
 import com.echoflow.data.voice.VoiceApiJson
 import com.echoflow.data.voice.VoiceConversationRecord
+import com.echoflow.data.voice.VoiceLanguages
 import com.echoflow.data.voice.VoiceLlms
 import com.echoflow.data.voice.VoiceModeAuth
+import com.echoflow.data.voice.VoiceModeConfig
 import com.echoflow.data.voice.VoiceModeService
 import com.echoflow.data.voice.VoiceModeSettings
+import com.echoflow.data.voice.VoiceProvider
+import com.echoflow.data.voice.VoiceProviderKeys
 import com.echoflow.data.voice.VoiceSession
 import com.echoflow.data.voice.VoiceSessionListener
 import java.util.UUID
@@ -109,17 +122,21 @@ interface VoiceTranscriptSink {
 }
 
 /**
- * Voice mode: a live ElevenLabs Agents conversation that continues the open chat.
+ * Voice mode: a live voice conversation that continues the open chat, run by ElevenLabs Agents,
+ * Gemini Live or OpenAI Realtime (Settings → Voice mode). The call screen is the same for all.
  *
- * - Starting makes sure the user's EchoFlow agent matches their Voice mode settings, then opens a
- *   session that carries the chat so far, so voice picks up where typing left off.
+ * - Starting on ElevenLabs makes sure the user's EchoFlow agent matches their Voice mode
+ *   settings; Gemini and OpenAI take everything in the socket's first message. Either way the
+ *   session carries the chat so far, so voice picks up where typing left off.
  * - Every finished turn, spoken or typed, is saved into the chat as it happens, so nothing is lost
  *   if the app dies mid-call.
- * - Ending fetches ElevenLabs' own transcript and, if it differs (an interrupted reply, a
- *   corrected word), rewrites this session's turns to match. The chat then shows the conversation
- *   exactly as it went, and later typed messages continue from it with the chat's own model.
+ * - Ending an ElevenLabs call fetches ElevenLabs' own transcript and, if it differs (an
+ *   interrupted reply, a corrected word), rewrites this session's turns to match. Gemini and
+ *   OpenAI keep no transcript to fetch, so their live turns are the record. The chat then shows
+ *   the conversation as it went, and later typed messages continue from it with the chat's own
+ *   model.
  * - A session with nothing said or played for [IDLE_TIMEOUT_SECONDS] ends itself, since
- *   ElevenLabs bills every open minute.
+ *   ElevenLabs bills every open minute (and the others bill the audio they hear).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class VoiceModeController(
@@ -140,7 +157,7 @@ class VoiceModeController(
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
-    private val session = MutableStateFlow<VoiceSession?>(null)
+    private val session = MutableStateFlow<LiveVoiceSession?>(null)
     val activity: StateFlow<VoiceAgentActivity> = session
         .flatMapLatest { it?.activity ?: flowOf(VoiceAgentActivity.Connecting) }
         .stateIn(scope, SharingStarted.Eagerly, VoiceAgentActivity.Connecting)
@@ -157,13 +174,23 @@ class VoiceModeController(
     val userTurns: StateFlow<Int> = session.flatMapLatest { it?.userTurns ?: flowOf(0) }
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
-    /** Voice mode is offered only once the saved ElevenLabs key has authenticated. */
+    /**
+     * Voice mode is offered when some provider can run a call: an ElevenLabs key that has
+     * authenticated, or a Gemini or OpenAI key that's switched on.
+     */
     val available: StateFlow<Boolean> = combine(
         settingsRepository.customProviderConfig,
         voiceSettings.verifiedKeyHash,
-    ) { config, verified ->
-        config.elevenLabsAvailable && verified != null && verified == UsageKeys.hash(config.elevenLabsApiKey)
+        voiceSettings.config,
+    ) { config, verified, voice ->
+        VoiceProviderKeys.from(config, verified, UsageKeys::hash).resolve(voice.provider) != null
     }.stateIn(scope, SharingStarted.Eagerly, false)
+
+    private fun providerKeys(): VoiceProviderKeys = VoiceProviderKeys.from(
+        settingsRepository.customProviderConfig.value,
+        voiceSettings.verifiedKeyHash.value,
+        UsageKeys::hash,
+    )
 
     /** Turn writes run one at a time, in arrival order, on this queue. */
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
@@ -209,13 +236,21 @@ class VoiceModeController(
      */
     fun start(chatId: String?, micAllowed: Boolean) {
         if (_state.value.active) return
-        val providers = settingsRepository.customProviderConfig.value
-        val key = if (providers.elevenLabsAvailable) providers.elevenLabsApiKey.trim() else ""
-        if (key.isEmpty()) {
-            _notice.value = "Add an ElevenLabs key under Settings → Custom to use voice mode."
-            return
-        }
         val config = voiceSettings.config.value
+        val keys = providerKeys()
+        // The picked provider, or another one that's set up if the picked one's key went away.
+        when (keys.resolve(config.provider)) {
+            null -> {
+                _notice.value = "Add an ElevenLabs, Gemini or OpenAI key under Settings → Custom to use voice mode."
+                return
+            }
+            VoiceProvider.ElevenLabs -> startElevenLabs(chatId, micAllowed, keys.elevenLabs, config)
+            VoiceProvider.Gemini -> startRealtime(chatId, micAllowed, VoiceProvider.Gemini, keys.gemini, config)
+            VoiceProvider.OpenAi -> startRealtime(chatId, micAllowed, VoiceProvider.OpenAi, keys.openAi, config)
+        }
+    }
+
+    private fun startElevenLabs(chatId: String?, micAllowed: Boolean, key: String, config: VoiceModeConfig) {
         _state.value = VoiceModeUiState(
             phase = VoiceModePhase.Starting,
             step = "Connecting…",
@@ -224,7 +259,7 @@ class VoiceModeController(
             llmLabel = VoiceLlms.label(config.llm),
             voiceName = config.voiceName,
         )
-        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = config.llm)
+        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = config.llm, provider = VoiceProvider.ElevenLabs)
         log = sessionLog
         // The call is open from the tap: the mic records now and what the user says is sent the
         // moment the socket is up, so nobody waits on "Connecting…" to start talking. Nothing
@@ -268,8 +303,67 @@ class VoiceModeController(
         }
     }
 
+    /**
+     * A Gemini Live or OpenAI Realtime call. There's no agent to set up: the prompt (with the chat
+     * so far), the voice and the model all go in the socket's first message.
+     */
+    private fun startRealtime(chatId: String?, micAllowed: Boolean, provider: VoiceProvider, key: String, config: VoiceModeConfig) {
+        val model = config.realtimeModel(provider)
+        val voiceId = config.realtimeVoice(provider)
+        _state.value = VoiceModeUiState(
+            phase = VoiceModePhase.Starting,
+            step = "Connecting…",
+            micMuted = !micAllowed,
+            micAvailable = micAllowed,
+            llmLabel = RealtimeCatalog.modelLabel(model),
+            voiceName = RealtimeVoice(voiceId, "").name,
+        )
+        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = model, provider = provider)
+        log = sessionLog
+        val protocol = if (provider == VoiceProvider.Gemini) GeminiLiveProtocol else OpenAiRealtimeProtocol
+        val live = RealtimeVoiceSession(app, listenerFor(sessionLog), protocol)
+        live.micMuted = !micAllowed
+        session.value = live
+        VoiceModeService.endHandler = { scope.launch { end() } }
+        VoiceModeService.start(app)
+        live.openAudio(micAllowed)
+        startJob = scope.launch {
+            try {
+                val context = sink.prepare(chatId)
+                sessionLog.context = context
+                if (!isActive || log !== sessionLog) return@launch
+                val spec = RealtimeSessionSpec(
+                    model = model,
+                    voice = voiceId,
+                    instructions = realtimeInstructions(context, config),
+                    greet = VoiceAgentSpec.spokenHistory(context.history).isEmpty(),
+                )
+                live.micMuted = _state.value.micMuted
+                live.speakerMuted = _state.value.speakerMuted
+                sessionLog.startedAt = System.currentTimeMillis()
+                lastActivityAt = sessionLog.startedAt
+                live.start(key, spec, micAllowed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Voice mode couldn't start", e)
+                _notice.value = "Voice mode couldn't start: ${e.message ?: "unknown error"}"
+                abandon(sessionLog)
+            }
+        }
+    }
+
+    /** The same prompt the ElevenLabs agent gets, plus the language the user picked. */
+    private fun realtimeInstructions(context: VoiceChatContext, config: VoiceModeConfig): String = buildString {
+        append(VoiceAgentSpec.sessionPrompt(context.history, projectContext = context.projectContext))
+        if (config.language != VoiceLanguages.DEFAULT) {
+            append("\n\nThe user usually speaks ").append(VoiceLanguages.label(config.language))
+            append(". Start in it, and follow the user if they switch.")
+        }
+    }
+
     /** The agent (made or updated if the settings changed) and a fresh signed URL for it. */
-    private suspend fun fetchSignedUrl(key: String, config: com.echoflow.data.voice.VoiceModeConfig): String {
+    private suspend fun fetchSignedUrl(key: String, config: VoiceModeConfig): String {
         val agentId = provisioner.ensureAgent(key, config).getOrThrow()
         return api.signedUrl(key, agentId).recoverCatching { error ->
             // The saved agent was deleted on ElevenLabs: make a new one and try once more.
@@ -286,8 +380,10 @@ class VoiceModeController(
      */
     fun prewarm() {
         if (_state.value.active || prewarmJob?.isActive == true || !available.value) return
-        val key = currentKey().takeIf { it.isNotEmpty() } ?: return
         val config = voiceSettings.config.value
+        // Only ElevenLabs has an agent and a signed URL to get ready; the others connect directly.
+        if (providerKeys().resolve(config.provider) != VoiceProvider.ElevenLabs) return
+        val key = currentKey().takeIf { it.isNotEmpty() } ?: return
         val fingerprint = prewarmFingerprint(key, config)
         if (prewarmed?.let { it.fingerprint == fingerprint && it.fresh() } == true) return
         prewarmJob = scope.launch {
@@ -299,13 +395,13 @@ class VoiceModeController(
     }
 
     /** The prewarmed URL when it was made for this key and these settings and is still fresh. Used once. */
-    private fun takePrewarmed(key: String, config: com.echoflow.data.voice.VoiceModeConfig): String? {
+    private fun takePrewarmed(key: String, config: VoiceModeConfig): String? {
         val ready = prewarmed ?: return null
         prewarmed = null
         return ready.url.takeIf { ready.fingerprint == prewarmFingerprint(key, config) && ready.fresh() }
     }
 
-    private fun prewarmFingerprint(key: String, config: com.echoflow.data.voice.VoiceModeConfig) =
+    private fun prewarmFingerprint(key: String, config: VoiceModeConfig) =
         UsageKeys.hash(key) + ":" + VoiceAgentSpec.configHash(config)
 
     /** A call that never connected: close its audio and the screen, with nothing to save. */
@@ -436,6 +532,10 @@ class VoiceModeController(
 
         override fun onEnded(error: String?) {
             scope.launch { finish(sessionLog, error) }
+        }
+
+        override fun onUsage(total: RealtimeUsage) {
+            sessionLog.usage = total
         }
     }
 
@@ -573,6 +673,10 @@ class VoiceModeController(
      */
     private suspend fun reconcile(sessionLog: SessionLog) {
         val conversationId = sessionLog.conversationId ?: return
+        if (sessionLog.provider.isRealtime) {
+            recordRealtimeSpend(sessionLog, conversationId)
+            return
+        }
         var latest: VoiceConversationRecord? = null
         val record = withTimeoutOrNull(RECONCILE_TIMEOUT_MS) {
             repeat(RECONCILE_ATTEMPTS) { attempt ->
@@ -651,14 +755,54 @@ class VoiceModeController(
         )
     }
 
+    /**
+     * One Spend row per Gemini or OpenAI call, priced from the tokens the server reported. Gemini
+     * hasn't published 3.8 Live prices, so its row is marked as an estimate.
+     */
+    private fun recordRealtimeSpend(sessionLog: SessionLog, conversationId: String) {
+        val endedAt = sessionLog.endedAt ?: System.currentTimeMillis()
+        val seconds = (endedAt - sessionLog.startedAt).coerceAtLeast(0) / 1_000.0
+        val usage = sessionLog.usage
+        val usd = RealtimePricing.usd(sessionLog.llm, usage)
+        val provider = if (sessionLog.provider == VoiceProvider.Gemini) UsageProvider.Gemini else UsageProvider.OpenAi
+        UsageLedger.record(
+            UsageRecord(
+                id = "${provider.name}:voice:$conversationId",
+                provider = provider.name,
+                keyHash = UsageKeys.hash(sessionLog.apiKey),
+                createdAt = sessionLog.startedAt,
+                kind = UsageKind.Voice.name,
+                model = sessionLog.llm,
+                externalId = conversationId,
+                inputTokens = (usage.textIn + usage.audioIn + usage.cachedIn).takeIf { it > 0 },
+                outputTokens = (usage.textOut + usage.audioOut).takeIf { it > 0 },
+                cachedTokens = usage.cachedIn.takeIf { it > 0 },
+                costUsd = usd,
+                audioSeconds = seconds,
+                detail = when {
+                    usage.isEmpty -> "Voice mode · no usage reported"
+                    RealtimePricing.exact(sessionLog.llm) -> "Voice mode"
+                    else -> "Voice mode · estimated"
+                },
+            ),
+        )
+    }
+
     private data class SavedTurn(val fromUser: Boolean, val message: ChatMessage)
 
     private class Prewarmed(val fingerprint: String, val url: String, val at: Long) {
         fun fresh() = System.currentTimeMillis() - at < PREWARM_FRESH_MS
     }
 
-    private class SessionLog(val startChatId: String?, val apiKey: String, val llm: String) {
+    private class SessionLog(
+        val startChatId: String?,
+        val apiKey: String,
+        /** The ElevenLabs LLM, or the Gemini / OpenAI realtime model. */
+        val llm: String,
+        val provider: VoiceProvider,
+    ) {
         var chatId: String? = null
+        @Volatile var usage = RealtimeUsage()
         var conversationId: String? = null
         var startedAt: Long = System.currentTimeMillis()
         var endedAt: Long? = null
