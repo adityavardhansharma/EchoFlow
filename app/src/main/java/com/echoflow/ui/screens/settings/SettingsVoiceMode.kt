@@ -25,8 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -48,6 +51,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +70,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,22 +133,25 @@ internal fun VoiceModePage(
     var llmsExpanded by rememberSaveable { mutableStateOf(false) }
 
     SettingsPageScaffold(title = "Voice mode", subtitle = "Talk with EchoFlow · ${picked.label}", onBack = onBack) {
-        PageSection("Provider", "Who listens and answers. The call screen is the same for all three.")
-        Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-            VoiceProvider.entries.forEachIndexed { index, provider ->
-                ProviderRow(
-                    provider = provider,
-                    selected = provider == picked,
-                    status = when {
-                        keys.ready(provider) -> null
-                        provider == VoiceProvider.ElevenLabs && verifying -> "Checking your key…"
-                        else -> "Needs your ${provider.label} key"
-                    },
-                    index = index, count = VoiceProvider.entries.size,
-                    onClick = { voiceViewModel.saveProvider(provider) },
-                )
-            }
-        }
+        PageSection("Provider", "Who listens and answers. Pick one; the call screen is the same for all three.")
+        VoiceProviderSelector(
+            picked = picked,
+            status = { provider ->
+                when {
+                    keys.ready(provider) -> "Ready"
+                    provider == VoiceProvider.ElevenLabs && verifying -> "Checking…"
+                    else -> "Add key"
+                }
+            },
+            ready = keys::ready,
+            onSelect = { voiceViewModel.saveProvider(it) },
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Text(
+            picked.engine(),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
         Spacer(Modifier.height(Spacing.s))
         Text(
             picked.blurb,
@@ -320,44 +328,58 @@ internal fun VoiceModePage(
     }
 }
 
-/** One provider to pick: its logo, name, and what's missing when it can't run yet. */
+/**
+ * The provider switcher: an M3 Expressive connected button group with one tall toggle per
+ * provider (logo, name, and whether its key is ready). The picked one fills with primary.
+ */
 @Composable
-private fun ProviderRow(
-    provider: VoiceProvider,
-    selected: Boolean,
-    status: String?,
-    index: Int,
-    count: Int,
-    onClick: () -> Unit,
+private fun VoiceProviderSelector(
+    picked: VoiceProvider,
+    status: (VoiceProvider) -> String,
+    ready: (VoiceProvider) -> Boolean,
+    onSelect: (VoiceProvider) -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = groupedItemShape(index, count),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.fillMaxWidth().semantics { role = Role.RadioButton },
+    val options = VoiceProvider.entries
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
-        Row(
-            Modifier.padding(horizontal = Spacing.base, vertical = Spacing.m),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProviderLogo(directProviderBrand(provider.keyProvider()), size = 40.dp)
-            Spacer(Modifier.width(Spacing.base))
-            Column(Modifier.weight(1f)) {
-                Text(provider.label, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    status ?: provider.engine(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        status != null -> MaterialTheme.colorScheme.error
-                        selected -> MaterialTheme.colorScheme.onPrimaryContainer
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        options.forEachIndexed { index, provider ->
+            val checked = provider == picked
+            val label = status(provider)
+            ToggleButton(
+                checked = checked,
+                onCheckedChange = { if (it) onSelect(provider) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                contentPadding = PaddingValues(horizontal = Spacing.xs, vertical = Spacing.m),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 112.dp)
+                    .semantics {
+                        role = Role.RadioButton
+                        stateDescription = label
                     },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ProviderLogo(directProviderBrand(provider.keyProvider()), size = 36.dp)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(provider.label, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (ready(provider)) Icons.Default.CheckCircle else Icons.Default.Key,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
             }
-            if (selected) Icon(Icons.Default.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -368,7 +390,7 @@ private fun VoiceProvider.keyProvider(): CustomModelProvider = when (this) {
     VoiceProvider.OpenAi -> CustomModelProvider.OpenAi
 }
 
-/** What runs the call, in a few words, for the provider row. */
+/** What runs the call, in a few words, under the provider switcher. */
 private fun VoiceProvider.engine(): String = when (this) {
     VoiceProvider.ElevenLabs -> "Agents · your pick of LLM and voice"
     VoiceProvider.Gemini -> "Gemini Live · speech to speech"
