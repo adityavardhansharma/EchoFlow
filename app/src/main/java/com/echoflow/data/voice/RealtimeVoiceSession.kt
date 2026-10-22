@@ -575,14 +575,23 @@ internal class RealtimeVoiceSession(
     internal companion object {
         /**
          * The part of [text] heard after [playedMillis] of a reply [receivedMillis] long, cut at a
-         * word, assuming the words are spread evenly through the audio.
+         * word (or a character, in scripts without spaces), assuming the words are spread evenly
+         * through the audio.
          */
         fun heardPart(text: String, playedMillis: Long, receivedMillis: Long): String {
             if (receivedMillis <= 0 || playedMillis >= receivedMillis) return text
-            val end = (text.length * playedMillis / receivedMillis).toInt()
+            var end = (text.length * playedMillis / receivedMillis).toInt()
             if (end <= 0) return ""
-            val cut = text.lastIndexOf(' ', end).takeIf { it > 0 } ?: return ""
-            return text.substring(0, cut).trimEnd(',', ';', ':', ' ') + "…"
+            val cut = if (text.any(Char::isWhitespace)) {
+                text.lastIndexOf(' ', end).takeIf { it > 0 } ?: return ""
+            } else {
+                // Chinese, Japanese and the like have no spaces: cut at the character, keeping
+                // surrogate pairs whole.
+                if (Character.isLowSurrogate(text[end])) end--
+                end
+            }
+            if (cut <= 0) return ""
+            return text.substring(0, cut).trimEnd(',', ';', ':', ' ', '，', '、') + "…"
         }
 
         private const val TAG = "RealtimeVoiceSession"

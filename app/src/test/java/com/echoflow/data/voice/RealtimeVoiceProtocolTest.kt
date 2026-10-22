@@ -211,4 +211,12 @@ class RealtimeVoiceProtocolTest {
         assertEquals("Sure, here are three…", RealtimeVoiceSession.heardPart(text, playedMillis = 2_000, receivedMillis = 4_000))
         assertEquals("", RealtimeVoiceSession.heardPart(text, playedMillis = 300, receivedMillis = 4_000))
     }
+
+    @Test
+    fun `a reply without spaces is cut at a character`() {
+        val text = "今日はいい天気ですね。散歩に行きましょう。"
+        assertEquals("今日はいい天気ですね…", RealtimeVoiceSession.heardPart(text, playedMillis = 2_000, receivedMillis = 4_000))
+        assertEquals("", RealtimeVoiceSession.heardPart(text, playedMillis = 0, receivedMillis = 4_000))
+        assertEquals("😀…", RealtimeVoiceSession.heardPart("😀😀", playedMillis = 3, receivedMillis = 4))
+    }
 }
