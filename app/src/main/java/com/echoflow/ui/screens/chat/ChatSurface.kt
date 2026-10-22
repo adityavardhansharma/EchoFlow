@@ -543,7 +543,6 @@ internal fun ChatSurface(
             val voiceAgentCaption by chatViewModel.voiceAgentCaption.collectAsState()
             val voiceLastUserTurn by chatViewModel.voiceLastUserTurn.collectAsState()
             val voiceUserTurns by chatViewModel.voiceUserTurns.collectAsState()
-            val voicePlan by chatViewModel.voicePlan.collectAsState()
             com.echoflow.ui.screens.voice.VoiceModeStage(
                 state = voiceModeState,
                 activity = voiceActivity,
@@ -553,7 +552,6 @@ internal fun ChatSurface(
                 agentCaption = voiceAgentCaption,
                 lastUserTurn = voiceLastUserTurn,
                 userTurns = voiceUserTurns,
-                plan = voicePlan,
                 actions = com.echoflow.ui.screens.voice.VoiceStageActions(
                     onToggleMic = chatViewModel::toggleVoiceMic,
                     onToggleSpeaker = chatViewModel::toggleVoiceSpeaker,

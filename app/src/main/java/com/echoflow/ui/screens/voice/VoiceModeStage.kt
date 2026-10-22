@@ -12,7 +12,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -22,7 +21,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -132,7 +130,6 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.echoflow.data.voice.HeardChips
 import com.echoflow.data.voice.VoiceAgentActivity
-import com.echoflow.data.voice.VoicePlan
 import com.echoflow.ui.chat.VoiceModePhase
 import com.echoflow.ui.chat.VoiceModeUiState
 import com.echoflow.ui.chat.VoiceRecap
@@ -168,8 +165,6 @@ internal data class VoiceStageActions(
  *
  * Around it:
  * - Key details the user says (amounts, dates, names) rise onto the line as chips while they talk.
- * - When the agent shows a card (a plan, steps, options) it builds at the top as the agent
- *   speaks, and lines the user changes are marked.
  * - While the agent talks, a tap anywhere cuts it off.
  * - Held to the ear, the screen goes dark like a phone call.
  * - When the call ends, a recap shows what it produced, with the chat or another call one tap away.
@@ -187,7 +182,6 @@ internal fun VoiceModeStage(
     agentCaption: String,
     lastUserTurn: String,
     userTurns: Int,
-    plan: VoicePlan?,
     actions: VoiceStageActions,
     modifier: Modifier = Modifier,
 ) {
@@ -216,7 +210,6 @@ internal fun VoiceModeStage(
                     agentCaption = agentCaption,
                     lastUserTurn = lastUserTurn,
                     userTurns = userTurns,
-                    plan = plan,
                     actions = actions,
                 )
             }
@@ -247,7 +240,6 @@ private fun CallScreen(
     agentCaption: String,
     lastUserTurn: String,
     userTurns: Int,
-    plan: VoicePlan?,
     actions: VoiceStageActions,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -322,7 +314,7 @@ private fun CallScreen(
     var lineAt by remember { mutableFloatStateOf(Float.NaN) } // within the line's area
 
     // The keyboard and system bars come off the whole screen, so [compact] sees the room that's
-    // really left. The controls are measured first and keep their size; the header, card and
+    // really left. The controls are measured first and keep their size; the header and the
     // line share whatever remains, so the controls stay usable on short screens and with the
     // keyboard open.
     Box(
@@ -354,110 +346,84 @@ private fun CallScreen(
                 Column(Modifier.weight(1f).fillMaxWidth()) {
                     CallHeader(state, activity, onToggleSpeaker = actions.onToggleSpeaker)
 
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                        // The card takes at most 40% of what's left; with too little room it steps
-                        // aside and comes back when the keyboard closes.
-                        val cardRoom = minOf(220.dp, maxHeight * 0.4f)
-                        val cardShown = plan != null && cardRoom >= MIN_CARD
-                        Column(Modifier.fillMaxSize()) {
-                            AnimatedVisibility(
-                                visible = cardShown,
-                                enter = fadeIn(tween(260)) + expandVertically(tween(320)),
-                                exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
-                            ) {
-                                if (plan != null) {
-                                    // Bounded and scrollable, so a long card never squeezes out the line or the controls.
-                                    PlanCard(
-                                        plan = plan,
-                                        tag = "Live",
-                                        scrollable = true,
-                                        modifier = Modifier
-                                            .padding(horizontal = Spacing.base, vertical = Spacing.s)
-                                            .heightIn(max = cardRoom),
+                    BoxWithConstraints(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            // Captions stay inside the line's area and never spill onto the controls.
+                            .clipToBounds()
+                            .onGloballyPositioned { lineAreaTop = it.positionInRoot().y }
+                            .pointerInput(speaking) {
+                                detectTapGestures { at ->
+                                    if (speaking) {
+                                        tapAt = at
+                                        actions.onCutIn()
+                                    }
+                                }
+                            }
+                            .semantics { if (speaking) contentDescription = "Tap to interrupt" },
+                    ) {
+                        val area = maxHeight
+                        val lineY = area * 0.5f
+                        val lineYPx = with(LocalDensity.current) { lineY.toPx() }
+                        SideEffect { lineAt = lineYPx }
+
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawHorizon(
+                                hy = lineY.toPx(),
+                                t = time,
+                                weights = weights,
+                                inLevel = inLevel,
+                                outLevel = outLevel,
+                                grow = grow.value,
+                                flash = flash.value,
+                                colors = colors,
+                            )
+                            tapAt?.let { at ->
+                                val p = tapRing.value
+                                if (p < 1f) {
+                                    drawCircle(
+                                        color = colors.flash.copy(alpha = 0.35f * (1f - p)),
+                                        radius = (12.dp + 60.dp * p).toPx(),
+                                        center = at,
+                                        style = Stroke(width = 1.5.dp.toPx()),
                                     )
                                 }
                             }
+                        }
 
-                            BoxWithConstraints(
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    // Captions stay inside the line's area and never spill onto the controls.
-                                    .clipToBounds()
-                                    .onGloballyPositioned { lineAreaTop = it.positionInRoot().y }
-                                    .pointerInput(speaking) {
-                                        detectTapGestures { at ->
-                                            if (speaking) {
-                                                tapAt = at
-                                                actions.onCutIn()
-                                            }
-                                        }
-                                    }
-                                    .semantics { if (speaking) contentDescription = "Tap to interrupt" },
-                            ) {
-                                val area = maxHeight
-                                val lineY by animateDpAsState(area * (if (cardShown) 0.56f else 0.5f), tween(420), label = "line-y")
-                                val lineYPx = with(LocalDensity.current) { lineY.toPx() }
-                                SideEffect { lineAt = lineYPx }
+                        // The agent, above the line.
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                // Clear of the line even at the top of its swing while the agent talks.
+                                .height((lineY - 44.dp).coerceAtLeast(0.dp))
+                                .padding(horizontal = Spacing.xl),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            AgentZone(state, activity, agentCaption, room = lineY - 44.dp)
+                        }
 
-                                Canvas(Modifier.fillMaxSize()) {
-                                    drawHorizon(
-                                        hy = lineY.toPx(),
-                                        t = time,
-                                        weights = weights,
-                                        inLevel = inLevel,
-                                        outLevel = outLevel,
-                                        grow = grow.value,
-                                        flash = flash.value,
-                                        colors = colors,
-                                    )
-                                    tapAt?.let { at ->
-                                        val p = tapRing.value
-                                        if (p < 1f) {
-                                            drawCircle(
-                                                color = colors.flash.copy(alpha = 0.35f * (1f - p)),
-                                                radius = (12.dp + 60.dp * p).toPx(),
-                                                center = at,
-                                                style = Stroke(width = 1.5.dp.toPx()),
-                                            )
-                                        }
-                                    }
-                                }
+                        // What was heard, riding the line.
+                        HeardChipRow(
+                            text = when {
+                                userCaption.isNotBlank() -> userCaption
+                                mode == LineMode.Think -> lastUserTurn
+                                else -> ""
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = lineY - 15.dp),
+                        )
 
-                                // The agent, above the line.
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        // Clear of the line even at the top of its swing while the agent talks.
-                                        .height((lineY - 44.dp).coerceAtLeast(0.dp))
-                                        .padding(horizontal = Spacing.xl),
-                                    contentAlignment = Alignment.BottomStart,
-                                ) {
-                                    AgentZone(state, activity, agentCaption, room = lineY - 44.dp)
-                                }
-
-                                // What was heard, riding the line.
-                                HeardChipRow(
-                                    text = when {
-                                        userCaption.isNotBlank() -> userCaption
-                                        mode == LineMode.Think -> lastUserTurn
-                                        else -> ""
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .offset(y = lineY - 15.dp),
-                                )
-
-                                // The user, below it.
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .offset(y = lineY + 22.dp)
-                                        .padding(horizontal = Spacing.xl),
-                                ) {
-                                    UserZone(state, userCaption, lastUserTurn, room = area - lineY - 22.dp)
-                                }
-                            }
+                        // The user, below it.
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .offset(y = lineY + 22.dp)
+                                .padding(horizontal = Spacing.xl),
+                        ) {
+                            UserZone(state, userCaption, lastUserTurn, room = area - lineY - 22.dp)
                         }
                     }
                 }
@@ -699,98 +665,6 @@ private fun HeardChip(label: String) {
     }
 }
 
-/** The card the agent builds: a title, then a line per item. Changed lines carry a mark. */
-@Composable
-internal fun PlanCard(
-    plan: VoicePlan,
-    tag: String,
-    modifier: Modifier = Modifier,
-    /** True when the card has a bounded height of its own (the call screen); the recap scrolls as a whole. */
-    scrollable: Boolean = false,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = scheme.surfaceContainerHigh,
-        contentColor = scheme.onSurface,
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("voice-plan"),
-    ) {
-        Column(
-            Modifier
-                .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .padding(horizontal = Spacing.base, vertical = Spacing.m)
-                .animateContentSize(tween(260)),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    plan.title.ifBlank { "Plan" },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(Spacing.s))
-                Text(tag.uppercase(), style = MonoLabel, color = scheme.onSurfaceVariant)
-            }
-            plan.rows.forEachIndexed { index, row ->
-                androidx.compose.runtime.key(index) {
-                    Box(
-                        Modifier
-                            .padding(top = Spacing.s)
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(scheme.outlineVariant.copy(alpha = 0.6f)),
-                    )
-                    Row(
-                        Modifier.padding(top = Spacing.s),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (row.label.isNotBlank()) {
-                            Text(
-                                row.label.uppercase(),
-                                style = MonoLabel,
-                                color = scheme.onSurfaceVariant,
-                                maxLines = 1,
-                                modifier = Modifier.width(64.dp),
-                            )
-                        }
-                        val edited by animateFloatAsState(if (row.edited) 1f else 0f, tween(300), label = "edited")
-                        if (edited > 0f) {
-                            Box(
-                                Modifier
-                                    .padding(end = Spacing.s)
-                                    .width(2.dp * edited)
-                                    .height(16.dp)
-                                    .clip(CircleShape)
-                                    .background(scheme.primary),
-                            )
-                        }
-                        AnimatedContent(
-                            targetState = row.text,
-                            transitionSpec = {
-                                (fadeIn(tween(260, delayMillis = 80)) + slideInVertically { it / 3 }) togetherWith fadeOut(tween(140))
-                            },
-                            label = "plan-row",
-                            modifier = Modifier.weight(1f),
-                        ) { text ->
-                            Text(
-                                text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = scheme.onSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** A field to type into the call, opened from the keyboard button. Typing asks the agent to wait. */
 @Composable
 private fun TypeRow(state: VoiceModeUiState, text: String, onDraft: (String) -> Unit, actions: VoiceStageActions) {
@@ -949,8 +823,8 @@ private fun CallControls(
 }
 
 /**
- * What the call left behind: how long it ran, the card if there was one (or the agent's last
- * words), and the next step one tap away. It shows while the call is still being saved, so
+ * What the call left behind: how long it ran, the agent's last words, and the next step one
+ * tap away. It shows while the call is still being saved, so
  * ending a call never shows a spinner.
  */
 @Composable
@@ -988,17 +862,14 @@ private fun RecapScreen(state: VoiceModeUiState, recap: VoiceRecap, actions: Voi
             }
             Spacer(Modifier.height(Spacing.s))
             Text(
-                recap.plan?.title?.takeIf { it.isNotBlank() } ?: "That's in your chat",
+                "That's in your chat",
                 style = MaterialTheme.typography.headlineMedium,
                 color = scheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(Spacing.xl))
-            val plan = recap.plan
-            if (plan != null) {
-                PlanCard(plan = plan.copy(rows = plan.rows.map { it.copy(edited = false) }), tag = if (saved) "Saved" else "Saving")
-            } else if (recap.lastAgentTurn.isNotBlank()) {
+            if (recap.lastAgentTurn.isNotBlank()) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
                     color = scheme.surfaceContainerHigh,
@@ -1078,9 +949,6 @@ private fun PocketMode(enabled: Boolean) {
 
 /** Below this height (a landscape phone, or the keyboard open) the call controls shrink. */
 private val COMPACT_HEIGHT = 560.dp
-
-/** The live card needs at least this much room to be worth showing. */
-private val MIN_CARD = 72.dp
 
 private const val POCKET_LOCK_MAX_MS = 60 * 60 * 1000L
 
