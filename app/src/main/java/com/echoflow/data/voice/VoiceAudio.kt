@@ -3,6 +3,7 @@ package com.echoflow.data.voice
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
@@ -13,7 +14,10 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -312,36 +316,62 @@ internal class VoiceProximity(context: Context, private val onChange: (atEar: Bo
 }
 
 /**
- * Puts the phone in call mode for the session — what makes echo cancellation work — and plays
- * through the loudspeaker unless headphones or a headset are connected. Everything is restored
- * on [release].
+ * Puts the phone in call mode for the session (what makes echo cancellation work) and picks where
+ * the call is heard: a Bluetooth or wired headset when one is connected, otherwise the
+ * loudspeaker, or the earpiece while the phone is held to the ear. In call mode the system does
+ * not move audio to a Bluetooth headset by itself, so the headset is selected explicitly; the
+ * mic follows the same device. Headsets connecting or disconnecting mid-call are followed.
+ * Everything is restored on [release].
  */
 internal class VoiceAudioRouting(context: Context) {
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val handler = Handler(Looper.getMainLooper())
     private var previousMode = AudioManager.MODE_NORMAL
     private var focusRequest: AudioFocusRequest? = null
-    private var speakerForced = false
+    private var active = false
+    private var atEar = false
 
+    /** Android 12+: the app chose the call's device, so [release] hands the choice back. */
+    private var deviceChosen = false
+
+    /** Before Android 12: the Bluetooth headset's voice link was opened by the app. */
+    private var scoStarted = false
+
+    /** Before Android 12: the loudspeaker was turned on by the app. */
+    private var speakerOn = false
+
+    private val deviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = reroute()
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = reroute()
+    }
+
+    @Synchronized
     fun acquire() {
+        if (active) return
         runCatching {
             previousMode = audio.mode
             audio.mode = AudioManager.MODE_IN_COMMUNICATION
             requestFocus()
-            routeToSpeakerUnlessHeadset()
+            active = true
+            applyRoute()
+            audio.registerAudioDeviceCallback(deviceCallback, handler)
         }.onFailure { Log.w(TAG, "Couldn't set up call audio", it) }
     }
 
+    @Synchronized
     fun release() {
+        if (!active) return
+        active = false
+        atEar = false
         runCatching {
-            if (speakerForced) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audio.clearCommunicationDevice()
-                } else {
-                    @Suppress("DEPRECATION")
-                    audio.isSpeakerphoneOn = false
-                }
+            audio.unregisterAudioDeviceCallback(deviceCallback)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (deviceChosen) audio.clearCommunicationDevice()
+                deviceChosen = false
+            } else {
+                stopSco()
+                setSpeaker(false)
             }
-            speakerForced = false
             abandonFocus()
             audio.mode = previousMode
         }.onFailure { Log.w(TAG, "Couldn't restore audio", it) }
@@ -349,44 +379,78 @@ internal class VoiceAudioRouting(context: Context) {
 
     /**
      * The phone is held to the ear (or taken away): play through the earpiece like a normal call,
-     * then back to the loudspeaker. Only when the app chose the loudspeaker itself; a headset
-     * stays as it is.
+     * then back to the loudspeaker. A connected headset stays as it is.
      */
+    @Synchronized
     fun holdToEar(atEar: Boolean) {
-        if (!speakerForced) return
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val type = if (atEar) AudioDeviceInfo.TYPE_BUILTIN_EARPIECE else AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                audio.availableCommunicationDevices.firstOrNull { it.type == type }?.let { audio.setCommunicationDevice(it) }
-            } else {
-                @Suppress("DEPRECATION")
-                audio.isSpeakerphoneOn = !atEar
-            }
-        }.onFailure { Log.w(TAG, "Couldn't switch the earpiece", it) }
+        if (this.atEar == atEar) return
+        this.atEar = atEar
+        if (active) runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't switch the earpiece", it) }
     }
 
-    private fun routeToSpeakerUnlessHeadset() {
-        val headsetTypes = buildSet {
-            add(AudioDeviceInfo.TYPE_WIRED_HEADSET)
-            add(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
-            add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
-            add(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
-            add(AudioDeviceInfo.TYPE_USB_HEADSET)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(AudioDeviceInfo.TYPE_BLE_HEADSET)
-                add(AudioDeviceInfo.TYPE_BLE_SPEAKER)
+    @Synchronized
+    private fun reroute() {
+        if (active) runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't follow the headset", it) }
+    }
+
+    private fun applyRoute() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) applyRouteS() else applyRouteLegacy()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun applyRouteS() {
+        val devices = audio.availableCommunicationDevices
+        val headset = HEADSET_PRIORITY.firstNotNullOfOrNull { type -> devices.firstOrNull { it.type == type } }
+        val builtIn = if (atEar) AudioDeviceInfo.TYPE_BUILTIN_EARPIECE else AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        val target = headset ?: devices.firstOrNull { it.type == builtIn } ?: return
+        if (audio.communicationDevice?.id == target.id) {
+            deviceChosen = true
+            return
+        }
+        if (audio.setCommunicationDevice(target)) {
+            deviceChosen = true
+        } else {
+            Log.w(TAG, "Couldn't route the call to device type ${target.type}")
+        }
+    }
+
+    private fun applyRouteLegacy() {
+        val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val bluetooth = outputs.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        val wired = outputs.any { it.type in WIRED_TYPES }
+        when {
+            bluetooth -> {
+                setSpeaker(false)
+                if (!scoStarted) {
+                    @Suppress("DEPRECATION")
+                    audio.startBluetoothSco()
+                    @Suppress("DEPRECATION")
+                    audio.isBluetoothScoOn = true
+                    scoStarted = true
+                }
+            }
+            else -> {
+                stopSco()
+                // A wired headset takes the call by itself in call mode.
+                setSpeaker(!wired && !atEar)
             }
         }
-        val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        if (outputs.any { it.type in headsetTypes }) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val speaker = audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            if (speaker != null && audio.setCommunicationDevice(speaker)) speakerForced = true
-        } else {
-            @Suppress("DEPRECATION")
-            audio.isSpeakerphoneOn = true
-            speakerForced = true
-        }
+    }
+
+    private fun stopSco() {
+        if (!scoStarted) return
+        @Suppress("DEPRECATION")
+        audio.isBluetoothScoOn = false
+        @Suppress("DEPRECATION")
+        audio.stopBluetoothSco()
+        scoStarted = false
+    }
+
+    private fun setSpeaker(on: Boolean) {
+        if (on == speakerOn) return
+        @Suppress("DEPRECATION")
+        audio.isSpeakerphoneOn = on
+        speakerOn = on
     }
 
     private fun requestFocus() {
@@ -419,5 +483,21 @@ internal class VoiceAudioRouting(context: Context) {
 
     private companion object {
         const val TAG = "VoiceAudioRouting"
+
+        val WIRED_TYPES = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
+
+        /** Where a call goes when several are connected, most preferred first. */
+        val HEADSET_PRIORITY: List<Int> = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(AudioDeviceInfo.TYPE_BLE_HEADSET)
+            add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(AudioDeviceInfo.TYPE_BLE_SPEAKER)
+            add(AudioDeviceInfo.TYPE_USB_HEADSET)
+            add(AudioDeviceInfo.TYPE_WIRED_HEADSET)
+            add(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+        }
     }
 }
