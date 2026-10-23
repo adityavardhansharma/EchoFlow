@@ -1,8 +1,12 @@
 package com.echoflow.data.voice
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
@@ -13,7 +17,10 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -312,84 +319,57 @@ internal class VoiceProximity(context: Context, private val onChange: (atEar: Bo
 }
 
 /**
- * Puts the phone in call mode for the session — what makes echo cancellation work — and plays
- * through the loudspeaker unless headphones or a headset are connected. Everything is restored
- * on [release].
+ * What [VoiceAudioRouting] needs from the platform's audio system, so the routing can be tested
+ * without a phone. Devices are named by their [AudioDeviceInfo] type.
  */
-internal class VoiceAudioRouting(context: Context) {
-    private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private var previousMode = AudioManager.MODE_NORMAL
-    private var focusRequest: AudioFocusRequest? = null
-    private var speakerForced = false
+internal interface CallAudio {
+    /** Android 12+: the call's device is chosen with setCommunicationDevice. */
+    val choosesCommunicationDevice: Boolean
+    var mode: Int
+    fun requestFocus()
+    fun abandonFocus()
 
-    fun acquire() {
-        runCatching {
-            previousMode = audio.mode
-            audio.mode = AudioManager.MODE_IN_COMMUNICATION
-            requestFocus()
-            routeToSpeakerUnlessHeadset()
-        }.onFailure { Log.w(TAG, "Couldn't set up call audio", it) }
-    }
+    /** Android 12+: the devices a call can be routed to. */
+    fun communicationDevices(): List<Int>
+    /** Android 12+: the device the call is routed to now, if the app or the system chose one. */
+    fun communicationDevice(): Int?
+    fun setCommunicationDevice(type: Int): Boolean
+    fun clearCommunicationDevice()
 
-    fun release() {
-        runCatching {
-            if (speakerForced) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audio.clearCommunicationDevice()
-                } else {
-                    @Suppress("DEPRECATION")
-                    audio.isSpeakerphoneOn = false
-                }
-            }
-            speakerForced = false
-            abandonFocus()
-            audio.mode = previousMode
-        }.onFailure { Log.w(TAG, "Couldn't restore audio", it) }
-    }
-
+    /** Before Android 12: the connected outputs. */
+    fun outputs(): List<Int>
     /**
-     * The phone is held to the ear (or taken away): play through the earpiece like a normal call,
-     * then back to the loudspeaker. Only when the app chose the loudspeaker itself; a headset
-     * stays as it is.
+     * Before Android 12: opens the Bluetooth headset's voice link. It connects in the background;
+     * [onFailed] is called if it doesn't, until [stopBluetoothSco].
      */
-    fun holdToEar(atEar: Boolean) {
-        if (!speakerForced) return
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val type = if (atEar) AudioDeviceInfo.TYPE_BUILTIN_EARPIECE else AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                audio.availableCommunicationDevices.firstOrNull { it.type == type }?.let { audio.setCommunicationDevice(it) }
-            } else {
-                @Suppress("DEPRECATION")
-                audio.isSpeakerphoneOn = !atEar
-            }
-        }.onFailure { Log.w(TAG, "Couldn't switch the earpiece", it) }
-    }
+    fun startBluetoothSco(onFailed: () -> Unit)
+    fun stopBluetoothSco()
+    fun isSpeakerphoneOn(): Boolean
+    fun setSpeakerphone(on: Boolean)
 
-    private fun routeToSpeakerUnlessHeadset() {
-        val headsetTypes = buildSet {
-            add(AudioDeviceInfo.TYPE_WIRED_HEADSET)
-            add(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
-            add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
-            add(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
-            add(AudioDeviceInfo.TYPE_USB_HEADSET)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(AudioDeviceInfo.TYPE_BLE_HEADSET)
-                add(AudioDeviceInfo.TYPE_BLE_SPEAKER)
-            }
-        }
-        val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        if (outputs.any { it.type in headsetTypes }) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val speaker = audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            if (speaker != null && audio.setCommunicationDevice(speaker)) speakerForced = true
-        } else {
-            @Suppress("DEPRECATION")
-            audio.isSpeakerphoneOn = true
-            speakerForced = true
-        }
-    }
+    /** Calls [onChange] when an audio device connects or disconnects, until [unwatchDevices]. */
+    fun watchDevices(onChange: () -> Unit)
+    fun unwatchDevices()
+}
 
-    private fun requestFocus() {
+/** [CallAudio] on the phone's [AudioManager]. */
+internal class AndroidCallAudio(context: Context) : CallAudio {
+    private val appContext = context.applicationContext
+    private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var scoReceiver: BroadcastReceiver? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var focusRequest: AudioFocusRequest? = null
+    private var deviceCallback: AudioDeviceCallback? = null
+
+    override val choosesCommunicationDevice: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    override var mode: Int
+        get() = audio.mode
+        set(value) {
+            audio.mode = value
+        }
+
+    override fun requestFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
@@ -407,7 +387,7 @@ internal class VoiceAudioRouting(context: Context) {
         }
     }
 
-    private fun abandonFocus() {
+    override fun abandonFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audio.abandonAudioFocusRequest(it) }
             focusRequest = null
@@ -417,7 +397,246 @@ internal class VoiceAudioRouting(context: Context) {
         }
     }
 
-    private companion object {
-        const val TAG = "VoiceAudioRouting"
+    override fun communicationDevices(): List<Int> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.availableCommunicationDevices.map { it.type } else emptyList()
+
+    override fun communicationDevice(): Int? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.communicationDevice?.type else null
+
+    override fun setCommunicationDevice(type: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        val device = audio.availableCommunicationDevices.firstOrNull { it.type == type } ?: return false
+        return audio.setCommunicationDevice(device)
+    }
+
+    override fun clearCommunicationDevice() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.clearCommunicationDevice()
+    }
+
+    override fun outputs(): List<Int> = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+
+    @Suppress("DEPRECATION")
+    override fun startBluetoothSco(onFailed: () -> Unit) {
+        unwatchSco()
+        // The sticky broadcast first replays the current (disconnected) state, so only a drop
+        // after the link started connecting counts as a failure.
+        var connecting = false
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, AudioManager.SCO_AUDIO_STATE_ERROR)) {
+                    AudioManager.SCO_AUDIO_STATE_CONNECTING, AudioManager.SCO_AUDIO_STATE_CONNECTED -> connecting = true
+                    AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> if (connecting) onFailed()
+                    AudioManager.SCO_AUDIO_STATE_ERROR -> onFailed()
+                }
+            }
+        }
+        scoReceiver = receiver
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        audio.startBluetoothSco()
+        audio.isBluetoothScoOn = true
+    }
+
+    @Suppress("DEPRECATION")
+    override fun stopBluetoothSco() {
+        unwatchSco()
+        audio.isBluetoothScoOn = false
+        audio.stopBluetoothSco()
+    }
+
+    private fun unwatchSco() {
+        scoReceiver?.let { runCatching { appContext.unregisterReceiver(it) } }
+        scoReceiver = null
+    }
+
+    @Suppress("DEPRECATION")
+    override fun isSpeakerphoneOn(): Boolean = audio.isSpeakerphoneOn
+
+    @Suppress("DEPRECATION")
+    override fun setSpeakerphone(on: Boolean) {
+        audio.isSpeakerphoneOn = on
+    }
+
+    override fun watchDevices(onChange: () -> Unit) {
+        unwatchDevices()
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = onChange()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = onChange()
+        }
+        deviceCallback = callback
+        audio.registerAudioDeviceCallback(callback, handler)
+    }
+
+    override fun unwatchDevices() {
+        deviceCallback?.let { audio.unregisterAudioDeviceCallback(it) }
+        deviceCallback = null
+    }
+}
+
+/**
+ * Puts the phone in call mode for the session (what makes echo cancellation work) and picks where
+ * the call is heard: a Bluetooth or wired headset when one is connected, otherwise the
+ * loudspeaker, or the earpiece while the phone is held to the ear. In call mode the system does
+ * not move audio to a Bluetooth headset by itself, so the headset is selected explicitly; the
+ * mic follows the same device. Headsets connecting or disconnecting mid-call are followed.
+ * Everything is restored on [release].
+ */
+internal class VoiceAudioRouting(private val audio: CallAudio) {
+    constructor(context: Context) : this(AndroidCallAudio(context))
+
+    private var previousMode = AudioManager.MODE_NORMAL
+    private var active = false
+    private var atEar = false
+
+    /** Android 12+: the app chose the call's device, so [release] hands the choice back. */
+    private var deviceChosen = false
+
+    /** Before Android 12: the Bluetooth headset's voice link was opened by the app. */
+    private var scoStarted = false
+
+    /** Before Android 12: whether the loudspeaker is on, and whether it was before the call. */
+    private var speakerOn = false
+    private var previousSpeakerOn = false
+
+    /** Before Android 12: the headset's voice link failed; the call stays off it until it reconnects. */
+    private var scoFailed = false
+
+    @Synchronized
+    fun acquire() {
+        if (active) return
+        runCatching {
+            previousMode = audio.mode
+            if (!audio.choosesCommunicationDevice) {
+                previousSpeakerOn = audio.isSpeakerphoneOn()
+                speakerOn = previousSpeakerOn
+                scoFailed = false
+            }
+            audio.mode = AudioManager.MODE_IN_COMMUNICATION
+            audio.requestFocus()
+            active = true
+            applyRoute()
+            audio.watchDevices(::reroute)
+        }.onFailure { Log.w(TAG, "Couldn't set up call audio", it) }
+    }
+
+    @Synchronized
+    fun release() {
+        if (!active) return
+        active = false
+        atEar = false
+        runCatching {
+            audio.unwatchDevices()
+            if (audio.choosesCommunicationDevice) {
+                if (deviceChosen) audio.clearCommunicationDevice()
+                deviceChosen = false
+            } else {
+                stopSco()
+                setSpeaker(previousSpeakerOn)
+            }
+            audio.abandonFocus()
+            audio.mode = previousMode
+        }.onFailure { Log.w(TAG, "Couldn't restore audio", it) }
+    }
+
+    /**
+     * The phone is held to the ear (or taken away): play through the earpiece like a normal call,
+     * then back to the loudspeaker. A connected headset stays as it is.
+     */
+    @Synchronized
+    fun holdToEar(atEar: Boolean) {
+        if (this.atEar == atEar) return
+        this.atEar = atEar
+        if (active) runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't switch the earpiece", it) }
+    }
+
+    @Synchronized
+    private fun reroute() {
+        if (active) runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't follow the headset", it) }
+    }
+
+    private fun applyRoute() {
+        if (audio.choosesCommunicationDevice) chooseCommunicationDevice() else routeLegacy()
+    }
+
+    private fun chooseCommunicationDevice() {
+        val target = pickDevice(audio.communicationDevices(), atEar) ?: return
+        if (audio.communicationDevice() == target) {
+            deviceChosen = true
+            return
+        }
+        if (audio.setCommunicationDevice(target)) {
+            deviceChosen = true
+        } else {
+            Log.w(TAG, "Couldn't route the call to device type $target")
+        }
+    }
+
+    private fun routeLegacy() {
+        val outputs = audio.outputs()
+        val headset = AudioDeviceInfo.TYPE_BLUETOOTH_SCO in outputs
+        // The headset went away, so a later reconnect gets a fresh try.
+        if (!headset) scoFailed = false
+        if (headset && !scoFailed) {
+            setSpeaker(false)
+            if (!scoStarted) {
+                audio.startBluetoothSco(::scoLost)
+                scoStarted = true
+            }
+        } else {
+            stopSco()
+            // A wired headset takes the call by itself in call mode.
+            setSpeaker(outputs.none { it in WIRED_TYPES } && !atEar)
+        }
+    }
+
+    /** The headset's voice link failed or dropped: fall back to the phone's own speaker or earpiece. */
+    @Synchronized
+    private fun scoLost() {
+        if (!active || !scoStarted) return
+        scoFailed = true
+        runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't fall back from the headset", it) }
+    }
+
+    private fun stopSco() {
+        if (!scoStarted) return
+        audio.stopBluetoothSco()
+        scoStarted = false
+    }
+
+    private fun setSpeaker(on: Boolean) {
+        if (on == speakerOn) return
+        audio.setSpeakerphone(on)
+        speakerOn = on
+    }
+
+    internal companion object {
+        private const val TAG = "VoiceAudioRouting"
+
+        private val WIRED_TYPES = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
+
+        /** Where a call goes when several are connected, most preferred first. */
+        private val HEADSET_PRIORITY = listOf(
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        )
+
+        /** Android 12+: the device a call goes to, from those [available]; null when none fits. */
+        fun pickDevice(available: List<Int>, atEar: Boolean): Int? {
+            HEADSET_PRIORITY.firstOrNull { it in available }?.let { return it }
+            val builtIn = if (atEar) AudioDeviceInfo.TYPE_BUILTIN_EARPIECE else AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            return builtIn.takeIf { it in available }
+        }
     }
 }
