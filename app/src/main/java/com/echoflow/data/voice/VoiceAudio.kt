@@ -1,7 +1,10 @@
 package com.echoflow.data.voice
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -17,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -334,8 +338,13 @@ internal interface CallAudio {
 
     /** Before Android 12: the connected outputs. */
     fun outputs(): List<Int>
-    fun startBluetoothSco()
+    /**
+     * Before Android 12: opens the Bluetooth headset's voice link. It connects in the background;
+     * [onFailed] is called if it doesn't, until [stopBluetoothSco].
+     */
+    fun startBluetoothSco(onFailed: () -> Unit)
     fun stopBluetoothSco()
+    fun isSpeakerphoneOn(): Boolean
     fun setSpeakerphone(on: Boolean)
 
     /** Calls [onChange] when an audio device connects or disconnects, until [unwatchDevices]. */
@@ -345,7 +354,9 @@ internal interface CallAudio {
 
 /** [CallAudio] on the phone's [AudioManager]. */
 internal class AndroidCallAudio(context: Context) : CallAudio {
+    private val appContext = context.applicationContext
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var scoReceiver: BroadcastReceiver? = null
     private val handler = Handler(Looper.getMainLooper())
     private var focusRequest: AudioFocusRequest? = null
     private var deviceCallback: AudioDeviceCallback? = null
@@ -405,16 +416,45 @@ internal class AndroidCallAudio(context: Context) : CallAudio {
     override fun outputs(): List<Int> = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
 
     @Suppress("DEPRECATION")
-    override fun startBluetoothSco() {
+    override fun startBluetoothSco(onFailed: () -> Unit) {
+        unwatchSco()
+        // The sticky broadcast first replays the current (disconnected) state, so only a drop
+        // after the link started connecting counts as a failure.
+        var connecting = false
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, AudioManager.SCO_AUDIO_STATE_ERROR)) {
+                    AudioManager.SCO_AUDIO_STATE_CONNECTING, AudioManager.SCO_AUDIO_STATE_CONNECTED -> connecting = true
+                    AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> if (connecting) onFailed()
+                    AudioManager.SCO_AUDIO_STATE_ERROR -> onFailed()
+                }
+            }
+        }
+        scoReceiver = receiver
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         audio.startBluetoothSco()
         audio.isBluetoothScoOn = true
     }
 
     @Suppress("DEPRECATION")
     override fun stopBluetoothSco() {
+        unwatchSco()
         audio.isBluetoothScoOn = false
         audio.stopBluetoothSco()
     }
+
+    private fun unwatchSco() {
+        scoReceiver?.let { runCatching { appContext.unregisterReceiver(it) } }
+        scoReceiver = null
+    }
+
+    @Suppress("DEPRECATION")
+    override fun isSpeakerphoneOn(): Boolean = audio.isSpeakerphoneOn
 
     @Suppress("DEPRECATION")
     override fun setSpeakerphone(on: Boolean) {
@@ -458,14 +498,23 @@ internal class VoiceAudioRouting(private val audio: CallAudio) {
     /** Before Android 12: the Bluetooth headset's voice link was opened by the app. */
     private var scoStarted = false
 
-    /** Before Android 12: the loudspeaker was turned on by the app. */
+    /** Before Android 12: whether the loudspeaker is on, and whether it was before the call. */
     private var speakerOn = false
+    private var previousSpeakerOn = false
+
+    /** Before Android 12: the headset's voice link failed; the call stays off it until it reconnects. */
+    private var scoFailed = false
 
     @Synchronized
     fun acquire() {
         if (active) return
         runCatching {
             previousMode = audio.mode
+            if (!audio.choosesCommunicationDevice) {
+                previousSpeakerOn = audio.isSpeakerphoneOn()
+                speakerOn = previousSpeakerOn
+                scoFailed = false
+            }
             audio.mode = AudioManager.MODE_IN_COMMUNICATION
             audio.requestFocus()
             active = true
@@ -486,7 +535,7 @@ internal class VoiceAudioRouting(private val audio: CallAudio) {
                 deviceChosen = false
             } else {
                 stopSco()
-                setSpeaker(false)
+                setSpeaker(previousSpeakerOn)
             }
             audio.abandonFocus()
             audio.mode = previousMode
@@ -528,10 +577,13 @@ internal class VoiceAudioRouting(private val audio: CallAudio) {
 
     private fun routeLegacy() {
         val outputs = audio.outputs()
-        if (AudioDeviceInfo.TYPE_BLUETOOTH_SCO in outputs) {
+        val headset = AudioDeviceInfo.TYPE_BLUETOOTH_SCO in outputs
+        // The headset went away, so a later reconnect gets a fresh try.
+        if (!headset) scoFailed = false
+        if (headset && !scoFailed) {
             setSpeaker(false)
             if (!scoStarted) {
-                audio.startBluetoothSco()
+                audio.startBluetoothSco(::scoLost)
                 scoStarted = true
             }
         } else {
@@ -539,6 +591,14 @@ internal class VoiceAudioRouting(private val audio: CallAudio) {
             // A wired headset takes the call by itself in call mode.
             setSpeaker(outputs.none { it in WIRED_TYPES } && !atEar)
         }
+    }
+
+    /** The headset's voice link failed or dropped: fall back to the phone's own speaker or earpiece. */
+    @Synchronized
+    private fun scoLost() {
+        if (!active || !scoStarted) return
+        scoFailed = true
+        runCatching { applyRoute() }.onFailure { Log.w(TAG, "Couldn't fall back from the headset", it) }
     }
 
     private fun stopSco() {

@@ -22,6 +22,7 @@ class VoiceAudioRoutingTest {
         var current: Int? = null
         var focused = false
         var scoOn = false
+        var scoFailure: (() -> Unit)? = null
         var speakerOn = false
         var onChange: (() -> Unit)? = null
         var clears = 0
@@ -40,8 +41,15 @@ class VoiceAudioRoutingTest {
             clears++
         }
         override fun outputs() = devices.toList()
-        override fun startBluetoothSco() { scoOn = true }
-        override fun stopBluetoothSco() { scoOn = false }
+        override fun startBluetoothSco(onFailed: () -> Unit) {
+            scoOn = true
+            scoFailure = onFailed
+        }
+        override fun stopBluetoothSco() {
+            scoOn = false
+            scoFailure = null
+        }
+        override fun isSpeakerphoneOn() = speakerOn
         override fun setSpeakerphone(on: Boolean) { speakerOn = on }
         override fun watchDevices(onChange: () -> Unit) { this.onChange = onChange }
         override fun unwatchDevices() { onChange = null }
@@ -157,5 +165,38 @@ class VoiceAudioRoutingTest {
         VoiceAudioRouting(a2dp).acquire()
         assertTrue(a2dp.speakerOn)
         assertFalse(a2dp.scoOn)
+    }
+
+    @Test
+    fun `before android 12 a failed headset link falls back to the loudspeaker until the headset reconnects`() {
+        val audio = FakeCallAudio(choosesCommunicationDevice = false).apply { devices += TYPE_BLUETOOTH_SCO }
+        val routing = VoiceAudioRouting(audio)
+        routing.acquire()
+        assertTrue(audio.scoOn)
+        audio.scoFailure!!.invoke()
+        assertFalse(audio.scoOn)
+        assertTrue(audio.speakerOn)
+        // Another device change with the headset still there doesn't retry the failed link.
+        audio.connect(TYPE_WIRED_HEADSET)
+        audio.disconnect(TYPE_WIRED_HEADSET)
+        assertFalse(audio.scoOn)
+        // The headset reconnecting does.
+        audio.disconnect(TYPE_BLUETOOTH_SCO)
+        audio.connect(TYPE_BLUETOOTH_SCO)
+        assertTrue(audio.scoOn)
+        assertFalse(audio.speakerOn)
+    }
+
+    @Test
+    fun `before android 12 release puts the loudspeaker back how it was`() {
+        val audio = FakeCallAudio(choosesCommunicationDevice = false).apply {
+            devices += TYPE_WIRED_HEADSET
+            speakerOn = true
+        }
+        val routing = VoiceAudioRouting(audio)
+        routing.acquire()
+        assertFalse(audio.speakerOn)
+        routing.release()
+        assertTrue(audio.speakerOn)
     }
 }

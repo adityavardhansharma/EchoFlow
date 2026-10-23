@@ -193,7 +193,6 @@ internal class RealtimeVoiceSession(
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     protocol.setup(spec, resumeHandle).forEach(webSocket::send)
-                    watchSetup(webSocket)
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) = message(webSocket, text)
@@ -215,7 +214,7 @@ internal class RealtimeVoiceSession(
                     closed(webSocket, response?.code ?: -1, response?.message.orEmpty(), t)
                 }
             },
-        )
+        ).also(::watchSetup)
     }
 
     private fun message(webSocket: WebSocket, text: String) {
@@ -230,8 +229,9 @@ internal class RealtimeVoiceSession(
     }
 
     /**
-     * The socket opened but the server hasn't confirmed the setup in time: rather than sit on
-     * "Connecting" forever, close it, which ends the call with an error (or retries a resume).
+     * The server hasn't confirmed the session in time, whether the socket never finished opening
+     * or it opened and the setup went unanswered: rather than sit on "Connecting" forever, close
+     * it, which ends the call with an error (or retries a resume).
      */
     private fun watchSetup(webSocket: WebSocket) {
         timeouts.postDelayed({
@@ -630,8 +630,8 @@ internal class RealtimeVoiceSession(
         private const val HOLD_MAX_MS = 4_000L
         /** Less than this left of a reply isn't worth cutting off. */
         private const val CUT_MARGIN_MS = 150L
-        /** How long the server gets to confirm the session after the socket opens. */
-        private const val SETUP_TIMEOUT_MS = 15_000L
+        /** How long the server gets to open the socket and confirm the session. */
+        private const val SETUP_TIMEOUT_MS = 25_000L
         private const val SETUP_TIMEOUT_CODE = 4_000
     }
 }
