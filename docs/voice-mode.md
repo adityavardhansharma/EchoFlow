@@ -23,9 +23,6 @@ ElevenLabs key.
   touch the line; while the agent talks they sink. Glows are toned down in light themes.
 - **Heard chips.** Key details in what the user is saying (amounts, dates, names) rise onto the
   line as chips while they talk. `HeardChips` picks them from the live transcript on the device.
-- **Live card.** When an answer has a shape (a plan, steps, options), the agent calls the
-  `show_card` client tool and a card builds at the top of the screen. When the user changes
-  something, the agent sends the whole card again and changed lines are marked.
 - **Controls.** Keyboard (opens a "Type to talk…" field; typing asks the agent to hold off), one
   big button in the line's colour (mic on/off in primary; Stop in tertiary while the agent talks),
   and End. While the agent talks, a tap anywhere also stops it and drops the rest of that reply.
@@ -35,10 +32,9 @@ ElevenLabs key.
   the sound to the earpiece, unless a headset is connected.
 - **Ending.** End, Back, the notification's End action, or 5 minutes of quiet (with a 30 s
   countdown) closes the call. A recap shows at once, while the call saves: the call's length and
-  turns, the card (or the agent's last words), and **Open chat** / **Keep talking**. A call where
+  turns, the agent's last words, and **Open chat** / **Keep talking**. A call where
   nothing was said goes straight back to the chat. The chat shows every turn as normal messages,
-  so typing can continue with the chat's own model. A card from the call is saved after the turns
-  as its own message, since the agent doesn't read it out word for word.
+  so typing can continue with the chat's own model.
 
 ## Settings (Settings → Voice mode)
 
@@ -64,15 +60,15 @@ The page appears in the hub only once the key has authenticated.
 - **Agent.** `VoiceAgentProvisioner` keeps one "EchoFlow Voice" agent per key in sync with the
   settings. It creates the agent once and PATCHes it when the settings hash changes, so an
   unchanged config costs no request. If the agent was deleted on ElevenLabs, it recreates it. The
-  agent carries the `show_card` client tool (and asks for `client_tool_call` events); an account
-  that rejects it gets the same agent without the tool, and then the prompt doesn't mention it.
+  agent has no tools; its `tools` list is sent empty so an agent made by an older version loses
+  the card tool it used to carry.
 - **Session.** `VoiceSession` connects to the signed WebSocket URL, sends
   `conversation_initiation_client_data` (the prompt with the chat so far, the LLM, the voice and the
   language), and then:
   - streams 16 kHz PCM up, with echo cancellation and noise suppression;
   - plays the agent's PCM down on a voice-communication track;
   - answers pings, handles interruptions, and sends typed text as `user_message`;
-  - answers `client_tool_call` for `show_card` with a `client_tool_result`.
+  - turns down any `client_tool_call` with an error result, since the app offers no tools.
 - **Saving.** `VoiceModeController` saves each finished turn into the chat as it happens, so a
   crash loses nothing. After the call it fetches ElevenLabs' own transcript
   (`GET /v1/convai/conversations/{id}`) and rewrites the session's turns if they differ.

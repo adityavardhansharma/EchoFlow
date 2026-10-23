@@ -3,7 +3,6 @@ package com.echoflow.data.voice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceAgentSpecToolTest {
@@ -19,21 +18,12 @@ class VoiceAgentSpecToolTest {
         ((body["conversation_config"] as Map<String, Any?>)["conversation"] as Map<String, Any?>)["client_events"] as List<String>
 
     @Test
-    fun `the agent carries the card tool and asks for its event`() {
+    fun `the agent clears any card tool left by older versions`() {
         val body = VoiceAgentSpec.agentBody(config)
-        val tools = prompt(body)["tools"] as List<*>
-        assertEquals(VoicePlanTool.NAME, (tools.single() as Map<*, *>)["name"])
-        assertTrue(VoiceAgentSpec.TOOL_EVENT in events(body))
-    }
-
-    @Test
-    fun `without tools neither the tool, its event nor its instructions are sent`() {
-        val body = VoiceAgentSpec.agentBody(config, withTools = false)
-        assertNull(prompt(body)["tools"])
-        assertFalse(VoiceAgentSpec.TOOL_EVENT in events(body))
+        assertEquals(emptyList<Any>(), prompt(body)["tools"])
+        assertFalse("client_tool_call" in events(body))
         assertFalse("show_card" in (prompt(body)["prompt"] as String))
-        assertFalse("show_card" in VoiceAgentSpec.sessionPrompt(emptyList(), withCard = false))
-        assertTrue("show_card" in VoiceAgentSpec.sessionPrompt(emptyList(), withCard = true))
+        assertFalse("show_card" in VoiceAgentSpec.sessionPrompt(emptyList()))
     }
 
     @Suppress("UNCHECKED_CAST")

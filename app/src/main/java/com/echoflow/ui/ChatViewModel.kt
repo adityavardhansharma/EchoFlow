@@ -955,7 +955,6 @@ class ChatViewModel(
     val voiceAgentCaption: StateFlow<String> get() = voiceMode.agentCaption
     val voiceLastUserTurn: StateFlow<String> get() = voiceMode.lastUserTurn
     val voiceUserTurns: StateFlow<Int> get() = voiceMode.userTurns
-    val voicePlan: StateFlow<com.echoflow.data.voice.VoicePlan?> get() = voiceMode.plan
 
     /** Starts voice mode on the open chat; [micAllowed] false is a typing-only session. */
     fun startVoiceMode(micAllowed: Boolean) {

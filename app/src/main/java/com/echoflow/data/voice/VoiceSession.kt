@@ -71,10 +71,6 @@ internal class VoiceSession(
     private val _userTurns = MutableStateFlow(0)
     val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
 
-    /** The card the agent is building, if it made one. */
-    private val _plan = MutableStateFlow<VoicePlan?>(null)
-    val plan: StateFlow<VoicePlan?> = _plan.asStateFlow()
-
     /** True once the user spoke before the call connected, so the greeting is skipped. */
     @Volatile var spokeEarly = false
         private set
@@ -300,16 +296,10 @@ internal class VoiceSession(
             is VoiceServerEvent.Ping -> webSocket.send(VoiceSessionProtocol.pong(event.eventId))
             is VoiceServerEvent.Vad -> if (event.score > SPEECH_VAD) listener.onActivity()
             is VoiceServerEvent.Error -> Log.w(TAG, "Agent error: ${event.message}")
-            is VoiceServerEvent.ClientToolCall -> {
-                val reply = if (event.name == VoicePlanTool.NAME) {
-                    val card = VoicePlanTool.parse(event.parameters, _plan.value)
-                    if (card != null) _plan.value = card
-                    VoiceSessionProtocol.clientToolResult(event.callId, if (card != null) "Shown on the user's screen." else "The card was empty.", isError = card == null)
-                } else {
-                    VoiceSessionProtocol.clientToolResult(event.callId, "This app has no tool called ${event.name}.", isError = true)
-                }
-                webSocket.send(reply)
-            }
+            // The app offers no client tools. An agent that still asks for one gets a plain no.
+            is VoiceServerEvent.ClientToolCall -> webSocket.send(
+                VoiceSessionProtocol.clientToolResult(event.callId, "This app has no tool called ${event.name}.", isError = true),
+            )
             VoiceServerEvent.Ignored -> Unit
         }
         // Speaking ends when the last audio has played out, not when the reply text arrives.
