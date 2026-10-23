@@ -235,11 +235,14 @@ internal class RealtimeVoiceSession(
      */
     private fun watchSetup(webSocket: WebSocket) {
         timeouts.postDelayed({
-            if (webSocket !== socket || finished || connected) return@postDelayed
-            Log.w(TAG, "${protocol.provider.label} didn't confirm the session setup in time")
-            // Closed out first, so the cancel's own failure callback finds a stale socket and is ignored.
-            closed(webSocket, SETUP_TIMEOUT_CODE, "${protocol.provider.label} didn't answer. Try again in a moment.", null)
-            webSocket.cancel()
+            // Under the turn lock, so a setupComplete being handled right now finishes first.
+            synchronized(turnLock) {
+                if (webSocket !== socket || finished || connected) return@postDelayed
+                Log.w(TAG, "${protocol.provider.label} didn't confirm the session setup in time")
+                // Closed out first, so the cancel's own failure callback finds a stale socket and is ignored.
+                closed(webSocket, SETUP_TIMEOUT_CODE, "${protocol.provider.label} didn't answer. Try again in a moment.", null)
+                webSocket.cancel()
+            }
         }, SETUP_TIMEOUT_MS)
     }
 
