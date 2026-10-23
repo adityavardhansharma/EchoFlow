@@ -1,6 +1,8 @@
 package com.echoflow.data.voice
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +13,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 import java.util.concurrent.TimeUnit
 
 /**
@@ -68,6 +71,7 @@ internal class RealtimeVoiceSession(
     private val proximity = VoiceProximity(context) { atEar -> routing.holdToEar(atEar) }
     private val conversationId = "local-" + java.util.UUID.randomUUID().toString()
     private var socket: WebSocket? = null
+    private val timeouts = Handler(Looper.getMainLooper())
     private var microphone: VoiceMicrophone? = null
     private var player: VoicePlayer? = null
     private var apiKey = ""
@@ -189,18 +193,13 @@ internal class RealtimeVoiceSession(
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     protocol.setup(spec, resumeHandle).forEach(webSocket::send)
+                    watchSetup(webSocket)
                 }
 
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    if (webSocket !== socket) return
-                    val events = runCatching { protocol.parse(text) { Base64.decode(it, Base64.DEFAULT) } }
-                        .onFailure { Log.w(TAG, "Couldn't read a server message", it) }
-                        .getOrDefault(emptyList())
-                    synchronized(turnLock) {
-                        events.forEach { handle(webSocket, it) }
-                        afterEvents()
-                    }
-                }
+                override fun onMessage(webSocket: WebSocket, text: String) = message(webSocket, text)
+
+                // Gemini Live sends its JSON in binary frames, so these are read the same way.
+                override fun onMessage(webSocket: WebSocket, bytes: ByteString) = message(webSocket, bytes.utf8())
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                     webSocket.close(1000, null)
@@ -217,6 +216,31 @@ internal class RealtimeVoiceSession(
                 }
             },
         )
+    }
+
+    private fun message(webSocket: WebSocket, text: String) {
+        if (webSocket !== socket) return
+        val events = runCatching { protocol.parse(text) { Base64.decode(it, Base64.DEFAULT) } }
+            .onFailure { Log.w(TAG, "Couldn't read a server message", it) }
+            .getOrDefault(emptyList())
+        synchronized(turnLock) {
+            events.forEach { handle(webSocket, it) }
+            afterEvents()
+        }
+    }
+
+    /**
+     * The socket opened but the server hasn't confirmed the setup in time: rather than sit on
+     * "Connecting" forever, close it, which ends the call with an error (or retries a resume).
+     */
+    private fun watchSetup(webSocket: WebSocket) {
+        timeouts.postDelayed({
+            if (webSocket !== socket || finished || connected) return@postDelayed
+            Log.w(TAG, "${protocol.provider.label} didn't confirm the session setup in time")
+            // Closed out first, so the cancel's own failure callback finds a stale socket and is ignored.
+            closed(webSocket, SETUP_TIMEOUT_CODE, "${protocol.provider.label} didn't answer. Try again in a moment.", null)
+            webSocket.cancel()
+        }, SETUP_TIMEOUT_MS)
     }
 
     /** A connection ended. A resumable one that the user didn't end is picked up on a new socket. */
@@ -559,6 +583,7 @@ internal class RealtimeVoiceSession(
         _inputLevel.value = 0f
         _outputLevel.value = 0f
         socket = null
+        timeouts.removeCallbacksAndMessages(null)
         // Whatever was said last but never closed out still belongs in the chat.
         synchronized(turnLock) {
             // OpenAI: words heard for a turn whose transcript never finished still go in, ahead
@@ -602,5 +627,8 @@ internal class RealtimeVoiceSession(
         private const val HOLD_MAX_MS = 4_000L
         /** Less than this left of a reply isn't worth cutting off. */
         private const val CUT_MARGIN_MS = 150L
+        /** How long the server gets to confirm the session after the socket opens. */
+        private const val SETUP_TIMEOUT_MS = 15_000L
+        private const val SETUP_TIMEOUT_CODE = 4_000
     }
 }
