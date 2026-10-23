@@ -25,8 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -48,6 +51,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,13 +67,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
+import com.echoflow.data.CustomModelProvider
 import com.echoflow.data.usage.UsageKeys
+import com.echoflow.data.voice.RealtimeCatalog
+import com.echoflow.data.voice.RealtimeVoice
 import com.echoflow.data.voice.VoiceAccount
+import com.echoflow.data.voice.VoiceModeConfig
+import com.echoflow.data.voice.VoiceProvider
+import com.echoflow.data.voice.VoiceProviderKeys
 import com.echoflow.data.voice.VoiceLanguages
 import com.echoflow.data.voice.VoiceLlms
 import com.echoflow.data.voice.VoiceOption
@@ -87,13 +101,16 @@ import java.util.Locale
 private const val LLMS_COLLAPSED = 6
 
 /**
- * Voice mode settings: the voice, its style (Expressive or Fast), the LLM that answers, and the
- * language. Shown from the settings hub only once the ElevenLabs key has authenticated.
+ * Voice mode settings: who runs calls (ElevenLabs, Gemini Live or OpenAI Realtime), then that
+ * provider's voice, model and language. For ElevenLabs that's also the voice style and the LLM.
+ * Shown from the settings hub once any of the three can run a call.
  */
 @Composable
 internal fun VoiceModePage(
     viewModel: SettingsViewModel,
     onOpenElevenLabs: () -> Unit,
+    onOpenGemini: () -> Unit,
+    onOpenOpenAi: () -> Unit,
     onBack: () -> Unit,
     voiceViewModel: VoiceModeSettingsViewModel = composeViewModel(),
 ) {
@@ -107,15 +124,65 @@ internal fun VoiceModePage(
     val verifying by voiceViewModel.verifying.collectAsState()
     val llms by voiceViewModel.llms.collectAsState()
     val llmsLoading by voiceViewModel.llmsLoading.collectAsState()
-    val verified = key.isNotEmpty() && verifiedHash == UsageKeys.hash(key)
+    val keys = VoiceProviderKeys.from(providers, verifiedHash, UsageKeys::hash)
+    val picked = config.provider
 
     var showVoices by rememberSaveable { mutableStateOf(false) }
+    var showRealtimeVoices by rememberSaveable { mutableStateOf(false) }
     var showLanguages by rememberSaveable { mutableStateOf(false) }
     var llmsExpanded by rememberSaveable { mutableStateOf(false) }
 
-    SettingsPageScaffold(title = "Voice mode", subtitle = "Talk with EchoFlow · ElevenLabs", onBack = onBack) {
-        if (!verified) {
-            NotConnectedCard(verifying = verifying, onOpenElevenLabs = onOpenElevenLabs)
+    SettingsPageScaffold(title = "Voice mode", subtitle = "Talk with EchoFlow · ${picked.label}", onBack = onBack) {
+        PageSection("Provider", "Who listens and answers. Pick one; the call screen is the same for all three.")
+        VoiceProviderSelector(
+            picked = picked,
+            status = { provider ->
+                when {
+                    keys.ready(provider) -> "Ready"
+                    provider == VoiceProvider.ElevenLabs && verifying -> "Checking…"
+                    else -> "Add key"
+                }
+            },
+            ready = keys::ready,
+            onSelect = { voiceViewModel.saveProvider(it) },
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Text(
+            picked.engine(),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            picked.blurb,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xs),
+        )
+        Spacer(Modifier.height(Spacing.xl))
+
+        if (!keys.ready(picked)) {
+            NotConnectedCard(
+                provider = picked,
+                verifying = picked == VoiceProvider.ElevenLabs && verifying,
+                fallback = keys.resolve(picked),
+                onOpenKey = when (picked) {
+                    VoiceProvider.ElevenLabs -> onOpenElevenLabs
+                    VoiceProvider.Gemini -> onOpenGemini
+                    VoiceProvider.OpenAi -> onOpenOpenAi
+                },
+            )
+            return@SettingsPageScaffold
+        }
+
+        if (picked.isRealtime) {
+            RealtimeSettings(
+                provider = picked,
+                config = config,
+                onOpenVoices = { showRealtimeVoices = true },
+                onPickModel = { voiceViewModel.saveRealtimeModel(picked, it) },
+                onOpenLanguages = { showLanguages = true },
+            )
             return@SettingsPageScaffold
         }
 
@@ -238,6 +305,17 @@ internal fun VoiceModePage(
             },
         )
     }
+    if (showRealtimeVoices && picked.isRealtime) {
+        RealtimeVoiceSheet(
+            provider = picked,
+            selected = config.realtimeVoice(picked),
+            onSelect = {
+                voiceViewModel.saveRealtimeVoice(picked, it)
+                showRealtimeVoices = false
+            },
+            onDismiss = { showRealtimeVoices = false },
+        )
+    }
     if (showLanguages) {
         LanguageSheet(
             selected = config.language,
@@ -250,8 +328,83 @@ internal fun VoiceModePage(
     }
 }
 
+/**
+ * The provider switcher: an M3 Expressive connected button group with one tall toggle per
+ * provider (logo, name, and whether its key is ready). The picked one fills with primary.
+ */
 @Composable
-private fun NotConnectedCard(verifying: Boolean, onOpenElevenLabs: () -> Unit) {
+private fun VoiceProviderSelector(
+    picked: VoiceProvider,
+    status: (VoiceProvider) -> String,
+    ready: (VoiceProvider) -> Boolean,
+    onSelect: (VoiceProvider) -> Unit,
+) {
+    val options = VoiceProvider.entries
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        options.forEachIndexed { index, provider ->
+            val checked = provider == picked
+            val label = status(provider)
+            ToggleButton(
+                checked = checked,
+                onCheckedChange = { if (it) onSelect(provider) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                contentPadding = PaddingValues(horizontal = Spacing.xs, vertical = Spacing.m),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 112.dp)
+                    .semantics {
+                        role = Role.RadioButton
+                        stateDescription = label
+                    },
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ProviderLogo(directProviderBrand(provider.keyProvider()), size = 36.dp)
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(provider.label, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (ready(provider)) Icons.Default.CheckCircle else Icons.Default.Key,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun VoiceProvider.keyProvider(): CustomModelProvider = when (this) {
+    VoiceProvider.ElevenLabs -> CustomModelProvider.ElevenLabs
+    VoiceProvider.Gemini -> CustomModelProvider.Gemini
+    VoiceProvider.OpenAi -> CustomModelProvider.OpenAi
+}
+
+/** What runs the call, in a few words, under the provider switcher. */
+private fun VoiceProvider.engine(): String = when (this) {
+    VoiceProvider.ElevenLabs -> "Agents · your pick of LLM and voice"
+    VoiceProvider.Gemini -> "Gemini Live · speech to speech"
+    VoiceProvider.OpenAi -> "GPT Realtime · speech to speech"
+}
+
+@Composable
+private fun NotConnectedCard(
+    provider: VoiceProvider,
+    verifying: Boolean,
+    /** Who runs calls meanwhile, if anyone. */
+    fallback: VoiceProvider?,
+    onOpenKey: () -> Unit,
+) {
     FormCard {
         if (verifying) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -260,15 +413,168 @@ private fun NotConnectedCard(verifying: Boolean, onOpenElevenLabs: () -> Unit) {
                 Text("Checking your ElevenLabs key…", style = MaterialTheme.typography.bodyLarge)
             }
         } else {
-            Text("Connect ElevenLabs", style = MaterialTheme.typography.titleMedium)
+            Text("Connect ${provider.label}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                "Voice mode runs on your ElevenLabs key. Add a working key to turn it on.",
+                when (provider) {
+                    VoiceProvider.ElevenLabs -> "ElevenLabs calls run on your ElevenLabs key. Add a working key to use it."
+                    VoiceProvider.Gemini -> "Gemini Live runs on your Gemini API key. Add it and switch Gemini on."
+                    VoiceProvider.OpenAi -> "GPT Realtime runs on your OpenAI API key. Add it and switch OpenAI on."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (fallback != null && fallback != provider) {
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    "Until then, calls use ${fallback.label}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             Spacer(Modifier.height(Spacing.m))
-            Button(onClick = onOpenElevenLabs) { Text("Open ElevenLabs key") }
+            Button(onClick = onOpenKey) { Text("Open ${provider.label} key") }
+        }
+    }
+}
+
+/** Gemini Live and OpenAI Realtime: a built-in voice, the realtime model, and the language. */
+@Composable
+private fun RealtimeSettings(
+    provider: VoiceProvider,
+    config: VoiceModeConfig,
+    onOpenVoices: () -> Unit,
+    onPickModel: (String) -> Unit,
+    onOpenLanguages: () -> Unit,
+) {
+    val voices = RealtimeCatalog.voices(provider)
+    val voice = voices.firstOrNull { it.id == config.realtimeVoice(provider) }
+    PageSection("Voice", "Who you hear: one of ${provider.label}'s ${voices.size} built-in voices.")
+    PickerRow(
+        icon = Icons.Default.RecordVoiceOver,
+        polygon = MaterialShapes.Cookie9Sided,
+        title = voice?.name ?: config.realtimeVoice(provider),
+        subtitle = voice?.traits ?: "Tap to change",
+        index = 0, count = 1,
+        onClick = onOpenVoices,
+    )
+    Spacer(Modifier.height(Spacing.xl))
+
+    val models = RealtimeCatalog.models(provider)
+    val selectedModel = config.realtimeModel(provider)
+    PageSection("Model", "It hears you and speaks back itself, so there's no separate LLM or voice model.")
+    Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
+        models.forEachIndexed { index, model ->
+            ChoiceRow(
+                title = model.label,
+                subtitle = model.blurb,
+                selected = model.id == selectedModel,
+                index = index, count = models.size,
+                onClick = { onPickModel(model.id) },
+            )
+        }
+    }
+    Spacer(Modifier.height(Spacing.xl))
+
+    PageSection("Language", "The language it starts in.")
+    PickerRow(
+        icon = Icons.Default.Language,
+        polygon = MaterialShapes.Clover4Leaf,
+        title = VoiceLanguages.label(config.language),
+        subtitle = "It still follows you if you switch mid-chat",
+        index = 0, count = 1,
+        onClick = onOpenLanguages,
+    )
+    Spacer(Modifier.height(Spacing.xl))
+
+    FormCard {
+        Text("How voice mode works", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(Spacing.s))
+        val billing = when (provider) {
+            VoiceProvider.Gemini ->
+                "Google bills the audio it hears and speaks, by token. Spend shows an estimate until Google publishes 3.8 Live prices."
+            else -> "OpenAI bills the audio it hears and speaks, by token. Spend shows each call."
+        }
+        listOf(
+            "Tap the waveform in an empty composer to start. You can talk, type, or both.",
+            "Your turns are saved into the chat and shown when the call ends.",
+            billing,
+            "A call ends by itself after 5 minutes of quiet.",
+        ).forEach { line ->
+            Text(
+                "•  $line",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/** Gemini's or OpenAI's built-in voices. They have no preview clips, so it's a plain list. */
+@Composable
+private fun RealtimeVoiceSheet(
+    provider: VoiceProvider,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val all = RealtimeCatalog.voices(provider)
+    val shown = all.filter {
+        query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) || it.traits.contains(query.trim(), ignoreCase = true)
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.padding(horizontal = Spacing.base)) {
+            Text(
+                "${provider.label} voices",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = Spacing.xs),
+            )
+            Spacer(Modifier.height(Spacing.m))
+            if (all.size > 12) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search by name or style") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") }
+                        }
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.m))
+            }
+        }
+        LazyColumn(
+            contentPadding = PaddingValues(start = Spacing.base, end = Spacing.base, bottom = Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+            modifier = Modifier.heightIn(min = 240.dp),
+        ) {
+            itemsIndexed(shown, key = { _, v -> v.id }) { index, voice ->
+                ChoiceRow(
+                    title = voice.name,
+                    subtitle = voice.traits,
+                    selected = voice.id.equals(selected, ignoreCase = true),
+                    index = index, count = shown.size,
+                    onClick = { onSelect(voice.id) },
+                )
+            }
+            if (shown.isEmpty()) {
+                item(key = "empty") {
+                    Text(
+                        "No voices match \"$query\".",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(Spacing.base),
+                    )
+                }
+            }
         }
     }
 }
@@ -623,13 +929,25 @@ private fun LanguageSheet(selected: String, onSelect: (String) -> Unit, onDismis
     }
 }
 
-/** True when voice mode is set up: the ElevenLabs key is on and has authenticated. */
+/**
+ * Which voice providers can run a call: an ElevenLabs key that has authenticated, or a Gemini or
+ * OpenAI key that's switched on. Voice mode shows in the hub when any of them can.
+ */
 @Composable
-internal fun rememberVoiceModeReady(viewModel: SettingsViewModel): Boolean {
+internal fun rememberVoiceProviderKeys(viewModel: SettingsViewModel): VoiceProviderKeys {
     val providers by viewModel.customProviderConfig.collectAsState()
     val voiceViewModel: VoiceModeSettingsViewModel = composeViewModel()
     val key = if (providers.elevenLabsAvailable) providers.elevenLabsApiKey.trim() else ""
     LaunchedEffect(key) { voiceViewModel.bind(key) }
     val verifiedHash by voiceViewModel.verifiedKeyHash.collectAsState()
-    return key.isNotEmpty() && verifiedHash == UsageKeys.hash(key)
+    return VoiceProviderKeys.from(providers, verifiedHash, UsageKeys::hash)
 }
+
+/** The hub row's subtitle: the model and voice of whoever runs calls now. */
+internal fun voiceModeHubSubtitle(config: VoiceModeConfig, keys: VoiceProviderKeys): String =
+    when (val provider = keys.resolve(config.provider)) {
+        null, VoiceProvider.ElevenLabs -> VoiceLlms.label(config.llm) + " · " +
+            (config.voiceName?.takeIf { config.voiceId != null } ?: "Default voice")
+        else -> RealtimeCatalog.modelLabel(config.realtimeModel(provider)) + " · " +
+            RealtimeVoice(config.realtimeVoice(provider), "").name
+    }

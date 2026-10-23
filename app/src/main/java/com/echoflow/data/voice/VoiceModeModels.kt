@@ -123,7 +123,21 @@ data class VoiceModeConfig(
     val voiceName: String? = null,
     val voiceCategory: String? = null,
     val language: String = VoiceLanguages.DEFAULT,
+    /** Who runs the call. The fields above are ElevenLabs'; the ones below are the realtime providers'. */
+    val provider: VoiceProvider = VoiceProvider.DEFAULT,
+    val geminiModel: String = RealtimeCatalog.GEMINI_DEFAULT_MODEL,
+    val geminiVoice: String = RealtimeCatalog.GEMINI_DEFAULT_VOICE,
+    val openAiModel: String = RealtimeCatalog.OPENAI_DEFAULT_MODEL,
+    val openAiVoice: String = RealtimeCatalog.OPENAI_DEFAULT_VOICE,
 ) {
+    /** The realtime model for [provider] (Gemini or OpenAI). */
+    fun realtimeModel(provider: VoiceProvider): String =
+        if (provider == VoiceProvider.Gemini) geminiModel else openAiModel
+
+    /** The built-in voice for [provider] (Gemini or OpenAI). */
+    fun realtimeVoice(provider: VoiceProvider): String =
+        if (provider == VoiceProvider.Gemini) geminiVoice else openAiVoice
+
     /**
      * The TTS model the agent actually runs. A Professional Voice Clone loses its character in
      * expressive mode, so that one voice quietly uses [VoiceStyle.Fast] even when Expressive is
