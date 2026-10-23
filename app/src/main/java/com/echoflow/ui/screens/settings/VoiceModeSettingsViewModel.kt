@@ -12,6 +12,7 @@ import com.echoflow.data.voice.VoiceLlms
 import com.echoflow.data.voice.VoiceModeAuth
 import com.echoflow.data.voice.VoiceModeSettings
 import com.echoflow.data.voice.VoiceOption
+import com.echoflow.data.voice.VoiceProvider
 import com.echoflow.data.voice.VoiceStyle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -114,6 +115,9 @@ class VoiceModeSettingsViewModel(application: Application) : AndroidViewModel(ap
     fun saveLlm(id: String) = settings.saveLlm(id)
     fun saveStyle(style: VoiceStyle) = settings.saveStyle(style)
     fun saveLanguage(code: String) = settings.saveLanguage(code)
+    fun saveProvider(provider: VoiceProvider) = settings.saveProvider(provider)
+    fun saveRealtimeVoice(provider: VoiceProvider, voice: String) = settings.saveRealtimeVoice(provider, voice)
+    fun saveRealtimeModel(provider: VoiceProvider, model: String) = settings.saveRealtimeModel(provider, model)
 
     // ── Voice picker ────────────────────────────────────────────────────────────────────
 

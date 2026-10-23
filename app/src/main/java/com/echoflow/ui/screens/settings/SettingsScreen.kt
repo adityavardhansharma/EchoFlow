@@ -289,6 +289,8 @@ fun SettingsScreen(
             PageVoiceMode -> VoiceModePage(
                 viewModel,
                 onOpenElevenLabs = { page = PageCustomProviderElevenLabs },
+                onOpenGemini = { page = PageCustomProviderGemini },
+                onOpenOpenAi = { page = PageCustomProviderOpenAi },
                 onBack = navigateBack,
             )
             PageEchoLabs -> EchoLabsPage(viewModel, onOpen = { page = it }, onBack = navigateBack)
@@ -396,8 +398,9 @@ internal fun SettingsHomePage(
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
     val spendThisMonth by spendViewModel.monthTotal.collectAsState()
-    // Voice mode appears only once the ElevenLabs key has authenticated.
-    val voiceModeReady = rememberVoiceModeReady(viewModel)
+    // Voice mode appears once a provider can run a call: ElevenLabs (key authenticated), Gemini or OpenAI.
+    val voiceKeys = rememberVoiceProviderKeys(viewModel)
+    val voiceModeReady = voiceKeys.anyReady
     val hubContext = androidx.compose.ui.platform.LocalContext.current
     val voiceConfig by remember(hubContext) { com.echoflow.data.voice.VoiceModeSettings.get(hubContext.applicationContext) }.config.collectAsState()
     val navCount = if (voiceModeReady) 10 else 9
@@ -556,11 +559,7 @@ internal fun SettingsHomePage(
                     icon = Icons.Default.GraphicEq,
                     polygon = MaterialShapes.Sunny,
                     title = "Voice mode",
-                    subtitle = buildString {
-                        append(com.echoflow.data.voice.VoiceLlms.label(voiceConfig.llm))
-                        append(" · ")
-                        append(voiceConfig.voiceName?.takeIf { voiceConfig.voiceId != null } ?: "Default voice")
-                    },
+                    subtitle = voiceModeHubSubtitle(voiceConfig, voiceKeys),
                     container = MaterialTheme.colorScheme.primaryContainer,
                     onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                     index = 7, count = navCount,

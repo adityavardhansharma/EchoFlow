@@ -1,12 +1,14 @@
 # Voice mode
 
-Live, two-way voice conversations powered by **ElevenLabs Agents**, using only the user's
-ElevenLabs key.
+Live, two-way voice conversations powered by **ElevenLabs Agents**, the **Gemini Live API** or
+the **OpenAI Realtime API**, using the user's own key for whichever one they pick. The call
+screen, controls, captions and chat record are the same for all three.
 
 ## How a user meets it
 
-- **Entry.** When the ElevenLabs key is on and has authenticated, an empty composer shows a
-  waveform button where Send sits. As soon as the user types or attaches anything it becomes Send
+- **Entry.** When a voice provider can run a call (an ElevenLabs key that has authenticated, or
+  a Gemini or OpenAI key that's switched on), an empty composer shows a waveform button where
+  Send sits. As soon as the user types or attaches anything it becomes Send
   again.
 - **Instant start.** The call screen opens on the tap and the mic records straight away. What the
   user says while the socket connects is held and sent the moment it opens, so nobody waits on
@@ -38,7 +40,13 @@ ElevenLabs key.
 
 ## Settings (Settings → Voice mode)
 
-The page appears in the hub only once the key has authenticated.
+The page appears in the hub once any provider can run a call.
+
+- **Provider.** ElevenLabs, Gemini or OpenAI, each with its logo. A provider without a key shows
+  "Needs your … key" and a button to its key page. If the picked one can't run, calls use the first
+  one that can, and the page says so.
+
+### ElevenLabs
 
 - **Plan.** The ElevenLabs tier and credits left come from `GET /v1/user/subscription`. A key
   without the user-read permission still counts as valid, and the plan then shows as unknown.
@@ -54,6 +62,18 @@ The page appears in the hub only once the key has authenticated.
   snapshots hidden. It is the only model voice mode uses.
 - **Language.** This is the agent's language. The prompt still lets the agent follow the user if
   they switch mid-chat.
+
+### Gemini and OpenAI
+
+Both are speech-to-speech models: one model hears and speaks, so there's no LLM or voice-model
+picker, only:
+
+- **Voice.** Gemini Live's 30 built-in voices (Puck by default) or OpenAI's 10 (Marin by
+  default), in a searchable list. Neither API offers preview clips.
+- **Model.** `gemini-3.8-live` (the 3.1 and 2.5 Live previews shut down on 17 Nov 2026), or
+  `gpt-realtime-2.1` / `gpt-realtime-2.1-mini`.
+- **Language.** Added to the prompt as the language to start in; the model still follows the
+  user if they switch.
 
 ## How it works
 
@@ -72,7 +92,31 @@ The page appears in the hub only once the key has authenticated.
 - **Saving.** `VoiceModeController` saves each finished turn into the chat as it happens, so a
   crash loses nothing. After the call it fetches ElevenLabs' own transcript
   (`GET /v1/convai/conversations/{id}`) and rewrites the session's turns if they differ.
+- **Gemini and OpenAI.** `RealtimeVoiceSession` runs both, with a `RealtimeVoiceProtocol` for
+  each (`GeminiLiveProtocol`, `OpenAiRealtimeProtocol`). Both it and `VoiceSession` implement
+  `LiveVoiceSession`, so the controller and the call screen treat all three the same. There's no
+  agent to set up: the prompt (the same one ElevenLabs gets, with the chat so far), the model and
+  the voice go in the socket's first message.
+  - **Gemini Live** (`BidiGenerateContent` WebSocket, key in the URL): 16 kHz PCM up, 24 kHz down,
+    with input and output transcription on. The user's turn is what was heard before the reply
+    starts. Typed messages go in as `realtimeInput.text` (Gemini 3 Live takes `clientContent`
+    only for seeding history). Muting sends `audioStreamEnd`. Connections last about 10
+    minutes, so the session keeps the server's resume handle and moves to a new connection on
+    `goAway`; `contextWindowCompression` lifts the 15 minute audio cap.
+  - **OpenAI Realtime** (`/v1/realtime` WebSocket, bearer key): 24 kHz PCM both ways, semantic VAD,
+    and `gpt-4o-transcribe` for the user's words. When the user talks over a reply, the server
+    stops it and the app sends `conversation.item.truncate` with how much was played, so the
+    model remembers only what the user heard. A tap or a typed message also sends
+    `response.cancel`. A reply waits for the user's transcript before it's saved, so the chat
+    stays in order.
+  - A reply that's cut off is saved with the words shown up to that point. There's no server
+    transcript to reconcile with afterwards.
+  - Mic audio said before the socket is ready (or while Gemini reconnects) is held and sent once
+    it is.
 - **Background.** `VoiceModeService` (a microphone foreground service) keeps the call alive with
   the screen off.
-- **Spend.** Each call is recorded in the Spend ledger as *Voice mode*. The amount is what
-  ElevenLabs charged when it reports it, otherwise an estimate from the call length.
+- **Spend.** Each call is recorded in the Spend ledger as *Voice mode*. For ElevenLabs the amount
+  is what ElevenLabs charged when it reports it, otherwise an estimate from the call length.
+  Gemini and OpenAI calls are priced from the tokens each server reports (`RealtimePricing`).
+  Google hasn't published `gemini-3.8-live` prices yet, so Gemini rows use Gemini 3.1 Flash
+  Live's rates and are marked as estimates.

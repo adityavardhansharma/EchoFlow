@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Voice mode's own settings, apart from the big SettingsRepository: the voice-mode LLM, style,
- * voice and language, plus two facts about the ElevenLabs key — whether it authenticated, and
+ * Voice mode's own settings, apart from the big SettingsRepository: which provider runs calls,
+ * the ElevenLabs LLM, style, voice and language, the Gemini and OpenAI voices and models, plus two facts about the ElevenLabs key — whether it authenticated, and
  * which agent EchoFlow created on that account. Nothing here is secret (the key itself stays in
  * the encrypted settings store); key-bound facts are stored against the key's one-way hash, so a
  * different key starts fresh instead of reusing another account's agent.
@@ -69,6 +69,24 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
     fun saveLlm(llm: String) = update { it.copy(llm = llm) }
     fun saveStyle(style: VoiceStyle) = update { it.copy(style = style) }
     fun saveLanguage(code: String) = update { it.copy(language = code) }
+    fun saveProvider(provider: VoiceProvider) = update { it.copy(provider = provider) }
+
+    /** The built-in voice for Gemini or OpenAI. */
+    fun saveRealtimeVoice(provider: VoiceProvider, voice: String) = update {
+        when (provider) {
+            VoiceProvider.Gemini -> it.copy(geminiVoice = voice)
+            VoiceProvider.OpenAi -> it.copy(openAiVoice = voice)
+            VoiceProvider.ElevenLabs -> it
+        }
+    }
+
+    fun saveRealtimeModel(provider: VoiceProvider, model: String) = update {
+        when (provider) {
+            VoiceProvider.Gemini -> it.copy(geminiModel = model)
+            VoiceProvider.OpenAi -> it.copy(openAiModel = model)
+            VoiceProvider.ElevenLabs -> it
+        }
+    }
     /** A blank [voiceId] goes back to the agent's default voice. */
     fun saveVoice(voiceId: String, name: String, category: String?) = update {
         val id = voiceId.takeIf { v -> v.isNotBlank() }
@@ -105,6 +123,11 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
             .putString(KEY_VOICE_NAME, next.voiceName)
             .putString(KEY_VOICE_CATEGORY, next.voiceCategory)
             .putString(KEY_LANGUAGE, next.language)
+            .putString(KEY_PROVIDER, next.provider.name)
+            .putString(KEY_GEMINI_MODEL, next.geminiModel)
+            .putString(KEY_GEMINI_VOICE, next.geminiVoice)
+            .putString(KEY_OPENAI_MODEL, next.openAiModel)
+            .putString(KEY_OPENAI_VOICE, next.openAiVoice)
             .apply()
         _config.value = next
     }
@@ -116,6 +139,12 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
         voiceName = prefs.getString(KEY_VOICE_NAME, null),
         voiceCategory = prefs.getString(KEY_VOICE_CATEGORY, null),
         language = prefs.getString(KEY_LANGUAGE, null)?.takeIf { it.isNotBlank() } ?: VoiceLanguages.DEFAULT,
+        provider = VoiceProvider.fromStorage(prefs.getString(KEY_PROVIDER, null)),
+        // A voice or model a provider stopped offering falls back to its default.
+        geminiModel = RealtimeCatalog.modelOrDefault(VoiceProvider.Gemini, prefs.getString(KEY_GEMINI_MODEL, null)),
+        geminiVoice = RealtimeCatalog.voiceOrDefault(VoiceProvider.Gemini, prefs.getString(KEY_GEMINI_VOICE, null)),
+        openAiModel = RealtimeCatalog.modelOrDefault(VoiceProvider.OpenAi, prefs.getString(KEY_OPENAI_MODEL, null)),
+        openAiVoice = RealtimeCatalog.voiceOrDefault(VoiceProvider.OpenAi, prefs.getString(KEY_OPENAI_VOICE, null)),
     )
 
     private fun readAccount(): VoiceAccount? {
@@ -139,6 +168,11 @@ class VoiceModeSettings private constructor(private val prefs: SharedPreferences
         private const val KEY_VOICE_NAME = "voice_name"
         private const val KEY_VOICE_CATEGORY = "voice_category"
         private const val KEY_LANGUAGE = "language"
+        private const val KEY_PROVIDER = "provider"
+        private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val KEY_GEMINI_VOICE = "gemini_voice"
+        private const val KEY_OPENAI_MODEL = "openai_model"
+        private const val KEY_OPENAI_VOICE = "openai_voice"
         private const val KEY_VERIFIED = "verified_key_hash"
         private const val KEY_AGENT_ID = "agent_id"
         private const val KEY_AGENT_KEY = "agent_key_hash"
