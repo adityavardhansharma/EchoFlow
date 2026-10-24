@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +78,9 @@ private const val PulseCycleMs = 3000
  *
  * [renderingModes] marks a surface that still has a clip rendering, so switching away from a
  * long job never hides it.
+ *
+ * [temporaryChat] swaps the Chat segment's icon for an eye-off mark: the open chat is not saved.
+ * It costs no space, so nothing sits over the conversation to say so.
  */
 @Composable
 fun ModeSwitch(
@@ -84,6 +88,7 @@ fun ModeSwitch(
     onSelect: (AppMode) -> Unit,
     renderingModes: Set<AppMode>,
     modifier: Modifier = Modifier,
+    temporaryChat: Boolean = false,
 ) {
     val haptics = LocalHapticFeedback.current
     val reducedMotion = rememberReducedMotion()
@@ -138,6 +143,7 @@ fun ModeSwitch(
                         mode = mode,
                         selected = mode == selected,
                         rendering = mode in renderingModes,
+                        temporary = temporaryChat && mode == AppMode.Chat,
                         interactionSource = interactions.getValue(mode),
                         reducedMotion = reducedMotion,
                         onClick = {
@@ -159,6 +165,7 @@ private fun ModeSegment(
     mode: AppMode,
     selected: Boolean,
     rendering: Boolean,
+    temporary: Boolean,
     interactionSource: MutableInteractionSource,
     reducedMotion: Boolean,
     onClick: () -> Unit,
@@ -176,6 +183,7 @@ private fun ModeSegment(
     val description = buildString {
         append(label)
         append(" mode")
+        if (temporary) append(", temporary chat, not saved")
         if (rendering) append(", video rendering")
     }
 
@@ -192,7 +200,12 @@ private fun ModeSegment(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(mode.icon, contentDescription = null, Modifier.size(18.dp), tint = contentColor)
+        Icon(
+            if (temporary) Icons.Outlined.VisibilityOff else mode.icon,
+            contentDescription = null,
+            Modifier.size(18.dp),
+            tint = contentColor,
+        )
         Spacer(Modifier.width(6.dp))
         Text(
             label,
