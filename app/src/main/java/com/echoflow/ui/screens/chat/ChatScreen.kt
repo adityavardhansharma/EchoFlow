@@ -124,7 +124,7 @@ fun ChatScreen(
             // A chat a schedule produced says so under the title bar, one tap from its schedule.
             AnimatedVisibility(
                 visible = scheduleThread != null && errorMessage == null && !voiceCallOpen,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset - 12.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset),
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
             ) {
@@ -134,7 +134,7 @@ fun ChatScreen(
             // A temporary chat says so for as long as it is open; it vanishes when you leave.
             AnimatedVisibility(
                 visible = temporaryChat && mode == AppMode.Chat && errorMessage == null && !voiceCallOpen,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset - 12.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topBarInset),
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
             ) {
