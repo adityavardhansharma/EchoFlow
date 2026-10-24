@@ -75,6 +75,7 @@ class SettingsViewModel(
     val exaApiKey: StateFlow<String> = repository.exaApiKey
     val parallelApiKey: StateFlow<String> = repository.parallelApiKey
     val firecrawlApiKey: StateFlow<String> = repository.firecrawlApiKey
+    val contextDevApiKey: StateFlow<String> = repository.contextDevApiKey
     val echoCrawlIntroDismissed: StateFlow<Boolean> = repository.echoCrawlIntroDismissed
 
     // Local models

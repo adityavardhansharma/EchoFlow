@@ -10,9 +10,13 @@ object ClientSearchProviders {
     const val PARALLEL = "parallel"
     const val FIRECRAWL = "firecrawl"
     const val ECHOCRAWL = "echocrawl"
+    const val CONTEXT_DEV = "contextdev"
 
     /** Providers that need a saved API key. */
-    val keyedIds: List<String> = listOf(EXA, PARALLEL, FIRECRAWL)
+    val keyedIds: List<String> = listOf(EXA, PARALLEL, FIRECRAWL, CONTEXT_DEV)
+
+    /** Keyed providers a chat model can use as its Deep Research search backend. */
+    val researchIds: List<String> = listOf(EXA, PARALLEL, FIRECRAWL)
 
     /** Providers that can power normal chat (and project chat) web search. */
     val chatIds: List<String> = keyedIds + ECHOCRAWL

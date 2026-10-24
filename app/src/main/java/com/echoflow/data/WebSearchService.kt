@@ -12,7 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * Client-side web search across providers (Exa, Parallel, Firecrawl, EchoCrawl), normalized to
+ * Client-side web search across providers (Exa, Parallel, Firecrawl, Context.dev, EchoCrawl), normalized to
  * [SearchSource]. Used as a tool by OpenRouter models (function calling) and local
  * models (prompt protocol).
  */
@@ -48,6 +48,7 @@ class WebSearchService {
                 snippetChars = 4000,
                 label = "Firecrawl",
             )
+            ClientSearchProviders.CONTEXT_DEV -> searchContextDev(apiKey, query, maxResults)
             ClientSearchProviders.ECHOCRAWL -> searchFirecrawl(
                 apiKey = "",
                 query = query,
@@ -95,6 +96,16 @@ class WebSearchService {
             providerLabel = "Parallel"
         )
         return ParallelSearchV1.parseResults(json)
+    }
+
+    private fun searchContextDev(apiKey: String, query: String, maxResults: Int): List<SearchSource> {
+        val json = executePost(
+            url = ContextDevSearch.ENDPOINT,
+            headers = mapOf("Authorization" to "Bearer $apiKey"),
+            body = ContextDevSearch.requestBody(query, maxResults),
+            providerLabel = "Context.dev",
+        )
+        return ContextDevSearch.parseResults(json)
     }
 
     private fun searchFirecrawl(
@@ -161,6 +172,7 @@ class WebSearchService {
                         } else {
                             "Invalid $providerLabel API key — check Settings."
                         }
+                    it.code == 402 -> "$providerLabel credits are used up — add credits or wait for your monthly reset."
                     it.code == 429 -> "$providerLabel rate limit reached — try again shortly."
                     !apiError.isNullOrBlank() -> "$providerLabel: $apiError"
                     else -> "$providerLabel search failed (HTTP ${it.code})."

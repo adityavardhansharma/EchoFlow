@@ -140,6 +140,9 @@ class SettingsRepository(context: Context) {
     private val _firecrawlApiKey = MutableStateFlow(getSearchApiKeyDirect("firecrawl"))
     val firecrawlApiKey: StateFlow<String> = _firecrawlApiKey.asStateFlow()
 
+    private val _contextDevApiKey = MutableStateFlow(getSearchApiKeyDirect(ClientSearchProviders.CONTEXT_DEV))
+    val contextDevApiKey: StateFlow<String> = _contextDevApiKey.asStateFlow()
+
     private val _localModelsEnabled = MutableStateFlow(getLocalModelsEnabledDirect())
     val localModelsEnabled: StateFlow<Boolean> = _localModelsEnabled.asStateFlow()
 
@@ -390,6 +393,7 @@ class SettingsRepository(context: Context) {
             "exa" -> "exa_api_key"
             "parallel" -> "parallel_api_key"
             "firecrawl" -> "firecrawl_api_key"
+            ClientSearchProviders.CONTEXT_DEV -> "context_dev_api_key"
             else -> return ""
         }
         return prefs.getString(key, "").orEmpty()
@@ -400,6 +404,7 @@ class SettingsRepository(context: Context) {
             "exa" -> "exa_api_key"
             "parallel" -> "parallel_api_key"
             "firecrawl" -> "firecrawl_api_key"
+            ClientSearchProviders.CONTEXT_DEV -> "context_dev_api_key"
             else -> return
         }
         prefs.edit().putString(key, value).apply()
@@ -407,6 +412,7 @@ class SettingsRepository(context: Context) {
             "exa" -> _exaApiKey.value = value
             "parallel" -> _parallelApiKey.value = value
             "firecrawl" -> _firecrawlApiKey.value = value
+            ClientSearchProviders.CONTEXT_DEV -> _contextDevApiKey.value = value
         }
     }
 
@@ -1094,6 +1100,7 @@ class SettingsRepository(context: Context) {
             ClientSearchProviders.EXA,
             ClientSearchProviders.PARALLEL,
             ClientSearchProviders.FIRECRAWL,
+            ClientSearchProviders.CONTEXT_DEV,
             ClientSearchProviders.ECHOCRAWL,
         )
         private val DEEP_RESEARCH_SEARCH_PROVIDERS = setOf("auto", "exa", "parallel", "firecrawl")
