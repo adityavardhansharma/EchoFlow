@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.echoflow.ui.theme.Spacing
 import com.echoflow.data.AppMode
 import com.echoflow.ui.ChatViewModel
 import com.echoflow.ui.SettingsViewModel
@@ -67,6 +68,9 @@ fun ChatScreen(
 
     // Top inset so content scrolls behind the floating bar without hiding its first item.
     val topBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp
+    // A status pill under the bar pushes the first message down so it never hides its text.
+    val showsStatusPill = scheduleThread != null || temporaryChat
+    val messagesTopInset = if (showsStatusPill) topBarInset + StatusPillHeight + Spacing.s else topBarInset
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
@@ -95,6 +99,7 @@ fun ChatScreen(
                         onSettingsClicked = onSettingsClicked,
                         onOpenWebSearchSettings = onOpenWebSearchSettings,
                         topBarInset = topBarInset,
+                        messagesTopInset = messagesTopInset,
                     )
                     AppMode.Imagine -> ImagineSurface(
                         chatViewModel = chatViewModel,
@@ -154,6 +159,9 @@ fun ChatScreen(
         }
     }
 }
+
+// Icon row (20dp text line) plus 6dp vertical padding on each side.
+private val StatusPillHeight = 32.dp
 
 @Composable
 private fun TemporaryChatPill() {

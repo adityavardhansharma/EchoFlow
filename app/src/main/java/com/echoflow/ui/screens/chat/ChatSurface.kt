@@ -151,6 +151,8 @@ internal fun ChatSurface(
     onSettingsClicked: () -> Unit,
     onOpenWebSearchSettings: () -> Unit = {},
     topBarInset: Dp,
+    // Where the first message starts; lower than [topBarInset] while a status pill sits under the bar.
+    messagesTopInset: Dp = topBarInset,
 ) {
     val clipboard = LocalClipboardManager.current
 
@@ -584,7 +586,7 @@ internal fun ChatSurface(
                     modelLoading = localModelLoading,
                     researchRun = researchRun,
                     onCancelResearch = { chatViewModel.cancelResearch() },
-                    topInset = topBarInset,
+                    topInset = messagesTopInset,
                     bottomInset = messageBottomInset,
                     onCopy = { clipboard.setText(AnnotatedString(it)) },
                     onArtifactOpen = { artifactId, version ->
