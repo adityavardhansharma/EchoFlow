@@ -9,7 +9,7 @@ import java.util.Locale
  * OpenRouter cloud) and which web search provider is active. Each provider gets
  * tailored guidance because their result shapes differ (Exa: semantic snippets,
      * Parallel: dense objective-driven excerpts, Firecrawl: full-page markdown,
-     * EchoCrawl: title + snippet, no page scrape).
+     * Context.dev: ranked pages with main-content markdown, EchoCrawl: title + snippet, no page scrape).
  */
 object SystemPrompts {
 
@@ -151,6 +151,7 @@ object SystemPrompts {
             ClientSearchProviders.EXA -> "They come from Exa (semantic search): relevant text excerpts, not full pages — quote carefully."
             ClientSearchProviders.PARALLEL -> "They come from Parallel: dense excerpts answering the user's question."
             ClientSearchProviders.ECHOCRAWL -> "They come from EchoCrawl: titles and short snippets from the live web — extract just the facts you need."
+            ClientSearchProviders.CONTEXT_DEV -> "They come from Context.dev: page content as markdown — extract just the facts you need."
             else -> "They come from Firecrawl: page content as markdown — extract just the facts you need."
         }
         return """
@@ -238,6 +239,9 @@ object SystemPrompts {
                     "Phrase the query as a complete objective (e.g. \"find the current CEO of OpenAI and when " +
                     "they took the role\") rather than keywords. A well-phrased objective often " +
                     "answers the question in one call — but if it comes back thin or stale, refine it and go again."
+            ClientSearchProviders.CONTEXT_DEV ->
+                "Results come from Context.dev, which returns ranked pages with their main content as markdown. " +
+                    "Results are long: extract precisely the facts you need and ignore boilerplate text."
             ClientSearchProviders.ECHOCRAWL ->
                 "Results come from EchoCrawl, a free live-web search that returns titles and short snippets " +
                     "(not full page scrapes). Quote carefully and do not assume surrounding context."
@@ -272,6 +276,7 @@ object SystemPrompts {
             ClientSearchProviders.EXA -> "Search results come from Exa (semantic search): relevant text excerpts from pages."
             ClientSearchProviders.PARALLEL -> "Search results come from Parallel: dense excerpts answering your query objective."
             ClientSearchProviders.ECHOCRAWL -> "Search results come from EchoCrawl: titles and short snippets from the live web."
+            ClientSearchProviders.CONTEXT_DEV -> "Search results come from Context.dev: page content as markdown, already truncated."
             else -> "Search results come from Firecrawl: page content as markdown, already truncated."
         }
         // Mechanics only. Whether to search is decided once, by the freshness gate at the end of

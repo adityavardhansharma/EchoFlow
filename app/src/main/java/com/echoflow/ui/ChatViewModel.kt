@@ -2719,7 +2719,7 @@ class ChatViewModel(
                 }
                 val chosen = settingsRepository.getDeepResearchSearchProviderDirect()
                 searchProvider = if (chosen == "auto") {
-                    ClientSearchProviders.keyedIds.firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
+                    ClientSearchProviders.researchIds.firstOrNull { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 } else {
                     chosen.takeIf { settingsRepository.getSearchApiKeyDirect(it).isNotBlank() }
                 }

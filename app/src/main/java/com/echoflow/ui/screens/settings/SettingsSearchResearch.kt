@@ -123,11 +123,13 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val exaKey by viewModel.exaApiKey.collectAsState()
     val parallelKey by viewModel.parallelApiKey.collectAsState()
     val firecrawlKey by viewModel.firecrawlApiKey.collectAsState()
+    val contextDevKey by viewModel.contextDevApiKey.collectAsState()
 
     val savedSearchKey = when (webSearchProvider) {
         "exa" -> exaKey
         "parallel" -> parallelKey
         "firecrawl" -> firecrawlKey
+        ClientSearchProviders.CONTEXT_DEV -> contextDevKey
         else -> ""
     }
     // Unsaved edits are kept per provider, so switching providers never loses what you
@@ -162,7 +164,7 @@ internal fun WebSearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 if (webSearchProvider == "openrouter" && webSearchScope != "cloud") {
                     Spacer(Modifier.height(Spacing.s))
                     Text(
-                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel, Firecrawl or EchoCrawl.",
+                        "OpenRouter search only works with cloud models. Local models need Exa, Parallel, Firecrawl, Context.dev or EchoCrawl.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = Spacing.xs),
@@ -457,7 +459,7 @@ internal fun DeepResearchPage(viewModel: SettingsViewModel, onBack: () -> Unit) 
         )
         Spacer(Modifier.height(Spacing.s))
         // Per-selection feedback: show whether the *chosen* provider actually has a key.
-        val autoResolved = ClientSearchProviders.keyedIds.firstOrNull { keyFor(it).isNotBlank() }
+        val autoResolved = ClientSearchProviders.researchIds.firstOrNull { keyFor(it).isNotBlank() }
         val searchMissing = if (searchProvider == "auto") autoResolved == null else keyFor(searchProvider).isBlank()
         val searchStatus = when {
             searchProvider == "auto" && autoResolved == null -> "No search keys yet — add one in Settings → Web search"
