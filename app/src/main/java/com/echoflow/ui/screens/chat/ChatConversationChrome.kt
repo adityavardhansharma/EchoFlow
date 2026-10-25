@@ -46,6 +46,7 @@ internal fun ChatTopBar(
     onNewChat: () -> Unit,
     onNewTemporaryChat: () -> Unit = {},
     modifier: Modifier = Modifier,
+    temporaryChat: Boolean = false,
 ) {
     val newLabel = if (mode == AppMode.Imagine) "New creation" else "New conversation"
     CenterAlignedTopAppBar(
@@ -66,6 +67,7 @@ internal fun ChatTopBar(
                 onSelect = onSelectMode,
                 renderingModes = renderingModes,
                 modifier = Modifier.widthIn(max = 220.dp),
+                temporaryChat = temporaryChat,
             )
         },
         actions = {
