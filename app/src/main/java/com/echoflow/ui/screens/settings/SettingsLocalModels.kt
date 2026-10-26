@@ -266,9 +266,16 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                 }
 
                 Spacer(Modifier.height(Spacing.m))
-                val visibleCatalog = if (showAllCatalog) LocalModelCatalog.entries
-                else LocalModelCatalog.entries.take(CatalogPreviewCount)
-                val groupCount = visibleCatalog.size + 1 // + the show all/fewer row
+                val installedIds = localModels.map { it.id }
+                val recommendations = LocalModelCatalog.recommendationsFor(installedIds)
+                val collapsedCatalog = LocalModelCatalog.preview(recommendations, installedIds, CatalogPreviewCount)
+                val showCatalogToggle = LocalModelCatalog.previewOmitsRows(
+                    recommendations,
+                    installedIds,
+                    CatalogPreviewCount,
+                )
+                val visibleCatalog = if (showAllCatalog && showCatalogToggle) recommendations else collapsedCatalog
+                val groupCount = visibleCatalog.size + if (showCatalogToggle) 1 else 0
                 Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
                     visibleCatalog.forEachIndexed { index, entry ->
                         CatalogModelRow(
@@ -282,14 +289,16 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                             onRetry = { viewModel.retryDownload(entry) },
                         )
                     }
-                    ShowMoreRow(
-                        expanded = showAllCatalog,
-                        expandText = "Show all ${LocalModelCatalog.entries.size} models",
-                        collapseText = "Show fewer",
-                        index = groupCount - 1,
-                        count = groupCount,
-                        onClick = { showAllCatalog = !showAllCatalog },
-                    )
+                    if (showCatalogToggle) {
+                        ShowMoreRow(
+                            expanded = showAllCatalog,
+                            expandText = "Show all ${recommendations.size} models",
+                            collapseText = "Show fewer",
+                            index = groupCount - 1,
+                            count = groupCount,
+                            onClick = { showAllCatalog = !showAllCatalog },
+                        )
+                    }
                 }
 
                 // Hugging Face token, tucked away — only gated models need it.
