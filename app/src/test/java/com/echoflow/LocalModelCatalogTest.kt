@@ -13,12 +13,15 @@ class LocalModelCatalogTest {
         "local/lfm-2.5-2.6b",
         "local/gemma-4-e2b-it",
         "local/gemma-4-e4b-it",
+        "local/qwen3.5-4b",
     )
 
     @Test
     fun newInstallsGetGemma4AndTheNewerOnDeviceModels() {
         assertEquals(newIds, LocalModelCatalog.recommendationsFor(emptySet()).map { it.id })
-        assertTrue(LocalModelCatalog.recommendationsFor(emptyList()).none { it.name.contains("Qwen") || it.name.contains("DeepSeek") })
+        val names = LocalModelCatalog.recommendationsFor(emptyList()).map { it.name }
+        assertTrue(names.contains("Qwen 3.5 4B"))
+        assertTrue(names.none { it.contains("DeepSeek") || it.startsWith("Qwen3") || it.startsWith("Qwen 2.5") })
     }
 
     @Test

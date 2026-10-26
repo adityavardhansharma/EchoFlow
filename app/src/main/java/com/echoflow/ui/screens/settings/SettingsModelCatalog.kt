@@ -169,7 +169,7 @@ internal fun HfModelSearchSheet(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                placeholder = { Text("Gemma 4, LFM2.5…") },
+                placeholder = { Text("Gemma 4, LFM2.5, Qwen 3.5…") },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {

@@ -32,7 +32,7 @@ class HuggingFaceModelSearch {
      * with variable quality, so it's import-only (and behind the "Allow GGUF" toggle).
      */
     suspend fun search(query: String, hfToken: String?): List<CatalogEntry> = withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim().ifEmpty { "gemma lfm" }
+        val cleanQuery = query.trim().ifEmpty { "gemma lfm qwen" }
         val url = "https://huggingface.co/api/models".toHttpUrl().newBuilder()
             .addQueryParameter("author", "litert-community")
             .addQueryParameter("search", cleanQuery)

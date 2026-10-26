@@ -115,9 +115,21 @@ object LocalModelCatalog {
         maxTokens = 4096,
         description = "Liquid's 2026 reasoning model. Thinks before answering, mixed INT4, no login needed (~2.5 GB RAM)."
     )
+    // Qwen 3.5 4B mixed INT4 is the phone file (2.75 GB). The int8 pack is 4.4 GB.
+    // Android CPU is verified on a Pixel 8a; the manifest marks Adreno GPU unverified.
+    private val qwen354b = CatalogEntry(
+        id = "local/qwen3.5-4b",
+        name = "Qwen 3.5 4B",
+        fileName = "Qwen3.5-4B_mixed_int4.litertlm",
+        url = "https://huggingface.co/litert-community/Qwen3.5-4B/resolve/main/Qwen3.5-4B_mixed_int4.litertlm",
+        approxSizeBytes = 2_754_070_624L,
+        requiresAuth = false,
+        maxTokens = 4096,
+        description = "Qwen's 2026 4B text model. Mixed INT4 for 8 GB phones, no login needed (~4.5 GB RAM)."
+    )
 
-    /** What a new install shows. Smallest first. */
-    private val recommended = listOf(lfm12, lfm26, gemma4E2b, gemma4E4b)
+    /** What a new install shows. The first four stay in front; Qwen 3.5 4B follows. */
+    private val recommended = listOf(lfm12, lfm26, gemma4E2b, gemma4E4b, qwen354b)
 
     /** The list this release replaces, in the order people already know. */
     private val previousRecommendations = listOf(
