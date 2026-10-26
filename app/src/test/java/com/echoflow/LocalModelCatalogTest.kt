@@ -15,16 +15,6 @@ class LocalModelCatalogTest {
         "local/gemma-4-e4b-it",
     )
 
-    private val previousIds = listOf(
-        "local/gemma3-1b-it",
-        "local/qwen3-0.6b",
-        "local/qwen2.5-1.5b-instruct",
-        "local/deepseek-r1-distill-1.5b",
-        "local/gemma-4-e2b-it",
-        "local/qwen3-4b-instruct-2507",
-        "local/gemma-4-e4b-it",
-    )
-
     @Test
     fun newInstallsGetGemma4AndTheNewerOnDeviceModels() {
         assertEquals(newIds, LocalModelCatalog.recommendationsFor(emptySet()).map { it.id })
@@ -32,19 +22,16 @@ class LocalModelCatalogTest {
     }
 
     @Test
-    fun aKeptDownloadLeavesThePreviousListAlone() {
+    fun aGemma4DownloadStillShowsTheNewList() {
+        assertEquals(newIds, LocalModelCatalog.recommendationsFor(setOf("local/gemma-4-e2b-it")).map { it.id })
         assertEquals(
-            previousIds,
-            LocalModelCatalog.recommendationsFor(setOf("local/gemma-4-e2b-it")).map { it.id },
-        )
-        assertEquals(
-            previousIds,
+            newIds,
             LocalModelCatalog.recommendationsFor(listOf("local/gemma-4-e4b-it", "local/imported-other")).map { it.id },
         )
     }
 
     @Test
-    fun aRemovedDownloadSwitchesTheListAndKeepsThatModel() {
+    fun aRemovedDownloadStaysOnTheNewList() {
         val ids = LocalModelCatalog.recommendationsFor(setOf("local/deepseek-r1-distill-1.5b")).map { it.id }
         assertEquals(newIds + "local/deepseek-r1-distill-1.5b", ids)
     }
@@ -62,7 +49,7 @@ class LocalModelCatalogTest {
     }
 
     @Test
-    fun anUnrelatedInstallDoesNotFreezeTheOldList() {
+    fun anUnrelatedInstallGetsTheNewList() {
         assertEquals(newIds, LocalModelCatalog.recommendationsFor(setOf("local/imported-custom")).map { it.id })
     }
 

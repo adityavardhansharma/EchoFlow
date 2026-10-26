@@ -16,8 +16,8 @@ data class CatalogEntry(
  * Curated LiteRT models verified against the HuggingFace repos (file names drift when
  * quantization/kv-cache parameters change — re-verify the `resolve/main` URLs if a
  * download starts returning 404). The settings list comes from [recommendationsFor],
- * not from [entries]: people who already downloaded a model we are keeping see the
- * previous list, and a downloaded model we dropped stays on the new list with its tick.
+ * not from [entries]: everyone sees the current picks, and a model they already
+ * downloaded stays on that list with its tick.
  */
 object LocalModelCatalog {
 
@@ -135,20 +135,13 @@ object LocalModelCatalog {
     /**
      * Recommendations for someone who already has [installedIds] on disk.
      *
-     * A download of a model we are keeping freezes the previous list, so the tick
-     * stays where they left it. A download of a model we dropped switches to the new
-     * list and keeps that downloaded model on it. No recommended download, including
-     * a brand-new install, gets the new list only.
+     * The list is always the current picks. Gemma 4 is already on it. A downloaded
+     * model we no longer offer stays at the end, in the old order, so its tick remains.
      */
     fun recommendationsFor(installedIds: Collection<String>): List<CatalogEntry> {
         val installed = installedIds.toSet()
-        val removedInstalled = previousRecommendations.filter { it.id in removedIds && it.id in installed }
-        val keptInstalled = previousRecommendations.any { it.id !in removedIds && it.id in installed }
-        return when {
-            removedInstalled.isNotEmpty() -> recommended + removedInstalled
-            keptInstalled -> previousRecommendations
-            else -> recommended
-        }
+        val downloadedRemoved = previousRecommendations.filter { it.id in removedIds && it.id in installed }
+        return recommended + downloadedRemoved
     }
 
     /**
