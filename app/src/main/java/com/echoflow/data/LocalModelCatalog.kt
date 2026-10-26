@@ -170,6 +170,16 @@ object LocalModelCatalog {
         return head + recommendations.filter { it.id in installed && it !in head }
     }
 
+    /**
+     * Show all is a no-op when every installed model past [limit] is already pinned
+     * into the collapsed preview, so the control should stay hidden.
+     */
+    fun previewOmitsRows(
+        recommendations: List<CatalogEntry>,
+        installedIds: Collection<String>,
+        limit: Int,
+    ): Boolean = preview(recommendations, installedIds, limit).size < recommendations.size
+
     fun entryById(id: String): CatalogEntry? = entries.firstOrNull { it.id == id }
 
     /** File-name based runtime detection — kept here so every layer agrees on the rules. */

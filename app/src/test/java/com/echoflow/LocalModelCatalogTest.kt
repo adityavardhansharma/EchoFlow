@@ -64,6 +64,27 @@ class LocalModelCatalogTest {
     }
 
     @Test
+    fun gemma4E4bAndDeepSeekKeepTheirTicksAndStillHideQwen() {
+        val installed = setOf("local/gemma-4-e4b-it", "local/deepseek-r1-distill-1.5b")
+        val recommendations = LocalModelCatalog.recommendationsFor(installed)
+        val preview = LocalModelCatalog.preview(recommendations, installed, limit = 3)
+        assertEquals(
+            newIds.take(3) + listOf("local/gemma-4-e4b-it", "local/deepseek-r1-distill-1.5b"),
+            preview.map { it.id },
+        )
+        assertTrue(LocalModelCatalog.previewOmitsRows(recommendations, installed, limit = 3))
+    }
+
+    @Test
+    fun showAllIsHiddenWhenInstalledModelsAlreadyFillTheList() {
+        val installed = setOf("local/gemma-4-e4b-it", "local/qwen3.5-4b", "local/deepseek-r1-distill-1.5b")
+        val recommendations = LocalModelCatalog.recommendationsFor(installed)
+        val preview = LocalModelCatalog.preview(recommendations, installed, limit = 3)
+        assertEquals(recommendations.map { it.id }, preview.map { it.id })
+        assertFalse(LocalModelCatalog.previewOmitsRows(recommendations, installed, limit = 3))
+    }
+
+    @Test
     fun retiredModelsStillResolveForPeopleWhoAlreadyHaveThem() {
         assertEquals(4096, LocalModelCatalog.entryById("local/deepseek-r1-distill-1.5b")?.maxTokens)
         assertEquals(2048, LocalModelCatalog.maxTokensFor("local/qwen3-0.6b"))
