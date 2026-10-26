@@ -266,8 +266,10 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                 }
 
                 Spacer(Modifier.height(Spacing.m))
-                val visibleCatalog = if (showAllCatalog) LocalModelCatalog.entries
-                else LocalModelCatalog.entries.take(CatalogPreviewCount)
+                val installedIds = localModels.map { it.id }
+                val recommendations = LocalModelCatalog.recommendationsFor(installedIds)
+                val visibleCatalog = if (showAllCatalog) recommendations
+                else LocalModelCatalog.preview(recommendations, installedIds, CatalogPreviewCount)
                 val groupCount = visibleCatalog.size + 1 // + the show all/fewer row
                 Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
                     visibleCatalog.forEachIndexed { index, entry ->
@@ -284,7 +286,7 @@ internal fun LocalModelsPage(viewModel: SettingsViewModel, onBack: () -> Unit, e
                     }
                     ShowMoreRow(
                         expanded = showAllCatalog,
-                        expandText = "Show all ${LocalModelCatalog.entries.size} models",
+                        expandText = "Show all ${recommendations.size} models",
                         collapseText = "Show fewer",
                         index = groupCount - 1,
                         count = groupCount,
