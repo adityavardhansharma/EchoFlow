@@ -1,5 +1,6 @@
 package com.echoflow
 
+import com.echoflow.data.LiteRtLoadPlan
 import com.echoflow.data.LocalModelCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -125,5 +126,15 @@ class LocalModelCatalogTest {
                 "Some-Model-ekv8192.task"
             )
         )
+    }
+
+    @Test
+    fun liteRtPlanSkipsVisionAndUnverifiedGpu() {
+        assertEquals(LiteRtLoadPlan(vision = true, gpu = true), LocalModelCatalog.liteRtPlanFor("local/gemma-4-e2b-it", ""))
+        assertEquals(LiteRtLoadPlan(vision = false, gpu = true), LocalModelCatalog.liteRtPlanFor("local/lfm-2.5-2.6b", ""))
+        assertEquals(LiteRtLoadPlan(vision = false, gpu = false), LocalModelCatalog.liteRtPlanFor("local/lfm-2.5-1.2b-instruct", ""))
+        assertEquals(LiteRtLoadPlan(vision = false, gpu = false), LocalModelCatalog.liteRtPlanFor("local/recovered", "Qwen3.5-4B_mixed_int4.litertlm"))
+        assertEquals(null, LocalModelCatalog.liteRtPlanFor("local/imported", "Some-Model.litertlm"))
+        assertEquals(null, LocalModelCatalog.liteRtPlanFor("local/gemma3-1b-it", ""))
     }
 }

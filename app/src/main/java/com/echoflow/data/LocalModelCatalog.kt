@@ -9,8 +9,13 @@ data class CatalogEntry(
     val approxSizeBytes: Long,
     val requiresAuth: Boolean, // gated on HuggingFace: needs an access token + accepted license
     val maxTokens: Int, // must not exceed the kv-cache the file was exported with
-    val description: String
+    val description: String,
+    val vision: Boolean = false, // the .litertlm bundle carries a vision encoder
+    val gpu: Boolean = true, // LiteRT-LM GPU is verified for this file on Android
 )
+
+/** How to open a known LiteRT-LM bundle, so the load skips attempts that cannot work. */
+data class LiteRtLoadPlan(val vision: Boolean, val gpu: Boolean)
 
 /**
  * Curated LiteRT models verified against the HuggingFace repos (file names drift when
@@ -69,7 +74,8 @@ object LocalModelCatalog {
         approxSizeBytes = 2_588_147_712L,
         requiresAuth = false,
         maxTokens = 8192,
-        description = "Latest Gemma generation with an effective 2B footprint. Strong quality on flagship phones, no login needed (~3.5 GB RAM)."
+        description = "Latest Gemma generation with an effective 2B footprint. Strong quality on flagship phones, no login needed (~3.5 GB RAM).",
+        vision = true,
     )
     private val qwen34b = CatalogEntry(
         id = "local/qwen3-4b-instruct-2507",
@@ -89,7 +95,8 @@ object LocalModelCatalog {
         approxSizeBytes = 3_659_530_240L,
         requiresAuth = false,
         maxTokens = 8192,
-        description = "Largest Gemma 4 mobile bundle — best answers, needs a high-end phone (~5 GB RAM), no login needed."
+        description = "Largest Gemma 4 mobile bundle — best answers, needs a high-end phone (~5 GB RAM), no login needed.",
+        vision = true,
     )
 
     // Liquid LFM2.5 (2026). int8 1.2B keeps the reference quality and runs on CPU
@@ -103,7 +110,8 @@ object LocalModelCatalog {
         approxSizeBytes = 1_247_091_440L,
         requiresAuth = false,
         maxTokens = 4096,
-        description = "Liquid's 2026 instruct model for everyday phones. Int8, no login needed (~2 GB RAM)."
+        description = "Liquid's 2026 instruct model for everyday phones. Int8, no login needed (~2 GB RAM).",
+        gpu = false,
     )
     private val lfm26 = CatalogEntry(
         id = "local/lfm-2.5-2.6b",
@@ -125,7 +133,8 @@ object LocalModelCatalog {
         approxSizeBytes = 2_754_070_624L,
         requiresAuth = false,
         maxTokens = 4096,
-        description = "Qwen's 2026 4B text model. Mixed INT4 for 8 GB phones, no login needed (~4.5 GB RAM)."
+        description = "Qwen's 2026 4B text model. Mixed INT4 for 8 GB phones, no login needed (~4.5 GB RAM).",
+        gpu = false,
     )
 
     /** What a new install shows. The first four stay in front; Qwen 3.5 4B follows. */
@@ -181,6 +190,16 @@ object LocalModelCatalog {
     ): Boolean = preview(recommendations, installedIds, limit).size < recommendations.size
 
     fun entryById(id: String): CatalogEntry? = entries.firstOrNull { it.id == id }
+
+    /**
+     * Load plan for a catalog .litertlm file, or null for an imported one, which is probed.
+     * LiteRT-LM 0.16 opens a text-only bundle with a vision backend and only fails later,
+     * when the conversation is created, so the probe alone misses it.
+     */
+    fun liteRtPlanFor(modelId: String, fileName: String): LiteRtLoadPlan? {
+        val entry = entryById(modelId) ?: entries.firstOrNull { it.fileName.equals(fileName, ignoreCase = true) }
+        return entry?.takeIf { isLiteRtLm(it.fileName) }?.let { LiteRtLoadPlan(it.vision, it.gpu) }
+    }
 
     /** File-name based runtime detection — kept here so every layer agrees on the rules. */
     fun isGguf(fileName: String): Boolean = fileName.endsWith(".gguf", ignoreCase = true)

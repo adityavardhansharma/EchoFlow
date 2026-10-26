@@ -74,6 +74,8 @@ class LocalLlmService(private val context: Context) {
     private var lrtLoadedPath: String? = null
     private var lrtLoadedMaxTokens = -1
     private var lrtSupportsVision = false
+    /** Imported bundles whose vision encoder turned out to be missing, so reloads skip it. */
+    private val lrtTextOnlyPaths = mutableSetOf<String>()
     private var lrtConversation: Conversation? = null
     private var lrtChatId: String? = null
     private var lrtLastHistorySize = -1
@@ -315,14 +317,18 @@ class LocalLlmService(private val context: Context) {
 
         checkRamBudget(file)
 
-        // Text-only bundles (Qwen, DeepSeek, Gemma 3 1B…) have no vision encoder, and asking
-        // for a vision backend makes engine creation fail with "TF_LITE_VISION_ENCODER not
-        // found". Try multimodal first, drop vision as soon as the bundle says it has none, and
-        // fall back from GPU to CPU for devices without a usable GPU delegate.
-        var withVision = true
+        // Text-only bundles (Qwen, LFM, Gemma 3 1B…) have no vision encoder, and asking for a
+        // vision backend fails with "TF_LITE_VISION_ENCODER not found". Catalog files say
+        // whether they have one and whether their GPU path works on Android; imported files try
+        // multimodal first, drop vision as soon as the bundle says it has none, and fall back
+        // from GPU to CPU for devices without a usable GPU delegate.
+        val plan = LocalModelCatalog.liteRtPlanFor(model.id, model.fileName)
+        var withVision = (plan?.vision ?: true) && path !in lrtTextOnlyPaths
         var lastError: Throwable? = null
         var engine: Engine? = null
-        for (useGpu in listOf(true, false)) {
+        // A GPU init that hangs can't be caught, so files unverified on GPU go straight to CPU.
+        val gpuAttempts = if (plan?.gpu == false) listOf(false) else listOf(true, false)
+        for (useGpu in gpuAttempts) {
             while (engine == null) {
                 val backend = if (useGpu) Backend.GPU() else Backend.CPU()
                 val vision = if (withVision) (if (useGpu) Backend.GPU() else Backend.CPU()) else null
@@ -345,6 +351,21 @@ class LocalLlmService(private val context: Context) {
         lrtLoadedPath = path
         lrtLoadedMaxTokens = maxTokens
     }
+
+    /**
+     * LiteRT-LM 0.16 builds an engine with a vision backend even for a text-only bundle and
+     * only fails here. Reload that bundle without vision once and open the conversation again.
+     */
+    private fun createLitertConversation(model: LocalModel, maxTokens: Int, config: ConversationConfig): Conversation =
+        try {
+            lrtEngine!!.createConversation(config)
+        } catch (error: Throwable) {
+            if (!lrtSupportsVision || !isMissingVisionEncoder(error)) throw error
+            lrtTextOnlyPaths += modelFile(model).absolutePath
+            releaseLrtInternal()
+            ensureLitertEngine(model, maxTokens)
+            lrtEngine!!.createConversation(config)
+        }
 
     private fun isMissingVisionEncoder(error: Throwable): Boolean =
         generateSequence(error) { it.cause }.any { it.message?.contains("VISION_ENCODER", ignoreCase = true) == true }
@@ -395,7 +416,7 @@ class LocalLlmService(private val context: Context) {
                     val initialMessages = prior.map { turn ->
                         if (turn.role == "user") Message.user(turn.content) else Message.model(turn.content)
                     }
-                    lrtConversation = lrtEngine!!.createConversation(
+                    lrtConversation = createLitertConversation(model, maxTokens,
                         ConversationConfig(
                             samplerConfig = SamplerConfig(
                                 topK = params.topK.coerceAtLeast(1),
