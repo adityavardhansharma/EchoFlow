@@ -10,8 +10,8 @@ import org.junit.Test
 class LocalModelCatalogTest {
 
     private val newIds = listOf(
-        "local/lfm-2.5-1.2b-instruct",
-        "local/lfm-2.5-2.6b",
+        "local/echoswift-700m",
+        "local/echopulse-1.7b",
         "local/gemma-4-e2b-it",
         "local/gemma-4-e4b-it",
         "local/qwen3.5-4b",
@@ -21,7 +21,8 @@ class LocalModelCatalogTest {
     fun newInstallsGetGemma4AndTheNewerOnDeviceModels() {
         assertEquals(newIds, LocalModelCatalog.recommendationsFor(emptySet()).map { it.id })
         val names = LocalModelCatalog.recommendationsFor(emptyList()).map { it.name }
-        assertTrue(names.contains("Qwen 3.5 4B"))
+        assertTrue(names.containsAll(listOf("EchoSwift", "EchoPulse", "Qwen 3.5 4B")))
+        assertTrue(names.none { it.startsWith("LFM") })
         assertTrue(names.none { it.contains("DeepSeek") || it.startsWith("Qwen3") || it.startsWith("Qwen 2.5") })
     }
 
@@ -50,6 +51,12 @@ class LocalModelCatalogTest {
             ids,
         )
         assertFalse(ids.contains("local/qwen2.5-1.5b-instruct"))
+    }
+
+    @Test
+    fun aDownloadedLfmModelKeepsItsTick() {
+        val ids = LocalModelCatalog.recommendationsFor(setOf("local/lfm-2.5-2.6b")).map { it.id }
+        assertEquals(newIds + "local/lfm-2.5-2.6b", ids)
     }
 
     @Test
@@ -134,6 +141,8 @@ class LocalModelCatalogTest {
         assertEquals(LiteRtLoadPlan(vision = false, gpu = true), LocalModelCatalog.liteRtPlanFor("local/lfm-2.5-2.6b", ""))
         assertEquals(LiteRtLoadPlan(vision = false, gpu = false), LocalModelCatalog.liteRtPlanFor("local/lfm-2.5-1.2b-instruct", ""))
         assertEquals(LiteRtLoadPlan(vision = false, gpu = false), LocalModelCatalog.liteRtPlanFor("local/recovered", "Qwen3.5-4B_mixed_int4.litertlm"))
+        assertEquals(LiteRtLoadPlan(vision = false, gpu = false), LocalModelCatalog.liteRtPlanFor("local/echoswift-700m", ""))
+        assertEquals(null, LocalModelCatalog.liteRtPlanFor("local/echopulse-1.7b", ""))
         assertEquals(null, LocalModelCatalog.liteRtPlanFor("local/imported", "Some-Model.litertlm"))
         assertEquals(null, LocalModelCatalog.liteRtPlanFor("local/gemma3-1b-it", ""))
     }
