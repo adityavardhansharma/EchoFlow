@@ -123,29 +123,29 @@ object LocalModelCatalog {
         maxTokens = 4096,
         description = "Liquid's 2026 reasoning model. Thinks before answering, mixed INT4, no login needed (~2.5 GB RAM)."
     )
-    // EchoFlow's own models. EchoSwift is an int8 LiteRT-LM pack exported with a 4096
-    // kv-cache; GPU is unverified, so it opens on CPU like the int8 LFM pack.
-    private val echoSwift = CatalogEntry(
+    // EchoFlow's own models: the same int8 LiteRT-LM pack exported with a 4096 and an 8192
+    // kv-cache. maxTokens must match each file. GPU is unverified, so both open on CPU.
+    private val echoSwift4k = CatalogEntry(
         id = "local/echoswift-700m",
-        name = "EchoSwift",
+        name = "EchoSwift 4K",
         fileName = "EchoSwift-700M_int8.litertlm",
         url = "https://huggingface.co/adityavardhansharma/EchoSwift-700M-LiteRT/resolve/main/EchoSwift-700M_int8.litertlm",
         approxSizeBytes = 808_281_472L,
         requiresAuth = false,
         maxTokens = 4096,
-        description = "A small, fast model trained for EchoFlow. Int8, no login needed (~1.5 GB RAM).",
+        description = "A small, fast model trained for EchoFlow. 4K context, no login needed (~1.5 GB RAM).",
         gpu = false,
     )
-    // GGUF runs on llama.cpp, which sizes the context itself; 4096 keeps it phone-safe.
-    private val echoPulse = CatalogEntry(
-        id = "local/echopulse-1.7b",
-        name = "EchoPulse",
-        fileName = "EchoPulse-1.7B-Q4_K_M.gguf",
-        url = "https://huggingface.co/adityavardhansharma/EchoPulse-1.7B-GGUF/resolve/main/EchoPulse-1.7B-Q4_K_M.gguf",
-        approxSizeBytes = 1_099_627_712L,
+    private val echoSwift8k = CatalogEntry(
+        id = "local/echoswift-700m-8k",
+        name = "EchoSwift 8K",
+        fileName = "EchoSwift-700M_int8_8k_ekv8192.litertlm",
+        url = "https://huggingface.co/adityavardhansharma/EchoSwift-700M-LiteRT/resolve/main/EchoSwift-700M_int8_8k_ekv8192.litertlm",
+        approxSizeBytes = 813_673_408L,
         requiresAuth = false,
-        maxTokens = 4096,
-        description = "EchoFlow's bigger, newer model. Q4_K_M GGUF, no login needed (~2 GB RAM).",
+        maxTokens = 8192,
+        description = "EchoSwift with twice the context for longer chats and search results. 8K context, no login needed.",
+        gpu = false,
     )
     // Qwen 3.5 4B mixed INT4 is the phone file (2.75 GB). The int8 pack is 4.4 GB.
     // Android CPU is verified on a Pixel 8a; the manifest marks Adreno GPU unverified.
@@ -162,7 +162,7 @@ object LocalModelCatalog {
     )
 
     /** What a new install shows. EchoFlow's own models lead; Qwen 3.5 4B follows Gemma 4. */
-    private val recommended = listOf(echoSwift, echoPulse, gemma4E2b, gemma4E4b, qwen354b)
+    private val recommended = listOf(echoSwift4k, echoSwift8k, gemma4E2b, gemma4E4b, qwen354b)
 
     /** The list this release replaces, in the order people already know. */
     private val previousRecommendations = listOf(
