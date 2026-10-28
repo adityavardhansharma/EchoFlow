@@ -123,6 +123,30 @@ object LocalModelCatalog {
         maxTokens = 4096,
         description = "Liquid's 2026 reasoning model. Thinks before answering, mixed INT4, no login needed (~2.5 GB RAM)."
     )
+    // EchoFlow's own models: the same int8 LiteRT-LM pack exported with a 4096 and an 8192
+    // kv-cache. maxTokens must match each file. GPU is unverified, so both open on CPU.
+    private val echoSwift4k = CatalogEntry(
+        id = "local/echoswift-700m",
+        name = "EchoSwift 4K",
+        fileName = "EchoSwift-700M_int8.litertlm",
+        url = "https://huggingface.co/adityavardhansharma/EchoSwift-700M-LiteRT/resolve/main/EchoSwift-700M_int8.litertlm",
+        approxSizeBytes = 808_281_472L,
+        requiresAuth = false,
+        maxTokens = 4096,
+        description = "A small, fast model trained for EchoFlow. 4K context, no login needed (~1.5 GB RAM).",
+        gpu = false,
+    )
+    private val echoSwift8k = CatalogEntry(
+        id = "local/echoswift-700m-8k",
+        name = "EchoSwift 8K",
+        fileName = "EchoSwift-700M_int8_8k_ekv8192.litertlm",
+        url = "https://huggingface.co/adityavardhansharma/EchoSwift-700M-LiteRT/resolve/main/EchoSwift-700M_int8_8k_ekv8192.litertlm",
+        approxSizeBytes = 813_673_408L,
+        requiresAuth = false,
+        maxTokens = 8192,
+        description = "EchoSwift with twice the context for longer chats and search results. 8K context, no login needed.",
+        gpu = false,
+    )
     // Qwen 3.5 4B mixed INT4 is the phone file (2.75 GB). The int8 pack is 4.4 GB.
     // Android CPU is verified on a Pixel 8a; the manifest marks Adreno GPU unverified.
     private val qwen354b = CatalogEntry(
@@ -137,15 +161,15 @@ object LocalModelCatalog {
         gpu = false,
     )
 
-    /** What a new install shows. The first four stay in front; Qwen 3.5 4B follows. */
-    private val recommended = listOf(lfm12, lfm26, gemma4E2b, gemma4E4b, qwen354b)
+    /** What a new install shows. EchoFlow's own models lead; Qwen 3.5 4B follows Gemma 4. */
+    private val recommended = listOf(echoSwift4k, echoSwift8k, gemma4E2b, gemma4E4b, qwen354b)
 
     /** The list this release replaces, in the order people already know. */
     private val previousRecommendations = listOf(
-        gemma3, qwen06, qwen25, deepseek, gemma4E2b, qwen34b, gemma4E4b,
+        gemma3, qwen06, qwen25, deepseek, gemma4E2b, qwen34b, gemma4E4b, lfm12, lfm26,
     )
 
-    private val removedIds = setOf(gemma3.id, qwen06.id, qwen25.id, deepseek.id, qwen34b.id)
+    private val removedIds = setOf(gemma3.id, qwen06.id, qwen25.id, deepseek.id, qwen34b.id, lfm12.id, lfm26.id)
 
     /**
      * Every model EchoFlow can still resolve by id or file name, including ones that
