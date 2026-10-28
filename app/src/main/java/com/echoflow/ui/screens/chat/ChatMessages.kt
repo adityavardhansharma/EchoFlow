@@ -4,6 +4,7 @@
 package com.echoflow.ui.screens.chat
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -100,6 +101,24 @@ internal fun MessagesPane(
             val last = layout.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
             last.index >= layout.totalItemsCount - 1 &&
                 last.offset + last.size <= layout.viewportEndOffset + 8
+        }
+    }
+    // When the composer grows under the list (the keyboard opening, a banner appearing), the
+    // padding grows but the rows don't move, so the composer lands on the latest message. If the
+    // reader was at the bottom, lift that message back above it. Content growth never triggers this.
+    val latestBottomInset by rememberUpdatedState(bottomInset)
+    LaunchedEffect(listState) {
+        var previous = latestBottomInset
+        snapshotFlow { latestBottomInset }.collect { inset ->
+            val grew = inset > previous
+            previous = inset
+            if (!grew || !atBottom) return@collect
+            withFrameNanos { }
+            val layout = listState.layoutInfo
+            val last = layout.visibleItemsInfo.lastOrNull() ?: return@collect
+            if (last.index < layout.totalItemsCount - 1) return@collect
+            val hidden = last.offset + last.size - (layout.viewportEndOffset - layout.afterContentPadding)
+            if (hidden > 0) runCatching { listState.scrollBy(hidden.toFloat()) }
         }
     }
     // A fresh pane should open at the latest persisted turn, but this runs only once. It never

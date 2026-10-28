@@ -80,6 +80,7 @@ fun ChatDrawerContent(
     onCloseDrawer: (() -> Unit)? = null,
     searchQuery: String = "",
     onSearchQueryChange: ((String) -> Unit)? = null,
+    windowInsets: WindowInsets = WindowInsets.safeDrawing,
 ) {
     val imagine = mode == AppMode.Imagine
     var threadToRename by remember { mutableStateOf<ChatThread?>(null) }
@@ -125,7 +126,7 @@ fun ChatDrawerContent(
             .fillMaxHeight()
             .widthIn(max = 340.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .windowInsetsPadding(windowInsets)
             .padding(horizontal = Spacing.m),
     ) {
         // Brand header — a compact lockup; the drawer's job is the list, not the logo.
