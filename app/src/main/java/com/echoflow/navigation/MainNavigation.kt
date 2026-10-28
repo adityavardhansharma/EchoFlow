@@ -1,9 +1,16 @@
 package com.echoflow
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -161,31 +168,55 @@ fun AdaptiveChatWorkspace(
     val otherModeMatches by chatViewModel.otherModeMatchCount.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= 600.dp) {
+            // Wide windows (an unfolded foldable, a phone on its side) dock the drawer beside the
+            // chat. It opens docked; the chat's menu button folds it away and brings it back.
+            var sidebarOpen by rememberSaveable { mutableStateOf(true) }
             Row(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxHeight().width(320.dp)) {
-                    ChatDrawerContent(
-                        mode = mode,
-                        allThreads = threads,
-                        currentThreadId = selectedId,
-                        renderingChatIds = renderingChatIds,
-                        otherModeMatchCount = otherModeMatches,
-                        onThreadSelected = onThreadSelected,
-                        onNewChatClicked = chatViewModel::startNewChat,
-                        onDeleteThread = chatViewModel::deleteThread,
-                        onRenameThread = chatViewModel::renameThread,
-                        onPinThread = chatViewModel::pinThread,
-                        onUnpinThread = chatViewModel::unpinThread,
-                        onSettingsClicked = onSettingsClicked,
-                        onProjectsClicked = chatViewModel::openProjectsHub,
-                        onArtifactsClicked = chatViewModel::openArtifactsGallery,
-                        onSchedulesClicked = onSchedulesClicked,
-                                searchQuery = query,
-                        onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
-                    )
+                AnimatedVisibility(
+                    visible = sidebarOpen,
+                    enter = expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
+                    exit = shrinkHorizontally(shrinkTowards = Alignment.Start) + fadeOut(),
+                ) {
+                    Row(Modifier.fillMaxHeight()) {
+                        Box(Modifier.fillMaxHeight().width(320.dp)) {
+                            ChatDrawerContent(
+                                mode = mode,
+                                allThreads = threads,
+                                currentThreadId = selectedId,
+                                renderingChatIds = renderingChatIds,
+                                otherModeMatchCount = otherModeMatches,
+                                onThreadSelected = onThreadSelected,
+                                onNewChatClicked = chatViewModel::startNewChat,
+                                onDeleteThread = chatViewModel::deleteThread,
+                                onRenameThread = chatViewModel::renameThread,
+                                onPinThread = chatViewModel::pinThread,
+                                onUnpinThread = chatViewModel::unpinThread,
+                                onSettingsClicked = onSettingsClicked,
+                                onProjectsClicked = chatViewModel::openProjectsHub,
+                                onArtifactsClicked = chatViewModel::openArtifactsGallery,
+                                onSchedulesClicked = onSchedulesClicked,
+                                        searchQuery = query,
+                                onSearchQueryChange = chatViewModel::setDrawerSearchQuery,
+                                // The docked drawer stays put while typing in the chat, so it ignores the
+                                // keyboard, and it leaves the far side's nav bar to the chat pane.
+                                windowInsets = WindowInsets.safeDrawing
+                                    .exclude(WindowInsets.ime)
+                                    .only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
+                            )
+                        }
+                        VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
                 }
-                VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
-                Box(Modifier.weight(1f)) {
-                    ChatScreen(chatViewModel, settingsViewModel, {}, onSettingsClicked, onOpenWebSearchSettings, onOpenSchedule)
+                // In landscape the nav bar and camera cutout sit at the window's sides; pad for them
+                // so messages never slide underneath. The open drawer already covers the start side.
+                val chatSides = if (sidebarOpen) WindowInsetsSides.End else WindowInsetsSides.Horizontal
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(chatSides)),
+                ) {
+                    ChatScreen(chatViewModel, settingsViewModel, { sidebarOpen = !sidebarOpen }, onSettingsClicked, onOpenWebSearchSettings, onOpenSchedule)
                 }
             }
         } else {
