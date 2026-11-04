@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -256,7 +255,7 @@ private fun LiveHeader(
     Row(
         Modifier
             .then(if (compact) Modifier else Modifier.fillMaxWidth())
-            .height(PillHeight)
+            .heightIn(min = PillHeight)
             .clip(PillShape)
             .clickable(onClickLabel = if (expanded) "Hide steps" else "Show steps", onClick = onClick)
             .semantics {
@@ -354,7 +353,7 @@ private fun DoneHeader(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(PillHeight)
+            .heightIn(min = PillHeight)
             .clip(PillShape)
             .clickable(onClickLabel = if (expanded) "Hide steps" else "Show steps", onClick = onClick)
             .semantics(mergeDescendants = true) {
@@ -501,7 +500,6 @@ private fun ThoughtTicker(text: String) {
     Box(
         Modifier
             .width(180.dp)
-            .height(16.dp)
             .clipToBounds()
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithContent {
@@ -754,12 +752,14 @@ private fun FaviconStack(sources: List<SearchSource>, diameter: Dp, ring: Color,
     }
 }
 
-/** Springs an element in from 40% once, after [delayMillis]; inert when [enabled] is false. */
+/** Springs an element in from 40% after [delayMillis] each time [enabled] turns on. */
 @Composable
 private fun Modifier.popIn(enabled: Boolean, delayMillis: Long = 0L): Modifier {
-    val scale = remember { Animatable(if (enabled) 0.4f else 1f) }
+    // Starts settled; the pop replays whenever [enabled] flips on, even after the first frame.
+    val scale = remember { Animatable(1f) }
     LaunchedEffect(enabled) {
         if (enabled) {
+            scale.snapTo(0.4f)
             delay(delayMillis)
             scale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium))
         }

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -55,6 +56,11 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.echoflow.data.SearchSource
+import com.mikepenz.markdown.annotator.annotatorSettings
+import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
+import com.mikepenz.markdown.compose.elements.MarkdownParagraph
+import com.mikepenz.markdown.compose.elements.MarkdownText
+import org.intellij.markdown.ast.ASTNode
 
 /**
  * Titles for the pages a reply searched, keyed by URL, so a citation peek can name the page
@@ -83,49 +89,90 @@ internal fun CitationPeekText(
     modifier: Modifier = Modifier,
     inlineContent: Map<String, InlineTextContent> = emptyMap(),
 ) {
+    CitationPeekArea(text) { peekModifier, onTextLayout ->
+        Text(
+            text = text,
+            style = style,
+            inlineContent = inlineContent,
+            onTextLayout = onTextLayout,
+            modifier = modifier.then(peekModifier),
+        )
+    }
+}
+
+/**
+ * Markdown paragraph component for the answer renderer: the library's own paragraph, plus the
+ * citation peek. Same annotated text and styling as [MarkdownParagraph]; only the gesture is new.
+ */
+@Composable
+internal fun CitationMarkdownParagraph(content: String, node: ASTNode, style: TextStyle) {
+    val settings = annotatorSettings()
+    val styled = remember(content, node, style) {
+        buildAnnotatedString {
+            pushStyle(style.toSpanStyle())
+            buildMarkdownAnnotatedString(content = content, node = node, annotatorSettings = settings)
+            pop()
+        }
+    }
+    CitationPeekArea(styled) { peekModifier, onTextLayout ->
+        MarkdownText(
+            content = styled,
+            node = node,
+            modifier = peekModifier,
+            style = style,
+            onTextLayout = { result, _ -> onTextLayout(result) },
+            sourceContent = content,
+        )
+    }
+}
+
+/**
+ * Hosts the long-press peek for whatever draws [text]: [content] gets the gesture modifier and a
+ * layout callback to hand to its text composable.
+ */
+@Composable
+private fun CitationPeekArea(
+    text: AnnotatedString,
+    content: @Composable (peekModifier: Modifier, onTextLayout: (TextLayoutResult) -> Unit) -> Unit,
+) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var peek by remember { mutableStateOf<Peek?>(null) }
     val haptics = LocalHapticFeedback.current
     val hasCitations = remember(text) { text.citationRanges().isNotEmpty() }
 
-    Text(
-        text = text,
-        style = style,
-        inlineContent = inlineContent,
-        onTextLayout = { layout = it },
-        modifier = modifier
-            .onGloballyPositioned { coords = it }
-            .then(
-                if (!hasCitations) Modifier else Modifier.pointerInput(text) {
-                    awaitEachGesture {
-                        // Initial pass: see the press before the link handler inside Text does.
-                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        val hit = layout?.let { result -> text.citationAt(result.getOffsetForPosition(down.position)) }
-                            ?: return@awaitEachGesture
-                        val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                            do {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                            } while (event.changes.any { it.pressed })
-                        }
-                        if (released != null) return@awaitEachGesture // a tap: let the link open
-                        val result = layout ?: return@awaitEachGesture
-                        val box = result.getBoundingBox(hit.start.coerceAtMost(result.layoutInput.text.length - 1))
-                        val origin = coords?.boundsInWindow()?.topLeft ?: return@awaitEachGesture
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        peek = Peek(hit.item.url, box.translate(origin))
-                        // Hold to read; the release closes the peek and is consumed so the
-                        // link underneath never sees a click.
+    val peekModifier = Modifier
+        .onGloballyPositioned { coords = it }
+        .then(
+            if (!hasCitations) Modifier else Modifier.pointerInput(text) {
+                awaitEachGesture {
+                    // Initial pass: see the press before the link handler inside the text does.
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val hit = layout?.let { result -> text.citationAt(result.getOffsetForPosition(down.position)) }
+                        ?: return@awaitEachGesture
+                    val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            event.changes.forEach { it.consume() }
                         } while (event.changes.any { it.pressed })
-                        peek = null
                     }
-                },
-            ),
-    )
+                    if (released != null) return@awaitEachGesture // a tap: let the link open
+                    val result = layout ?: return@awaitEachGesture
+                    val box = result.getBoundingBox(hit.start.coerceAtMost(result.layoutInput.text.length - 1))
+                    val origin = coords?.boundsInWindow()?.topLeft ?: return@awaitEachGesture
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    peek = Peek(hit.item.url, box.translate(origin))
+                    // Hold to read; the release closes the peek and is consumed so the
+                    // link underneath never sees a click.
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        event.changes.forEach { it.consume() }
+                    } while (event.changes.any { it.pressed })
+                    peek = null
+                }
+            },
+        )
 
+    content(peekModifier) { layout = it }
     peek?.let { CitationPeekPopup(it) }
 }
 
