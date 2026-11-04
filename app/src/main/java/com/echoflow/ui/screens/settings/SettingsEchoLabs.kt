@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.chat.AskEchoFlowSelection
+import com.echoflow.ui.lock.AppLock
 import com.echoflow.ui.lock.LocalAppLock
 import com.echoflow.ui.lock.LockAfter
 import com.echoflow.ui.components.groupedItemShape
@@ -153,7 +154,11 @@ internal fun AppLockRow(index: Int, count: Int) {
                 Column(Modifier.weight(1f)) {
                     Text("App lock", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        "Open EchoFlow with your fingerprint, face or screen lock. Chats are hidden in Recents while it's on.",
+                        if (AppLock.hidesRecents) {
+                            "Open EchoFlow with your fingerprint, face or screen lock. Chats are hidden in Recents while it's on."
+                        } else {
+                            "Open EchoFlow with your fingerprint, face or screen lock."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

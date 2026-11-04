@@ -22,7 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appLock.load()
         enableEdgeToEdge()
         readOpenRequest(intent)
         // A recreated activity (rotation, process restore) still carries the launch intent;
@@ -173,17 +174,21 @@ class MainActivity : ComponentActivity() {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
                     val locked by appLock.locked.collectAsState()
+                    // While locked the screens leave composition entirely: dialogs, sheets and menus
+                    // are windows of their own and would otherwise sit above the lock. Calls,
+                    // streams and the open chat live in the view models and carry on; saved UI
+                    // state (scroll positions and the like) comes back on unlock.
+                    val hubState = rememberSaveableStateHolder()
                     CompositionLocalProvider(LocalAppLock provides appLock) {
-                        Box(Modifier.fillMaxSize()) {
-                            // Stays composed under the lock so calls, streams and open screens
-                            // carry on; hidden from TalkBack until it's unlocked.
-                            Box(if (locked) Modifier.fillMaxSize().clearAndSetSemantics {} else Modifier.fillMaxSize()) {
+                        if (locked) {
+                            AppLockScreen(onUnlock = appLock::unlock)
+                        } else {
+                            hubState.SaveableStateProvider("hub") {
                                 MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
                                     openScheduleRequest.value = null
                                     scheduleChatFallback.value = null
                                 }
                             }
-                            if (locked) AppLockScreen(onUnlock = appLock::unlock)
                         }
                     }
                 }
