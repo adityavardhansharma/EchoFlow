@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,6 +52,8 @@ class MainActivity : ComponentActivity() {
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
     // Text or files another app shared into EchoFlow, opened as a new chat.
     private val shareRequest = MutableStateFlow<IncomingShare?>(null)
+    // A launcher shortcut (new chat, voice, temporary, Imagine) to act on.
+    private val shortcutRequest = MutableStateFlow<AppShortcut?>(null)
 
     private fun readOpenRequest(intent: Intent?) {
         val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
@@ -65,11 +68,18 @@ class MainActivity : ComponentActivity() {
         IncomingShare.from(intent)?.let { shareRequest.value = it }
     }
 
+    private fun readShortcut(intent: Intent?) {
+        val shortcut = AppShortcut.from(intent) ?: return
+        ShortcutManagerCompat.reportShortcutUsed(this, shortcut.id)
+        shortcutRequest.value = shortcut
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         readOpenRequest(intent)
         readShare(intent)
+        readShortcut(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,7 +88,10 @@ class MainActivity : ComponentActivity() {
         readOpenRequest(intent)
         // A recreated activity (rotation, process restore) still carries the launch intent;
         // re-reading it would reopen the share over whatever the user has since typed.
-        if (savedInstanceState == null) readShare(intent)
+        if (savedInstanceState == null) {
+            readShare(intent)
+            readShortcut(intent)
+        }
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
         // foreground-service progress notification to appear in the status bar.
@@ -165,10 +178,16 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
-                    MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
-                        openScheduleRequest.value = null
-                        scheduleChatFallback.value = null
-                    }
+                    val pendingShortcut by shortcutRequest.collectAsState()
+                    MainNavigationHub(
+                        chatVm, settingsVm, pendingSchedule, fallbackChat,
+                        onPendingScheduleConsumed = {
+                            openScheduleRequest.value = null
+                            scheduleChatFallback.value = null
+                        },
+                        pendingShortcut = pendingShortcut,
+                        onPendingShortcutConsumed = { shortcutRequest.value = null },
+                    )
                 }
             }
         }

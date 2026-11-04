@@ -24,6 +24,8 @@ fun MainNavigationHub(
     pendingScheduleId: String? = null,
     pendingScheduleChatId: String? = null,
     onPendingScheduleConsumed: () -> Unit = {},
+    pendingShortcut: AppShortcut? = null,
+    onPendingShortcutConsumed: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf("chat") }
     var scheduleRoute by remember { mutableStateOf<ScheduleRoute?>(null) }
@@ -43,6 +45,19 @@ fun MainNavigationHub(
             chatViewModel.openThreadFromNotification(pendingScheduleChatId)
         }
         onPendingScheduleConsumed()
+    }
+    // A launcher shortcut lands on the chat surface, so whatever was layered over it is put away.
+    LaunchedEffect(pendingShortcut) {
+        val shortcut = pendingShortcut ?: return@LaunchedEffect
+        activeTab = "chat"
+        scheduleRoute = null
+        chatViewModel.closeArtifactWorkspace()
+        chatViewModel.closeArtifactsGallery()
+        chatViewModel.closeProjectsHub()
+        chatViewModel.closeResearchWorkspace()
+        chatViewModel.closeBrowserWorkspace()
+        chatViewModel.openShortcut(shortcut)
+        onPendingShortcutConsumed()
     }
     // Schedule conversations open in their own screen; everything else is an ordinary chat.
     // A chat written by a v28 run carries the schedule's mark but is not its conversation.

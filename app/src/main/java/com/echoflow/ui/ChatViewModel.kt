@@ -655,6 +655,33 @@ class ChatViewModel(
         _sharedDraftText.value = null
     }
 
+    // Set by the Voice launcher shortcut; the chat surface starts the call once it has asked
+    // for the mic, the same way its waveform button does.
+    private val _voiceModeRequested = MutableStateFlow(false)
+    val voiceModeRequested: StateFlow<Boolean> = _voiceModeRequested.asStateFlow()
+
+    fun consumeVoiceModeRequest() {
+        _voiceModeRequested.value = false
+    }
+
+    /**
+     * Acts on a launcher shortcut. A live voice call is left alone: coming back to it through a
+     * shortcut shouldn't hang it up.
+     */
+    fun openShortcut(shortcut: com.echoflow.AppShortcut) {
+        if (voiceModeState.value.active) return
+        val mode = if (shortcut == com.echoflow.AppShortcut.Imagine) AppMode.Imagine else AppMode.Chat
+        if (appMode.value != mode) switchMode(mode)
+        when (shortcut) {
+            com.echoflow.AppShortcut.TemporaryChat -> startTemporaryChat()
+            com.echoflow.AppShortcut.VoiceMode -> {
+                startNewChat()
+                _voiceModeRequested.value = true
+            }
+            else -> startNewChat()
+        }
+    }
+
     /**
      * Versions of a specific artifact lineage, so an in-chat card can compute its own version-diff
      * chips and (for HTML) a preview from its content. Keyed by id — not the chat's "current"
