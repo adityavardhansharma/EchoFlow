@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -36,6 +37,9 @@ import com.echoflow.ui.chat.IncomingShare
 import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.chat.ChatScreen
 import com.echoflow.ui.screens.settings.SettingsScreen
+import com.echoflow.ui.lock.AppLock
+import com.echoflow.ui.lock.AppLockScreen
+import com.echoflow.ui.lock.LocalAppLock
 import com.echoflow.ui.theme.EchoFlowTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -43,6 +47,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
+    // Echo Labs app lock: created with the activity so it can register its result launcher.
+    private val appLock = AppLock(this)
 
     // A chat id to open, set when launched/resumed from a reply-ready notification tap.
     private val openChatRequest = MutableStateFlow<String?>(null)
@@ -165,9 +172,19 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
-                    MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
-                        openScheduleRequest.value = null
-                        scheduleChatFallback.value = null
+                    val locked by appLock.locked.collectAsState()
+                    CompositionLocalProvider(LocalAppLock provides appLock) {
+                        Box(Modifier.fillMaxSize()) {
+                            // Stays composed under the lock so calls, streams and open screens
+                            // carry on; hidden from TalkBack until it's unlocked.
+                            Box(if (locked) Modifier.fillMaxSize().clearAndSetSemantics {} else Modifier.fillMaxSize()) {
+                                MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
+                                    openScheduleRequest.value = null
+                                    scheduleChatFallback.value = null
+                                }
+                            }
+                            if (locked) AppLockScreen(onUnlock = appLock::unlock)
+                        }
                     }
                 }
             }
