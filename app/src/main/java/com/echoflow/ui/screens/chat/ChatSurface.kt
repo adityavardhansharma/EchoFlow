@@ -318,6 +318,26 @@ internal fun ChatSurface(
         if (granted) chatViewModel.startVoiceMode(micAllowed = true)
         else voiceModePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
+    // Quote & reply: Quote in a reply's text toolbar stages the passage on the composer.
+    val quotes by chatViewModel.quotes.collectAsState()
+    val quoteHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val onQuote: (String, String) -> Unit = remember(chatViewModel, sttContext) {
+        { text, messageId ->
+            when (chatViewModel.addQuote(text, messageId)) {
+                ChatViewModel.QuoteResult.Added ->
+                    quoteHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                ChatViewModel.QuoteResult.Full -> {
+                    quoteHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Reject)
+                    Toast.makeText(
+                        sttContext,
+                        "You can quote up to ${com.echoflow.data.QuotedPassages.MAX} passages. Remove one to add another.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                ChatViewModel.QuoteResult.AlreadyQuoted, ChatViewModel.QuoteResult.Empty -> Unit
+            }
+        }
+    }
     LaunchedEffect(voiceModeNotice) {
         voiceModeNotice?.let {
             Toast.makeText(sttContext, it, Toast.LENGTH_LONG).show()
@@ -575,42 +595,44 @@ internal fun ChatSurface(
             // opens at the bottom with no inherited-offset jump. bottomInset keeps the last
             // message clear of the floating input.
             key(currentThreadId) {
-                MessagesPane(
-                    messages = messages,
-                    isStreaming = isStreaming,
-                    segments = activeSegments,
-                    activeMessageId = activeStreamMessageId,
-                    revealState = streamRevealState,
-                    statusNote = statusNote,
-                    progressLoading = progressLoading,
-                    modelLoading = localModelLoading,
-                    researchRun = researchRun,
-                    onCancelResearch = { chatViewModel.cancelResearch() },
-                    topInset = messagesTopInset,
-                    bottomInset = messageBottomInset,
-                    onCopy = { clipboard.setText(AnnotatedString(it)) },
-                    onArtifactOpen = { artifactId, version ->
-                        chatViewModel.openArtifactWorkspace(artifactId, version)
-                    },
-                    onResearchOpen = chatViewModel::openResearchWorkspace,
-                    onResearchRetry = chatViewModel::retryResearch,
-                    observeResearchRun = chatViewModel::observeResearchRun,
-                    observeVideo = chatViewModel::observeVideo,
-                    observeArtifactVersions = chatViewModel::observeArtifactVersions,
-                    lastUserMessageId = lastUserMessageId,
-                    onEditUserMessage = { id ->
-                        chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
-                    },
-                    replyVersionIndexFor = { messageId, total ->
-                        replyVersionPick[messageId]?.coerceIn(0, (total - 1).coerceAtLeast(0))
-                            ?: (total - 1).coerceAtLeast(0)
-                    },
-                    onReplyVersionChange = chatViewModel::selectReplyVersion,
-                    canEditMessages = !isStreaming &&
-                        !progressLoading &&
-                        researchRun == null &&
-                        editingUserMessageId == null,
-                )
+                CompositionLocalProvider(com.echoflow.ui.components.LocalQuoteHandler provides onQuote) {
+                    MessagesPane(
+                        messages = messages,
+                        isStreaming = isStreaming,
+                        segments = activeSegments,
+                        activeMessageId = activeStreamMessageId,
+                        revealState = streamRevealState,
+                        statusNote = statusNote,
+                        progressLoading = progressLoading,
+                        modelLoading = localModelLoading,
+                        researchRun = researchRun,
+                        onCancelResearch = { chatViewModel.cancelResearch() },
+                        topInset = messagesTopInset,
+                        bottomInset = messageBottomInset,
+                        onCopy = { clipboard.setText(AnnotatedString(it)) },
+                        onArtifactOpen = { artifactId, version ->
+                            chatViewModel.openArtifactWorkspace(artifactId, version)
+                        },
+                        onResearchOpen = chatViewModel::openResearchWorkspace,
+                        onResearchRetry = chatViewModel::retryResearch,
+                        observeResearchRun = chatViewModel::observeResearchRun,
+                        observeVideo = chatViewModel::observeVideo,
+                        observeArtifactVersions = chatViewModel::observeArtifactVersions,
+                        lastUserMessageId = lastUserMessageId,
+                        onEditUserMessage = { id ->
+                            chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
+                        },
+                        replyVersionIndexFor = { messageId, total ->
+                            replyVersionPick[messageId]?.coerceIn(0, (total - 1).coerceAtLeast(0))
+                                ?: (total - 1).coerceAtLeast(0)
+                        },
+                        onReplyVersionChange = chatViewModel::selectReplyVersion,
+                        canEditMessages = !isStreaming &&
+                            !progressLoading &&
+                            researchRun == null &&
+                            editingUserMessageId == null,
+                    )
+                }
             }
         }
 
@@ -791,6 +813,8 @@ internal fun ChatSurface(
             onCancelTranscribe = { voice.cancel() },
             voiceModeAvailable = voiceModeAvailable,
             onStartVoiceMode = startVoiceMode,
+            quotes = quotes,
+            onRemoveQuote = chatViewModel::removeQuote,
             projectName = currentThreadProject?.name,
             projectColorIndex = currentThreadProject?.colorIndex ?: 0,
             onOpenProject = { currentThreadProject?.let { chatViewModel.openProjectFromChat(it.id) } },

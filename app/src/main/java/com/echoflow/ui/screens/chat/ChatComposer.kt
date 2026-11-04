@@ -24,6 +24,9 @@ import com.echoflow.ui.theme.rememberReducedMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.components.CapabilityChip
@@ -109,8 +112,22 @@ internal fun InputToolbar(
     /** A voice provider is set up (ElevenLabs, Gemini or OpenAI): an empty composer offers voice mode in the send slot. */
     voiceModeAvailable: Boolean = false,
     onStartVoiceMode: () -> Unit = {},
+    /** Quote & reply: passages the next message asks about, shown in a strip on the composer. */
+    quotes: List<com.echoflow.data.QuotedPassage> = emptyList(),
+    onRemoveQuote: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // A new quote puts the cursor in the composer, ready to ask about it.
+    val inputFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var shownQuotes by remember { mutableIntStateOf(quotes.size) }
+    LaunchedEffect(quotes.size) {
+        if (quotes.size > shownQuotes && voicePhase == VoicePhase.Idle) {
+            runCatching { inputFocus.requestFocus() }
+            keyboard?.show()
+        }
+        shownQuotes = quotes.size
+    }
     val imageContentReceiver = remember(imageAttachEnabled, onReceiveImage) {
         object : ReceiveContentListener {
             override fun onReceive(transferableContent: TransferableContent): TransferableContent? {
@@ -206,6 +223,7 @@ internal fun InputToolbar(
                 modifier = Modifier.padding(start = Spacing.base, bottom = Spacing.s),
             )
         }
+        QuoteStrip(quotes = quotes, onRemove = onRemoveQuote)
         Surface(
             shape = CircleShape,
             // Tint the composer while the chat is captured by a live browser session.
@@ -290,6 +308,8 @@ internal fun InputToolbar(
                                     dataAgentActive -> "Describe the data to extract…"
                                     deepResearchActive -> "Research a topic…"
                                     artifactActive -> "Describe an artifact to build…"
+                                    quotes.size > 1 -> "Ask about these quotes…"
+                                    quotes.isNotEmpty() -> "Ask about this quote…"
                                     else -> "Ask anything…"
                                 }
                             )
@@ -306,6 +326,7 @@ internal fun InputToolbar(
                         textStyle = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier
                             .weight(1f)
+                            .focusRequester(inputFocus)
                             .contentReceiver(imageContentReceiver)
                             .testTag("chat_input_field"),
                     )

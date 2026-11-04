@@ -14,7 +14,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -30,6 +33,7 @@ import com.echoflow.data.ToolEventJson
 import com.echoflow.ui.ChatResponsePolicy
 import com.echoflow.ui.StreamRevealState
 import com.echoflow.ui.StreamSegment
+import com.echoflow.ui.components.QuotableReply
 import com.echoflow.ui.components.ResearchTimeline
 import com.echoflow.ui.legacy.LegacyResearchProgressCard
 import com.echoflow.ui.theme.Spacing
@@ -138,6 +142,25 @@ internal fun MessagesPane(
             }
         }
     }
+    // Quote & reply: a sent quote's label scrolls back to the reply it came from, which then
+    // glows briefly so the eye lands on it.
+    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val reducedMotion = com.echoflow.ui.theme.rememberReducedMotion()
+    var flash by remember { mutableStateOf<ReplyFlash?>(null) }
+    val openQuote: (String) -> Unit = { replyId ->
+        val index = messages.indexOfFirst { it.id == replyId }
+        if (index < 0) {
+            android.widget.Toast.makeText(context, "That reply is no longer in this chat.", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            scope.launch {
+                runCatching {
+                    if (reducedMotion) listState.scrollToItem(index) else listState.animateScrollToItem(index)
+                }
+                flash = ReplyFlash(replyId, (flash?.nonce ?: 0) + 1)
+            }
+        }
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -166,10 +189,12 @@ internal fun MessagesPane(
                     onCopy = onCopy,
                     canEditUserMessage = canEditMessages && message.id == lastUserMessageId,
                     onEditUserMessage = onEditUserMessage,
+                    onOpenQuote = openQuote,
                 )
             } else {
                 val versionTotal = message?.let(ReplyVersions::count) ?: 1
                 StableAssistantMessage(
+                    modifier = Modifier.replyFlash(flash?.takeIf { it.replyId == row.id }, reducedMotion),
                     messageId = row.id,
                     persistedMessage = message,
                     liveSegments = if (row.id == activeMessageId) segments else emptyList(),
@@ -218,6 +243,41 @@ internal fun MessagesPane(
     }
 }
 
+/** One jump to a quoted reply; [nonce] lets a second tap on the same label glow again. */
+private data class ReplyFlash(val replyId: String, val nonce: Int)
+
+/** A soft tinted wash behind a reply that fades in and out once per [flash]. */
+@Composable
+private fun Modifier.replyFlash(flash: ReplyFlash?, reducedMotion: Boolean): Modifier {
+    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(flash) {
+        if (flash == null) return@LaunchedEffect
+        alpha.snapTo(0f)
+        if (reducedMotion) {
+            alpha.snapTo(1f)
+            kotlinx.coroutines.delay(900)
+            alpha.snapTo(0f)
+        } else {
+            alpha.animateTo(1f, androidx.compose.animation.core.tween(220))
+            kotlinx.coroutines.delay(650)
+            alpha.animateTo(0f, androidx.compose.animation.core.tween(700))
+        }
+    }
+    val tint = MaterialTheme.colorScheme.primaryContainer
+    return drawBehind {
+        val a = alpha.value
+        if (a > 0f) {
+            val pad = 10.dp.toPx()
+            drawRoundRect(
+                color = tint.copy(alpha = 0.55f * a),
+                topLeft = androidx.compose.ui.geometry.Offset(-pad, -pad),
+                size = androidx.compose.ui.geometry.Size(size.width + pad * 2, size.height + pad * 2),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(20.dp.toPx()),
+            )
+        }
+    }
+}
+
 private data class ChatTimelineMessage(
     val id: String,
     val message: ChatMessage?,
@@ -245,6 +305,7 @@ private fun StableAssistantMessage(
     observeArtifactVersions: (String) -> Flow<List<ArtifactVersion>>,
     replyVersionIndex: Int,
     onReplyVersionChange: (messageId: String, index: Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var retainedSegments by remember(messageId) { mutableStateOf<List<StreamSegment>>(emptyList()) }
     if (liveSegments.isNotEmpty()) {
@@ -270,43 +331,46 @@ private fun StableAssistantMessage(
         }
     }
 
-    Column(Modifier.fillMaxWidth()) {
-        if (keepMountedLiveTree) {
-            StreamingAssistantBubble(
-                segments = settled.segments,
-                statusNote = if (streamActive) statusNote else null,
-                isStreaming = streamActive,
-                revealState = revealState,
-                onArtifactOpen = onArtifactOpen,
-                observeVideo = observeVideo,
-                observeArtifactVersions = observeArtifactVersions,
-                terminalText = settled.terminalText,
-                stopped = settled.stopped,
-                onCopy = persistedMessage?.let { message ->
-                    { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) }
-                }.takeIf { !streamActive },
-            )
-            if (!streamActive && persistedMessage != null) {
-                AssistantAnswerActions(
-                    message = persistedMessage,
+    // A finished reply is selectable, with Quote in the text toolbar; a streaming one is not.
+    QuotableReply(messageId = messageId, enabled = !streamActive && persistedMessage != null) {
+        Column(modifier.fillMaxWidth()) {
+            if (keepMountedLiveTree) {
+                StreamingAssistantBubble(
+                    segments = settled.segments,
+                    statusNote = if (streamActive) statusNote else null,
+                    isStreaming = streamActive,
+                    revealState = revealState,
+                    onArtifactOpen = onArtifactOpen,
+                    observeVideo = observeVideo,
+                    observeArtifactVersions = observeArtifactVersions,
+                    terminalText = settled.terminalText,
+                    stopped = settled.stopped,
+                    onCopy = persistedMessage?.let { message ->
+                        { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) }
+                    }.takeIf { !streamActive },
+                )
+                if (!streamActive && persistedMessage != null) {
+                    AssistantAnswerActions(
+                        message = persistedMessage,
+                        replyVersionIndex = replyVersionIndex,
+                        onReplyVersionChange = onReplyVersionChange,
+                        onCopy = onCopy,
+                    )
+                }
+            } else if (persistedMessage != null) {
+                MessageBubble(
+                    persistedMessage,
+                    onCopy = onCopy,
+                    onArtifactOpen = onArtifactOpen,
+                    onResearchOpen = onResearchOpen,
+                    onResearchRetry = onResearchRetry,
+                    observeResearchRun = observeResearchRun,
+                    observeVideo = observeVideo,
+                    observeArtifactVersions = observeArtifactVersions,
                     replyVersionIndex = replyVersionIndex,
                     onReplyVersionChange = onReplyVersionChange,
-                    onCopy = onCopy,
                 )
             }
-        } else if (persistedMessage != null) {
-            MessageBubble(
-                persistedMessage,
-                onCopy = onCopy,
-                onArtifactOpen = onArtifactOpen,
-                onResearchOpen = onResearchOpen,
-                onResearchRetry = onResearchRetry,
-                observeResearchRun = observeResearchRun,
-                observeVideo = observeVideo,
-                observeArtifactVersions = observeArtifactVersions,
-                replyVersionIndex = replyVersionIndex,
-                onReplyVersionChange = onReplyVersionChange,
-            )
         }
     }
 }

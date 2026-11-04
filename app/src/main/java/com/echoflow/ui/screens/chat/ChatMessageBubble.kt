@@ -60,10 +60,14 @@ internal fun MessageBubble(
     onEditUserMessage: (String) -> Unit = {},
     replyVersionIndex: Int = 0,
     onReplyVersionChange: (String, Int) -> Unit = { _, _ -> },
+    onOpenQuote: (messageId: String) -> Unit = {},
 ) {
     val isUser = message.role == "user"
     if (isUser) {
+        val quotes = remember(message.quotesJson) { com.echoflow.data.QuotedPassages.fromJson(message.quotesJson) }
         UserPromptBubble(
+            quotes = quotes,
+            onOpenQuote = onOpenQuote,
             content = message.content,
             canEdit = canEditUserMessage,
             onCopy = { onCopy(message.content) },

@@ -101,6 +101,11 @@ data class ChatMessage(
      * edits a model reply made. Null for every ordinary message.
      */
     val scheduleEvent: String? = null,
+    /**
+     * Quote & reply: the passages this user turn quoted from earlier replies, as JSON
+     * [QuotedPassage] list (up to [QuotedPassages.MAX]). Null for every unquoted message.
+     */
+    val quotesJson: String? = null,
 ) {
     /**
      * In-memory only. Extra files (project docs that still need the provider) attached to this

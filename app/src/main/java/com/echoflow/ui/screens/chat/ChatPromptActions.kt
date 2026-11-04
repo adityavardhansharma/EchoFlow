@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.DropdownMenu
@@ -38,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
@@ -64,6 +69,9 @@ internal fun UserPromptBubble(
     onEdit: () -> Unit,
     modifier: Modifier = Modifier,
     attachment: @Composable (() -> Unit)? = null,
+    /** Quote & reply: passages this turn quoted; a label under the bubble jumps back to them. */
+    quotes: List<com.echoflow.data.QuotedPassage> = emptyList(),
+    onOpenQuote: (messageId: String) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -93,6 +101,9 @@ internal fun UserPromptBubble(
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = Spacing.m),
                     )
                 }
+                if (quotes.isNotEmpty()) {
+                    RepliedToQuoteLabel(quotes = quotes, onClick = { onOpenQuote(quotes.first().messageId) })
+                }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
@@ -115,6 +126,35 @@ internal fun UserPromptBubble(
                 }
             }
         }
+    }
+}
+
+/**
+ * "Replied to a quote" under a sent prompt. The quote itself isn't repeated in the bubble; tapping
+ * scrolls back to the reply it came from, and TalkBack reads the quoted words.
+ */
+@Composable
+private fun RepliedToQuoteLabel(quotes: List<com.echoflow.data.QuotedPassage>, onClick: () -> Unit) {
+    val label = if (quotes.size == 1) "Replied to a quote" else "Replied to ${quotes.size} quotes"
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clip(CircleShape)
+            .clickable(onClickLabel = "Show the quoted reply", role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$label: " + quotes.joinToString(" … ") { it.text }
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

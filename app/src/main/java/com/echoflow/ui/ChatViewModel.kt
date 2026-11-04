@@ -163,6 +163,7 @@ class ChatViewModel(
         // later superseded. Clear conversation-scoped composer state synchronously so a stale
         // restore cannot leave the previous thread's edit attachment armed for the next send.
         clearConversationComposerState()
+        _quotes.value = emptyList()
         modeRestoreJob = viewModelScope.launch {
             val token = navigation.begin()
             val restored = restoredThreadId(mode)
@@ -194,6 +195,8 @@ class ChatViewModel(
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
+        // Quotes point at replies in the conversation being left.
+        _quotes.value = emptyList()
         applyModelForThread(chatId)
     }
 
@@ -655,6 +658,28 @@ class ChatViewModel(
         _sharedDraftText.value = null
     }
 
+    // ── Quote & reply ─────────────────────────────────────────────────────────────
+
+    /** Passages from this conversation's replies that the next message asks about, oldest first. */
+    private val _quotes = MutableStateFlow<List<QuotedPassage>>(emptyList())
+    val quotes: StateFlow<List<QuotedPassage>> = _quotes.asStateFlow()
+
+    enum class QuoteResult { Added, AlreadyQuoted, Full, Empty }
+
+    /** Stages a passage from the reply [messageId] for the next message. */
+    fun addQuote(rawText: String, messageId: String): QuoteResult {
+        val text = QuotedPassages.clean(rawText) ?: return QuoteResult.Empty
+        val current = _quotes.value
+        if (current.any { it.text == text && it.messageId == messageId }) return QuoteResult.AlreadyQuoted
+        if (current.size >= QuotedPassages.MAX) return QuoteResult.Full
+        _quotes.value = current + QuotedPassage(text, messageId)
+        return QuoteResult.Added
+    }
+
+    fun removeQuote(index: Int) {
+        _quotes.value = _quotes.value.filterIndexed { i, _ -> i != index }
+    }
+
     /**
      * Versions of a specific artifact lineage, so an in-chat card can compute its own version-diff
      * chips and (for HTML) a preview from its content. Keyed by id — not the chat's "current"
@@ -883,7 +908,7 @@ class ChatViewModel(
                 val projectId = chatId?.let { chatRepository.thread(it)?.projectId } ?: pendingProjectIfStillExists()
                 if (projectId != null) projectManager.backfillProject(projectId)
                 return com.echoflow.ui.chat.VoiceChatContext(
-                    history = chatId?.let { chatRepository.history(it) }.orEmpty(),
+                    history = chatId?.let { chatRepository.history(it) }.orEmpty().map { it.withQuotesForModel() },
                     projectContext = projectId?.let { projectManager.buildSystemContext(it) }.orEmpty(),
                     projectId = projectId,
                     temporary = isTemporaryNow(),
@@ -1571,29 +1596,39 @@ class ChatViewModel(
 
         if (prompt.isEmpty() && attachmentUri == null) return
 
+        // Quotes go out with a new message only; an edit keeps the turn's original quotes. The
+        // research, data and browser pipelines take a single prompt string, so there the quotes
+        // are folded into it rather than dropped.
+        val stagedQuotes = if (editingUserId == null) _quotes.value else emptyList()
+        val pipelinePrompt = QuotedPassages.forModel(stagedQuotes, prompt)
+
         // Prompt edit always uses the normal chat stream path (archive old answer, stream new).
         // Special modes would fork into a different pipeline and lose the version chain.
         if (editingUserId == null) {
             // Deep Research and Data Agent are different pipelines (foreground service +
             // provider/agent orchestration), so they short-circuit the normal streaming send.
             if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
-                startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
+                _quotes.value = emptyList()
+                startDeepResearch(pipelinePrompt, attachmentUri, attachmentMime, attachmentName)
                 return
             }
             if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
-                startDataAgent(prompt)
+                _quotes.value = emptyList()
+                startDataAgent(pipelinePrompt)
                 return
             }
             // Browser Flow: the owning chat is captured — every message drives the same live browser.
             val activeBrowser = currentBrowserSession.value
             if (activeBrowser != null && prompt.isNotEmpty()) {
                 clearPendingAttachment()
-                browserAgent.sendCommand(activeBrowser.chatId, prompt)
+                _quotes.value = emptyList()
+                browserAgent.sendCommand(activeBrowser.chatId, pipelinePrompt)
                 return
             }
             // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
             if (_chatMode.value is ChatMode.BrowserFlow && prompt.isNotEmpty()) {
-                startBrowserSession(prompt)
+                _quotes.value = emptyList()
+                startBrowserSession(pipelinePrompt)
                 return
             }
         }
@@ -1609,6 +1644,7 @@ class ChatViewModel(
         val imageGenMode = editingUserId == null && _chatMode.value is ChatMode.ImageGen
         val videoGenMode = editingUserId == null && _chatMode.value is ChatMode.VideoGen
         if (imageGenMode || videoGenMode) clearImagineArmedModes()
+        if (stagedQuotes.isNotEmpty()) _quotes.value = emptyList()
 
         viewModelScope.launch {
             clearError()
@@ -1971,6 +2007,7 @@ class ChatViewModel(
                     localAttachmentMimeType = attachmentMime,
                     localAttachmentName = attachmentName,
                     attachmentsJson = attachmentsJson,
+                    quotesJson = QuotedPassages.toJson(stagedQuotes),
                 )
                 chatRepository.insertMessage(userMsg)
 
@@ -2039,7 +2076,8 @@ class ChatViewModel(
             }
 
             // Load updated dialog history
-            val fullHistory = chatRepository.history(chatId)
+            // Quoted passages reach every provider as blockquotes ahead of the typed text.
+            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }
             // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
             // provider as extra image parts, on every user turn so earlier photos stay in context.
             fullHistory.forEach { it.extraAttachments = it.extraPhotos() }

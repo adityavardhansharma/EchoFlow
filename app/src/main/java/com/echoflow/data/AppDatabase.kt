@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
         ScheduleTask::class, ScheduleRun::class, com.echoflow.data.usage.UsageRecord::class
     ],
-    version = 31, // v31: each chat remembers its model
+    version = 32, // v32: quote & reply on user messages
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -527,6 +527,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN quotesJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -565,6 +571,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_28_29,
                     MIGRATION_29_30,
                     MIGRATION_30_31,
+                    MIGRATION_31_32,
                 )
                 .build()
                 INSTANCE = instance
