@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Long-press the launcher icon. Each action is read by AppShortcut on MainActivity. -->
+<!-- Long-press the launcher icon. Each action is read by ShortcutTrampolineActivity. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
         android:shortcutId="new_chat"
@@ -10,7 +10,7 @@
         <intent
             android:action="com.echoflow.action.NEW_CHAT"
             android:targetPackage="com.echoflow"
-            android:targetClass="com.echoflow.MainActivity" />
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
     </shortcut>
     <shortcut
         android:shortcutId="voice_mode"
@@ -21,7 +21,7 @@
         <intent
             android:action="com.echoflow.action.VOICE_MODE"
             android:targetPackage="com.echoflow"
-            android:targetClass="com.echoflow.MainActivity" />
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
     </shortcut>
     <shortcut
         android:shortcutId="temporary_chat"
@@ -32,7 +32,7 @@
         <intent
             android:action="com.echoflow.action.TEMPORARY_CHAT"
             android:targetPackage="com.echoflow"
-            android:targetClass="com.echoflow.MainActivity" />
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
     </shortcut>
     <shortcut
         android:shortcutId="imagine"
@@ -43,6 +43,6 @@
         <intent
             android:action="com.echoflow.action.IMAGINE"
             android:targetPackage="com.echoflow"
-            android:targetClass="com.echoflow.MainActivity" />
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
     </shortcut>
 </shortcuts>

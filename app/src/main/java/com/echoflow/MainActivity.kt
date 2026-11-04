@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,10 +67,11 @@ class MainActivity : ComponentActivity() {
         IncomingShare.from(intent)?.let { shareRequest.value = it }
     }
 
-    private fun readShortcut(intent: Intent?) {
-        val shortcut = AppShortcut.from(intent) ?: return
-        ShortcutManagerCompat.reportShortcutUsed(this, shortcut.id)
-        shortcutRequest.value = shortcut
+    // Launcher shortcuts arrive through ShortcutTrampolineActivity, which brings this task forward
+    // without a new intent; the pick itself is waiting in memory.
+    override fun onResume() {
+        super.onResume()
+        AppShortcut.take()?.let { shortcutRequest.value = it }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -79,7 +79,6 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         readOpenRequest(intent)
         readShare(intent)
-        readShortcut(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,10 +87,7 @@ class MainActivity : ComponentActivity() {
         readOpenRequest(intent)
         // A recreated activity (rotation, process restore) still carries the launch intent;
         // re-reading it would reopen the share over whatever the user has since typed.
-        if (savedInstanceState == null) {
-            readShare(intent)
-            readShortcut(intent)
-        }
+        if (savedInstanceState == null) readShare(intent)
 
         // Android 13+ needs runtime POST_NOTIFICATIONS for the Deep Research / Data Agent
         // foreground-service progress notification to appear in the status bar.
