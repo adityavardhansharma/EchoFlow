@@ -34,7 +34,8 @@ import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.ResearchResultCard
 import com.echoflow.ui.components.RichMarkdown
-import com.echoflow.ui.components.SearchActivityCard
+import com.echoflow.ui.components.ActivityPill
+import com.echoflow.ui.components.ActivityStep
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.legacy.LegacyArtifactCard
 import com.echoflow.ui.legacy.LEGACY_RESEARCH_SEGMENT_TYPES
@@ -191,13 +192,23 @@ private fun AssistantAnswerBody(
             persistedSegments.forEachIndexed { index, segment ->
                 when (segment.type) {
                     "memory" -> MemoryActivityLine(segment.text.orEmpty(), false)
-                    "reasoning" -> {
-                        ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    "search" -> {
-                        SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
-                        Spacer(Modifier.height(Spacing.s))
+                    "reasoning", "search" -> {
+                        // Same folding as the live reply: one pill per run of steps.
+                        if (index == 0 || persistedSegments[index - 1].type !in ACTIVITY_TYPES) {
+                            val steps = persistedSegments.drop(index)
+                                .takeWhile { it.type in ACTIVITY_TYPES }
+                                .mapNotNull { step ->
+                                    if (step.type == "search") {
+                                        ActivityStep.Search(step.query.orEmpty(), step.sources.orEmpty(), active = false)
+                                    } else {
+                                        step.text?.takeIf { it.isNotBlank() }?.let { ActivityStep.Thought(it, active = false) }
+                                    }
+                                }
+                            if (steps.isNotEmpty()) {
+                                ActivityPill(steps)
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
                     }
                     "advisor" -> {
                         segment.advisor?.let { a ->
@@ -446,3 +457,5 @@ internal fun MessageAttachmentPreview(
         }
     }
 }
+
+private val ACTIVITY_TYPES = setOf("reasoning", "search")

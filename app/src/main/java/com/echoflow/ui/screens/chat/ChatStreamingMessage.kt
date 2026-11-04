@@ -41,7 +41,8 @@ import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.RichMarkdown
-import com.echoflow.ui.components.SearchActivityCard
+import com.echoflow.ui.components.ActivityPill
+import com.echoflow.ui.components.ActivityStep
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
@@ -116,16 +117,25 @@ internal fun StreamingAssistantBubble(
             key(index) {
                 when (segment) {
                     is StreamSegment.Memory -> MemoryActivityLine(segment.label, segment.active)
-                    is StreamSegment.Reasoning -> {
-                        ReasoningSection(
-                            reasoning = segment.text, active = isStreaming && isLast,
-                            revealState = revealState, segmentIndex = index,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Search -> {
-                        SearchActivityCard(query = segment.query, sources = segment.sources, active = segment.active)
-                        Spacer(Modifier.height(Spacing.s))
+                    is StreamSegment.Reasoning, is StreamSegment.Search -> {
+                        // A run of reasoning and search steps renders once, as one pill, from
+                        // its first segment; the rest of the run is drawn inside it.
+                        if (index == 0 || !segments[index - 1].isActivity()) {
+                            val run = activityRun(segments, index)
+                            val steps = run.mapNotNull { i ->
+                                when (val step = segments[i]) {
+                                    is StreamSegment.Reasoning -> ActivityStep.Thought(step.text, isStreaming && i == segments.lastIndex)
+                                        .takeIf { it.active || step.text.isNotBlank() }
+                                    is StreamSegment.Search -> ActivityStep.Search(step.query, step.sources, step.active)
+                                    else -> null
+                                }
+                            }
+                            SkipFoldedReasoning(revealState, run.filter { segments[it] is StreamSegment.Reasoning })
+                            if (steps.isNotEmpty()) {
+                                ActivityPill(steps)
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
                     }
                     is StreamSegment.Advisor -> {
                         AdvisorCard(
@@ -238,6 +248,39 @@ internal fun StreamingAssistantBubble(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+private fun StreamSegment.isActivity() = this is StreamSegment.Reasoning || this is StreamSegment.Search
+
+/** Indices of the unbroken run of reasoning / search segments starting at [start]. */
+private fun activityRun(segments: List<StreamSegment>, start: Int): List<Int> {
+    var end = start
+    while (end + 1 < segments.size && segments[end + 1].isActivity()) end++
+    return (start..end).toList()
+}
+
+/**
+ * The pill never reveals reasoning through [SmoothStreamingText], so each folded reasoning segment
+ * reports itself skipped — otherwise the producer would wait on a reader that never comes.
+ */
+@Composable
+private fun SkipFoldedReasoning(revealState: StreamRevealState?, indices: List<Int>) {
+    if (revealState == null) return
+    val lifecycleOwner = LocalLifecycleOwner.current
+    indices.forEach { segmentIndex ->
+        key(segmentIndex) {
+            val reader = remember { Any() }
+            LaunchedEffect(revealState, segmentIndex, lifecycleOwner) {
+                try {
+                    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        revealState.reportSkipped(reader, segmentIndex)
+                    }
+                } finally {
+                    revealState.detach(reader)
+                }
+            }
         }
     }
 }
