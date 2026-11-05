@@ -60,7 +60,7 @@ internal fun MessageBubble(
     onEditUserMessage: (String) -> Unit = {},
     replyVersionIndex: Int = 0,
     onReplyVersionChange: (String, Int) -> Unit = { _, _ -> },
-    onOpenQuote: (messageId: String) -> Unit = {},
+    onOpenQuote: (com.echoflow.data.QuotedPassage) -> Unit = {},
 ) {
     val isUser = message.role == "user"
     if (isUser) {

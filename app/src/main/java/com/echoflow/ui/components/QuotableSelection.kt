@@ -21,10 +21,20 @@ import androidx.compose.ui.Modifier
  * text toolbar, beside Copy and Select all, and hands the selected words plus the reply's id to
  * the handler. Anywhere without both — artifacts, research, settings — selection is unchanged.
  */
-val LocalQuoteHandler = compositionLocalOf<((text: String, messageId: String) -> Unit)?> { null }
+val LocalQuoteHandler = compositionLocalOf<((QuotedPassageSource, text: String) -> Unit)?> { null }
+
+/**
+ * Whether Quote is on offer right now. Separate from [LocalQuoteHandler] so the chat can switch
+ * it off (editing, Browser Flow) without changing the reply's tree, which would rebuild a
+ * streaming answer and restart its reveal.
+ */
+val LocalQuotingAvailable = compositionLocalOf { true }
+
+/** Where a quote came from: the reply, its conversation and the answer version on screen. */
+data class QuotedPassageSource(val messageId: String, val chatId: String?, val version: Int?)
 
 /** The reply a nested [QuotableSelectionContainer] (a code block, a reasoning trace) quotes from. */
-private class QuoteSource(val messageId: String, val enabled: Boolean)
+private class QuoteSource(val source: QuotedPassageSource, val enabled: Boolean)
 
 private val LocalQuoteSource = compositionLocalOf<QuoteSource?> { null }
 
@@ -36,12 +46,18 @@ private object QuoteMenuKey
  * of being rebuilt under a new parent.
  */
 @Composable
-fun QuotableReply(messageId: String, enabled: Boolean, content: @Composable () -> Unit) {
+fun QuotableReply(
+    messageId: String,
+    chatId: String?,
+    version: Int?,
+    enabled: Boolean,
+    content: @Composable () -> Unit,
+) {
     if (LocalQuoteHandler.current == null) {
         content()
         return
     }
-    CompositionLocalProvider(LocalQuoteSource provides QuoteSource(messageId, enabled)) {
+    CompositionLocalProvider(LocalQuoteSource provides QuoteSource(QuotedPassageSource(messageId, chatId, version), enabled)) {
         QuotableSelectionContainer(content = content)
     }
 }
@@ -62,18 +78,19 @@ fun QuotableSelectionContainer(modifier: Modifier = Modifier, content: @Composab
     val state = rememberSelectionState()
     val onQuote by rememberUpdatedState(handler)
     val current by rememberUpdatedState(source)
+    val available by rememberUpdatedState(LocalQuotingAvailable.current)
     SelectionContainer(
         state = state,
         modifier = modifier.appendTextContextMenuComponents {
             // Built when the toolbar opens. A nested container's toolbar also walks up through
             // this one; with nothing selected here, it adds no second Quote.
-            if (current.enabled && state.selectedText().isNotBlank()) {
+            if (available && current.enabled && state.selectedText().isNotBlank()) {
                 item(key = QuoteMenuKey, label = "Quote") {
                     val text = state.selectedText()
-                    val messageId = current.messageId
+                    val from = current.source
                     state.clear()
                     close()
-                    onQuote(text, messageId)
+                    onQuote(from, text)
                 }
             }
         },

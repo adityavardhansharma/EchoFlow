@@ -72,7 +72,7 @@ internal fun UserPromptBubble(
     attachment: @Composable (() -> Unit)? = null,
     /** Quote & reply: passages this turn quoted; a label under the bubble jumps back to them. */
     quotes: List<com.echoflow.data.QuotedPassage> = emptyList(),
-    onOpenQuote: (messageId: String) -> Unit = {},
+    onOpenQuote: (com.echoflow.data.QuotedPassage) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -138,10 +138,10 @@ internal fun UserPromptBubble(
 @Composable
 private fun RepliedToQuoteLabel(
     quotes: List<com.echoflow.data.QuotedPassage>,
-    onOpenQuote: (messageId: String) -> Unit,
+    onOpenQuote: (com.echoflow.data.QuotedPassage) -> Unit,
 ) {
     val label = if (quotes.size == 1) "Replied to a quote" else "Replied to ${quotes.size} quotes"
-    val sources = remember(quotes) { quotes.map { it.messageId }.distinct() }
+    val sources = remember(quotes) { quotes.distinctBy { it.messageId to it.version } }
     var listOpen by remember { mutableStateOf(false) }
     Box {
         Row(
@@ -184,7 +184,7 @@ private fun RepliedToQuoteLabel(
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null) },
                     onClick = {
                         listOpen = false
-                        onOpenQuote(quote.messageId)
+                        onOpenQuote(quote)
                     },
                 )
             }

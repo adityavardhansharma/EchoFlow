@@ -324,9 +324,9 @@ internal fun ChatSurface(
     val quotes by chatViewModel.quotes.collectAsState()
     val quotingAllowed = editingUserMessageId == null && browserSession == null && !browserFlowActive
     val quoteHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val onQuote: (String, String) -> Unit = remember(chatViewModel, sttContext) {
-        { text, messageId ->
-            when (chatViewModel.addQuote(text, messageId)) {
+    val onQuote: (com.echoflow.ui.components.QuotedPassageSource, String) -> Unit = remember(chatViewModel, sttContext) {
+        { source, text ->
+            when (chatViewModel.addQuote(text, source.messageId, source.chatId, source.version)) {
                 ChatViewModel.QuoteResult.Added ->
                     quoteHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
                 ChatViewModel.QuoteResult.Full -> {
@@ -337,7 +337,8 @@ internal fun ChatSurface(
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
-                ChatViewModel.QuoteResult.AlreadyQuoted, ChatViewModel.QuoteResult.Empty -> Unit
+                ChatViewModel.QuoteResult.AlreadyQuoted, ChatViewModel.QuoteResult.Empty,
+                ChatViewModel.QuoteResult.OtherChat -> Unit
             }
         }
     }
@@ -598,7 +599,10 @@ internal fun ChatSurface(
             // opens at the bottom with no inherited-offset jump. bottomInset keeps the last
             // message clear of the floating input.
             key(currentThreadId) {
-                CompositionLocalProvider(com.echoflow.ui.components.LocalQuoteHandler provides onQuote.takeIf { quotingAllowed }) {
+                CompositionLocalProvider(
+                    com.echoflow.ui.components.LocalQuoteHandler provides onQuote,
+                    com.echoflow.ui.components.LocalQuotingAvailable provides quotingAllowed,
+                ) {
                     MessagesPane(
                         messages = messages,
                         isStreaming = isStreaming,

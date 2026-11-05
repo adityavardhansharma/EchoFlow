@@ -359,7 +359,8 @@ internal fun InputToolbar(
                 // An empty composer offers voice mode where Send sits; the first typed character
                 // (or an attachment) turns it back into Send. Modes that answer with something
                 // other than a conversation (research, the browser) keep plain Send.
-                val offerVoice = voiceModeAvailable && !hasContent && attachments.isEmpty() && !showStop &&
+                // Voice mode sends no quotes, so it isn't offered while some are staged.
+                val offerVoice = voiceModeAvailable && !hasContent && attachments.isEmpty() && quotes.isEmpty() && !showStop &&
                     voicePhase == VoicePhase.Idle && !researchMode && browserSession == null && blockedReason == null
                 SendSlot(
                     offerVoice = offerVoice,

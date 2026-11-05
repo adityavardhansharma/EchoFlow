@@ -108,6 +108,14 @@ class ChatViewModel(
         chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
     )
 
+    /**
+     * Quote & reply: passages from this conversation's replies that the next message asks about,
+     * oldest first. Declared ahead of the init blocks, because restorePosition (which init calls)
+     * clears it.
+     */
+    private val _quotes = MutableStateFlow<List<QuotedPassage>>(emptyList())
+    val quotes: StateFlow<List<QuotedPassage>> = _quotes.asStateFlow()
+
     // ── App mode ─────────────────────────────────────────────────────────────────────────
 
     /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
@@ -188,6 +196,7 @@ class ChatViewModel(
      * user picked there instead of restoring one.
      */
     private fun openThread(chatId: String?, carryMode: Boolean = false) {
+        val previousChatId = _currentChatThreadId.value
         navigation.navigated()
         leaveTemporaryChat(except = chatId)
         _chatMode.value = chatModes.switch(_currentChatThreadId.value, _chatMode.value, chatId, carryMode)
@@ -195,8 +204,9 @@ class ChatViewModel(
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
-        // Quotes point at replies in the conversation being left.
-        _quotes.value = emptyList()
+        // Quotes point at replies in the conversation being left; reopening the same one (the
+        // browser workspace does) keeps them.
+        if (chatId != previousChatId) _quotes.value = emptyList()
         applyModelForThread(chatId)
     }
 
@@ -660,19 +670,19 @@ class ChatViewModel(
 
     // ── Quote & reply ─────────────────────────────────────────────────────────────
 
-    /** Passages from this conversation's replies that the next message asks about, oldest first. */
-    private val _quotes = MutableStateFlow<List<QuotedPassage>>(emptyList())
-    val quotes: StateFlow<List<QuotedPassage>> = _quotes.asStateFlow()
+    enum class QuoteResult { Added, AlreadyQuoted, Full, Empty, OtherChat }
 
-    enum class QuoteResult { Added, AlreadyQuoted, Full, Empty }
-
-    /** Stages a passage from the reply [messageId] for the next message. */
-    fun addQuote(rawText: String, messageId: String): QuoteResult {
+    /**
+     * Stages a passage from the reply [messageId] for the next message. A reply from another
+     * conversation (the previous chat's rows, briefly on screen while a switch loads) is refused.
+     */
+    fun addQuote(rawText: String, messageId: String, chatId: String?, version: Int?): QuoteResult {
+        if (chatId != null && chatId != _currentChatThreadId.value) return QuoteResult.OtherChat
         val text = QuotedPassages.clean(rawText) ?: return QuoteResult.Empty
         val current = _quotes.value
         if (current.any { it.text == text && it.messageId == messageId }) return QuoteResult.AlreadyQuoted
         if (current.size >= QuotedPassages.MAX) return QuoteResult.Full
-        _quotes.value = current + QuotedPassage(text, messageId)
+        _quotes.value = current + QuotedPassage(text, messageId, chatId, version)
         return QuoteResult.Added
     }
 
@@ -2009,7 +2019,9 @@ class ChatViewModel(
                     localAttachmentMimeType = attachmentMime,
                     localAttachmentName = attachmentName,
                     attachmentsJson = attachmentsJson,
-                    quotesJson = QuotedPassages.toJson(stagedQuotes),
+                    // Only quotes from this conversation: a switch while the send was getting ready
+                    // must not carry links into another chat.
+                    quotesJson = QuotedPassages.toJson(stagedQuotes.filter { it.chatId == null || it.chatId == chatId }),
                 )
                 chatRepository.insertMessage(userMsg)
                 consumeQuotes(stagedQuotes)
@@ -2353,7 +2365,7 @@ class ChatViewModel(
                         }
                     customProviderActive && clientSearchReady ->
                         flow {
-                            val query = prompt
+                            val query = QuotedPassages.searchQuery(stagedQuotes, prompt)
                             emit(StreamChunk.SearchStarted(query))
                             val sources = webSearchService.search(provider, searchKey, query)
                             emit(StreamChunk.SearchSources(query, sources))

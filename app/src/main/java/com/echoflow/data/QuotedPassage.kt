@@ -7,11 +7,14 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 /**
  * A passage the user selected in an earlier reply and is asking about. [messageId] is the reply
- * it came from, so the sent turn can jump back to it.
+ * it came from and [chatId] its conversation, so the sent turn can jump back to it; [version] is
+ * the answer version that was on screen (null for the latest), so the jump shows those words.
  */
 data class QuotedPassage(
     val text: String,
     val messageId: String,
+    val chatId: String? = null,
+    val version: Int? = null,
 )
 
 /**
@@ -45,8 +48,24 @@ object QuotedPassages {
             .replace(Regex("\n{3,}"), "\n\n")
             .trim()
         if (text.isEmpty()) return null
-        return if (text.length <= MAX_CHARS) text else text.take(MAX_CHARS).trimEnd() + "…"
+        if (text.length <= MAX_CHARS) return text
+        // Never cut between the halves of a surrogate pair (most emoji), which would store a
+        // broken character.
+        val end = if (Character.isHighSurrogate(text[MAX_CHARS - 1])) MAX_CHARS - 1 else MAX_CHARS
+        return text.take(end).trimEnd() + "…"
     }
+
+    /**
+     * A web-search query for a quoted turn: a short follow-up such as "Is this still current?"
+     * means nothing without its subject, so the quotes lead, trimmed to keep the query short.
+     */
+    fun searchQuery(quotes: List<QuotedPassage>, typed: String): String {
+        if (quotes.isEmpty()) return typed
+        val subject = quotes.joinToString(" ") { it.text.replace(Regex("\\s+"), " ") }.take(SEARCH_SUBJECT_CHARS)
+        return if (typed.isBlank()) subject else "$subject — $typed"
+    }
+
+    private const val SEARCH_SUBJECT_CHARS = 240
 
     /** The message as the model reads it: each quote as a blockquote, then what the user typed. */
     fun forModel(quotes: List<QuotedPassage>, content: String): String {

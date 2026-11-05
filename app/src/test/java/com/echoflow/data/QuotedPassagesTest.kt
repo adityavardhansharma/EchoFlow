@@ -47,4 +47,16 @@ class QuotedPassagesTest {
         val long = QuotedPassages.clean("x".repeat(5_000))!!
         assertTrue(long.length <= 1_501 && long.endsWith("…"))
     }
+
+    @Test fun `the cap never splits an emoji`() {
+        val text = "x".repeat(1_499) + "😀" + "tail"
+        val cut = QuotedPassages.clean(text)!!
+        assertTrue(cut.dropLast(1).none { Character.isSurrogate(it) })
+    }
+
+    @Test fun `a quoted follow-up searches for its subject`() {
+        val quotes = listOf(QuotedPassage("Room uses TRUNCATE journal mode", "a1"))
+        assertEquals("Room uses TRUNCATE journal mode — Is this still current?", QuotedPassages.searchQuery(quotes, "Is this still current?"))
+        assertEquals("Plain", QuotedPassages.searchQuery(emptyList(), "Plain"))
+    }
 }

@@ -148,16 +148,25 @@ internal fun MessagesPane(
     val context = androidx.compose.ui.platform.LocalContext.current
     val reducedMotion = com.echoflow.ui.theme.rememberReducedMotion()
     var flash by remember { mutableStateOf<ReplyFlash?>(null) }
-    val openQuote: (String) -> Unit = { replyId ->
-        val index = messages.indexOfFirst { it.id == replyId }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val openQuote: (com.echoflow.data.QuotedPassage) -> Unit = { quote ->
+        val index = messages.indexOfFirst { it.id == quote.messageId }
         if (index < 0) {
             android.widget.Toast.makeText(context, "That reply is no longer in this chat.", android.widget.Toast.LENGTH_SHORT).show()
         } else {
+            // Show the answer version the words were quoted from, if it was an older one.
+            quote.version?.let { version ->
+                val total = ReplyVersions.count(messages[index])
+                if (version < total) onReplyVersionChange(quote.messageId, version)
+            }
             scope.launch {
                 runCatching {
                     if (reducedMotion) listState.scrollToItem(index) else listState.animateScrollToItem(index)
                 }
-                flash = ReplyFlash(replyId, (flash?.nonce ?: 0) + 1)
+                flash = ReplyFlash(quote.messageId, (flash?.nonce ?: 0) + 1)
+                // The glow is visual only; tell TalkBack where the jump landed.
+                @Suppress("DEPRECATION")
+                view.announceForAccessibility("Showing the quoted reply")
             }
         }
     }
@@ -194,7 +203,11 @@ internal fun MessagesPane(
             } else {
                 val versionTotal = message?.let(ReplyVersions::count) ?: 1
                 StableAssistantMessage(
-                    modifier = Modifier.replyFlash(flash?.takeIf { it.replyId == row.id }, reducedMotion),
+                    modifier = Modifier.replyFlash(flash?.takeIf { it.replyId == row.id }, reducedMotion) { done ->
+                        // Cleared once it has played, so the row scrolling back into view
+                        // doesn't glow again; a newer jump may already have replaced it.
+                        if (flash == done) flash = null
+                    },
                     messageId = row.id,
                     persistedMessage = message,
                     liveSegments = if (row.id == activeMessageId) segments else emptyList(),
@@ -248,7 +261,8 @@ private data class ReplyFlash(val replyId: String, val nonce: Int)
 
 /** A soft tinted wash behind a reply that fades in and out once per [flash]. */
 @Composable
-private fun Modifier.replyFlash(flash: ReplyFlash?, reducedMotion: Boolean): Modifier {
+private fun Modifier.replyFlash(flash: ReplyFlash?, reducedMotion: Boolean, onFinished: (ReplyFlash) -> Unit): Modifier {
+    val finished by rememberUpdatedState(onFinished)
     val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(flash) {
         // Cleared too when another reply takes the glow mid-animation, so this one can't stay lit.
@@ -263,6 +277,7 @@ private fun Modifier.replyFlash(flash: ReplyFlash?, reducedMotion: Boolean): Mod
             kotlinx.coroutines.delay(650)
             alpha.animateTo(0f, androidx.compose.animation.core.tween(700))
         }
+        finished(flash)
     }
     val tint = MaterialTheme.colorScheme.primaryContainer
     return drawBehind {
@@ -333,7 +348,14 @@ private fun StableAssistantMessage(
     }
 
     // A finished reply is selectable, with Quote in the text toolbar; a streaming one is not.
-    QuotableReply(messageId = messageId, enabled = !streamActive && persistedMessage != null) {
+    QuotableReply(
+        messageId = messageId,
+        chatId = persistedMessage?.chatId,
+        // The latest answer is "no version"; an older one the user paged back to is kept, so
+        // the jump can show those words again.
+        version = replyVersionIndex.takeIf { it != latestVersion },
+        enabled = !streamActive && persistedMessage != null,
+    ) {
         Column(modifier.fillMaxWidth()) {
             if (keepMountedLiveTree) {
                 StreamingAssistantBubble(
