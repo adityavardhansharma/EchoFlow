@@ -251,8 +251,9 @@ private data class ReplyFlash(val replyId: String, val nonce: Int)
 private fun Modifier.replyFlash(flash: ReplyFlash?, reducedMotion: Boolean): Modifier {
     val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(flash) {
-        if (flash == null) return@LaunchedEffect
+        // Cleared too when another reply takes the glow mid-animation, so this one can't stay lit.
         alpha.snapTo(0f)
+        if (flash == null) return@LaunchedEffect
         if (reducedMotion) {
             alpha.snapTo(1f)
             kotlinx.coroutines.delay(900)

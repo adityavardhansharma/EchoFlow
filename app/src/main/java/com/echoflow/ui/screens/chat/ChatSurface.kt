@@ -318,8 +318,11 @@ internal fun ChatSurface(
         if (granted) chatViewModel.startVoiceMode(micAllowed = true)
         else voiceModePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
-    // Quote & reply: Quote in a reply's text toolbar stages the passage on the composer.
+    // Quote & reply: Quote in a reply's text toolbar stages the passage on the composer. Editing a
+    // sent prompt and Browser Flow (which reads the instruction to pick a site) don't take quotes,
+    // so Quote and the strip step aside there; anything staged waits for the next normal message.
     val quotes by chatViewModel.quotes.collectAsState()
+    val quotingAllowed = editingUserMessageId == null && browserSession == null && !browserFlowActive
     val quoteHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val onQuote: (String, String) -> Unit = remember(chatViewModel, sttContext) {
         { text, messageId ->
@@ -595,7 +598,7 @@ internal fun ChatSurface(
             // opens at the bottom with no inherited-offset jump. bottomInset keeps the last
             // message clear of the floating input.
             key(currentThreadId) {
-                CompositionLocalProvider(com.echoflow.ui.components.LocalQuoteHandler provides onQuote) {
+                CompositionLocalProvider(com.echoflow.ui.components.LocalQuoteHandler provides onQuote.takeIf { quotingAllowed }) {
                     MessagesPane(
                         messages = messages,
                         isStreaming = isStreaming,
@@ -813,7 +816,7 @@ internal fun ChatSurface(
             onCancelTranscribe = { voice.cancel() },
             voiceModeAvailable = voiceModeAvailable,
             onStartVoiceMode = startVoiceMode,
-            quotes = quotes,
+            quotes = if (quotingAllowed) quotes else emptyList(),
             onRemoveQuote = chatViewModel::removeQuote,
             projectName = currentThreadProject?.name,
             projectColorIndex = currentThreadProject?.colorIndex ?: 0,

@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -102,7 +103,7 @@ internal fun UserPromptBubble(
                     )
                 }
                 if (quotes.isNotEmpty()) {
-                    RepliedToQuoteLabel(quotes = quotes, onClick = { onOpenQuote(quotes.first().messageId) })
+                    RepliedToQuoteLabel(quotes = quotes, onOpenQuote = onOpenQuote)
                 }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -131,30 +132,63 @@ internal fun UserPromptBubble(
 
 /**
  * "Replied to a quote" under a sent prompt. The quote itself isn't repeated in the bubble; tapping
- * scrolls back to the reply it came from, and TalkBack reads the quoted words.
+ * scrolls back to the reply it came from. When the quotes come from more than one reply, it opens
+ * a short list instead so each can be reached. TalkBack reads the quoted words.
  */
 @Composable
-private fun RepliedToQuoteLabel(quotes: List<com.echoflow.data.QuotedPassage>, onClick: () -> Unit) {
+private fun RepliedToQuoteLabel(
+    quotes: List<com.echoflow.data.QuotedPassage>,
+    onOpenQuote: (messageId: String) -> Unit,
+) {
     val label = if (quotes.size == 1) "Replied to a quote" else "Replied to ${quotes.size} quotes"
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .clip(CircleShape)
-            .clickable(onClickLabel = "Show the quoted reply", role = Role.Button, onClick = onClick)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "$label: " + quotes.joinToString(" … ") { it.text }
+    val sources = remember(quotes) { quotes.map { it.messageId }.distinct() }
+    var listOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clip(CircleShape)
+                .clickable(
+                    onClickLabel = if (sources.size == 1) "Show the quoted reply" else "Choose a quoted reply",
+                    role = Role.Button,
+                ) {
+                    if (sources.size == 1) onOpenQuote(sources.single()) else listOpen = true
+                }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$label: " + quotes.joinToString(" … ") { it.text }
+                }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.Reply,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        DropdownMenu(expanded = listOpen, onDismissRequest = { listOpen = false }) {
+            quotes.forEach { quote ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            quote.text.replace(Regex("\\s+"), " "),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 260.dp),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null) },
+                    onClick = {
+                        listOpen = false
+                        onOpenQuote(quote.messageId)
+                    },
+                )
             }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        Icon(
-            Icons.AutoMirrored.Filled.Reply,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

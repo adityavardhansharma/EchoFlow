@@ -681,6 +681,14 @@ class ChatViewModel(
     }
 
     /**
+     * Drops the quotes a message just went out with, once its row is saved — a send refused
+     * before that (no key, a run already going) leaves them staged. Quotes added meanwhile stay.
+     */
+    private fun consumeQuotes(sent: List<QuotedPassage>) {
+        if (sent.isNotEmpty()) _quotes.value = _quotes.value - sent.toSet()
+    }
+
+    /**
      * Versions of a specific artifact lineage, so an in-chat card can compute its own version-diff
      * chips and (for HTML) a preview from its content. Keyed by id — not the chat's "current"
      * lineage — so a scrolled-back card reads the same lineage it was written from.
@@ -1596,11 +1604,10 @@ class ChatViewModel(
 
         if (prompt.isEmpty() && attachmentUri == null) return
 
-        // Quotes go out with a new message only; an edit keeps the turn's original quotes. The
-        // research, data and browser pipelines take a single prompt string, so there the quotes
-        // are folded into it rather than dropped.
+        // Quotes go out with a new message only; an edit keeps the turn's original quotes, and
+        // Browser Flow (which resolves a site from the instruction) leaves them staged too — the
+        // composer hides them in both cases.
         val stagedQuotes = if (editingUserId == null) _quotes.value else emptyList()
-        val pipelinePrompt = QuotedPassages.forModel(stagedQuotes, prompt)
 
         // Prompt edit always uses the normal chat stream path (archive old answer, stream new).
         // Special modes would fork into a different pipeline and lose the version chain.
@@ -1608,27 +1615,23 @@ class ChatViewModel(
             // Deep Research and Data Agent are different pipelines (foreground service +
             // provider/agent orchestration), so they short-circuit the normal streaming send.
             if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
-                _quotes.value = emptyList()
-                startDeepResearch(pipelinePrompt, attachmentUri, attachmentMime, attachmentName)
+                startDeepResearch(prompt, stagedQuotes, attachmentUri, attachmentMime, attachmentName)
                 return
             }
             if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
-                _quotes.value = emptyList()
-                startDataAgent(pipelinePrompt)
+                startDataAgent(prompt, stagedQuotes)
                 return
             }
             // Browser Flow: the owning chat is captured — every message drives the same live browser.
             val activeBrowser = currentBrowserSession.value
             if (activeBrowser != null && prompt.isNotEmpty()) {
                 clearPendingAttachment()
-                _quotes.value = emptyList()
-                browserAgent.sendCommand(activeBrowser.chatId, pipelinePrompt)
+                browserAgent.sendCommand(activeBrowser.chatId, prompt)
                 return
             }
             // Igniter: the "+ → Browser Flow" chip starts a new session, then turns itself off.
             if (_chatMode.value is ChatMode.BrowserFlow && prompt.isNotEmpty()) {
-                _quotes.value = emptyList()
-                startBrowserSession(pipelinePrompt)
+                startBrowserSession(prompt)
                 return
             }
         }
@@ -1644,7 +1647,6 @@ class ChatViewModel(
         val imageGenMode = editingUserId == null && _chatMode.value is ChatMode.ImageGen
         val videoGenMode = editingUserId == null && _chatMode.value is ChatMode.VideoGen
         if (imageGenMode || videoGenMode) clearImagineArmedModes()
-        if (stagedQuotes.isNotEmpty()) _quotes.value = emptyList()
 
         viewModelScope.launch {
             clearError()
@@ -2010,6 +2012,7 @@ class ChatViewModel(
                     quotesJson = QuotedPassages.toJson(stagedQuotes),
                 )
                 chatRepository.insertMessage(userMsg)
+                consumeQuotes(stagedQuotes)
 
                 // Update Thread Timestamp
                 chatRepository.touchThread(chatId)
@@ -2711,6 +2714,7 @@ class ChatViewModel(
      */
     private fun startDeepResearch(
         topic: String,
+        quotes: List<QuotedPassage>,
         attachmentUri: String?,
         attachmentMime: String?,
         attachmentName: String?,
@@ -2788,8 +2792,10 @@ class ChatViewModel(
                     localAttachmentUri = attachmentUri,
                     localAttachmentMimeType = attachmentMime,
                     localAttachmentName = attachmentName,
+                    quotesJson = QuotedPassages.toJson(quotes),
                 )
             )
+            consumeQuotes(quotes)
             chatRepository.touchThread(chatId, now)
 
             val runId = UUID.randomUUID().toString()
@@ -2797,7 +2803,8 @@ class ChatViewModel(
                 ResearchRun(
                     id = runId,
                     chatId = chatId,
-                    topic = topic,
+                    // The run reads the quotes as blockquotes; the chat row keeps them apart.
+                    topic = QuotedPassages.forModel(quotes, topic),
                     engineId = engineId,
                     engineKind = if (isProvider) "provider" else "agent",
                     engineLabel = engineLabel,
@@ -2868,7 +2875,7 @@ class ChatViewModel(
         }
     }
 
-    private fun startDataAgent(topic: String) {
+    private fun startDataAgent(topic: String, quotes: List<QuotedPassage>) {
         viewModelScope.launch {
             clearError()
             if (currentResearchRun.value != null) {
@@ -2903,8 +2910,10 @@ class ChatViewModel(
                     role = "user",
                     content = topic,
                     createdAt = now,
+                    quotesJson = QuotedPassages.toJson(quotes),
                 )
             )
+            consumeQuotes(quotes)
             chatDao.touchUpdatedAt(chatId, now)
 
             val runId = UUID.randomUUID().toString()
@@ -2912,7 +2921,7 @@ class ChatViewModel(
                 ResearchRun(
                     id = runId,
                     chatId = chatId,
-                    topic = topic,
+                    topic = QuotedPassages.forModel(quotes, topic),
                     engineId = engine.id,
                     engineKind = "data-agent",
                     engineLabel = engine.name,
