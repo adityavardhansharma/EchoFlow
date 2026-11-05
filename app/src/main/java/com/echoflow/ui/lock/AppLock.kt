@@ -14,7 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,11 +33,12 @@ enum class LockAfter(val storageKey: String, val label: String, val millis: Long
 /**
  * The lock itself, once per process. Every MainActivity — the launcher one and any opened by
  * Share or Ask EchoFlow — reads the same setting and the same locked flag, so turning the lock on
- * in one protects them all, and unlocking one unlocks the app. Time in the background is measured
- * by [ProcessLifecycleOwner], which ignores rotation and hops between EchoFlow's own activities,
- * so neither of those asks for another unlock; a fresh process always starts locked.
+ * in one protects them all, and unlocking one unlocks the app. The background clock starts the
+ * moment the last started MainActivity stops — no delay, so "Now" really is now — except when it
+ * stops only to be recreated (rotation) or another EchoFlow activity has already started in its
+ * place; neither of those asks for another unlock. A fresh process always starts locked.
  */
-internal object AppLockState : DefaultLifecycleObserver {
+internal object AppLockState {
     private lateinit var prefs: SharedPreferences
 
     private val _enabled = MutableStateFlow(false)
@@ -52,6 +52,8 @@ internal object AppLockState : DefaultLifecycleObserver {
 
     // When the app last left the foreground; null while it is showing.
     private var backgroundedAt: Long? = null
+    // MainActivity instances between onStart and onStop.
+    private var started = 0
     // The system prompt (or, before Android 10, the confirm-credential screen) is up. It can send
     // the app to the background, which must not count as leaving it.
     var authenticating = false
@@ -64,18 +66,23 @@ internal object AppLockState : DefaultLifecycleObserver {
         _enabled.value = prefs.getBoolean(KEY_ENABLED, false)
         _lockAfter.value = LockAfter.fromStorage(prefs.getString(KEY_LOCK_AFTER, null))
         _locked.value = _enabled.value
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
     }
 
-    override fun onStart(owner: LifecycleOwner) {
+    fun activityStarted() {
+        started++
+        if (started != 1) return
         val since = backgroundedAt ?: return
         backgroundedAt = null
         if (_enabled.value && SystemClock.elapsedRealtime() - since >= _lockAfter.value.millis) lock()
     }
 
-    override fun onStop(owner: LifecycleOwner) {
-        if (authenticating) return
-        backgroundedAt = SystemClock.elapsedRealtime()
+    fun activityStopped(changingConfigurations: Boolean) {
+        started = (started - 1).coerceAtLeast(0)
+        // The system prompt covering the app, or a rotation about to start a new instance, isn't
+        // the user leaving.
+        if (started == 0 && !changingConfigurations && !authenticating) {
+            backgroundedAt = SystemClock.elapsedRealtime()
+        }
     }
 
     fun setEnabled(on: Boolean) {
@@ -131,6 +138,10 @@ class AppLock(private val activity: ComponentActivity) : DefaultLifecycleObserve
 
     /** Reads the saved setting; call before the first frame so a locked app never flashes its chats. */
     fun load() = AppLockState.init(activity)
+
+    override fun onStart(owner: LifecycleOwner) = AppLockState.activityStarted()
+
+    override fun onStop(owner: LifecycleOwner) = AppLockState.activityStopped(activity.isChangingConfigurations)
 
     override fun onResume(owner: LifecycleOwner) {
         // Another instance may have changed the setting while this one was in the background.
