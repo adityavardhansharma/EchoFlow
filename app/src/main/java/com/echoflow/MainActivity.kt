@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
     // Text or files another app shared into EchoFlow, opened as a new chat.
     private val shareRequest = MutableStateFlow<IncomingShare?>(null)
+    // A launcher shortcut (new chat, voice, temporary, Imagine) to act on.
+    private val shortcutRequest = MutableStateFlow<AppShortcut?>(null)
 
     private fun readOpenRequest(intent: Intent?) {
         val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
@@ -63,6 +65,13 @@ class MainActivity : ComponentActivity() {
 
     private fun readShare(intent: Intent?) {
         IncomingShare.from(intent)?.let { shareRequest.value = it }
+    }
+
+    // Launcher shortcuts arrive through ShortcutTrampolineActivity, which brings this task forward
+    // without a new intent; the pick itself is waiting in memory.
+    override fun onResume() {
+        super.onResume()
+        AppShortcut.take()?.let { shortcutRequest.value = it }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -165,10 +174,16 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
-                    MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
-                        openScheduleRequest.value = null
-                        scheduleChatFallback.value = null
-                    }
+                    val pendingShortcut by shortcutRequest.collectAsState()
+                    MainNavigationHub(
+                        chatVm, settingsVm, pendingSchedule, fallbackChat,
+                        onPendingScheduleConsumed = {
+                            openScheduleRequest.value = null
+                            scheduleChatFallback.value = null
+                        },
+                        pendingShortcut = pendingShortcut,
+                        onPendingShortcutConsumed = { shortcutRequest.value = null },
+                    )
                 }
             }
         }
