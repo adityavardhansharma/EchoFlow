@@ -16,6 +16,37 @@ class FirecrawlSearchTest {
     }
 
     @Test
+    fun `local model request asks for page summaries instead of markdown`() {
+        val body = FirecrawlSearch.requestBody("android 16", 5, scrapeMarkdown = false, summary = true)
+        assertEquals(mapOf("formats" to listOf("summary")), body["scrapeOptions"])
+    }
+
+    @Test
+    fun `summary is preferred over markdown when asked for`() {
+        val response = mapOf(
+            "success" to true,
+            "data" to mapOf(
+                "web" to listOf(
+                    mapOf(
+                        "url" to "https://example.com",
+                        "title" to "Example",
+                        "summary" to "Short summary.",
+                        "markdown" to "# Full page",
+                        "description" to "Search snippet.",
+                    ),
+                ),
+            ),
+        )
+        val source = FirecrawlSearch.parseResults(
+            response,
+            snippetChars = 1000,
+            preferMarkdown = false,
+            preferSummary = true,
+        ).single()
+        assertEquals("Short summary.", source.snippet)
+    }
+
+    @Test
     fun `echocrawl request omits scrape so the free quota is not burned`() {
         val body = FirecrawlSearch.requestBody("android 16", 8, scrapeMarkdown = false)
         assertEquals(8, body["limit"])

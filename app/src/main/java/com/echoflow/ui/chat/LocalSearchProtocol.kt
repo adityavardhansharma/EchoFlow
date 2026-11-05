@@ -101,7 +101,7 @@ internal class LocalSearchProtocol(
 
             emit(StreamChunk.SearchStarted(query))
             val sources = try {
-                webSearchService.search(provider, searchKey, query)
+                webSearchService.search(provider, searchKey, query, forLocalModel = true)
             } catch (e: Exception) {
                 emit(StreamChunk.StatusNote("Search failed: ${e.message}"))
                 emptyList()
