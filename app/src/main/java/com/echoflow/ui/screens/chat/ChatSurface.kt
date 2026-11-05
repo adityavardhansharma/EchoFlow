@@ -239,7 +239,8 @@ internal fun ChatSurface(
             it.status == com.echoflow.data.BrowserSession.STATUS_RESOLVING
     } == true
 
-    var textInput by remember { mutableStateOf("") }
+    // Saveable: an app lock takes the screens out of composition, and the draft must survive it.
+    var textInput by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var showModelMenu by remember { mutableStateOf(false) }
 
     // Text shared in from another app (share sheet or text selection) seeds the composer.

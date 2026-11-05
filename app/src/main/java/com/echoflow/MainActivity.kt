@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -36,6 +37,9 @@ import com.echoflow.ui.chat.IncomingShare
 import com.echoflow.ui.components.ChatDrawerContent
 import com.echoflow.ui.screens.chat.ChatScreen
 import com.echoflow.ui.screens.settings.SettingsScreen
+import com.echoflow.ui.lock.AppLock
+import com.echoflow.ui.lock.AppLockScreen
+import com.echoflow.ui.lock.LocalAppLock
 import com.echoflow.ui.theme.EchoFlowTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -43,6 +47,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
+    // Echo Labs app lock: created with the activity so it can register its result launcher.
+    private val appLock = AppLock(this)
 
     // A chat id to open, set when launched/resumed from a reply-ready notification tap.
     private val openChatRequest = MutableStateFlow<String?>(null)
@@ -83,6 +90,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appLock.load()
         enableEdgeToEdge()
         readOpenRequest(intent)
         // A recreated activity (rotation, process restore) still carries the launch intent;
@@ -174,16 +182,31 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
+                    val locked by appLock.locked.collectAsState()
                     val pendingShortcut by shortcutRequest.collectAsState()
-                    MainNavigationHub(
-                        chatVm, settingsVm, pendingSchedule, fallbackChat,
-                        onPendingScheduleConsumed = {
-                            openScheduleRequest.value = null
-                            scheduleChatFallback.value = null
-                        },
-                        pendingShortcut = pendingShortcut,
-                        onPendingShortcutConsumed = { shortcutRequest.value = null },
-                    )
+                    // While locked the screens leave composition entirely: dialogs, sheets and menus
+                    // are windows of their own and would otherwise sit above the lock. Calls,
+                    // streams and the open chat live in the view models and carry on; saved UI
+                    // state (scroll positions and the like) comes back on unlock. A shortcut picked
+                    // while locked waits and runs once the app is unlocked.
+                    val hubState = rememberSaveableStateHolder()
+                    CompositionLocalProvider(LocalAppLock provides appLock) {
+                        if (locked) {
+                            AppLockScreen(onUnlock = appLock::unlock)
+                        } else {
+                            hubState.SaveableStateProvider("hub") {
+                                MainNavigationHub(
+                                    chatVm, settingsVm, pendingSchedule, fallbackChat,
+                                    onPendingScheduleConsumed = {
+                                        openScheduleRequest.value = null
+                                        scheduleChatFallback.value = null
+                                    },
+                                    pendingShortcut = pendingShortcut,
+                                    onPendingShortcutConsumed = { shortcutRequest.value = null },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

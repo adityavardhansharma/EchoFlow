@@ -23,6 +23,33 @@ import com.echoflow.ui.screens.settings.SettingsScreen
 import com.echoflow.data.ScheduleManager
 import com.echoflow.ui.screens.schedules.ScheduleRoute
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+
+/** Saves an open schedule screen as plain values: a lock or a recreated activity reopens it. */
+private val ScheduleRouteSaver = Saver<ScheduleRoute?, List<Any?>>(
+    save = { route ->
+        when (route) {
+            null -> listOf("none")
+            ScheduleRoute.Home -> listOf("home")
+            is ScheduleRoute.Conversation ->
+                listOf("conversation", route.scheduleId, route.threadId, route.seed, route.fromHome, route.edit)
+        }
+    },
+    restore = { saved ->
+        when (saved.firstOrNull()) {
+            "home" -> ScheduleRoute.Home
+            "conversation" -> ScheduleRoute.Conversation(
+                scheduleId = saved[1] as String,
+                threadId = saved[2] as String?,
+                seed = saved[3] as String,
+                fromHome = saved[4] as Boolean,
+                edit = saved[5] as Boolean,
+            )
+            else -> null
+        }
+    },
+)
 
 @Composable
 fun MainNavigationHub(
@@ -34,8 +61,10 @@ fun MainNavigationHub(
     pendingShortcut: AppShortcut? = null,
     onPendingShortcutConsumed: () -> Unit = {},
 ) {
-    var activeTab by remember { mutableStateOf("chat") }
-    var scheduleRoute by remember { mutableStateOf<ScheduleRoute?>(null) }
+    // Saveable so the app lock, which takes these screens out of composition, returns the user to
+    // where they were.
+    var activeTab by rememberSaveable { mutableStateOf("chat") }
+    var scheduleRoute by rememberSaveable(stateSaver = ScheduleRouteSaver) { mutableStateOf<ScheduleRoute?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scheduleManager = remember(context) { ScheduleManager(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -78,7 +107,7 @@ fun MainNavigationHub(
             } else chatViewModel.selectThread(id)
         }
     }
-    var settingsStartPage by remember { mutableStateOf<String?>(null) }
+    var settingsStartPage by rememberSaveable { mutableStateOf<String?>(null) }
     val activeBrowserSession by chatViewModel.activeBrowserSession.collectAsState()
     val browserWorkspaceChatId by chatViewModel.browserWorkspaceChatId.collectAsState()
     val artifactWorkspaceOpen by chatViewModel.artifactWorkspaceOpen.collectAsState()

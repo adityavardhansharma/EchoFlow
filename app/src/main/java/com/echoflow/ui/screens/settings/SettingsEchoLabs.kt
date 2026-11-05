@@ -5,6 +5,7 @@ package com.echoflow.ui.screens.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,6 +15,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.echoflow.ui.chat.AskEchoFlowSelection
+import com.echoflow.ui.lock.AppLock
+import com.echoflow.ui.lock.LocalAppLock
+import com.echoflow.ui.lock.LockAfter
 import com.echoflow.ui.components.groupedItemShape
 import com.echoflow.ui.theme.Spacing
 
@@ -126,5 +130,74 @@ internal fun AskEchoFlowRow(index: Int, count: Int) {
                 },
             )
         }
+    }
+}
+
+/**
+ * Beta: locks EchoFlow behind the phone's own fingerprint, face or screen lock (see AppLock).
+ * Turning it on asks for that unlock first, so it can't be switched on in a state it can't open.
+ */
+@Composable
+internal fun AppLockRow(index: Int, count: Int) {
+    val appLock = LocalAppLock.current ?: return
+    val enabled by appLock.enabled.collectAsState()
+    val lockAfter by appLock.lockAfter.collectAsState()
+    var needsScreenLock by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    Surface(
+        shape = groupedItemShape(index, count),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("App lock", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        if (AppLock.hidesRecents) {
+                            "Open EchoFlow with your fingerprint, face or screen lock. Chats are hidden in Recents while it's on."
+                        } else {
+                            "Open EchoFlow with your fingerprint, face or screen lock."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { on ->
+                        if (!on) appLock.disable()
+                        else if (!appLock.deviceSecure()) needsScreenLock = true
+                        else appLock.enable {}
+                    },
+                )
+            }
+            if (enabled) {
+                Spacer(Modifier.height(Spacing.m))
+                Text("Lock after", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(Spacing.s))
+                ConnectedToggleRow(
+                    options = LockAfter.entries.map { it.storageKey to it.label },
+                    selected = lockAfter.storageKey,
+                    onSelect = { appLock.setLockAfter(LockAfter.fromStorage(it)) },
+                )
+            }
+        }
+    }
+    if (needsScreenLock) {
+        AlertDialog(
+            onDismissRequest = { needsScreenLock = false },
+            icon = { Icon(Icons.Default.Lock, null) },
+            title = { Text("Set a screen lock first") },
+            text = { Text("App lock uses your phone's own PIN, pattern or password, with fingerprint or face on top. Add one in your phone's security settings, then turn this on.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    needsScreenLock = false
+                    runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)) }
+                }) { Text("Open settings") }
+            },
+            dismissButton = { TextButton(onClick = { needsScreenLock = false }) { Text("Not now") } },
+        )
     }
 }
