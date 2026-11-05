@@ -173,11 +173,11 @@ internal fun MessagesPane(
         if (index < 0) {
             android.widget.Toast.makeText(context, "That reply is no longer in this chat.", android.widget.Toast.LENGTH_SHORT).show()
         } else {
-            // Show the answer version the words were quoted from, if it was an older one.
-            quote.version?.let { version ->
-                val total = ReplyVersions.count(messages[index])
-                if (version < total) onReplyVersionChange(quote.messageId, version)
-            }
+            // Show the answer version the words were quoted from: the one recorded, or the latest
+            // when none was (the user may have paged this reply back since quoting it).
+            val total = ReplyVersions.count(messages[index])
+            val version = quote.version?.takeIf { it < total } ?: (total - 1).coerceAtLeast(0)
+            onReplyVersionChange(quote.messageId, version)
             scope.launch {
                 runCatching {
                     if (reducedMotion) listState.scrollToItem(index) else listState.animateScrollToItem(index)

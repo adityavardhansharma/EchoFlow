@@ -2048,7 +2048,7 @@ class ChatViewModel(
                     attachmentsJson = attachmentsJson,
                     // Only quotes from this conversation: a switch while the send was getting ready
                     // must not carry links into another chat.
-                    quotesJson = QuotedPassages.toJson(stagedQuotes.filter { it.chatId == null || it.chatId == chatId }),
+                    quotesJson = QuotedPassages.toJson(QuotedPassages.forChat(stagedQuotes, chatId)),
                 )
                 chatRepository.insertMessage(userMsg)
                 consumeQuotes(stagedQuotes)
@@ -2392,7 +2392,8 @@ class ChatViewModel(
                         }
                     customProviderActive && clientSearchReady ->
                         flow {
-                            val query = QuotedPassages.searchQuery(stagedQuotes, prompt)
+                            // The same quotes the saved turn carries, never another chat's.
+                            val query = QuotedPassages.searchQuery(QuotedPassages.forChat(stagedQuotes, chatId), prompt)
                             emit(StreamChunk.SearchStarted(query))
                             val sources = webSearchService.search(provider, searchKey, query)
                             emit(StreamChunk.SearchSources(query, sources))

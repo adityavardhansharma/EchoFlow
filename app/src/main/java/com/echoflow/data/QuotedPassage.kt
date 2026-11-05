@@ -67,6 +67,10 @@ object QuotedPassages {
 
     private const val SEARCH_SUBJECT_CHARS = 240
 
+    /** The quotes that belong in [chatId]: a switch mid-send must not carry another chat's words. */
+    fun forChat(quotes: List<QuotedPassage>, chatId: String): List<QuotedPassage> =
+        quotes.filter { it.chatId == null || it.chatId == chatId }
+
     /** The message as the model reads it: each quote as a blockquote, then what the user typed. */
     fun forModel(quotes: List<QuotedPassage>, content: String): String {
         if (quotes.isEmpty()) return content
