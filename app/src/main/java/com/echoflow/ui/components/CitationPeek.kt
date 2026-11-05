@@ -150,24 +150,35 @@ private fun CitationPeekArea(
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val hit = layout?.let { result -> text.citationAt(result.getOffsetForPosition(down.position)) }
                         ?: return@awaitEachGesture
-                    val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                        do {
+                    // Ends early (non-null) on a release — a tap, so the link opens — and also when
+                    // the finger travels past touch slop, a second finger lands or something else
+                    // takes the press: that is a scroll or another gesture, never a peek.
+                    val notAPeek = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                        } while (event.changes.any { it.pressed })
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || !change.pressed || change.isConsumed) break
+                            if (event.changes.count { it.pressed } > 1) break
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+                        }
                     }
-                    if (released != null) return@awaitEachGesture // a tap: let the link open
+                    if (notAPeek != null) return@awaitEachGesture
                     val result = layout ?: return@awaitEachGesture
                     val box = result.getBoundingBox(hit.start.coerceAtMost(result.layoutInput.text.length - 1))
                     val origin = coords?.boundsInWindow()?.topLeft ?: return@awaitEachGesture
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     peek = Peek(hit.item.url, box.translate(origin))
-                    // Hold to read; the release closes the peek and is consumed so the
-                    // link underneath never sees a click.
-                    do {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        event.changes.forEach { it.consume() }
-                    } while (event.changes.any { it.pressed })
-                    peek = null
+                    // Hold to read; the release closes the peek and is consumed so the link
+                    // underneath never sees a click. The finally also closes it when streaming
+                    // text restarts this handler mid-hold, which would otherwise strand it open.
+                    try {
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        peek = null
+                    }
                 }
             },
         )
