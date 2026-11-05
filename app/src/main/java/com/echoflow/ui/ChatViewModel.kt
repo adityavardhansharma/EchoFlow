@@ -108,6 +108,14 @@ class ChatViewModel(
         chatDao, messageDao, browserSessionDao, browserStepDao, settingsRepository, webSearchService, viewModelScope
     )
 
+    /**
+     * Quote & reply: passages from this conversation's replies that the next message asks about,
+     * oldest first. Declared ahead of the init blocks, because restorePosition (which init calls)
+     * clears it.
+     */
+    private val _quotes = MutableStateFlow<List<QuotedPassage>>(emptyList())
+    val quotes: StateFlow<List<QuotedPassage>> = _quotes.asStateFlow()
+
     // ── App mode ─────────────────────────────────────────────────────────────────────────
 
     /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
@@ -163,6 +171,7 @@ class ChatViewModel(
         // later superseded. Clear conversation-scoped composer state synchronously so a stale
         // restore cannot leave the previous thread's edit attachment armed for the next send.
         clearConversationComposerState()
+        _quotes.value = emptyList()
         modeRestoreJob = viewModelScope.launch {
             val token = navigation.begin()
             val restored = restoredThreadId(mode)
@@ -187,6 +196,7 @@ class ChatViewModel(
      * user picked there instead of restoring one.
      */
     private fun openThread(chatId: String?, carryMode: Boolean = false) {
+        val previousChatId = _currentChatThreadId.value
         navigation.navigated()
         leaveTemporaryChat(except = chatId)
         _chatMode.value = chatModes.switch(_currentChatThreadId.value, _chatMode.value, chatId, carryMode)
@@ -194,6 +204,9 @@ class ChatViewModel(
         // Version pick is session-only; reopening always lands on the latest answer.
         _replyVersionPick.value = emptyMap()
         clearConversationComposerState()
+        // Quotes point at replies in the conversation being left; reopening the same one (the
+        // browser workspace does) keeps them.
+        if (chatId != previousChatId) _quotes.value = emptyList()
         applyModelForThread(chatId)
     }
 
@@ -655,6 +668,36 @@ class ChatViewModel(
         _sharedDraftText.value = null
     }
 
+    // ── Quote & reply ─────────────────────────────────────────────────────────────
+
+    enum class QuoteResult { Added, AlreadyQuoted, Full, Empty, OtherChat }
+
+    /**
+     * Stages a passage from the reply [messageId] for the next message. A reply from another
+     * conversation (the previous chat's rows, briefly on screen while a switch loads) is refused.
+     */
+    fun addQuote(rawText: String, messageId: String, chatId: String?, version: Int?): QuoteResult {
+        if (chatId != null && chatId != _currentChatThreadId.value) return QuoteResult.OtherChat
+        val text = QuotedPassages.clean(rawText) ?: return QuoteResult.Empty
+        val current = _quotes.value
+        if (current.any { it.text == text && it.messageId == messageId }) return QuoteResult.AlreadyQuoted
+        if (current.size >= QuotedPassages.MAX) return QuoteResult.Full
+        _quotes.value = current + QuotedPassage(text, messageId, chatId, version)
+        return QuoteResult.Added
+    }
+
+    fun removeQuote(index: Int) {
+        _quotes.value = _quotes.value.filterIndexed { i, _ -> i != index }
+    }
+
+    /**
+     * Drops the quotes a message just went out with, once its row is saved — a send refused
+     * before that (no key, a run already going) leaves them staged. Quotes added meanwhile stay.
+     */
+    private fun consumeQuotes(sent: List<QuotedPassage>) {
+        if (sent.isNotEmpty()) _quotes.value = _quotes.value - sent.toSet()
+    }
+
     // Set by the Voice launcher shortcut; the chat surface starts the call once it has asked
     // for the mic, the same way its waveform button does.
     private val _voiceModeRequested = MutableStateFlow(false)
@@ -910,7 +953,7 @@ class ChatViewModel(
                 val projectId = chatId?.let { chatRepository.thread(it)?.projectId } ?: pendingProjectIfStillExists()
                 if (projectId != null) projectManager.backfillProject(projectId)
                 return com.echoflow.ui.chat.VoiceChatContext(
-                    history = chatId?.let { chatRepository.history(it) }.orEmpty(),
+                    history = chatId?.let { chatRepository.history(it) }.orEmpty().map { it.withQuotesForModel() },
                     projectContext = projectId?.let { projectManager.buildSystemContext(it) }.orEmpty(),
                     projectId = projectId,
                     temporary = isTemporaryNow(),
@@ -1598,17 +1641,22 @@ class ChatViewModel(
 
         if (prompt.isEmpty() && attachmentUri == null) return
 
+        // Quotes go out with a new message only; an edit keeps the turn's original quotes, and
+        // Browser Flow (which resolves a site from the instruction) leaves them staged too — the
+        // composer hides them in both cases.
+        val stagedQuotes = if (editingUserId == null) _quotes.value else emptyList()
+
         // Prompt edit always uses the normal chat stream path (archive old answer, stream new).
         // Special modes would fork into a different pipeline and lose the version chain.
         if (editingUserId == null) {
             // Deep Research and Data Agent are different pipelines (foreground service +
             // provider/agent orchestration), so they short-circuit the normal streaming send.
             if (_chatMode.value is ChatMode.DeepResearch && prompt.isNotEmpty()) {
-                startDeepResearch(prompt, attachmentUri, attachmentMime, attachmentName)
+                startDeepResearch(prompt, stagedQuotes, attachmentUri, attachmentMime, attachmentName)
                 return
             }
             if (_chatMode.value is ChatMode.DataAgent && prompt.isNotEmpty()) {
-                startDataAgent(prompt)
+                startDataAgent(prompt, stagedQuotes)
                 return
             }
             // Browser Flow: the owning chat is captured — every message drives the same live browser.
@@ -1998,8 +2046,12 @@ class ChatViewModel(
                     localAttachmentMimeType = attachmentMime,
                     localAttachmentName = attachmentName,
                     attachmentsJson = attachmentsJson,
+                    // Only quotes from this conversation: a switch while the send was getting ready
+                    // must not carry links into another chat.
+                    quotesJson = QuotedPassages.toJson(QuotedPassages.forChat(stagedQuotes, chatId)),
                 )
                 chatRepository.insertMessage(userMsg)
+                consumeQuotes(stagedQuotes)
 
                 // Update Thread Timestamp
                 chatRepository.touchThread(chatId)
@@ -2066,7 +2118,8 @@ class ChatViewModel(
             }
 
             // Load updated dialog history
-            val fullHistory = chatRepository.history(chatId)
+            // Quoted passages reach every provider as blockquotes ahead of the typed text.
+            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }
             // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
             // provider as extra image parts, on every user turn so earlier photos stay in context.
             fullHistory.forEach { it.extraAttachments = it.extraPhotos() }
@@ -2339,7 +2392,8 @@ class ChatViewModel(
                         }
                     customProviderActive && clientSearchReady ->
                         flow {
-                            val query = prompt
+                            // The same quotes the saved turn carries, never another chat's.
+                            val query = QuotedPassages.searchQuery(QuotedPassages.forChat(stagedQuotes, chatId), prompt)
                             emit(StreamChunk.SearchStarted(query))
                             val sources = webSearchService.search(provider, searchKey, query)
                             emit(StreamChunk.SearchSources(query, sources))
@@ -2700,6 +2754,7 @@ class ChatViewModel(
      */
     private fun startDeepResearch(
         topic: String,
+        quotes: List<QuotedPassage>,
         attachmentUri: String?,
         attachmentMime: String?,
         attachmentName: String?,
@@ -2777,8 +2832,10 @@ class ChatViewModel(
                     localAttachmentUri = attachmentUri,
                     localAttachmentMimeType = attachmentMime,
                     localAttachmentName = attachmentName,
+                    quotesJson = QuotedPassages.toJson(quotes),
                 )
             )
+            consumeQuotes(quotes)
             chatRepository.touchThread(chatId, now)
 
             val runId = UUID.randomUUID().toString()
@@ -2786,7 +2843,8 @@ class ChatViewModel(
                 ResearchRun(
                     id = runId,
                     chatId = chatId,
-                    topic = topic,
+                    // The run reads the quotes as blockquotes; the chat row keeps them apart.
+                    topic = QuotedPassages.forModel(quotes, topic),
                     engineId = engineId,
                     engineKind = if (isProvider) "provider" else "agent",
                     engineLabel = engineLabel,
@@ -2857,7 +2915,7 @@ class ChatViewModel(
         }
     }
 
-    private fun startDataAgent(topic: String) {
+    private fun startDataAgent(topic: String, quotes: List<QuotedPassage>) {
         viewModelScope.launch {
             clearError()
             if (currentResearchRun.value != null) {
@@ -2892,8 +2950,10 @@ class ChatViewModel(
                     role = "user",
                     content = topic,
                     createdAt = now,
+                    quotesJson = QuotedPassages.toJson(quotes),
                 )
             )
+            consumeQuotes(quotes)
             chatDao.touchUpdatedAt(chatId, now)
 
             val runId = UUID.randomUUID().toString()
@@ -2901,7 +2961,7 @@ class ChatViewModel(
                 ResearchRun(
                     id = runId,
                     chatId = chatId,
-                    topic = topic,
+                    topic = QuotedPassages.forModel(quotes, topic),
                     engineId = engine.id,
                     engineKind = "data-agent",
                     engineLabel = engine.name,

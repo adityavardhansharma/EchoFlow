@@ -339,7 +339,7 @@ internal fun SmoothStreamingText(
     if (markdown) {
         MarkdownText(text = revealed, modifier = modifier, textColor = color, style = style)
     } else {
-        SelectionContainer { Text(text = revealed, style = style, color = color, modifier = modifier) }
+        com.echoflow.ui.components.QuotableSelectionContainer { Text(text = revealed, style = style, color = color, modifier = modifier) }
     }
 }
 

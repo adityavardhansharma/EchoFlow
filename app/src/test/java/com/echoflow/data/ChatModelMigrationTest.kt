@@ -47,4 +47,29 @@ class ChatModelMigrationTest {
             }
         }
     }
+
+    @Test fun `v32 adds quotes to messages and leaves existing rows unquoted`() {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(31) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS chat_messages (id TEXT NOT NULL, chatId TEXT NOT NULL, " +
+                            "role TEXT NOT NULL, content TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))"
+                    )
+                    override fun onUpgrade(db: SupportSQLiteDatabase, old: Int, new: Int) = Unit
+                }).build()
+        )
+        helper.use {
+            val db = it.writableDatabase
+            db.execSQL("INSERT INTO chat_messages (id, chatId, role, content, createdAt) VALUES ('m1', 'c1', 'user', 'Hi', 1)")
+
+            AppDatabase.MIGRATION_31_32.migrate(db)
+
+            db.query("SELECT content, quotesJson FROM chat_messages WHERE id = 'm1'").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals("Hi", c.getString(0))
+                assertTrue(c.isNull(1))
+            }
+        }
+    }
 }

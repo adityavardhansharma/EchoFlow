@@ -319,6 +319,30 @@ internal fun ChatSurface(
         if (granted) chatViewModel.startVoiceMode(micAllowed = true)
         else voiceModePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
+    // Quote & reply: Quote in a reply's text toolbar stages the passage on the composer. Editing a
+    // sent prompt and Browser Flow (which reads the instruction to pick a site) don't take quotes,
+    // so Quote and the strip step aside there; anything staged waits for the next normal message.
+    val quotes by chatViewModel.quotes.collectAsState()
+    val quotingAllowed = editingUserMessageId == null && browserSession == null && !browserFlowActive
+    val quoteHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val onQuote: (com.echoflow.ui.components.QuotedPassageSource, String) -> Unit = remember(chatViewModel, sttContext) {
+        { source, text ->
+            when (chatViewModel.addQuote(text, source.messageId, source.chatId, source.version)) {
+                ChatViewModel.QuoteResult.Added ->
+                    quoteHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                ChatViewModel.QuoteResult.Full -> {
+                    quoteHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Reject)
+                    Toast.makeText(
+                        sttContext,
+                        "You can quote up to ${com.echoflow.data.QuotedPassages.MAX} passages. Remove one to add another.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                ChatViewModel.QuoteResult.AlreadyQuoted, ChatViewModel.QuoteResult.Empty,
+                ChatViewModel.QuoteResult.OtherChat -> Unit
+            }
+        }
+    }
     // The Voice launcher shortcut asks for a call on a fresh chat.
     val voiceModeRequested by chatViewModel.voiceModeRequested.collectAsState()
     LaunchedEffect(voiceModeRequested) {
@@ -584,42 +608,47 @@ internal fun ChatSurface(
             // opens at the bottom with no inherited-offset jump. bottomInset keeps the last
             // message clear of the floating input.
             key(currentThreadId) {
-                MessagesPane(
-                    messages = messages,
-                    isStreaming = isStreaming,
-                    segments = activeSegments,
-                    activeMessageId = activeStreamMessageId,
-                    revealState = streamRevealState,
-                    statusNote = statusNote,
-                    progressLoading = progressLoading,
-                    modelLoading = localModelLoading,
-                    researchRun = researchRun,
-                    onCancelResearch = { chatViewModel.cancelResearch() },
-                    topInset = messagesTopInset,
-                    bottomInset = messageBottomInset,
-                    onCopy = { clipboard.setText(AnnotatedString(it)) },
-                    onArtifactOpen = { artifactId, version ->
-                        chatViewModel.openArtifactWorkspace(artifactId, version)
-                    },
-                    onResearchOpen = chatViewModel::openResearchWorkspace,
-                    onResearchRetry = chatViewModel::retryResearch,
-                    observeResearchRun = chatViewModel::observeResearchRun,
-                    observeVideo = chatViewModel::observeVideo,
-                    observeArtifactVersions = chatViewModel::observeArtifactVersions,
-                    lastUserMessageId = lastUserMessageId,
-                    onEditUserMessage = { id ->
-                        chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
-                    },
-                    replyVersionIndexFor = { messageId, total ->
-                        replyVersionPick[messageId]?.coerceIn(0, (total - 1).coerceAtLeast(0))
-                            ?: (total - 1).coerceAtLeast(0)
-                    },
-                    onReplyVersionChange = chatViewModel::selectReplyVersion,
-                    canEditMessages = !isStreaming &&
-                        !progressLoading &&
-                        researchRun == null &&
-                        editingUserMessageId == null,
-                )
+                CompositionLocalProvider(
+                    com.echoflow.ui.components.LocalQuoteHandler provides onQuote,
+                    com.echoflow.ui.components.LocalQuotingAvailable provides quotingAllowed,
+                ) {
+                    MessagesPane(
+                        messages = messages,
+                        isStreaming = isStreaming,
+                        segments = activeSegments,
+                        activeMessageId = activeStreamMessageId,
+                        revealState = streamRevealState,
+                        statusNote = statusNote,
+                        progressLoading = progressLoading,
+                        modelLoading = localModelLoading,
+                        researchRun = researchRun,
+                        onCancelResearch = { chatViewModel.cancelResearch() },
+                        topInset = messagesTopInset,
+                        bottomInset = messageBottomInset,
+                        onCopy = { clipboard.setText(AnnotatedString(it)) },
+                        onArtifactOpen = { artifactId, version ->
+                            chatViewModel.openArtifactWorkspace(artifactId, version)
+                        },
+                        onResearchOpen = chatViewModel::openResearchWorkspace,
+                        onResearchRetry = chatViewModel::retryResearch,
+                        observeResearchRun = chatViewModel::observeResearchRun,
+                        observeVideo = chatViewModel::observeVideo,
+                        observeArtifactVersions = chatViewModel::observeArtifactVersions,
+                        lastUserMessageId = lastUserMessageId,
+                        onEditUserMessage = { id ->
+                            chatViewModel.beginEditUserMessage(id)?.let { textInput = it }
+                        },
+                        replyVersionIndexFor = { messageId, total ->
+                            replyVersionPick[messageId]?.coerceIn(0, (total - 1).coerceAtLeast(0))
+                                ?: (total - 1).coerceAtLeast(0)
+                        },
+                        onReplyVersionChange = chatViewModel::selectReplyVersion,
+                        canEditMessages = !isStreaming &&
+                            !progressLoading &&
+                            researchRun == null &&
+                            editingUserMessageId == null,
+                    )
+                }
             }
         }
 
@@ -800,6 +829,8 @@ internal fun ChatSurface(
             onCancelTranscribe = { voice.cancel() },
             voiceModeAvailable = voiceModeAvailable,
             onStartVoiceMode = startVoiceMode,
+            quotes = if (quotingAllowed) quotes else emptyList(),
+            onRemoveQuote = chatViewModel::removeQuote,
             projectName = currentThreadProject?.name,
             projectColorIndex = currentThreadProject?.colorIndex ?: 0,
             onOpenProject = { currentThreadProject?.let { chatViewModel.openProjectFromChat(it.id) } },
