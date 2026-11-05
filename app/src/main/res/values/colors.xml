@@ -8,4 +8,6 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="ic_launcher_bg">#1D1D1F</color>
+    <!-- Launcher shortcut glyphs, drawn on ic_launcher_bg like the app icon. -->
+    <color name="shortcut_glyph">#FFFFFFFF</color>
 </resources>

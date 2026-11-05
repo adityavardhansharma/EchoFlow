@@ -41,7 +41,9 @@ import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.MarkdownText
 import com.echoflow.ui.components.RichMarkdown
-import com.echoflow.ui.components.SearchActivityCard
+import com.echoflow.ui.components.ActivityPill
+import com.echoflow.ui.components.ActivityStep
+import com.echoflow.ui.components.ProvideCitationTitles
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.theme.Spacing
 import com.echoflow.ui.theme.rememberReducedMotion
@@ -103,141 +105,187 @@ internal fun StreamingAssistantBubble(
     val lastGeneratedMediaIndex = segments.indexOfLast {
         (it is StreamSegment.Image && it.filePath != null) || it is StreamSegment.Video
     }
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BrandMark(size = 26.dp, animated = isStreaming)
-            Spacer(Modifier.width(Spacing.s))
-            Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        }
-        Spacer(Modifier.height(Spacing.s))
+    // Lets a long-pressed citation in the answer name the page this reply searched.
+    val searchSources = remember(segments) { segments.filterIsInstance<StreamSegment.Search>().flatMap { it.sources } }
+    ProvideCitationTitles(searchSources) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandMark(size = 26.dp, animated = isStreaming)
+                Spacer(Modifier.width(Spacing.s))
+                Text("EchoFlow", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            Spacer(Modifier.height(Spacing.s))
 
-        segments.forEachIndexed { index, segment ->
-            val isLast = index == segments.lastIndex
-            key(index) {
-                when (segment) {
-                    is StreamSegment.Memory -> MemoryActivityLine(segment.label, segment.active)
-                    is StreamSegment.Reasoning -> {
-                        ReasoningSection(
-                            reasoning = segment.text, active = isStreaming && isLast,
-                            revealState = revealState, segmentIndex = index,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Search -> {
-                        SearchActivityCard(query = segment.query, sources = segment.sources, active = segment.active)
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Advisor -> {
-                        AdvisorCard(
-                            advisorName = segment.advisorName,
-                            advisorModel = segment.advisorModel,
-                            prompt = segment.prompt,
-                            advice = segment.advice,
-                            active = segment.active,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Fusion -> {
-                        // Collapse the process shell once final answer text appears after this
-                        // segment — same hierarchy as Reasoning (process yields to the answer).
-                        val answerStarted = segments
-                            .subList(index + 1, segments.size)
-                            .any { it is StreamSegment.Text && it.text.isNotBlank() }
-                        FusionCard(
-                            panelName = segment.panelName,
-                            models = segment.models,
-                            analysis = segment.analysis,
-                            active = segment.active,
-                            isStreaming = isStreaming,
-                            answerStarted = answerStarted,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.AgentRun -> {
-                        AgentDeployingCard()
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Subagent -> {
-                        SubagentCard(
-                            taskName = segment.taskName,
-                            taskDescription = segment.taskDescription,
-                            workerModel = segment.workerModel,
-                            outcome = segment.outcome,
-                            error = segment.error,
-                            active = segment.active,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Artifact -> {
-                        ArtifactCard(
-                            artifactId = segment.artifactId,
-                            title = segment.title,
-                            artifactType = segment.artifactType,
-                            version = segment.version,
-                            building = segment.building,
-                            charCount = segment.charCount,
-                            truncated = segment.truncated,
-                            observeVersions = observeArtifactVersions,
-                            onOpen = onArtifactOpen,
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Image -> {
-                        // One composable through generating → stretch → reveal → settled, so the
-                        // dot field animates INTO the image instead of hard-swapping components.
-                        com.echoflow.ui.components.GeneratedImageSegment(
-                            filePath = segment.filePath,
-                            pattern = segment.pattern,
-                            previousImagePath = segment.previousImagePath,
-                            animate = true,
-                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Video -> {
-                        val durable by remember(segment.videoId) { observeVideo(segment.videoId) }
-                            .collectAsState(initial = null)
-                        com.echoflow.ui.components.GeneratedVideoSegment(
-                            videoId = segment.videoId,
-                            filePath = durable?.filePath ?: segment.filePath,
-                            pattern = segment.pattern,
-                            aspectRatio = durable?.aspectRatio ?: segment.aspectRatio,
-                            status = durable?.status ?: segment.status,
-                            animate = segment.filePath == null,
-                            errorMessage = durable?.error ?: segment.error,
-                            onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
-                        )
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    is StreamSegment.Text -> {
-                        SmoothStreamingText(
-                            segment.text, Modifier.fillMaxWidth(),
-                            revealState = revealState, segmentIndex = index,
-                        )
-                        if (!isLast) Spacer(Modifier.height(Spacing.s))
+            segments.forEachIndexed { index, segment ->
+                val isLast = index == segments.lastIndex
+                key(index) {
+                    when (segment) {
+                        is StreamSegment.Memory -> MemoryActivityLine(segment.label, segment.active)
+                        is StreamSegment.Reasoning, is StreamSegment.Search -> {
+                            // A run of reasoning and search steps renders once, as one pill, from
+                            // its first segment; the rest of the run is drawn inside it.
+                            if (index == 0 || !segments[index - 1].isActivity()) {
+                                val run = activityRun(segments, index)
+                                val steps = run.mapNotNull { i ->
+                                    when (val step = segments[i]) {
+                                        is StreamSegment.Reasoning -> ActivityStep.Thought(step.text, isStreaming && i == segments.lastIndex)
+                                            .takeIf { it.active || step.text.isNotBlank() }
+                                        is StreamSegment.Search -> ActivityStep.Search(step.query, step.sources, step.active)
+                                        else -> null
+                                    }
+                                }
+                                SkipFoldedReasoning(revealState, run.filter { segments[it] is StreamSegment.Reasoning })
+                                if (steps.isNotEmpty()) {
+                                    ActivityPill(steps)
+                                    Spacer(Modifier.height(Spacing.s))
+                                }
+                            }
+                        }
+                        is StreamSegment.Advisor -> {
+                            AdvisorCard(
+                                advisorName = segment.advisorName,
+                                advisorModel = segment.advisorModel,
+                                prompt = segment.prompt,
+                                advice = segment.advice,
+                                active = segment.active,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Fusion -> {
+                            // Collapse the process shell once final answer text appears after this
+                            // segment — same hierarchy as Reasoning (process yields to the answer).
+                            val answerStarted = segments
+                                .subList(index + 1, segments.size)
+                                .any { it is StreamSegment.Text && it.text.isNotBlank() }
+                            FusionCard(
+                                panelName = segment.panelName,
+                                models = segment.models,
+                                analysis = segment.analysis,
+                                active = segment.active,
+                                isStreaming = isStreaming,
+                                answerStarted = answerStarted,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.AgentRun -> {
+                            AgentDeployingCard()
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Subagent -> {
+                            SubagentCard(
+                                taskName = segment.taskName,
+                                taskDescription = segment.taskDescription,
+                                workerModel = segment.workerModel,
+                                outcome = segment.outcome,
+                                error = segment.error,
+                                active = segment.active,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Artifact -> {
+                            ArtifactCard(
+                                artifactId = segment.artifactId,
+                                title = segment.title,
+                                artifactType = segment.artifactType,
+                                version = segment.version,
+                                building = segment.building,
+                                charCount = segment.charCount,
+                                truncated = segment.truncated,
+                                observeVersions = observeArtifactVersions,
+                                onOpen = onArtifactOpen,
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Image -> {
+                            // One composable through generating → stretch → reveal → settled, so the
+                            // dot field animates INTO the image instead of hard-swapping components.
+                            com.echoflow.ui.components.GeneratedImageSegment(
+                                filePath = segment.filePath,
+                                pattern = segment.pattern,
+                                previousImagePath = segment.previousImagePath,
+                                animate = true,
+                                onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Video -> {
+                            val durable by remember(segment.videoId) { observeVideo(segment.videoId) }
+                                .collectAsState(initial = null)
+                            com.echoflow.ui.components.GeneratedVideoSegment(
+                                videoId = segment.videoId,
+                                filePath = durable?.filePath ?: segment.filePath,
+                                pattern = segment.pattern,
+                                aspectRatio = durable?.aspectRatio ?: segment.aspectRatio,
+                                status = durable?.status ?: segment.status,
+                                animate = segment.filePath == null,
+                                errorMessage = durable?.error ?: segment.error,
+                                onCopy = onCopy.takeIf { index == lastGeneratedMediaIndex },
+                            )
+                            Spacer(Modifier.height(Spacing.s))
+                        }
+                        is StreamSegment.Text -> {
+                            SmoothStreamingText(
+                                segment.text, Modifier.fillMaxWidth(),
+                                revealState = revealState, segmentIndex = index,
+                            )
+                            if (!isLast) Spacer(Modifier.height(Spacing.s))
+                        }
                     }
                 }
             }
-        }
 
-        terminalText.forEach { text ->
-            if (text.isNotBlank()) {
+            terminalText.forEach { text ->
+                if (text.isNotBlank()) {
+                    Spacer(Modifier.height(Spacing.s))
+                    RichMarkdown(text, Modifier.fillMaxWidth())
+                }
+            }
+            if (stopped) {
                 Spacer(Modifier.height(Spacing.s))
-                RichMarkdown(text, Modifier.fillMaxWidth())
+                StoppedNotice()
+            }
+
+            statusNote?.let { note ->
+                Spacer(Modifier.height(Spacing.s))
+                Text(
+                    note,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
-        if (stopped) {
-            Spacer(Modifier.height(Spacing.s))
-            StoppedNotice()
-        }
+    }
+}
 
-        statusNote?.let { note ->
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                note,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+private fun StreamSegment.isActivity() = this is StreamSegment.Reasoning || this is StreamSegment.Search
+
+/** Indices of the unbroken run of reasoning / search segments starting at [start]. */
+private fun activityRun(segments: List<StreamSegment>, start: Int): List<Int> {
+    var end = start
+    while (end + 1 < segments.size && segments[end + 1].isActivity()) end++
+    return (start..end).toList()
+}
+
+/**
+ * The pill never reveals reasoning through [SmoothStreamingText], so each folded reasoning segment
+ * reports itself skipped — otherwise the producer would wait on a reader that never comes.
+ */
+@Composable
+private fun SkipFoldedReasoning(revealState: StreamRevealState?, indices: List<Int>) {
+    if (revealState == null) return
+    val lifecycleOwner = LocalLifecycleOwner.current
+    indices.forEach { segmentIndex ->
+        key(segmentIndex) {
+            val reader = remember { Any() }
+            LaunchedEffect(revealState, segmentIndex, lifecycleOwner) {
+                try {
+                    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        revealState.reportSkipped(reader, segmentIndex)
+                    }
+                } finally {
+                    revealState.detach(reader)
+                }
+            }
         }
     }
 }

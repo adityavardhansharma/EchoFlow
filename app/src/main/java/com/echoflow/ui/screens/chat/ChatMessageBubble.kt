@@ -34,7 +34,9 @@ import com.echoflow.ui.components.BrandMark
 import com.echoflow.ui.components.FusionCard
 import com.echoflow.ui.components.ResearchResultCard
 import com.echoflow.ui.components.RichMarkdown
-import com.echoflow.ui.components.SearchActivityCard
+import com.echoflow.ui.components.ActivityPill
+import com.echoflow.ui.components.ActivityStep
+import com.echoflow.ui.components.ProvideCitationTitles
 import com.echoflow.ui.components.SubagentCard
 import com.echoflow.ui.legacy.LegacyArtifactCard
 import com.echoflow.ui.legacy.LEGACY_RESEARCH_SEGMENT_TYPES
@@ -192,177 +194,193 @@ private fun AssistantAnswerBody(
             val reportCitations = remember(messageKey, message.citationsJson) {
                 ToolEventJson.citationsFromJson(message.citationsJson)
             }
-            persistedSegments.forEachIndexed { index, segment ->
-                when (segment.type) {
-                    "memory" -> MemoryActivityLine(segment.text.orEmpty(), false)
-                    "reasoning" -> {
-                        ReasoningSection(reasoning = segment.text.orEmpty(), active = false)
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    "search" -> {
-                        SearchActivityCard(query = segment.query.orEmpty(), sources = segment.sources.orEmpty(), active = false)
-                        Spacer(Modifier.height(Spacing.s))
-                    }
-                    "advisor" -> {
-                        segment.advisor?.let { a ->
-                            AdvisorCard(
-                                advisorName = a.advisorName,
-                                advisorModel = a.advisorModel,
-                                prompt = a.prompt,
-                                advice = a.advice,
-                                active = false,
-                            )
-                            Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    "fusion" -> {
-                        segment.fusion?.let { f ->
-                            // History: process settled; default collapsed so only the final
-                            // answer body reads as the reply. Expand for steps / panel answers.
-                            FusionCard(
-                                panelName = f.panelName,
-                                models = f.models,
-                                analysis = f,
-                                active = false,
-                                isStreaming = false,
-                                answerStarted = true,
-                            )
-                            Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    "subagent" -> {
-                        segment.subagent?.let { s ->
-                            SubagentCard(
-                                taskName = s.taskName,
-                                taskDescription = s.taskDescription,
-                                workerModel = s.workerModel,
-                                outcome = s.outcome,
-                                error = s.error,
-                                active = false,
-                            )
-                            Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    // ── Artifacts ───────────────────────────────────────────────────
-                    // Old and new artifact cards are told apart here, and only here.
-                    // Pre-redesign rows omit ArtifactRef.uiVersion and deserialize to
-                    // UI_VERSION_LEGACY, so they draw through the frozen ui/legacy card and
-                    // look exactly as they always have. Artifacts produced by the current app
-                    // stamp UI_VERSION_CURRENT and get the redesigned chips + preview card.
-                    // Because the default is the legacy value, no existing conversation can
-                    // ever be reclassified.
-                    "artifact" -> {
-                        segment.artifact?.let { a ->
-                            if (a.usesLegacyUi) {
-                                LegacyArtifactCard(
-                                    title = a.title,
-                                    artifactType = a.type,
-                                    version = a.version,
-                                    building = false,
-                                    charCount = 0,
-                                    truncated = false,
-                                    onOpen = { onArtifactOpen(a.artifactId, a.version) },
-                                )
-                            } else {
-                                ArtifactCard(
-                                    artifactId = a.artifactId,
-                                    title = a.title,
-                                    artifactType = a.type,
-                                    version = a.version,
-                                    building = false,
-                                    charCount = 0,
-                                    truncated = false,
-                                    observeVersions = observeArtifactVersions,
-                                    onOpen = onArtifactOpen,
-                                )
-                            }
-                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    "image" -> {
-                        segment.image?.let { ref ->
-                            com.echoflow.ui.components.GeneratedImageSegment(
-                                filePath = ref.filePath,
-                                pattern = "ripple",
-                                previousImagePath = null,
-                                animate = false,
-                                onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
-                            )
-                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    "video" -> {
-                        segment.video?.let { ref ->
-                            // The row, not the segment, is the truth: a clip can still be
-                            // rendering when its message is written (or finish while the
-                            // app is dead), so the card follows the job live.
-                            val live by remember(ref.videoId) { observeVideo(ref.videoId) }
-                                .collectAsState(initial = null)
-                            com.echoflow.ui.components.GeneratedVideoSegment(
-                                videoId = ref.videoId,
-                                filePath = live?.filePath ?: ref.filePath,
-                                pattern = "ripple",
-                                aspectRatio = live?.aspectRatio
-                                    ?: com.echoflow.data.VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
-                                status = live?.status ?: if (ref.filePath != null) {
-                                    GeneratedVideo.STATUS_COMPLETED
-                                } else {
-                                    GeneratedVideo.STATUS_IN_PROGRESS
-                                },
-                                // A message written before the file existed means the clip
-                                // lands in front of the user — that one gets the reveal.
-                                animate = ref.filePath == null,
-                                errorMessage = live?.error,
-                                onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
-                            )
-                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                        }
-                    }
-                    "stopped" -> {
-                        StoppedNotice()
-                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
-                    }
-                    // ── Research ────────────────────────────────────────────────────
-                    // Old and new research are told apart here, and only here. "plan", "report"
-                    // and "data" segments were written before the timeline redesign, so they draw
-                    // through ui/legacy and look exactly as they always have. Research produced
-                    // by the current app writes a single "research" segment instead. Because the
-                    // split is on a type string that old rows simply do not contain, no existing
-                    // conversation can ever be reclassified.
-                    in LEGACY_RESEARCH_SEGMENT_TYPES -> LegacyResearchSegment(
-                        segment = segment,
-                        segments = persistedSegments,
-                        citations = reportCitations,
-                        isLast = index == persistedSegments.lastIndex,
-                        onCopy = copyAction,
-                    )
-                    "research" -> {
-                        segment.research?.let { ref ->
-                            // The steps and sources come from the run row when it is still
-                            // around; the card degrades to its header alone when it is not.
-                            val liveRun by remember(ref.runId) { observeResearchRun(ref.runId) }
-                                .collectAsState(initial = null)
-                            val steps = remember(liveRun?.stepsJson) {
-                                ResearchJson.timelineFromJson(liveRun?.stepsJson)
-                            }
-                            val runSources = remember(liveRun?.sourcesJson, reportCitations) {
-                                ResearchJson.sourcesFromJson(liveRun?.sourcesJson).ifEmpty {
-                                    reportCitations.map { SearchSource(title = it.title, url = it.url) }
+            // Lets a long-pressed citation in the answer name the page this reply searched.
+            val searchSources = remember(messageKey, persistedSegments) {
+                persistedSegments.filter { it.type == "search" }.flatMap { it.sources.orEmpty() }
+            }
+            ProvideCitationTitles(searchSources) {
+                persistedSegments.forEachIndexed { index, segment ->
+                    when (segment.type) {
+                        "memory" -> MemoryActivityLine(segment.text.orEmpty(), false)
+                        "reasoning", "search" -> {
+                            // Same folding as the live reply: one pill per run of steps.
+                            if (index == 0 || persistedSegments[index - 1].type !in ACTIVITY_TYPES) {
+                                val steps = persistedSegments.drop(index)
+                                    .takeWhile { it.type in ACTIVITY_TYPES }
+                                    .mapNotNull { step ->
+                                        if (step.type == "search") {
+                                            ActivityStep.Search(step.query.orEmpty(), step.sources.orEmpty(), active = false)
+                                        } else {
+                                            step.text?.takeIf { it.isNotBlank() }?.let { ActivityStep.Thought(it, active = false) }
+                                        }
+                                    }
+                                if (steps.isNotEmpty()) {
+                                    ActivityPill(steps)
+                                    Spacer(Modifier.height(Spacing.s))
                                 }
                             }
-                            ResearchResultCard(
-                                research = ref,
-                                steps = steps,
-                                sources = runSources,
-                                onOpen = { onResearchOpen(ref) },
-                                onRetry = { onResearchRetry(ref) },
-                            )
+                        }
+                        "advisor" -> {
+                            segment.advisor?.let { a ->
+                                AdvisorCard(
+                                    advisorName = a.advisorName,
+                                    advisorModel = a.advisorModel,
+                                    prompt = a.prompt,
+                                    advice = a.advice,
+                                    active = false,
+                                )
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        "fusion" -> {
+                            segment.fusion?.let { f ->
+                                // History: process settled; default collapsed so only the final
+                                // answer body reads as the reply. Expand for steps / panel answers.
+                                FusionCard(
+                                    panelName = f.panelName,
+                                    models = f.models,
+                                    analysis = f,
+                                    active = false,
+                                    isStreaming = false,
+                                    answerStarted = true,
+                                )
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        "subagent" -> {
+                            segment.subagent?.let { s ->
+                                SubagentCard(
+                                    taskName = s.taskName,
+                                    taskDescription = s.taskDescription,
+                                    workerModel = s.workerModel,
+                                    outcome = s.outcome,
+                                    error = s.error,
+                                    active = false,
+                                )
+                                Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        // ── Artifacts ───────────────────────────────────────────────────
+                        // Old and new artifact cards are told apart here, and only here.
+                        // Pre-redesign rows omit ArtifactRef.uiVersion and deserialize to
+                        // UI_VERSION_LEGACY, so they draw through the frozen ui/legacy card and
+                        // look exactly as they always have. Artifacts produced by the current app
+                        // stamp UI_VERSION_CURRENT and get the redesigned chips + preview card.
+                        // Because the default is the legacy value, no existing conversation can
+                        // ever be reclassified.
+                        "artifact" -> {
+                            segment.artifact?.let { a ->
+                                if (a.usesLegacyUi) {
+                                    LegacyArtifactCard(
+                                        title = a.title,
+                                        artifactType = a.type,
+                                        version = a.version,
+                                        building = false,
+                                        charCount = 0,
+                                        truncated = false,
+                                        onOpen = { onArtifactOpen(a.artifactId, a.version) },
+                                    )
+                                } else {
+                                    ArtifactCard(
+                                        artifactId = a.artifactId,
+                                        title = a.title,
+                                        artifactType = a.type,
+                                        version = a.version,
+                                        building = false,
+                                        charCount = 0,
+                                        truncated = false,
+                                        observeVersions = observeArtifactVersions,
+                                        onOpen = onArtifactOpen,
+                                    )
+                                }
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        "image" -> {
+                            segment.image?.let { ref ->
+                                com.echoflow.ui.components.GeneratedImageSegment(
+                                    filePath = ref.filePath,
+                                    pattern = "ripple",
+                                    previousImagePath = null,
+                                    animate = false,
+                                    onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
+                                )
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        "video" -> {
+                            segment.video?.let { ref ->
+                                // The row, not the segment, is the truth: a clip can still be
+                                // rendering when its message is written (or finish while the
+                                // app is dead), so the card follows the job live.
+                                val live by remember(ref.videoId) { observeVideo(ref.videoId) }
+                                    .collectAsState(initial = null)
+                                com.echoflow.ui.components.GeneratedVideoSegment(
+                                    videoId = ref.videoId,
+                                    filePath = live?.filePath ?: ref.filePath,
+                                    pattern = "ripple",
+                                    aspectRatio = live?.aspectRatio
+                                        ?: com.echoflow.data.VideoRequestPolicy.DEFAULT_ASPECT_RATIO,
+                                    status = live?.status ?: if (ref.filePath != null) {
+                                        GeneratedVideo.STATUS_COMPLETED
+                                    } else {
+                                        GeneratedVideo.STATUS_IN_PROGRESS
+                                    },
+                                    // A message written before the file existed means the clip
+                                    // lands in front of the user — that one gets the reveal.
+                                    animate = ref.filePath == null,
+                                    errorMessage = live?.error,
+                                    onCopy = copyAction.takeIf { index == lastGeneratedMediaIndex },
+                                )
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        "stopped" -> {
+                            StoppedNotice()
                             if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
                         }
-                    }
-                    else -> {
-                        RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
-                        if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        // ── Research ────────────────────────────────────────────────────
+                        // Old and new research are told apart here, and only here. "plan", "report"
+                        // and "data" segments were written before the timeline redesign, so they draw
+                        // through ui/legacy and look exactly as they always have. Research produced
+                        // by the current app writes a single "research" segment instead. Because the
+                        // split is on a type string that old rows simply do not contain, no existing
+                        // conversation can ever be reclassified.
+                        in LEGACY_RESEARCH_SEGMENT_TYPES -> LegacyResearchSegment(
+                            segment = segment,
+                            segments = persistedSegments,
+                            citations = reportCitations,
+                            isLast = index == persistedSegments.lastIndex,
+                            onCopy = copyAction,
+                        )
+                        "research" -> {
+                            segment.research?.let { ref ->
+                                // The steps and sources come from the run row when it is still
+                                // around; the card degrades to its header alone when it is not.
+                                val liveRun by remember(ref.runId) { observeResearchRun(ref.runId) }
+                                    .collectAsState(initial = null)
+                                val steps = remember(liveRun?.stepsJson) {
+                                    ResearchJson.timelineFromJson(liveRun?.stepsJson)
+                                }
+                                val runSources = remember(liveRun?.sourcesJson, reportCitations) {
+                                    ResearchJson.sourcesFromJson(liveRun?.sourcesJson).ifEmpty {
+                                        reportCitations.map { SearchSource(title = it.title, url = it.url) }
+                                    }
+                                }
+                                ResearchResultCard(
+                                    research = ref,
+                                    steps = steps,
+                                    sources = runSources,
+                                    onOpen = { onResearchOpen(ref) },
+                                    onRetry = { onResearchRetry(ref) },
+                                )
+                                if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                            }
+                        }
+                        else -> {
+                            RichMarkdown(segment.text.orEmpty(), Modifier.fillMaxWidth())
+                            if (index != persistedSegments.lastIndex) Spacer(Modifier.height(Spacing.s))
+                        }
                     }
                 }
             }
@@ -450,3 +468,5 @@ internal fun MessageAttachmentPreview(
         }
     }
 }
+
+private val ACTIVITY_TYPES = setOf("reasoning", "search")

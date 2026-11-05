@@ -342,6 +342,14 @@ internal fun ChatSurface(
             }
         }
     }
+    // The Voice launcher shortcut asks for a call on a fresh chat.
+    val voiceModeRequested by chatViewModel.voiceModeRequested.collectAsState()
+    LaunchedEffect(voiceModeRequested) {
+        if (voiceModeRequested) {
+            chatViewModel.consumeVoiceModeRequest()
+            startVoiceMode()
+        }
+    }
     LaunchedEffect(voiceModeNotice) {
         voiceModeNotice?.let {
             Toast.makeText(sttContext, it, Toast.LENGTH_LONG).show()

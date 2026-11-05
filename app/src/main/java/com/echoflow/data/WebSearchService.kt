@@ -35,7 +35,8 @@ class WebSearchService {
         provider: String,
         apiKey: String,
         query: String,
-        maxResults: Int = 5
+        maxResults: Int = 5,
+        forLocalModel: Boolean = false,
     ): List<SearchSource> = withContext(Dispatchers.IO) {
         when (provider) {
             ClientSearchProviders.EXA -> searchExa(apiKey, query, maxResults)
@@ -44,8 +45,10 @@ class WebSearchService {
                 apiKey = apiKey,
                 query = query,
                 maxResults = maxResults,
-                scrapeMarkdown = true,
-                snippetChars = 4000,
+                // A local model's context is small: ask for page summaries, not full markdown.
+                scrapeMarkdown = !forLocalModel,
+                summary = forLocalModel,
+                snippetChars = if (forLocalModel) 1000 else 4000,
                 label = "Firecrawl",
             )
             ClientSearchProviders.CONTEXT_DEV -> searchContextDev(apiKey, query, maxResults)
@@ -115,18 +118,20 @@ class WebSearchService {
         scrapeMarkdown: Boolean,
         snippetChars: Int,
         label: String,
+        summary: Boolean = false,
     ): List<SearchSource> {
         val headers = if (apiKey.isBlank()) emptyMap() else mapOf("Authorization" to "Bearer $apiKey")
         val json = executePost(
             url = FirecrawlSearch.ENDPOINT,
             headers = headers,
-            body = FirecrawlSearch.requestBody(query, maxResults, scrapeMarkdown),
+            body = FirecrawlSearch.requestBody(query, maxResults, scrapeMarkdown, summary),
             providerLabel = label,
         )
         return FirecrawlSearch.parseResults(
             response = json,
             snippetChars = snippetChars,
             preferMarkdown = scrapeMarkdown,
+            preferSummary = summary,
         )
     }
 

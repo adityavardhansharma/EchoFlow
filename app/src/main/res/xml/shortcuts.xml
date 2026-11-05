@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon. Each action is read by ShortcutTrampolineActivity. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_chat"
+        android:shortcutShortLabel="@string/shortcut_new_chat_short"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long">
+        <intent
+            android:action="com.echoflow.action.NEW_CHAT"
+            android:targetPackage="com.echoflow"
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="voice_mode"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_voice"
+        android:shortcutShortLabel="@string/shortcut_voice_short"
+        android:shortcutLongLabel="@string/shortcut_voice_long">
+        <intent
+            android:action="com.echoflow.action.VOICE_MODE"
+            android:targetPackage="com.echoflow"
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="temporary_chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_temporary"
+        android:shortcutShortLabel="@string/shortcut_temporary_short"
+        android:shortcutLongLabel="@string/shortcut_temporary_long">
+        <intent
+            android:action="com.echoflow.action.TEMPORARY_CHAT"
+            android:targetPackage="com.echoflow"
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="imagine"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_imagine"
+        android:shortcutShortLabel="@string/shortcut_imagine_short"
+        android:shortcutLongLabel="@string/shortcut_imagine_long">
+        <intent
+            android:action="com.echoflow.action.IMAGINE"
+            android:targetPackage="com.echoflow"
+            android:targetClass="com.echoflow.ShortcutTrampolineActivity" />
+    </shortcut>
+</shortcuts>
