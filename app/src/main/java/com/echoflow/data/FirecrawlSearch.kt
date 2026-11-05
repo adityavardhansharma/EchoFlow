@@ -7,12 +7,21 @@ package com.echoflow.data
 internal object FirecrawlSearch {
     const val ENDPOINT = "https://api.firecrawl.dev/v2/search"
 
-    fun requestBody(query: String, maxResults: Int, scrapeMarkdown: Boolean): Map<String, Any> {
+    fun requestBody(
+        query: String,
+        maxResults: Int,
+        scrapeMarkdown: Boolean,
+        summary: Boolean = false,
+    ): Map<String, Any> {
         val body = linkedMapOf<String, Any>(
             "query" to query,
             "limit" to maxResults.coerceIn(1, 10),
         )
-        if (scrapeMarkdown) {
+        if (summary) {
+            // Paid Firecrawl for a local model: a short per-page summary instead of the
+            // full markdown, so the results fit a small on-device context window.
+            body["scrapeOptions"] = mapOf("formats" to listOf("summary"))
+        } else if (scrapeMarkdown) {
             // Paid Firecrawl: full-page markdown. EchoCrawl must not send this — scrape
             // burns the keyless credit pool and often times out as a "fetch" failure.
             body["scrapeOptions"] = mapOf("formats" to listOf("markdown"))
@@ -24,6 +33,7 @@ internal object FirecrawlSearch {
         response: Map<*, *>,
         snippetChars: Int,
         preferMarkdown: Boolean,
+        preferSummary: Boolean = false,
     ): List<SearchSource> {
         if (response["success"] == false) {
             throw Exception(apiErrorMessage(response) ?: "Search was rejected.")
@@ -35,7 +45,7 @@ internal object FirecrawlSearch {
             SearchSource(
                 title = (item["title"] as? String).orEmpty().ifBlank { url },
                 url = url,
-                snippet = snippetOf(item, snippetChars, preferMarkdown),
+                snippet = snippetOf(item, snippetChars, preferMarkdown, preferSummary),
             )
         }
     }
@@ -66,8 +76,15 @@ internal object FirecrawlSearch {
         return out
     }
 
-    private fun snippetOf(item: Map<*, *>, maxChars: Int, preferMarkdown: Boolean): String? {
-        val keys = if (preferMarkdown) {
+    private fun snippetOf(
+        item: Map<*, *>,
+        maxChars: Int,
+        preferMarkdown: Boolean,
+        preferSummary: Boolean,
+    ): String? {
+        val keys = if (preferSummary) {
+            listOf("summary", "description", "snippet", "content")
+        } else if (preferMarkdown) {
             listOf("markdown", "description", "snippet", "content")
         } else {
             listOf("description", "snippet", "content", "markdown")

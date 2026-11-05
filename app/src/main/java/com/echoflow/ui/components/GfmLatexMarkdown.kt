@@ -166,6 +166,8 @@ private fun GfmSegment(
         annotator = annotator,
         inlineContent = inlineContent,
         components = markdownComponents(
+            // Long-press a citation to peek at its source; a tap still opens the site.
+            paragraph = { CitationMarkdownParagraph(it.content, it.node, it.typography.paragraph) },
             codeBlock = {
                 MarkdownHighlightedCodeBlock(it.content, it.node, it.typography.code, showHeader = true)
             },

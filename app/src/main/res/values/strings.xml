@@ -3,4 +3,13 @@
     <string name="system_dictation_label">EchoFlow dictation</string>
     <string name="process_text_label">Ask EchoFlow</string>
     <string name="system_dictation_description">Detect focused text fields and insert dictated text only. No other window content is used. Nothing is recorded until you tap the EchoFlow button. Transcription uses your selected cloud provider. On Android 13 and newer, the clipboard is used only if direct insertion is unavailable; older versions use it to paste.</string>
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels stay within ~10 characters. -->
+    <string name="shortcut_new_chat_short">New chat</string>
+    <string name="shortcut_new_chat_long">Start a new chat</string>
+    <string name="shortcut_voice_short">Voice</string>
+    <string name="shortcut_voice_long">Start voice mode</string>
+    <string name="shortcut_temporary_short">Temporary</string>
+    <string name="shortcut_temporary_long">New temporary chat</string>
+    <string name="shortcut_imagine_short">Imagine</string>
+    <string name="shortcut_imagine_long">Create in Imagine</string>
 </resources>

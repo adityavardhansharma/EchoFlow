@@ -78,7 +78,7 @@ internal fun InlineMarkdownText(
     val hasMath = mathNodes.isNotEmpty()
     if (!hasMath) {
         val annotated = remember(text, linkColor) { parseInlineStyles(text, linkColor) }
-        Text(annotated, style = style.copy(color = color), modifier = modifier)
+        CitationPeekText(annotated, style = style.copy(color = color), modifier = modifier)
         return
     }
 
@@ -119,7 +119,7 @@ internal fun InlineMarkdownText(
         }
     }
 
-    Text(
+    CitationPeekText(
         text = annotated,
         inlineContent = inlineContent,
         style = textStyle,

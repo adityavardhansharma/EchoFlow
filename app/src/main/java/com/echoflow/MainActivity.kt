@@ -58,6 +58,8 @@ class MainActivity : ComponentActivity() {
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
     // Text or files another app shared into EchoFlow, opened as a new chat.
     private val shareRequest = MutableStateFlow<IncomingShare?>(null)
+    // A launcher shortcut (new chat, voice, temporary, Imagine) to act on.
+    private val shortcutRequest = MutableStateFlow<AppShortcut?>(null)
 
     private fun readOpenRequest(intent: Intent?) {
         val schedule = intent?.getStringExtra(com.echoflow.data.ScheduleNotifications.EXTRA_OPEN_SCHEDULE)
@@ -70,6 +72,13 @@ class MainActivity : ComponentActivity() {
 
     private fun readShare(intent: Intent?) {
         IncomingShare.from(intent)?.let { shareRequest.value = it }
+    }
+
+    // Launcher shortcuts arrive through ShortcutTrampolineActivity, which brings this task forward
+    // without a new intent; the pick itself is waiting in memory.
+    override fun onResume() {
+        super.onResume()
+        AppShortcut.take()?.let { shortcutRequest.value = it }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -174,20 +183,27 @@ class MainActivity : ComponentActivity() {
                     val pendingSchedule by openScheduleRequest.collectAsState()
                     val fallbackChat by scheduleChatFallback.collectAsState()
                     val locked by appLock.locked.collectAsState()
+                    val pendingShortcut by shortcutRequest.collectAsState()
                     // While locked the screens leave composition entirely: dialogs, sheets and menus
                     // are windows of their own and would otherwise sit above the lock. Calls,
                     // streams and the open chat live in the view models and carry on; saved UI
-                    // state (scroll positions and the like) comes back on unlock.
+                    // state (scroll positions and the like) comes back on unlock. A shortcut picked
+                    // while locked waits and runs once the app is unlocked.
                     val hubState = rememberSaveableStateHolder()
                     CompositionLocalProvider(LocalAppLock provides appLock) {
                         if (locked) {
                             AppLockScreen(onUnlock = appLock::unlock)
                         } else {
                             hubState.SaveableStateProvider("hub") {
-                                MainNavigationHub(chatVm, settingsVm, pendingSchedule, fallbackChat) {
-                                    openScheduleRequest.value = null
-                                    scheduleChatFallback.value = null
-                                }
+                                MainNavigationHub(
+                                    chatVm, settingsVm, pendingSchedule, fallbackChat,
+                                    onPendingScheduleConsumed = {
+                                        openScheduleRequest.value = null
+                                        scheduleChatFallback.value = null
+                                    },
+                                    pendingShortcut = pendingShortcut,
+                                    onPendingShortcutConsumed = { shortcutRequest.value = null },
+                                )
                             }
                         }
                     }

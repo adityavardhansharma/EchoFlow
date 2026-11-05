@@ -38,13 +38,13 @@ import com.echoflow.data.Citation
 import com.echoflow.data.SearchSource
 import com.echoflow.ui.theme.Spacing
 
-private fun hostOf(url: String): String =
+internal fun hostOf(url: String): String =
     runCatching { android.net.Uri.parse(url).host?.removePrefix("www.") }.getOrNull() ?: url
 
-private fun faviconUrl(url: String): String =
+internal fun faviconUrl(url: String): String =
     "https://www.google.com/s2/favicons?domain=${runCatching { android.net.Uri.parse(url).host }.getOrNull() ?: ""}&sz=64"
 
-private fun openUrl(context: android.content.Context, url: String) {
+internal fun openUrl(context: android.content.Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
     }
