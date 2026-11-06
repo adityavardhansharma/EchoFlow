@@ -247,54 +247,22 @@ internal fun AdvisorPickerSheet(
     onSelectProfile: (String) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Adviser setup", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
-                    Text("A cloud model answers and consults your advisor", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onManage) {
-                    Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Manage")
-                }
-            }
-
-            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Advisor") }
-            if (profiles.isEmpty()) {
-                Text(
-                    "No advisors yet — tap Manage to set one up.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = Spacing.s),
-                )
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.padding(bottom = Spacing.m)) {
-                    profiles.forEach { profile ->
-                        FilterChip(
-                            selected = profile.id == selectedProfileId,
-                            onClick = { onSelectProfile(profile.id) },
-                            label = { Text(profile.name) },
-                            leadingIcon = { Icon(Icons.Default.Psychology, null, Modifier.size(16.dp)) },
-                        )
-                    }
-                }
-            }
-
-            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Answering model") }
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.m)) {
-                items(models, key = { it.first }) { (id, name) ->
-                    ModelRow(name, id, id == selectedModelId, isLocal = false) { onSelectModel(id) }
-                }
-            }
-
-            Button(onClick = onDismiss, shape = CircleShape, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xl)) {
-                Text("Done")
-            }
-        }
-    }
-}
+) = ProfileAndModelPickerSheet(
+    title = "Adviser setup",
+    subtitle = "A cloud model answers and consults your advisor",
+    profileLabel = "Advisor",
+    emptyText = "No advisors yet — tap Manage to set one up.",
+    profileIcon = Icons.Default.Psychology,
+    modelLabel = "Answering model",
+    profiles = profiles.map { it.id to it.name },
+    selectedProfileId = selectedProfileId,
+    models = models,
+    selectedModelId = selectedModelId,
+    onSelectModel = onSelectModel,
+    onSelectProfile = onSelectProfile,
+    onManage = onManage,
+    onDismiss = onDismiss,
+)
 
 /**
  * Echo Agent picker: two zones — the orchestrator (any cloud model, which drives the toolbox)
@@ -311,42 +279,76 @@ internal fun AgentPickerSheet(
     onSelectProfile: (String) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
+) = ProfileAndModelPickerSheet(
+    title = "Echo Agents",
+    subtitle = "Your main model uses tools and hands tasks to your Echo Agent",
+    profileLabel = "Echo Agent",
+    emptyText = "No Echo Agents yet — tap Manage to set one up.",
+    profileIcon = Icons.Default.Hub,
+    modelLabel = "Main model",
+    profiles = profiles.map { it.id to it.name },
+    selectedProfileId = selectedProfileId,
+    models = models,
+    selectedModelId = selectedModelId,
+    onSelectModel = onSelectModel,
+    onSelectProfile = onSelectProfile,
+    onManage = onManage,
+    onDismiss = onDismiss,
+)
+
+/** A sheet with a profile chip row over a cloud model list, shared by the Adviser and Agent pickers. */
+@Composable
+private fun ProfileAndModelPickerSheet(
+    title: String,
+    subtitle: String,
+    profileLabel: String,
+    emptyText: String,
+    profileIcon: ImageVector,
+    modelLabel: String,
+    profiles: List<Pair<String, String>>,
+    selectedProfileId: String,
+    models: List<Pair<String, String>>,
+    selectedModelId: String,
+    onSelectModel: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.l)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.base)) {
                 Column(Modifier.weight(1f)) {
-                    Text("Echo Agents", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
-                    Text("Your main model uses tools and hands tasks to your Echo Agent", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onManage) {
                     Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(Spacing.s)); Text("Manage")
                 }
             }
 
-            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Echo Agent") }
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel(profileLabel) }
             if (profiles.isEmpty()) {
                 Text(
-                    "No Echo Agents yet — tap Manage to set one up.",
+                    emptyText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = Spacing.s),
                 )
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s), modifier = Modifier.padding(bottom = Spacing.m)) {
-                    profiles.forEach { profile ->
+                    profiles.forEach { (id, name) ->
                         FilterChip(
-                            selected = profile.id == selectedProfileId,
-                            onClick = { onSelectProfile(profile.id) },
-                            label = { Text(profile.name) },
-                            leadingIcon = { Icon(Icons.Default.Hub, null, Modifier.size(16.dp)) },
+                            selected = id == selectedProfileId,
+                            onClick = { onSelectProfile(id) },
+                            label = { Text(name) },
+                            leadingIcon = { Icon(profileIcon, null, Modifier.size(16.dp)) },
                         )
                     }
                 }
             }
 
-            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel("Main model") }
+            Box(Modifier.padding(bottom = Spacing.s)) { SectionLabel(modelLabel) }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(Spacing.s), contentPadding = PaddingValues(bottom = Spacing.m)) {
                 items(models, key = { it.first }) { (id, name) ->
                     ModelRow(name, id, id == selectedModelId, isLocal = false) { onSelectModel(id) }
