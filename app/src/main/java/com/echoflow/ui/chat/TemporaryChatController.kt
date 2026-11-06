@@ -18,18 +18,26 @@ internal class TemporaryChatController(
     private val scope: CoroutineScope,
     private val discard: suspend (chatId: String) -> Unit,
 ) {
-    private val prefs = app.getSharedPreferences(PREFS, Application.MODE_PRIVATE)
+    private val marker = TemporaryChatMarker(
+        app.getSharedPreferences(PREFS, Application.MODE_PRIVATE),
+        java.io.File(app.noBackupFilesDir, TemporaryChatMarker.FILE_NAME),
+    )
 
-    /** Written as soon as a temporary chat gets a row; still set at launch means the process died in it. */
-    val leftoverChatId: String? = prefs.getString(KEY_CHAT_ID, null)
+    /**
+     * Written as soon as a temporary chat gets a row; still set at launch means the process died
+     * in it. Both copies, since they can name different chats when one write failed.
+     */
+    val leftoverChatIds: List<String> = marker.readAll()
+
+    val leftoverChatId: String? get() = leftoverChatIds.firstOrNull()
 
     private val _state = MutableStateFlow<TemporaryChat>(TemporaryChat.Off)
     val state: StateFlow<TemporaryChat> = _state.asStateFlow()
 
     /** A temporary chat the process died inside is discarded on the next launch. */
     fun discardLeftover() {
-        val id = leftoverChatId ?: return
-        scope.launch { discard(id); forget(id) }
+        if (leftoverChatIds.isEmpty()) return
+        scope.launch { leftoverChatIds.forEach { id -> discard(id); forget(id) } }
     }
 
     fun arm() = apply(TemporaryChatMachine.arm(_state.value))
@@ -49,7 +57,7 @@ internal class TemporaryChatController(
     private fun apply(step: TemporaryChatMachine.Step) {
         _state.value = step.state
         for (effect in step.effects) when (effect) {
-            is TemporaryChatEffect.Remember -> prefs.edit().putString(KEY_CHAT_ID, effect.chatId).commit()
+            is TemporaryChatEffect.Remember -> marker.write(effect.chatId)
             // Best effort: every turn here already skips memory; this also keeps a manual
             // "learn now" flush from picking the chat up before it is deleted.
             is TemporaryChatEffect.ExcludeFromMemory -> runCatching { MemorySettings(app).exclude(effect.chatId) }
@@ -58,12 +66,9 @@ internal class TemporaryChatController(
     }
 
     /** Clears the marker, unless a newer temporary chat has taken it while [chatId] was deleted. */
-    private fun forget(chatId: String) {
-        if (prefs.getString(KEY_CHAT_ID, null) == chatId) prefs.edit().remove(KEY_CHAT_ID).apply()
-    }
+    private fun forget(chatId: String) = marker.clear(chatId)
 
     private companion object {
         const val PREFS = "temporary_chat"
-        const val KEY_CHAT_ID = "temporary_chat_id"
     }
 }

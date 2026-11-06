@@ -47,4 +47,10 @@ class SendClaimTest {
         refused.release(pending)
         assertEquals(setOf("c1"), pending.toSet())
     }
+
+    @Test fun `blank Chat and blank Imagine sends don't block each other`() {
+        assertTrue(SendClaim(blankSendKey("Chat")).tryClaim(pending))
+        assertTrue(SendClaim(blankSendKey("Imagine")).tryClaim(pending))
+        assertFalse(SendClaim(blankSendKey("Chat")).tryClaim(pending))
+    }
 }

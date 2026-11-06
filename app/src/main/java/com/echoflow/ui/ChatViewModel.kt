@@ -17,7 +17,8 @@ import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
-import com.echoflow.ui.chat.BLANK_SEND_KEY
+import com.echoflow.ui.chat.TemporaryChat
+import com.echoflow.ui.chat.blankSendKey
 import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
 import com.echoflow.ui.projects.ProjectsSurface
@@ -210,6 +211,8 @@ class ChatViewModel(
         // Quotes point at replies in the conversation being left; reopening the same one (the
         // browser workspace does) keeps them.
         if (chatId != previousChatId) _quotes.value = emptyList()
+        // A failure that landed while this chat was in the background belongs on its banner now.
+        _errorMessage.value = chatId?.let { pendingChatErrors.remove(it) }
         applyModelForThread(chatId)
     }
 
@@ -293,6 +296,11 @@ class ChatViewModel(
         viewModelScope.launch { chatDao.setModelId(chatId, modelId) }
     }
 
+    /** Ends edit mode for [messageId] only, so a finished edit in another chat can't end this one's. */
+    private fun finishEditing(messageId: String) {
+        _editingUserMessageId.compareAndSet(messageId, null)
+    }
+
     private fun clearConversationComposerState() {
         _editingUserMessageId.value = null
         clearPendingAttachment()
@@ -357,7 +365,7 @@ class ChatViewModel(
         when (val position = settingsRepository.getLastPositionDirect(mode)) {
             is ModePosition.Thread ->
                 chatRepository.thread(position.chatId)
-                    ?.takeIf { it.mode == mode && it.id != leftoverTemporaryChatId }?.id
+                    ?.takeIf { it.mode == mode && it.id !in leftoverTemporaryChatIds }?.id
             ModePosition.Blank, ModePosition.Unset -> null
         }
 
@@ -365,7 +373,7 @@ class ChatViewModel(
     private val temporaryChat = TemporaryChatController(application, viewModelScope) { id ->
         chatRepository.thread(id)?.let { deleteThreadNow(it) }
     }
-    private val leftoverTemporaryChatId: String? get() = temporaryChat.leftoverChatId
+    private val leftoverTemporaryChatIds: Set<String> get() = temporaryChat.leftoverChatIds.toSet()
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -511,6 +519,9 @@ class ChatViewModel(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    /** Failures for chats that were not open when they happened, shown when that chat reopens. */
+    private val pendingChatErrors = java.util.concurrent.ConcurrentHashMap<String, String>()
 
 
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
@@ -1252,8 +1263,9 @@ class ChatViewModel(
     // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
 
     fun openBrowserWorkspace(chatId: String) {
-        openThread(chatId)
+        // Before openThread, which puts this chat's saved failure back on the banner.
         clearError()
+        openThread(chatId)
         _browserWorkspaceChatId.value = chatId
     }
 
@@ -1293,6 +1305,9 @@ class ChatViewModel(
         // Opening another conversation hangs up; the call is saved into the chat it belongs to.
         navigation.navigated()
         if (voiceModeState.value.active) endVoiceMode()
+        // Before openThread, which puts a failure that landed while this chat was closed
+        // back on the banner. Clearing afterwards would drop it.
+        clearError()
         openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a
         // null is parked too, because "I just started something new" is a position worth
@@ -1306,7 +1321,6 @@ class ChatViewModel(
         // existing thread means that thread's own projectId governs; a plain new chat is loose.
         // startNewChatInProject re-arms this immediately after calling here.
         _pendingProjectId.value = null
-        clearError()
     }
 
     fun clearError() {
@@ -1593,13 +1607,22 @@ class ChatViewModel(
             }
         }
 
-        _currentChatThreadId.value?.let { chatId ->
+        // The conversation (and surface) this send was typed into. Everything below writes
+        // there, even if the user opens another chat while the send is getting ready.
+        val startChatId = _currentChatThreadId.value
+        val startMode = appMode.value
+        val startToken = navigation.begin()
+        val startedTemporary = startChatId == null && temporaryChat.state.value == TemporaryChat.Armed
+        // Taken before the first suspend. A temporary chat armed while this send is getting
+        // ready must not turn memory off for a message that was typed into a normal chat.
+        val startedInTemporaryChat = temporaryChat.covers(startChatId)
+        startChatId?.let { chatId ->
             if (turns.isRunning(chatId)) return
         }
         // Claim the conversation before the first suspend. Validation below reads settings and
         // Room before the turn registers in [turns], so without this two quick sends could
         // both pass the check above and run two turns in one chat.
-        val sendClaim = turns.claim(_currentChatThreadId.value ?: BLANK_SEND_KEY) ?: return
+        val sendClaim = turns.claim(startChatId ?: blankSendKey(startMode.name)) ?: return
 
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
@@ -1624,8 +1647,9 @@ class ChatViewModel(
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
             val customProvider = CustomProviderRouting.providerFor(selectedModel)
-            if (customProvider == "sarvam") {
-                customProviderConfig.sarvamConfigurationError()?.let {
+            // Image and video run on their own OpenRouter models, whatever chat model is picked.
+            if (!imageGenMode && !videoGenMode) {
+                CustomProviderRouting.disabledMessage(customProvider, customProviderConfig)?.let {
                     _errorMessage.value = it
                     return@launch
                 }
@@ -1738,7 +1762,7 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
-            val inTemporaryChat = isTemporaryNow()
+            val inTemporaryChat = startedInTemporaryChat
             val learningSession = memorySettings.session().takeUnless { inTemporaryChat }
             val memoryRequested = !inTemporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
@@ -1793,7 +1817,7 @@ class ChatViewModel(
             // current artifact back so a follow-up revises it. On-device implies offline (no CDN).
             val artifactMode = _chatMode.value is ChatMode.Artifact
             val artifactSystemPrompt = if (artifactMode) {
-                val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
+                val prior = startChatId?.let { artifactManager.getLatestVersionContent(it) }
                 val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
                 val prompt = SystemPrompts.buildArtifact(isLocal, offline, prior)
                 if (customProvider == "sarvam") {
@@ -1814,7 +1838,7 @@ class ChatViewModel(
             // Project context: the open thread's project (or the pending one for a brand-new
             // project chat) contributes its instructions + reference documents to the prompt.
             val activeProjectId =
-                _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
+                startChatId?.let { chatRepository.thread(it)?.projectId }
                     ?: pendingProjectIfStillExists()
             if (activeProjectId != null) projectManager.backfillProject(activeProjectId)
             val memoryEnabled = memoryRequested && !imageGenMode && !videoGenMode && !artifactMode &&
@@ -1830,22 +1854,30 @@ class ChatViewModel(
                         "The user can add a memory in Settings > Memory > My Memories." else "")
 
             var isFirstMsgInChat = false
-            var chatId = _currentChatThreadId.value
+            var chatId = startChatId
 
             if (chatId == null) {
+                // Open the new thread only if the user is still on the blank composer this send
+                // came from; otherwise it finishes in the background and shows up in history.
+                val stillOnBlank = _currentChatThreadId.value == null && appMode.value == startMode &&
+                    navigation.stillCurrent(startToken)
+                // Leaving an armed temporary chat already threw it away: don't save it as history.
+                if (startedTemporary && !stillOnBlank) return@launch
                 isFirstMsgInChat = true
                 // Project chats are always Chat threads — projects are a Chat concept, so a thread
                 // that carries a projectId is stamped 'chat' regardless of the active surface.
                 chatId = chatRepository.createThread(
-                    mode = if (activeProjectId != null) AppMode.Chat else appMode.value,
+                    mode = if (activeProjectId != null) AppMode.Chat else startMode,
                     projectId = activeProjectId,
                 ).id
-                openNewThread(chatId)
-                // The new thread is open now, so a send typed into it must see this turn too.
+                // A send typed into the new thread must see this turn too, open or not.
                 turns.extend(sendClaim, chatId)
-                // The blank thread is real now, so this mode returns here rather than to
-                // whatever came before it.
-                settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
+                if (stillOnBlank) {
+                    openNewThread(chatId)
+                    // The blank thread is real now, so this mode returns here rather than to
+                    // whatever came before it.
+                    settingsRepository.saveLastPosition(startMode, ModePosition.Thread(chatId))
+                }
                 if (activeProjectId != null) {
                     projectManager.touch(activeProjectId)
                     _pendingProjectId.value = null
@@ -1905,7 +1937,7 @@ class ChatViewModel(
                 // Trigger background Title generation. Local chats use the word fallback:
                 // no API key may exist, and the on-device engine is single-flight.
                 if (isFirstMsgInChat) {
-                    val defaultTitle = when (appMode.value) {
+                    val defaultTitle = when (startMode) {
                         AppMode.Chat -> "New Conversation"
                         AppMode.Imagine -> "New Creation"
                     }
@@ -2457,7 +2489,7 @@ class ChatViewModel(
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     queueMemoryLearning(chatId, isLocal || customProvider == "ollama", learningSession)
                 }
-                if (editingUserId != null) _editingUserMessageId.value = null
+                if (editingUserId != null) finishEditing(editingUserId)
                 if (videoGenMode) {
                     // The video flow also completes normally when its row was deleted
                     // mid-render, so announce a clip only once one actually exists.
@@ -2510,11 +2542,15 @@ class ChatViewModel(
                         if (assistantPersisted) awaitAssistantVisible(chatId, assistantMessageId)
                     }
                 }
-                if (editingUserId != null) _editingUserMessageId.value = null
+                if (editingUserId != null) finishEditing(editingUserId)
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
+                // Several chats can stream at once: a failure belongs on its own chat's banner,
+                // not on whichever chat happens to be open. Its reply keeps the error text.
+                val failure = e.message ?: "An unexpected error occurred during chat."
+                if (_currentChatThreadId.value == chatId) _errorMessage.value = failure
+                else pendingChatErrors[chatId] = failure
                 streamUiFlushJob?.cancel()
                 if (!assistantPersisted) {
                     if (editingUserId != null) {
@@ -2526,7 +2562,7 @@ class ChatViewModel(
                                 chatRepository.insertMessage(assistantToRestore)
                             }
                         }
-                        _editingUserMessageId.value = editingUserId
+                        if (_currentChatThreadId.value == chatId) _editingUserMessageId.value = editingUserId
                     } else {
                         assistantPersisted = persistAssistantMessage(
                             chatId,

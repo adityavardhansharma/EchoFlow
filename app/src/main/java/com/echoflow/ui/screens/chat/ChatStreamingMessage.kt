@@ -136,7 +136,9 @@ internal fun StreamingAssistantBubble(
                                 }
                                 SkipFoldedReasoning(revealState, run.filter { segments[it] is StreamSegment.Reasoning })
                                 if (steps.isNotEmpty()) {
-                                    ActivityPill(steps)
+                                    ActivityStart(revealState, index) { startedAt ->
+                                        ActivityPill(steps, startedAt = startedAt)
+                                    }
                                     Spacer(Modifier.height(Spacing.s))
                                 }
                             }
@@ -259,6 +261,19 @@ internal fun StreamingAssistantBubble(
 
 private fun StreamSegment.isActivity() = this is StreamSegment.Reasoning || this is StreamSegment.Search
 
+/**
+ * The time the activity run was first drawn, recorded once its composition commits. A discarded
+ * composition never reaches [onCommit], so its timestamp can't become the timer's start.
+ */
+@Composable
+private fun ActivityStart(revealState: StreamRevealState?, segmentIndex: Int, content: @Composable (startedAt: Long?) -> Unit) {
+    var startedAt by remember { mutableStateOf(revealState?.activityStartedAt(segmentIndex)) }
+    if (startedAt == null && revealState != null) {
+        SideEffect { startedAt = revealState.activityStartedAt(segmentIndex, android.os.SystemClock.elapsedRealtime()) }
+    }
+    content(startedAt)
+}
+
 /** Indices of the unbroken run of reasoning / search segments starting at [start]. */
 private fun activityRun(segments: List<StreamSegment>, start: Int): List<Int> {
     var end = start
@@ -302,14 +317,29 @@ internal fun SmoothStreamingText(
     segmentIndex: Int = -1,
 ) {
     val target by rememberUpdatedState(text)
-    val pacer = remember { StreamingTextPacer() }
     val reader = remember { Any() }
-    var shown by remember { mutableIntStateOf(0) }
+    // Coming back to a reply already on screen once picks up where it is, instead of typing
+    // the whole answer out again.
+    var shown by remember { mutableIntStateOf(revealState?.resumePoint(segmentIndex, text.length) ?: 0) }
+    val pacer = remember { StreamingTextPacer().apply { startAt(shown) } }
     val reducedMotion = rememberReducedMotion()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, segmentIndex, lifecycleOwner, reducedMotion) {
+        var firstStart = true
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
+                // Back from the background with the row still composed: text that arrived
+                // meanwhile shows at once rather than being typed out.
+                if (!firstStart) {
+                    // resumePoint stays at 0 here: stopping the activity never abandons the
+                    // viewport, so it can't tell a first viewing from a return.
+                    val resume = revealState?.catchUpPoint(segmentIndex, target.length) ?: shown
+                    if (resume > shown) {
+                        shown = resume
+                        pacer.startAt(resume)
+                    }
+                }
+                firstStart = false
                 revealState?.report(reader, segmentIndex, if (reducedMotion) target.length else shown)
                 if (reducedMotion) {
                     snapshotFlow { target }.collect {

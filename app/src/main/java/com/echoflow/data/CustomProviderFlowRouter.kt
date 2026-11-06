@@ -5,15 +5,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emitAll
 
 internal class CustomProviderFlowRouter(private val service: CustomProviderService) {
-    fun stream(provider: String?, config: CustomProviderConfig, model: String, history: List<ChatMessage>, prompt: String, params: InferenceParams): Flow<StreamChunk> = when (provider) {
+    fun stream(provider: String?, config: CustomProviderConfig, model: String, history: List<ChatMessage>, prompt: String, params: InferenceParams): Flow<StreamChunk> =
+        refuseIfDisabled(provider, config) ?: when (provider) {
         "openai" -> service.streamOpenAi(config.openAiApiKey, model, history, prompt, params)
         "claude" -> service.streamClaude(config.claudeApiKey, model, history, prompt, params)
         "gemini" -> service.streamGemini(config.geminiApiKey, model, history, prompt, params)
         "cerebras" -> service.streamCerebras(config.cerebrasApiKey, model, history, prompt, params)
-        "sarvam" -> flow {
-            config.sarvamConfigurationError()?.let { error(it) }
-            emitAll(service.streamOpenAiCompatible("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params))
-        }
+        "sarvam" -> service.streamOpenAiCompatible("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params)
         "xai" -> service.streamOpenAiCompatible("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params)
         "vercel" -> service.streamOpenAiCompatible(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params)
         "groq" -> service.streamOpenAiCompatible(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params)
@@ -29,13 +27,11 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         else -> flow { throw Exception("Unknown custom endpoint provider.") }
     }
 
-    fun streamWithTools(provider: String?, config: CustomProviderConfig, model: String, history: List<ChatMessage>, prompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> = when (provider) {
+    fun streamWithTools(provider: String?, config: CustomProviderConfig, model: String, history: List<ChatMessage>, prompt: String, params: InferenceParams, search: suspend (String) -> List<SearchSource>): Flow<StreamChunk> =
+        refuseIfDisabled(provider, config) ?: when (provider) {
         "openai" -> service.streamOpenAiResponsesTools(config.openAiApiKey, model, history, prompt, params, search)
         "cerebras" -> service.streamOpenAiTools("https://api.cerebras.ai/v1", config.cerebrasApiKey, model, history, prompt, params, search)
-        "sarvam" -> flow {
-            config.sarvamConfigurationError()?.let { error(it) }
-            emitAll(service.streamOpenAiTools("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params, search))
-        }
+        "sarvam" -> service.streamOpenAiTools("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params, search)
         "xai" -> service.streamOpenAiTools("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params, search)
         "vercel" -> service.streamOpenAiTools(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params, search)
         "groq" -> service.streamOpenAiTools(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params, search)
@@ -49,6 +45,10 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         "gemini" -> service.streamGeminiTools(config.geminiApiKey, model, history, prompt, params, search)
         else -> stream(provider, config, model, history, prompt, params)
     }
+    /** A turned-off provider never gets the conversation, whoever asks (chat or a schedule). */
+    private fun refuseIfDisabled(provider: String?, config: CustomProviderConfig): Flow<StreamChunk>? =
+        CustomProviderRouting.disabledMessage(provider, config)?.let { message -> flow { error(message) } }
+
     // Copies preserve text without mutating stored history; transient extraAttachments reset too.
     private fun textOnlyHistory(history: List<ChatMessage>): List<ChatMessage> = history.map {
         it.copy(localAttachmentUri = null, localAttachmentMimeType = null,

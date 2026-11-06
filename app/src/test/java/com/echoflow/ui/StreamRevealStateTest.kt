@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,5 +75,64 @@ class StreamRevealStateTest {
         state.abandonViewport(viewport)
         completion.join()
         assertTrue(completion.isCompleted)
+    }
+
+    @Test fun `a reply seen for the first time reveals from the start`() {
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
+        assertEquals(0, state.resumePoint(0, 40))
+    }
+
+    @Test fun `coming back to a chat does not replay its answer`() {
+        val state = StreamRevealState()
+        val first = Any()
+        state.beginViewport(first)
+        state.attachViewport(first)
+        state.report(Any(), 0, 12)
+        // The user switches to another chat, then back.
+        state.abandonViewport(first)
+        val second = Any()
+        state.beginViewport(second)
+        assertEquals(300, state.resumePoint(0, 300))
+        // A segment that starts after the return types in, even though the reply was open before.
+        assertEquals(0, state.resumePoint(1, 5))
+    }
+
+    @Test fun `a row scrolled back into view keeps what it already showed`() {
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
+        val reader = Any()
+        state.report(reader, 0, 20)
+        state.detach(reader)
+        assertEquals(80, state.resumePoint(0, 80))
+        assertEquals(0, state.resumePoint(1, 10))
+    }
+
+    @Test fun `an activity timer keeps its start across remounts`() {
+        val state = StreamRevealState()
+        assertEquals(1_000L, state.activityStartedAt(0, 1_000L))
+        assertEquals(1_000L, state.activityStartedAt(0, 9_000L))
+        assertEquals(9_000L, state.activityStartedAt(3, 9_000L))
+    }
+
+    @Test fun `returning from the background shows text that arrived while stopped`() {
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
+        state.report(Any(), 0, 12)
+        // The row stays composed, so this path never consults resumePoint again: the lifecycle
+        // restart asks where to catch up. resumePoint would also jump, but only because this
+        // segment was drawn, which a brand-new segment arriving while stopped was not.
+        assertEquals(400, state.catchUpPoint(0, 400))
+        // A segment the user has not seen yet still types in from the start.
+        assertEquals(0, state.resumePoint(1, 40))
+        assertEquals(0, state.catchUpPoint(1, 40))
+        // Already caught up: nothing new arrived while stopped.
+        assertEquals(12, state.catchUpPoint(0, 12))
     }
 }

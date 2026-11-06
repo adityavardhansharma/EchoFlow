@@ -43,6 +43,10 @@ Tool results are grouped by feature: `AdvisorCard`, `SubagentCard`, and `FusionC
 - Project imports track admission separately from extraction completion. Progress is keyed by project, and import IDs prevent an older success from dismissing a newer failure.
 - Streaming remains keyed by chat so switching surfaces does not move an answer into another conversation.
 - A send claims its chat (`SendClaim`) before its first suspend and holds it until the turn registers in `streamJobs`, so two quick sends can't both start a turn.
+- A send keeps the chat and surface it was typed into (`startChatId`, `startMode`) and writes only there, even if the user opens another chat while it gets ready. Blank Chat and blank Imagine sends claim separate keys (`blankSendKey`).
+- A send's memory eligibility is taken from the chat it started in, so arming a temporary chat while it is getting ready can't turn learning off for a normal chat.
+- Several chats can stream at once. A reply's `StreamRevealState` outlives its row: a row that comes back (chat switch, scroll, return from background) resumes at the current text instead of typing the answer out again. A reader that stays mounted while the app is stopped catches up the same way when its lifecycle restarts (`catchUpPoint`), and the thinking timer keeps its start. A failure that happens while its chat is not open is kept and shown on that chat's banner when it reopens.
+- Direct providers are checked against their on/off switches before every send (`CustomProviderRouting.disabledMessage`), in chat and in `CustomProviderFlowRouter`, so schedules can't reach a turned-off provider either.
 
 ## Explicit state machines
 
@@ -51,7 +55,7 @@ pure transitions that plain JUnit tests cover:
 
 | State | Where | Notes |
 |-------|-------|-------|
-| `TemporaryChat` (Off, Armed, Live) | `ui/chat/TemporaryChat.kt`, owned by `TemporaryChatController` | Transitions return effects (crash marker, memory exclusion, discard) that the controller runs. |
+| `TemporaryChat` (Off, Armed, Live) | `ui/chat/TemporaryChat.kt`, owned by `TemporaryChatController` | Transitions return effects (crash marker, memory exclusion, discard) that the controller runs. `TemporaryChatMarker` saves the crash marker to prefs and to a no-backup file, and launch recovers every id the two copies still hold. |
 | `ProjectsSurface` (Closed, Hub, Home) | `ui/projects/ProjectsSurface.kt` | A project home always has the hub under it. Exposed as the old flows through `mapState`. |
 | `ModeLifetime` (Sticky, OneSend, UntilRunEnds) | `data/ChatMode.kt` | Each `ChatMode` declares how long it stays on. |
 | `DurableStatus.canMove` | `data/DurableStatus.kt` | Browser sessions and research runs never leave a finished status. Video jobs don't use it: OpenRouter's "completed" is followed by our "downloading". |

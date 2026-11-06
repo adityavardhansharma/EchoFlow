@@ -70,4 +70,17 @@ class StreamingTextPacerTest {
         pacer.resume()
         assertEquals(shown, pacer.advance(text, 60_000_000_000L))
     }
+
+    @Test fun `a resumed pacer only reveals text that is new`() {
+        val pacer = StreamingTextPacer()
+        val text = "a".repeat(500)
+        pacer.startAt(500)
+        assertEquals(500, pacer.advance(text, 0L))
+        val longer = text + "b".repeat(20)
+        var shown = 0
+        for (frame in 1..120) shown = pacer.advance(longer, frame * 16_666_667L)
+        assertEquals(longer.length, shown)
+        // It never goes back to type the old part again.
+        assertTrue(pacer.advance(longer, 121 * 16_666_667L) >= 500)
+    }
 }

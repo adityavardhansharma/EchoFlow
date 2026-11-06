@@ -21,6 +21,24 @@ class StreamRevealState {
     )
     private val presentation = MutableStateFlow(Presentation())
 
+    /**
+     * True once a surface showing this reply has left (the user switched chats, or the row
+     * scrolled out of the list). Text that arrived meanwhile isn't replayed on return.
+     */
+    @Volatile private var returning = false
+
+    /** How far each segment has been drawn, kept after its reader detaches. */
+    private val shownBySegment = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+
+    /**
+     * Segments that existed when the user left. A segment that starts after they come back
+     * types in, instead of appearing all at once because the reply was already on screen.
+     */
+    private val presentWhenLeft: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** Segments some reader has already drawn part of; kept after that reader leaves. */
+    private val drawn: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     /** Registers a started chat surface before LazyColumn has composed its streaming row. */
     fun beginViewport(viewport: Any) {
         presentation.update {
@@ -51,6 +69,8 @@ class StreamRevealState {
 
     /** Abandons a pending or visible surface when its lifecycle owner leaves composition. */
     fun abandonViewport(viewport: Any) {
+        returning = true
+        presentWhenLeft += drawn
         presentation.update {
             it.copy(
                 pendingViewports = it.pendingViewports - viewport,
@@ -61,7 +81,42 @@ class StreamRevealState {
         }
     }
 
+    /**
+     * Where a newly composed reader of [segmentIndex] should start revealing [length] characters
+     * from: 0 the first time the reply is on screen, or all of it when the user comes back to a
+     * reply they already had open, or when this segment was already drawn and its row is coming
+     * back into view. Without this a remounted row would type the whole answer out again.
+     */
+    fun resumePoint(segmentIndex: Int, length: Int): Int {
+        return if (segmentIndex in drawn || (returning && segmentIndex in presentWhenLeft)) length else 0
+    }
+
+    /**
+     * Where a reader that stayed composed should pick up [length] characters after its lifecycle
+     * restarts. Text that arrived past what was already drawn shows at once. A first viewing has
+     * drawn nothing, so it still types in from the start.
+     */
+    fun catchUpPoint(segmentIndex: Int, length: Int): Int {
+        val drawnTo = shownBySegment[segmentIndex] ?: 0
+        return if (drawnTo in 1 until length) length else drawnTo.coerceAtMost(length)
+    }
+
+    private val activityStarts = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+
+    /**
+     * When the activity run starting at [segmentIndex] was first drawn, so its "thinking for"
+     * timer keeps counting across a chat switch instead of restarting at zero.
+     */
+    /** The start already recorded for [segmentIndex], or null if the pill has not committed yet. */
+    fun activityStartedAt(segmentIndex: Int): Long? = activityStarts[segmentIndex]
+
+    fun activityStartedAt(segmentIndex: Int, now: Long): Long = activityStarts.getOrPut(segmentIndex) { now }
+
     fun report(reader: Any, segmentIndex: Int, shown: Int) {
+        if (shown > 0) drawn += segmentIndex
+        if (shown > 0 && shown != Int.MAX_VALUE) {
+            shownBySegment.merge(segmentIndex, shown) { current, next -> maxOf(current, next) }
+        }
         val progress = Reader(segmentIndex, shown)
         presentation.update {
             if (it.readers[reader] == progress) it else it.copy(readers = it.readers + (reader to progress))

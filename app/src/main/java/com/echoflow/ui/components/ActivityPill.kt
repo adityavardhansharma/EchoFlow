@@ -132,7 +132,12 @@ private const val TRAIL_MAX = 5
  * Colour is reserved for the live moment; everything settled is neutral.
  */
 @Composable
-fun ActivityPill(steps: List<ActivityStep>, modifier: Modifier = Modifier) {
+fun ActivityPill(
+    steps: List<ActivityStep>,
+    modifier: Modifier = Modifier,
+    /** When the live run began, if known; otherwise the time this pill was first drawn. */
+    startedAt: Long? = null,
+) {
     if (steps.isEmpty()) return
     val cs = MaterialTheme.colorScheme
     val reducedMotion = rememberReducedMotion()
@@ -156,11 +161,12 @@ fun ActivityPill(steps: List<ActivityStep>, modifier: Modifier = Modifier) {
         }
     }
 
-    val startedAt = remember { SystemClock.elapsedRealtime() }
+    val firstDrawn = remember { SystemClock.elapsedRealtime() }
+    val since = startedAt ?: firstDrawn
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(live) {
         while (live) {
-            elapsed = (SystemClock.elapsedRealtime() - startedAt) / 1000
+            elapsed = (SystemClock.elapsedRealtime() - since) / 1000
             delay(1000)
         }
     }
