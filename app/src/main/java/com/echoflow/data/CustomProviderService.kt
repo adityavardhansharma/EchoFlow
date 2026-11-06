@@ -236,7 +236,7 @@ object CustomProviderCapabilities {
      * Whether a cloud brand's chat path calls tools natively. Workers AI supports tool calls on
      * only a few models and Enclave doesn't document them, so both stream plainly and get search
      * results added to the prompt instead. Must match the brands
-     * [com.echoflow.ui.CustomProviderFlowRouter.streamWithTools] sends down the plain stream.
+     * [com.echoflow.data.CustomProviderFlowRouter.streamWithTools] sends down the plain stream.
      */
     fun hasNativeToolCalling(provider: String?): Boolean = provider !in plainStreamProviders
 

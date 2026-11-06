@@ -1,6 +1,5 @@
-package com.echoflow.ui
+package com.echoflow.data
 
-import com.echoflow.data.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emitAll
