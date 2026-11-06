@@ -137,131 +137,69 @@ internal fun HfModelSearchSheet(
     onRetry: (CatalogEntry) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var hasSearched by remember { mutableStateOf(false) }
     val runSearch = {
         hasSearched = true
         onSearch()
     }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        // Full height from the start, matching the OpenRouter directory sheet.
-        modifier = Modifier.fillMaxHeight(0.94f),
+    DirectorySheet(
+        title = "Search mobile models",
+        subtitle = "LiteRT-LM bundles from Hugging Face (.task / .litertlm) that run fully on-device. GGUF models are import-only.",
+        onDismiss = onDismiss,
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.base)
-                .imePadding()
-                .navigationBarsPadding(),
-        ) {
-            Text("Search mobile models", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                "LiteRT-LM bundles from Hugging Face (.task / .litertlm) that run fully on-device. GGUF models are import-only.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.base))
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                placeholder = { Text("Gemma 4, LFM2.5, Qwen 3.5…") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
-                    }
-                },
-                shape = CircleShape,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.m))
-            Button(onClick = runSearch, enabled = !loading, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Search, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(Spacing.s))
-                Text(if (loading) "Searching…" else "Search Hugging Face")
-            }
-            Spacer(Modifier.height(Spacing.base))
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when {
-                    loading -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        CircularWavyProgressIndicator()
-                        Spacer(Modifier.height(Spacing.m))
-                        Text(
-                            "Searching Hugging Face…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        DirectorySearchField(
+            query,
+            onQueryChange,
+            placeholder = "Gemma 4, LFM2.5, Qwen 3.5…",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { runSearch() }),
+        )
+        Spacer(Modifier.height(Spacing.m))
+        Button(onClick = runSearch, enabled = !loading, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Search, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(Spacing.s))
+            Text(if (loading) "Searching…" else "Search Hugging Face")
+        }
+        Spacer(Modifier.height(Spacing.base))
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            when {
+                loading -> DirectoryLoading("Searching Hugging Face…")
+                error != null -> Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(Spacing.base),
+                    )
+                }
+                results.isEmpty() && !hasSearched ->
+                    DirectoryMessage(Icons.Default.Search, "Type a model name and search —\ntry “gemma”, “qwen” or “deepseek”.")
+                results.isEmpty() -> DirectoryMessage(Icons.Default.SearchOff, "No mobile-ready model bundles found.")
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                ) {
+                    items(results.size) { index ->
+                        val entry = results[index]
+                        CatalogModelRow(
+                            entry = entry,
+                            index = index,
+                            count = results.size,
+                            installed = localModels.any { it.id == entry.id },
+                            state = downloadStates[entry.id],
+                            onDownload = { onDownload(entry) },
+                            onCancel = { onCancel(entry.id) },
+                            onRetry = { onRetry(entry) },
                         )
-                    }
-                    error != null -> Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(Spacing.base),
-                        )
-                    }
-                    results.isEmpty() && !hasSearched -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.Search, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(Spacing.s))
-                        Text(
-                            "Type a model name and search —\ntry “gemma”, “qwen” or “deepseek”.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    results.isEmpty() -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(Spacing.s))
-                        Text(
-                            "No mobile-ready model bundles found.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
-                    ) {
-                        items(results.size) { index ->
-                            val entry = results[index]
-                            CatalogModelRow(
-                                entry = entry,
-                                index = index,
-                                count = results.size,
-                                installed = localModels.any { it.id == entry.id },
-                                state = downloadStates[entry.id],
-                                onDownload = { onDownload(entry) },
-                                onCancel = { onCancel(entry.id) },
-                                onRetry = { onRetry(entry) },
-                            )
-                        }
                     }
                 }
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Spacer(Modifier.height(Spacing.xl))
     }
 }
 

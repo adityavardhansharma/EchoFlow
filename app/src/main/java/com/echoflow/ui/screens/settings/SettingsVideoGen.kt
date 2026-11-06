@@ -344,111 +344,39 @@ internal fun VideoModelDirectorySheet(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        // Full height from the moment it opens — the sheet must not jump taller when results
-        // stream in.
-        modifier = Modifier.fillMaxHeight(0.94f),
+    DirectorySheet(
+        title = "Video models",
+        subtitle = "Live from openrouter.ai — tap a model to add it to your picker.",
+        onDismiss = onDismiss,
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.base)
-                .imePadding()
-                .navigationBarsPadding(),
-        ) {
-            Text("Video models", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                "Live from openrouter.ai — tap a model to add it to your picker.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.base))
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                placeholder = { Text("Veo, Sora, Kling, Seedance…") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
-                    }
-                },
-                shape = CircleShape,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.m))
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when {
-                    loading -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        CircularWavyProgressIndicator()
-                        Spacer(Modifier.height(Spacing.m))
-                        Text(
-                            "Loading video models…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        DirectorySearchField(query, onQueryChange, placeholder = "Veo, Sora, Kling, Seedance…")
+        Spacer(Modifier.height(Spacing.m))
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            when {
+                loading -> DirectoryLoading("Loading video models…")
+                error != null -> DirectoryRetryError(error, onRetry)
+                results.isEmpty() -> DirectoryMessage(Icons.Default.SearchOff, "No video model matches “$query”.")
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                ) {
+                    items(results.size) { index ->
+                        val info = results[index]
+                        VideoDirectoryRow(
+                            info = info,
+                            index = index,
+                            count = results.size,
+                            added = info.id in addedIds,
+                            resolution = resolution,
+                            audioEnabled = audioEnabled,
+                            onAdd = { onAdd(info) },
+                            onRemove = { onRemove(info.id) },
                         )
-                    }
-                    error != null -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.l),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(Spacing.m))
-                        FilledTonalButton(onClick = onRetry, shape = CircleShape) {
-                            Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(Spacing.s))
-                            Text("Try again")
-                        }
-                    }
-                    results.isEmpty() -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(Spacing.s))
-                        Text(
-                            "No video model matches “$query”.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
-                    ) {
-                        items(results.size) { index ->
-                            val info = results[index]
-                            VideoDirectoryRow(
-                                info = info,
-                                index = index,
-                                count = results.size,
-                                added = info.id in addedIds,
-                                resolution = resolution,
-                                audioEnabled = audioEnabled,
-                                onAdd = { onAdd(info) },
-                                onRemove = { onRemove(info.id) },
-                            )
-                        }
                     }
                 }
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Spacer(Modifier.height(Spacing.xl))
     }
 }
 
@@ -463,48 +391,14 @@ private fun VideoDirectoryRow(
     onAdd: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Surface(
-        onClick = { if (added) onRemove() else onAdd() },
-        shape = groupedItemShape(index, count),
-        color = if (added) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.padding(start = Spacing.base, end = Spacing.m, top = Spacing.m, bottom = Spacing.m),
-            verticalAlignment = Alignment.CenterVertically,
+    DirectoryRow(info.name, info.id, index, count, added, removable = added, onAdd, onRemove) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    info.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = if (added) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    info.id,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (added) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(Spacing.xs))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    info.priceHint(resolution, audioEnabled)?.let { InfoPill(it, added) }
-                    info.resolutions.takeIf { it.isNotEmpty() }?.let { InfoPill(it.joinToString(" · "), added) }
-                    if (info.supportsAudio) InfoPill("Audio", added)
-                }
-            }
-            Spacer(Modifier.width(Spacing.s))
-            if (added) {
-                Icon(Icons.Default.CheckCircle, "Added", tint = MaterialTheme.colorScheme.primary)
-            } else {
-                FilledTonalIconButton(onClick = onAdd, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Add, "Add ${info.name}", Modifier.size(18.dp))
-                }
-            }
+            info.priceHint(resolution, audioEnabled)?.let { InfoPill(it, added) }
+            info.resolutions.takeIf { it.isNotEmpty() }?.let { InfoPill(it.joinToString(" · "), added) }
+            if (info.supportsAudio) InfoPill("Audio", added)
         }
     }
 }

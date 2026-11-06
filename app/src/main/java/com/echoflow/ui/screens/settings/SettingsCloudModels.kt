@@ -271,112 +271,41 @@ internal fun OpenRouterDirectorySheet(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        // Full height from the moment it opens — the sheet must not jump taller when
-        // results stream in.
-        modifier = Modifier.fillMaxHeight(0.94f),
+    DirectorySheet(
+        title = "Model directory",
+        subtitle = "Live from openrouter.ai — tap a model to add it to your picker.",
+        onDismiss = onDismiss,
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.base)
-                .imePadding()
-                .navigationBarsPadding(),
-        ) {
-            Text("Model directory", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                "Live from openrouter.ai — tap a model to add it to your picker.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.base))
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                placeholder = { Text("Claude, GPT, Gemini, DeepSeek…") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
-                    }
-                },
-                shape = CircleShape,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(Spacing.m))
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                when {
-                    loading -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        CircularWavyProgressIndicator()
-                        Spacer(Modifier.height(Spacing.m))
-                        Text(
-                            "Loading the directory…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        DirectorySearchField(query, onQueryChange, placeholder = "Claude, GPT, Gemini, DeepSeek…")
+        Spacer(Modifier.height(Spacing.m))
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            when {
+                loading -> DirectoryLoading("Loading the directory…")
+                error != null -> DirectoryRetryError(error, onRetry)
+                results.isEmpty() -> DirectoryMessage(Icons.Default.SearchOff, "Nothing in the directory matches “$query”.")
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
+                ) {
+                    items(results.size) { index ->
+                        val info = results[index]
+                        OrModelRow(
+                            info = info,
+                            index = index,
+                            count = results.size,
+                            added = info.id in addedIds || info.id in builtInIds,
+                            removable = info.id in addedIds && info.id !in builtInIds,
+                            onAdd = { onAdd(info) },
+                            onRemove = { onRemove(info.id) },
                         )
-                    }
-                    error != null -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.l),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(Spacing.m))
-                        FilledTonalButton(onClick = onRetry, shape = CircleShape) {
-                            Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(Spacing.s))
-                            Text("Try again")
-                        }
-                    }
-                    results.isEmpty() -> Column(
-                        Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(Spacing.s))
-                        Text(
-                            "Nothing in the directory matches “$query”.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(GroupedItemGap),
-                    ) {
-                        items(results.size) { index ->
-                            val info = results[index]
-                            OrModelRow(
-                                info = info,
-                                index = index,
-                                count = results.size,
-                                added = info.id in addedIds || info.id in builtInIds,
-                                removable = info.id in addedIds && info.id !in builtInIds,
-                                onAdd = { onAdd(info) },
-                                onRemove = { onRemove(info.id) },
-                            )
-                        }
                     }
                 }
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Spacer(Modifier.height(Spacing.xl))
     }
 }
+
 
 @Composable
 internal fun OrModelRow(
@@ -387,6 +316,30 @@ internal fun OrModelRow(
     removable: Boolean = added,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
+) {
+    DirectoryRow(info.name, info.id, index, count, added, removable, onAdd, onRemove) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            info.contextLength?.let { ctx -> InfoPill(text = formatContext(ctx), added = added) }
+            InfoPill(text = formatPricing(info), added = added)
+        }
+    }
+}
+
+/**
+ * One model in a directory sheet: name, id and [pills]. Tapping adds it, or removes it when it
+ * is [added] and [removable]; a built-in model shows as added but can't be removed.
+ */
+@Composable
+internal fun DirectoryRow(
+    name: String,
+    id: String,
+    index: Int,
+    count: Int,
+    added: Boolean,
+    removable: Boolean,
+    onAdd: () -> Unit,
+    onRemove: () -> Unit,
+    pills: @Composable () -> Unit,
 ) {
     Surface(
         onClick = {
@@ -405,32 +358,27 @@ internal fun OrModelRow(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    info.name,
+                    name,
                     style = MaterialTheme.typography.titleSmall,
                     color = if (added) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    info.id,
+                    id,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (added) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(Spacing.xs))
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    info.contextLength?.let { ctx ->
-                        InfoPill(text = formatContext(ctx), added = added)
-                    }
-                    InfoPill(text = formatPricing(info), added = added)
-                }
+                pills()
             }
             Spacer(Modifier.width(Spacing.s))
             if (added) {
                 Icon(Icons.Default.CheckCircle, "Added", tint = MaterialTheme.colorScheme.primary)
             } else {
                 FilledTonalIconButton(onClick = onAdd, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Add, "Add ${info.name}", Modifier.size(18.dp))
+                    Icon(Icons.Default.Add, "Add $name", Modifier.size(18.dp))
                 }
             }
         }
