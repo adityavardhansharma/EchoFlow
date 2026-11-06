@@ -93,7 +93,7 @@ data class VideoPrice(
  * it from memory, so the add-model search filters instantly as the user types.
  */
 class OpenRouterVideoModelDirectory {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

@@ -22,7 +22,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class OpenRouterService(private val context: Context) {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
@@ -31,7 +31,7 @@ class OpenRouterService(private val context: Context) {
 
     // Echo Adviser/Fusion run a whole multi-model loop server-side in one (non-streaming)
     // request, which can take well over a minute — they get a client with long timeouts.
-    private val echoClient = OkHttpClient.Builder()
+    private val echoClient = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(300, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)

@@ -1,5 +1,6 @@
 package com.echoflow.data.memory
 
+import com.echoflow.data.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -35,7 +36,7 @@ data class MemoryBilling(val plan: String, val used: Double?, val limit: Double?
 class SupermemoryClient(
     private val key: String,
     private val space: String,
-    private val client: OkHttpClient = OkHttpClient.Builder().callTimeout(25, TimeUnit.SECONDS).build(),
+    private val client: OkHttpClient = HttpClients.builder().callTimeout(25, TimeUnit.SECONDS).build(),
     private val baseUrl: String = "https://api.supermemory.ai",
 ) {
     suspend fun request(path: String, method: String = "POST", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {

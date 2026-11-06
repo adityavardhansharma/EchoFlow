@@ -27,7 +27,7 @@ class DeepResearchEngine(
     private val openRouterService: OpenRouterService,
     private val webSearchService: WebSearchService,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         // Exa's deep-reasoning /search is synchronous and can take 12–40s (sometimes more),
         // so the read timeout is generous.
@@ -41,7 +41,7 @@ class DeepResearchEngine(
      * minutes at a time, so the shared client's 120s read timeout would tear it down mid-run; the
      * bound that matters here is the whole-call one.
      */
-    private val streamClient = OkHttpClient.Builder()
+    private val streamClient = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.MINUTES)
         .writeTimeout(45, TimeUnit.SECONDS)

@@ -13,7 +13,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class HuggingFaceModelSearch {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

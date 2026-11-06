@@ -292,7 +292,7 @@ private const val GEMINI_MAX_MODEL_PAGES = 5
 
 class CustomProviderService(
     private val context: Context? = null,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

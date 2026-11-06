@@ -1,5 +1,6 @@
 package com.echoflow.data.voice
 
+import com.echoflow.data.HttpClients
 import android.content.Context
 import android.util.Base64
 import android.util.Log
@@ -79,7 +80,7 @@ internal interface LiveVoiceSession {
 internal class VoiceSession(
     private val context: Context,
     private val listener: VoiceSessionListener,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build(),

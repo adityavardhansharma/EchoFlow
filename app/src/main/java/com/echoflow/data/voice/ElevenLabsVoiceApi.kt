@@ -1,5 +1,6 @@
 package com.echoflow.data.voice
 
+import com.echoflow.data.HttpClients
 import com.echoflow.data.ProviderHttpSupport
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -26,7 +27,7 @@ class ElevenLabsApiException(val code: Int, message: String, val body: String = 
  * caller decides what a failure means.
  */
 class ElevenLabsVoiceApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),

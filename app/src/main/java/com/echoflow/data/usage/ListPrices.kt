@@ -1,5 +1,6 @@
 package com.echoflow.data.usage
 
+import com.echoflow.data.HttpClients
 import android.content.Context
 import com.squareup.moshi.Moshi
 import java.io.File
@@ -24,7 +25,7 @@ object ListPrices {
     private const val URL = "https://openrouter.ai/api/v1/models"
     private const val FILE = "usage_list_prices.json"
     private const val MAX_AGE_MS = 24 * 60 * 60 * 1000L
-    private val client = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
+    private val client = HttpClients.builder().callTimeout(30, TimeUnit.SECONDS).build()
     private val json = Moshi.Builder().build().adapter(Any::class.java)
     private val lock = Mutex()
     @Volatile private var prices: Map<String, ModelPrice>? = null
