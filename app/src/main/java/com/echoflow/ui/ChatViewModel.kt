@@ -469,53 +469,29 @@ class ChatViewModel(
     // conversation never appears while viewing another conversation.
     private val _activeStreams = MutableStateFlow<Map<String, ActiveStreamState>>(emptyMap())
 
-    val isStreaming: StateFlow<Boolean> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        chatId != null && streams.containsKey(chatId)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+    /**
+     * The open conversation's turn in flight, or null. Every per-turn flow below is a view of
+     * this one, so they can never disagree about which turn they describe.
+     */
+    private val currentStream: StateFlow<ActiveStreamState?> =
+        combine(_currentChatThreadId, _activeStreams) { chatId, streams -> chatId?.let(streams::get) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isStreaming: StateFlow<Boolean> = currentStream.mapState { it != null }
 
     /** Ordered timeline of the in-progress reply: text, reasoning and search blocks. */
-    val activeSegments: StateFlow<List<StreamSegment>> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.segments ?: emptyList()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val activeSegments: StateFlow<List<StreamSegment>> = currentStream.mapState { it?.segments ?: emptyList() }
 
     /** Visible readers acknowledge their reveal before the persisted-message handoff. */
-    val streamRevealState: StateFlow<StreamRevealState?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.revealState
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val streamRevealState: StateFlow<StreamRevealState?> = currentStream.mapState { it?.revealState }
 
     /** Stable identity shared by the live row and its eventual persisted message. */
-    val activeStreamMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.messageId
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null,
-    )
+    val activeStreamMessageId: StateFlow<String?> = currentStream.mapState { it?.messageId }
 
     /** Transient status line shown under the streaming bubble (e.g. search failures). */
-    val statusNote: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.statusNote
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+    val statusNote: StateFlow<String?> = currentStream.mapState { it?.statusNote }
 
-    val apiProgressLoading: StateFlow<Boolean> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.progressLoading == true
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+    val apiProgressLoading: StateFlow<Boolean> = currentStream.mapState { it?.progressLoading == true }
 
     /** True while an on-device model is being loaded into RAM / its context prefilled. */
     val localModelLoading: StateFlow<Boolean> = combine(
