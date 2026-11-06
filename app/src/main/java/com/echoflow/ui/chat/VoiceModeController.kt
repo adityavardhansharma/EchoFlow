@@ -251,55 +251,31 @@ class VoiceModeController(
     }
 
     private fun startElevenLabs(chatId: String?, micAllowed: Boolean, key: String, config: VoiceModeConfig) {
-        _state.value = VoiceModeUiState(
-            phase = VoiceModePhase.Starting,
-            step = "Connecting…",
-            micMuted = !micAllowed,
-            micAvailable = micAllowed,
+        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = config.llm, provider = VoiceProvider.ElevenLabs)
+        lateinit var live: VoiceSession
+        beginCall(
+            sessionLog, micAllowed,
             llmLabel = VoiceLlms.label(config.llm),
             voiceName = config.voiceName,
-        )
-        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = config.llm, provider = VoiceProvider.ElevenLabs)
-        log = sessionLog
-        // The call is open from the tap: the mic records now and what the user says is sent the
-        // moment the socket is up, so nobody waits on "Connecting…" to start talking. Nothing
-        // is billed until the socket opens.
-        val live = VoiceSession(app, listenerFor(sessionLog))
-        live.micMuted = !micAllowed
-        session.value = live
-        VoiceModeService.endHandler = { scope.launch { end() } }
-        VoiceModeService.start(app)
-        live.openAudio(micAllowed)
-        startJob = scope.launch {
-            try {
-                // A prewarm already in flight is about to have the URL: wait for it, not a new one.
-                prewarmJob?.join()
-                val url = takePrewarmed(key, config) ?: fetchSignedUrl(key, config)
-                val context = sink.prepare(chatId)
-                sessionLog.context = context
-                if (!isActive || log !== sessionLog) return@launch
-                val initiation = VoiceApiJson.write(
+            open = { listener -> VoiceSession(app, listener).also { live = it } },
+            onFailure = { e -> if (e is ElevenLabsApiException && e.unauthorized) voiceSettings.markUnverified() },
+        ) {
+            // A prewarm already in flight is about to have the URL: wait for it, not a new one.
+            prewarmJob?.join()
+            val url = takePrewarmed(key, config) ?: fetchSignedUrl(key, config)
+            val context = sink.prepare(chatId)
+            sessionLog.context = context
+            if (!isActive || !isCurrent(sessionLog)) return@beginCall
+            val initiation = VoiceApiJson.write(
                     VoiceAgentSpec.initiation(
-                        config,
-                        context.history,
-                        context.projectContext,
-                        greet = !live.spokeEarly,
-                    ),
-                )
-                // Whatever the user toggled while the call was connecting carries into it.
-                live.micMuted = _state.value.micMuted
-                live.speakerMuted = _state.value.speakerMuted
-                sessionLog.startedAt = System.currentTimeMillis()
-                lastActivityAt = sessionLog.startedAt
-                live.start(url, initiation, micAllowed)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w(TAG, "Voice mode couldn't start", e)
-                if (e is ElevenLabsApiException && e.unauthorized) voiceSettings.markUnverified()
-                _notice.value = "Voice mode couldn't start: ${e.message ?: "unknown error"}"
-                abandon(sessionLog)
-            }
+                    config,
+                    context.history,
+                    context.projectContext,
+                    greet = !live.spokeEarly,
+                ),
+            )
+            carryToggles(live, sessionLog)
+            live.start(url, initiation, micAllowed)
         }
     }
 
@@ -310,18 +286,54 @@ class VoiceModeController(
     private fun startRealtime(chatId: String?, micAllowed: Boolean, provider: VoiceProvider, key: String, config: VoiceModeConfig) {
         val model = config.realtimeModel(provider)
         val voiceId = config.realtimeVoice(provider)
+        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = model, provider = provider)
+        val protocol = if (provider == VoiceProvider.Gemini) GeminiLiveProtocol else OpenAiRealtimeProtocol
+        lateinit var live: RealtimeVoiceSession
+        beginCall(
+            sessionLog, micAllowed,
+            llmLabel = RealtimeCatalog.modelLabel(model),
+            voiceName = RealtimeVoice(voiceId, "").name,
+            open = { listener -> RealtimeVoiceSession(app, listener, protocol).also { live = it } },
+        ) {
+            val context = sink.prepare(chatId)
+            sessionLog.context = context
+            if (!isActive || !isCurrent(sessionLog)) return@beginCall
+            val spec = RealtimeSessionSpec(
+                model = model,
+                voice = voiceId,
+                instructions = realtimeInstructions(context, config),
+                greet = VoiceAgentSpec.spokenHistory(context.history).isEmpty(),
+            )
+            carryToggles(live, sessionLog)
+            live.start(key, spec, micAllowed)
+        }
+    }
+
+    /**
+     * The start every provider shares. The call is open from the tap: the mic records now and
+     * what the user says is sent the moment the socket is up, so nobody waits on "Connecting…"
+     * to start talking. Nothing is billed until the socket opens. [connect] then runs in the
+     * background; if it throws, the call is abandoned with a notice.
+     */
+    private fun beginCall(
+        sessionLog: SessionLog,
+        micAllowed: Boolean,
+        llmLabel: String,
+        voiceName: String?,
+        open: (VoiceSessionListener) -> LiveVoiceSession,
+        onFailure: (Exception) -> Unit = {},
+        connect: suspend CoroutineScope.() -> Unit,
+    ) {
         _state.value = VoiceModeUiState(
             phase = VoiceModePhase.Starting,
             step = "Connecting…",
             micMuted = !micAllowed,
             micAvailable = micAllowed,
-            llmLabel = RealtimeCatalog.modelLabel(model),
-            voiceName = RealtimeVoice(voiceId, "").name,
+            llmLabel = llmLabel,
+            voiceName = voiceName,
         )
-        val sessionLog = SessionLog(startChatId = chatId, apiKey = key, llm = model, provider = provider)
         log = sessionLog
-        val protocol = if (provider == VoiceProvider.Gemini) GeminiLiveProtocol else OpenAiRealtimeProtocol
-        val live = RealtimeVoiceSession(app, listenerFor(sessionLog), protocol)
+        val live = open(listenerFor(sessionLog))
         live.micMuted = !micAllowed
         session.value = live
         VoiceModeService.endHandler = { scope.launch { end() } }
@@ -329,29 +341,31 @@ class VoiceModeController(
         live.openAudio(micAllowed)
         startJob = scope.launch {
             try {
-                val context = sink.prepare(chatId)
-                sessionLog.context = context
-                if (!isActive || log !== sessionLog) return@launch
-                val spec = RealtimeSessionSpec(
-                    model = model,
-                    voice = voiceId,
-                    instructions = realtimeInstructions(context, config),
-                    greet = VoiceAgentSpec.spokenHistory(context.history).isEmpty(),
-                )
-                live.micMuted = _state.value.micMuted
-                live.speakerMuted = _state.value.speakerMuted
-                sessionLog.startedAt = System.currentTimeMillis()
-                lastActivityAt = sessionLog.startedAt
-                live.start(key, spec, micAllowed)
+                connect()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "Voice mode couldn't start", e)
+                onFailure(e)
                 _notice.value = "Voice mode couldn't start: ${e.message ?: "unknown error"}"
                 abandon(sessionLog)
             }
         }
     }
+
+    /** Whatever the user toggled while the call was connecting carries into it; the clock starts now. */
+    private fun carryToggles(live: LiveVoiceSession, sessionLog: SessionLog) {
+        live.micMuted = _state.value.micMuted
+        live.speakerMuted = _state.value.speakerMuted
+        sessionLog.startedAt = System.currentTimeMillis()
+        lastActivityAt = sessionLog.startedAt
+    }
+
+    /**
+     * Whether [sessionLog] is still this controller's call. Every late callback and suspended
+     * step checks this, so a call that was ended or replaced can't touch the one after it.
+     */
+    private fun isCurrent(sessionLog: SessionLog): Boolean = log === sessionLog && !sessionLog.finished
 
     /** The same prompt the ElevenLabs agent gets, plus the language the user picked. */
     private fun realtimeInstructions(context: VoiceChatContext, config: VoiceModeConfig): String = buildString {
@@ -494,6 +508,8 @@ class VoiceModeController(
         session.value = null
         VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
+        // The call's turns still save through onEnded; only the screen state is dropped here.
+        _state.value = VoiceModeUiState()
     }
 
     private fun listenerFor(sessionLog: SessionLog) = object : VoiceSessionListener {
