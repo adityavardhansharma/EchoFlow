@@ -105,7 +105,8 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val appGraph = EchoFlowAppGraph(application)
+        // Process-wide, so rotation and theme changes don't rebuild the data graph.
+        val appGraph = (application as? EchoFlowApplication)?.graph ?: EchoFlowAppGraph(application)
 
         // Resume any Deep Research run that was interrupted by an app kill — but only spin
         // up the service when there is actually something to resume (no idle notification).
