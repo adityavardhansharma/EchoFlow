@@ -43,13 +43,8 @@ class SystemDictationService : AccessibilityService() {
     private var cap: Job? = null
     private var monitor: Job? = null
     private var generation = 0L
-    private var model = ""
-    private var key = ""
-    private var hinglish = false
-    private var sarvamKey = ""
-    private var vocabulary = emptyList<String>()
-    private var providerDirect = false
-    private var smartMode = false
+    /** Settings captured at the tap, so a change mid-recording can't mix values. Null when idle. */
+    private var request: DictationConfiguration? = null
     private var prerequisitesReady = false
     private var systemWideEnabled = false
     private var starting = false
@@ -333,13 +328,7 @@ class SystemDictationService : AccessibilityService() {
                     target = field
                 }
                 uninterrupted = true
-                model = config.model
-                key = config.key
-                hinglish = config.hinglish
-                sarvamKey = config.sarvamKey
-                vocabulary = config.vocabulary
-                providerDirect = config.providerDirect
-                smartMode = config.smartMode
+                request = config
                 try {
                     // This service is bound by the system. Promote that same service only on a user tap.
                     foreground("Recording dictation")
@@ -383,22 +372,16 @@ class SystemDictationService : AccessibilityService() {
         }
         trackCaptureCleanup(release)
         val thisGeneration = generation
-        val sessionKey = key
-        val sessionModel = model
-        val sessionHinglish = hinglish
-        val sessionSarvamKey = sarvamKey
-        val sessionVocabulary = vocabulary
-        val sessionProviderDirect = providerDirect
-        val sessionSmartMode = smartMode
+        val sessionRequest = request
         session = scope.launch {
             try {
                 val wav = release.await() ?: return@launch
                 ensureActive()
                 if (!refreshPrerequisites()) return@launch
                 if (runCatching { foreground("Transcribing dictation") }.isFailure) { disable(); return@launch }
+                val r = sessionRequest ?: return@launch
                 transcriber.transcribe(
-                    sessionKey, sessionModel, wav, sessionHinglish, sessionVocabulary, sessionSarvamKey,
-                    sessionProviderDirect, sessionSmartMode,
+                    r.key, r.model, wav, r.hinglish, r.vocabulary, r.sarvamKey, r.providerDirect, r.smartMode,
                 ).onSuccess { transcript ->
                     ensureActive()
                     if (!refreshPrerequisites()) return@onSuccess
@@ -413,7 +396,7 @@ class SystemDictationService : AccessibilityService() {
                 // A cancelled request must not clear a later session after off/on or reconnection.
                 if (thisGeneration == generation) {
                     clearTarget()
-                    key = ""
+                    request = null
                     phase = DictationPhase.Idle
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     queueReconcile()
@@ -493,7 +476,7 @@ class SystemDictationService : AccessibilityService() {
         recorder?.let(::cancelCapture)
         recorder = null
         clearTarget()
-        key = ""
+        request = null
         phase = DictationPhase.Idle
         if (::bubble.isInitialized) bubble.hide()
         stopForeground(STOP_FOREGROUND_REMOVE)
