@@ -57,9 +57,19 @@ pure transitions that plain JUnit tests cover:
 | `DurableStatus.canMove` | `data/DurableStatus.kt` | Browser sessions and research runs never leave a finished status. Video jobs don't use it: OpenRouter's "completed" is followed by our "downloading". |
 | `ForegroundTracker` | `ui/lock/AppLock.kt` | How long the app was away, for the lock timer. |
 | `NavigationGuard` | `data/NavigationGuard.kt` | The one "has the user moved since" token, used by restore and voice mode. |
+| `VoiceCall` (Idle, Connecting, Connected, Ending) | `ui/chat/VoiceModeController.kt` | One value for the call's log and job. The notification's End button arrives as `VoiceModeService.endRequests`. |
+| `DictationCycle` | `data/DictationCycle.kt` | System dictation's phase and generation; a stale capture can't finish a newer one. |
+| `LoadedEngine` / `SessionBinding` | `data/LocalEngineState.kt` | Which on-device model is loaded, and whether its session can carry on the same chat. |
+| `ChatTurnRegistry` | `ui/ChatTurnRegistry.kt` | Each chat's turn: claimed, registered, visible. Replaces three loose fields in `ChatViewModel`. |
+| `OverlayStack` | `OverlayStack.kt` | The full-screen layers over the chat, in drawing order, and the one back handler that closes the top. |
 
 Provider quirks that chat routing needs (which prefix, image and PDF support, the error text) live
 in `CustomProviderRouting`; the Echo Agents/Adviser/Fusion model rule lives in `EchoModeGate`.
+Chat streams that act on each line read `data:` payloads through `SseDecoder.dataLine`; the
+frame-based Deep Research feeds use the full `SseDecoder`. `EchoFlowApplication.graph` is the one
+`EchoFlowAppGraph` per process. Groups of settings move out of `SettingsRepository` into plain
+stores (`CustomProviderSettingsStore`, `InferenceParamsStore`, `DeepResearchSettingsStore`) that
+own their keys, while the repository keeps the flows.
 `scripts/refactor-metrics.sh` prints the package import graph and special-case counts.
 
 ## Provider boundary
