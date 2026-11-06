@@ -81,6 +81,14 @@ class StreamRevealState {
         return if (returning || segmentIndex in drawn) length else 0
     }
 
+    private val activityStarts = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+
+    /**
+     * When the activity run starting at [segmentIndex] was first drawn, so its "thinking for"
+     * timer keeps counting across a chat switch instead of restarting at zero.
+     */
+    fun activityStartedAt(segmentIndex: Int, now: Long): Long = activityStarts.getOrPut(segmentIndex) { now }
+
     fun report(reader: Any, segmentIndex: Int, shown: Int) {
         if (shown > 0) drawn += segmentIndex
         val progress = Reader(segmentIndex, shown)

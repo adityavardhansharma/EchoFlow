@@ -293,6 +293,11 @@ class ChatViewModel(
         viewModelScope.launch { chatDao.setModelId(chatId, modelId) }
     }
 
+    /** Ends edit mode for [messageId] only, so a finished edit in another chat can't end this one's. */
+    private fun finishEditing(messageId: String) {
+        _editingUserMessageId.compareAndSet(messageId, null)
+    }
+
     private fun clearConversationComposerState() {
         _editingUserMessageId.value = null
         clearPendingAttachment()
@@ -2455,7 +2460,7 @@ class ChatViewModel(
                 if (!imageGenMode && !videoGenMode && !artifactMode) {
                     queueMemoryLearning(chatId, isLocal || customProvider == "ollama", learningSession)
                 }
-                if (editingUserId != null) _editingUserMessageId.value = null
+                if (editingUserId != null) finishEditing(editingUserId)
                 if (videoGenMode) {
                     // The video flow also completes normally when its row was deleted
                     // mid-render, so announce a clip only once one actually exists.
@@ -2508,11 +2513,15 @@ class ChatViewModel(
                         if (assistantPersisted) awaitAssistantVisible(chatId, assistantMessageId)
                     }
                 }
-                if (editingUserId != null) _editingUserMessageId.value = null
+                if (editingUserId != null) finishEditing(editingUserId)
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
+                // Several chats can stream at once: a failure belongs on its own chat's banner,
+                // not on whichever chat happens to be open. Its reply keeps the error text.
+                if (_currentChatThreadId.value == chatId) {
+                    _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
+                }
                 streamUiFlushJob?.cancel()
                 if (!assistantPersisted) {
                     if (editingUserId != null) {
@@ -2524,7 +2533,7 @@ class ChatViewModel(
                                 chatRepository.insertMessage(assistantToRestore)
                             }
                         }
-                        _editingUserMessageId.value = editingUserId
+                        if (_currentChatThreadId.value == chatId) _editingUserMessageId.value = editingUserId
                     } else {
                         assistantPersisted = persistAssistantMessage(
                             chatId,

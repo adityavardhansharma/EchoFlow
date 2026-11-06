@@ -111,4 +111,11 @@ class StreamRevealStateTest {
         assertEquals(80, state.resumePoint(0, 80))
         assertEquals(0, state.resumePoint(1, 10))
     }
+
+    @Test fun `an activity timer keeps its start across remounts`() {
+        val state = StreamRevealState()
+        assertEquals(1_000L, state.activityStartedAt(0, 1_000L))
+        assertEquals(1_000L, state.activityStartedAt(0, 9_000L))
+        assertEquals(9_000L, state.activityStartedAt(3, 9_000L))
+    }
 }

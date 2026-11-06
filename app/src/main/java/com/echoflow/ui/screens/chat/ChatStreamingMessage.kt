@@ -136,7 +136,10 @@ internal fun StreamingAssistantBubble(
                                 }
                                 SkipFoldedReasoning(revealState, run.filter { segments[it] is StreamSegment.Reasoning })
                                 if (steps.isNotEmpty()) {
-                                    ActivityPill(steps)
+                                    ActivityPill(
+                                        steps,
+                                        startedAt = revealState?.activityStartedAt(index, android.os.SystemClock.elapsedRealtime()),
+                                    )
                                     Spacer(Modifier.height(Spacing.s))
                                 }
                             }
