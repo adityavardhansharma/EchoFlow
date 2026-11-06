@@ -4,6 +4,12 @@ package com.echoflow.ui.chat
 const val BLANK_SEND_KEY = "\u0000blank"
 
 /**
+ * The blank-composer key for one surface. Chat and Imagine each have their own blank composer,
+ * so a blank Chat send that is still getting ready must not turn away a blank Imagine one.
+ */
+fun blankSendKey(surface: String): String = "$BLANK_SEND_KEY/$surface"
+
+/**
  * One send's hold on the conversations it is about to write into, taken before the send's first
  * suspend so a second send to the same chat is turned away at once instead of after validation.
  *

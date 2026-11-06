@@ -17,7 +17,7 @@ import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
-import com.echoflow.ui.chat.BLANK_SEND_KEY
+import com.echoflow.ui.chat.blankSendKey
 import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
 import com.echoflow.ui.projects.ProjectsSurface
@@ -1598,13 +1598,17 @@ class ChatViewModel(
             }
         }
 
-        _currentChatThreadId.value?.let { chatId ->
+        // The conversation (and surface) this send was typed into. Everything below writes
+        // there, even if the user opens another chat while the send is getting ready.
+        val startChatId = _currentChatThreadId.value
+        val startMode = appMode.value
+        startChatId?.let { chatId ->
             if (turns.isRunning(chatId)) return
         }
         // Claim the conversation before the first suspend. Validation below reads settings and
         // Room before the turn registers in [turns], so without this two quick sends could
         // both pass the check above and run two turns in one chat.
-        val sendClaim = turns.claim(_currentChatThreadId.value ?: BLANK_SEND_KEY) ?: return
+        val sendClaim = turns.claim(startChatId ?: blankSendKey(startMode.name)) ?: return
 
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
@@ -1796,7 +1800,7 @@ class ChatViewModel(
             // current artifact back so a follow-up revises it. On-device implies offline (no CDN).
             val artifactMode = _chatMode.value is ChatMode.Artifact
             val artifactSystemPrompt = if (artifactMode) {
-                val prior = _currentChatThreadId.value?.let { artifactManager.getLatestVersionContent(it) }
+                val prior = startChatId?.let { artifactManager.getLatestVersionContent(it) }
                 val offline = settingsRepository.getArtifactsOfflineDirect() || isLocal
                 val prompt = SystemPrompts.buildArtifact(isLocal, offline, prior)
                 if (customProvider == "sarvam") {
@@ -1817,7 +1821,7 @@ class ChatViewModel(
             // Project context: the open thread's project (or the pending one for a brand-new
             // project chat) contributes its instructions + reference documents to the prompt.
             val activeProjectId =
-                _currentChatThreadId.value?.let { chatRepository.thread(it)?.projectId }
+                startChatId?.let { chatRepository.thread(it)?.projectId }
                     ?: pendingProjectIfStillExists()
             if (activeProjectId != null) projectManager.backfillProject(activeProjectId)
             val memoryEnabled = memoryRequested && !imageGenMode && !videoGenMode && !artifactMode &&
@@ -1833,14 +1837,14 @@ class ChatViewModel(
                         "The user can add a memory in Settings > Memory > My Memories." else "")
 
             var isFirstMsgInChat = false
-            var chatId = _currentChatThreadId.value
+            var chatId = startChatId
 
             if (chatId == null) {
                 isFirstMsgInChat = true
                 // Project chats are always Chat threads — projects are a Chat concept, so a thread
                 // that carries a projectId is stamped 'chat' regardless of the active surface.
                 chatId = chatRepository.createThread(
-                    mode = if (activeProjectId != null) AppMode.Chat else appMode.value,
+                    mode = if (activeProjectId != null) AppMode.Chat else startMode,
                     projectId = activeProjectId,
                 ).id
                 openNewThread(chatId)
@@ -1848,7 +1852,7 @@ class ChatViewModel(
                 turns.extend(sendClaim, chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
-                settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
+                settingsRepository.saveLastPosition(startMode, ModePosition.Thread(chatId))
                 if (activeProjectId != null) {
                     projectManager.touch(activeProjectId)
                     _pendingProjectId.value = null
@@ -1908,7 +1912,7 @@ class ChatViewModel(
                 // Trigger background Title generation. Local chats use the word fallback:
                 // no API key may exist, and the on-device engine is single-flight.
                 if (isFirstMsgInChat) {
-                    val defaultTitle = when (appMode.value) {
+                    val defaultTitle = when (startMode) {
                         AppMode.Chat -> "New Conversation"
                         AppMode.Imagine -> "New Creation"
                     }
