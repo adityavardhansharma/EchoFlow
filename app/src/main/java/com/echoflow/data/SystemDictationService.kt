@@ -33,7 +33,8 @@ class SystemDictationService : AccessibilityService() {
     private var recorder: AudioWavRecorder? = null
     private var captureCleanup: Job? = null
     private val transcriber = SpeechToTextTranscriber()
-    private var phase = DictationPhase.Idle
+    private val cycle = DictationCycle()
+    private val phase: DictationPhase get() = cycle.phase
     private var target: AccessibilityNodeInfo? = null
     private var targetEditorGeneration: Long? = null
     private val editorTracker = DictationEditorTracker()
@@ -42,12 +43,11 @@ class SystemDictationService : AccessibilityService() {
     private var session: Job? = null
     private var cap: Job? = null
     private var monitor: Job? = null
-    private var generation = 0L
+    private val generation: Long get() = cycle.generation
     /** Settings captured at the tap, so a change mid-recording can't mix values. Null when idle. */
     private var request: DictationConfiguration? = null
     private var prerequisitesReady = false
     private var systemWideEnabled = false
-    private var starting = false
     private var focusRevision = 0L
     private var ownWindowId: Int? = null
     private var homePackage: String? = null
@@ -297,9 +297,11 @@ class SystemDictationService : AccessibilityService() {
     private fun eligible(node: AccessibilityNodeInfo) = eligibleDictationField(node, packageName)
 
     private fun tap() {
-        if (phase == DictationPhase.Transcribing || starting) return
-        if (phase == DictationPhase.Recording) { transcribe(); return }
-        starting = true
+        when (cycle.tap()) {
+            DictationCycle.Tap.Ignore -> return
+            DictationCycle.Tap.Stop -> { transcribe(); return }
+            DictationCycle.Tap.Start -> Unit
+        }
         val beforeStart = generation
         scope.launch {
             try {
@@ -318,8 +320,7 @@ class SystemDictationService : AccessibilityService() {
                     field?.recycle()
                     return@launch
                 }
-                generation++
-                val captureGeneration = generation
+                val captureGeneration = cycle.newCapture()
                 if (editor != null) {
                     targetEditorGeneration = editor.generation
                     target = null
@@ -345,21 +346,20 @@ class SystemDictationService : AccessibilityService() {
                         queueReconcile()
                         return@launch
                     }
-                    phase = DictationPhase.Recording
+                    cycle.recording()
                     bubble.show(phase)
                     if (phase != DictationPhase.Recording) return@launch
                     cap = scope.launch { delay(AudioWavRecorder.MAX_SECONDS * 1000L); transcribe() }
                     // Focus may have changed while AudioRecord initialized on the worker thread.
                     queueReconcile()
                 } catch (_: Exception) { disable() }
-            } finally { starting = false }
+            } finally { cycle.startSettled() }
         }
     }
 
     private fun transcribe() {
-        if (phase != DictationPhase.Recording) return
+        if (!cycle.stopRecording()) return
         cap?.cancel()
-        phase = DictationPhase.Transcribing
         // Do not query focus before releasing the microphone. The caller already hid the bubble
         // on focus loss; a user-initiated stop updates only an attached bubble.
         bubble.updatePhase(phase)
@@ -394,10 +394,9 @@ class SystemDictationService : AccessibilityService() {
             catch (error: Exception) { logTranscriptionFailure(error) }
             finally {
                 // A cancelled request must not clear a later session after off/on or reconnection.
-                if (thisGeneration == generation) {
+                if (cycle.finished(thisGeneration)) {
                     clearTarget()
                     request = null
-                    phase = DictationPhase.Idle
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     queueReconcile()
                 }
@@ -470,14 +469,13 @@ class SystemDictationService : AccessibilityService() {
         uninterrupted = false
     }
     private fun abort() {
-        generation++
+        cycle.abort()
         cap?.cancel(); cap = null
         session?.cancel(); session = null
         recorder?.let(::cancelCapture)
         recorder = null
         clearTarget()
         request = null
-        phase = DictationPhase.Idle
         if (::bubble.isInitialized) bubble.hide()
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
