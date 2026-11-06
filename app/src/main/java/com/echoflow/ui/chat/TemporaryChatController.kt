@@ -29,7 +29,7 @@ internal class TemporaryChatController(
     /** A temporary chat the process died inside is discarded on the next launch. */
     fun discardLeftover() {
         val id = leftoverChatId ?: return
-        scope.launch { discard(id); forget() }
+        scope.launch { discard(id); forget(id) }
     }
 
     fun arm() = apply(TemporaryChatMachine.arm(_state.value))
@@ -53,12 +53,13 @@ internal class TemporaryChatController(
             // Best effort: every turn here already skips memory; this also keeps a manual
             // "learn now" flush from picking the chat up before it is deleted.
             is TemporaryChatEffect.ExcludeFromMemory -> runCatching { MemorySettings(app).exclude(effect.chatId) }
-            is TemporaryChatEffect.Discard -> scope.launch { discard(effect.chatId); forget() }
+            is TemporaryChatEffect.Discard -> scope.launch { discard(effect.chatId); forget(effect.chatId) }
         }
     }
 
-    private fun forget() {
-        prefs.edit().remove(KEY_CHAT_ID).apply()
+    /** Clears the marker, unless a newer temporary chat has taken it while [chatId] was deleted. */
+    private fun forget(chatId: String) {
+        if (prefs.getString(KEY_CHAT_ID, null) == chatId) prefs.edit().remove(KEY_CHAT_ID).apply()
     }
 
     private companion object {
