@@ -15,6 +15,9 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.echoflow.MainActivity
 import com.echoflow.R
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Keeps a voice session alive with the screen off or the app in the background. Android only
@@ -28,7 +31,7 @@ class VoiceModeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_END) {
-            endHandler?.invoke()
+            _endRequests.tryEmit(Unit)
             stopSelfNow()
             return START_NOT_STICKY
         }
@@ -92,8 +95,10 @@ class VoiceModeService : Service() {
         private const val ACTION_END = "com.echoflow.voice.END"
         private const val ACTION_STOP = "com.echoflow.voice.STOP"
 
-        /** Set by the live session: what the notification's End button does. */
-        @Volatile var endHandler: (() -> Unit)? = null
+        private val _endRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+        /** Each tap on the notification's End button. Voice mode collects it to hang up. */
+        val endRequests: SharedFlow<Unit> = _endRequests.asSharedFlow()
 
         /** Called from a user tap, while the app is in the foreground, as Android requires. */
         fun start(context: Context) {

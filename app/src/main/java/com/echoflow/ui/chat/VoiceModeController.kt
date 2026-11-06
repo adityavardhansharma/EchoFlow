@@ -37,6 +37,7 @@ import com.echoflow.data.voice.VoiceSessionListener
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -194,8 +195,8 @@ class VoiceModeController(
 
     /** Turn writes run one at a time, in arrival order, on this queue. */
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
-    private var log: SessionLog? = null
-    private var startJob: Job? = null
+    /** The call in progress and what belongs to its stage. See [VoiceCall]. */
+    private var call: VoiceCall = VoiceCall.Idle
     private var idleJob: Job? = null
     private var prewarmJob: Job? = null
     /** A signed URL fetched ahead of the tap, so starting a call needs no round trip. */
@@ -203,6 +204,8 @@ class VoiceModeController(
     @Volatile private var lastActivityAt = 0L
 
     init {
+        // The notification's End button. A controller with no call in progress ignores it.
+        scope.launch { VoiceModeService.endRequests.collect { end() } }
         scope.launch {
             for (write in writes) {
                 try {
@@ -332,14 +335,13 @@ class VoiceModeController(
             llmLabel = llmLabel,
             voiceName = voiceName,
         )
-        log = sessionLog
         val live = open(listenerFor(sessionLog))
         live.micMuted = !micAllowed
         session.value = live
-        VoiceModeService.endHandler = { scope.launch { end() } }
         VoiceModeService.start(app)
         live.openAudio(micAllowed)
-        startJob = scope.launch {
+        // Lazy so the call is Connecting, with its job, before the job's first line runs.
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 connect()
             } catch (e: CancellationException) {
@@ -351,6 +353,8 @@ class VoiceModeController(
                 abandon(sessionLog)
             }
         }
+        call = VoiceCall.Connecting(sessionLog, job)
+        job.start()
     }
 
     /** Whatever the user toggled while the call was connecting carries into it; the clock starts now. */
@@ -365,7 +369,7 @@ class VoiceModeController(
      * Whether [sessionLog] is still this controller's call. Every late callback and suspended
      * step checks this, so a call that was ended or replaced can't touch the one after it.
      */
-    private fun isCurrent(sessionLog: SessionLog): Boolean = log === sessionLog && !sessionLog.finished
+    private fun isCurrent(sessionLog: SessionLog): Boolean = call.log === sessionLog && !sessionLog.finished
 
     /** The same prompt the ElevenLabs agent gets, plus the language the user picked. */
     private fun realtimeInstructions(context: VoiceChatContext, config: VoiceModeConfig): String = buildString {
@@ -422,9 +426,8 @@ class VoiceModeController(
     private fun abandon(sessionLog: SessionLog) {
         sessionLog.finished = true
         session.value?.end()
-        VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
-        if (log === sessionLog) reset()
+        if (call.log === sessionLog) reset()
     }
 
     /** Ends the session and saves it into the chat. Safe to call in any phase. */
@@ -435,11 +438,18 @@ class VoiceModeController(
                 dismissRecap()
                 return
             }
-            VoiceModePhase.Starting -> if (log?.conversationId == null) {
+            VoiceModePhase.Starting -> when (val current = call) {
                 // Not connected yet: there is nothing to save, so just close.
-                startJob?.cancel()
-                log?.let(::abandon) ?: reset()
-                return
+                is VoiceCall.Connecting -> {
+                    current.job.cancel()
+                    abandon(current.log)
+                    return
+                }
+                VoiceCall.Idle -> {
+                    reset()
+                    return
+                }
+                is VoiceCall.Connected, is VoiceCall.Ending -> Unit
             }
             VoiceModePhase.Live -> Unit
         }
@@ -460,7 +470,7 @@ class VoiceModeController(
             return false
         }
         lastActivityAt = System.currentTimeMillis()
-        log?.let { sessionLog -> writes.trySend { saveUserTurn(sessionLog, clean) } }
+        call.log?.let { sessionLog -> writes.trySend { saveUserTurn(sessionLog, clean) } }
         return true
     }
 
@@ -502,11 +512,10 @@ class VoiceModeController(
 
     /** The chat screen is going away for good: hang up without waiting to reconcile. */
     fun release() {
-        startJob?.cancel()
+        (call as? VoiceCall.Connecting)?.job?.cancel()
         idleJob?.cancel()
         session.value?.end()
         session.value = null
-        VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
         // The call's turns still save through onEnded; only the screen state is dropped here.
         _state.value = VoiceModeUiState()
@@ -516,6 +525,7 @@ class VoiceModeController(
         override fun onConnected(conversationId: String) {
             scope.launch {
                 sessionLog.conversationId = conversationId
+                (call as? VoiceCall.Connecting)?.takeIf { it.log === sessionLog }?.let { call = VoiceCall.Connected(sessionLog) }
                 if (_state.value.phase == VoiceModePhase.Starting) {
                     _state.update { it.copy(phase = VoiceModePhase.Live, step = null, connectedAt = System.currentTimeMillis()) }
                 }
@@ -587,8 +597,8 @@ class VoiceModeController(
         if (sessionLog.finished) return
         sessionLog.finished = true
         sessionLog.endedAt = System.currentTimeMillis()
+        if (call.log === sessionLog) call = VoiceCall.Ending(sessionLog)
         idleJob?.cancel()
-        VoiceModeService.endHandler = null
         VoiceModeService.stop(app)
         if (error != null) _notice.value = error
         val recap = VoiceRecap(
@@ -613,7 +623,7 @@ class VoiceModeController(
             }
         }
         withTimeoutOrNull(RECONCILE_TIMEOUT_MS + 2_000) { done.await() }
-        if (log !== sessionLog) return
+        if (call.log !== sessionLog) return
         // A call where nothing was said has nothing to recap: straight back to the chat.
         if (sessionLog.turnCount() == 0) {
             reset()
@@ -621,7 +631,7 @@ class VoiceModeController(
             return
         }
         session.value = null
-        log = null
+        call = VoiceCall.Idle
         _state.update {
             it.copy(
                 phase = VoiceModePhase.Recap,
@@ -633,8 +643,7 @@ class VoiceModeController(
 
     private fun reset() {
         session.value = null
-        log = null
-        startJob = null
+        call = VoiceCall.Idle
         idleJob?.cancel()
         idleJob = null
         _state.value = VoiceModeUiState()
@@ -813,6 +822,26 @@ class VoiceModeController(
 
     private class Prewarmed(val fingerprint: String, val url: String, val at: Long) {
         fun fresh() = System.currentTimeMillis() - at < PREWARM_FRESH_MS
+    }
+
+    /**
+     * The call's stage, carrying what belongs to it, so a late callback asks "is this log still
+     * the call?" instead of comparing loose fields. The screen's [VoiceModePhase] follows it.
+     */
+    private sealed interface VoiceCall {
+        /** The session log, while there is a call. */
+        val log: SessionLog? get() = null
+
+        data object Idle : VoiceCall
+
+        /** The mic is open and the socket is connecting. Ending now saves nothing. */
+        class Connecting(override val log: SessionLog, val job: Job) : VoiceCall
+
+        /** Connected: every finished turn is being saved into the chat. */
+        class Connected(override val log: SessionLog) : VoiceCall
+
+        /** Over, and being reconciled and written into the chat. */
+        class Ending(override val log: SessionLog) : VoiceCall
     }
 
     private class SessionLog(
