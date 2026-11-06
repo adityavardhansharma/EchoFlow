@@ -1,5 +1,7 @@
 package com.echoflow.ui.screens.projects
 
+import com.echoflow.ui.screens.WorkspaceTopBar
+import com.echoflow.ui.components.SlideUpSurface
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -75,23 +77,7 @@ fun ProjectDocumentReaderScreen(
 
     // Slide up from the bottom and fade in on first appearance, mirroring the Artifact workspace so
     // opening a document feels like the same move the app already makes for reports.
-    var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
-    val openProgress by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
-        animationSpec = tween(durationMillis = 320),
-        label = "doc-open",
-    )
-
-    Surface(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = (1f - openProgress) * size.height
-                alpha = openProgress
-            },
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-    ) {
+    SlideUpSurface(color = MaterialTheme.colorScheme.surfaceContainerLowest, label = "doc-open") {
         Column(Modifier.fillMaxSize()) {
             ReaderTopBar(
                 title = document.name,
@@ -128,37 +114,26 @@ private fun ReaderTopBar(
     onCopy: () -> Unit,
     onExport: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = Spacing.s, vertical = Spacing.s),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Close document", Modifier.size(26.dp))
-                }
-                Text(
-                    title.ifBlank { "Document" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onCopy) {
-                    Icon(Icons.Default.ContentCopy, "Copy text", Modifier.size(20.dp))
-                }
-                FilledTonalIconButton(onClick = onExport) {
-                    Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
-                }
-            }
+    WorkspaceTopBar(
+        onClose = onClose,
+        closeLabel = "Close document",
+        below = {
             if (showBrand) EchoOcrBadge()
+        },
+    ) {
+        Text(
+            title.ifBlank { "Document" },
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onCopy) {
+            Icon(Icons.Default.ContentCopy, "Copy text", Modifier.size(20.dp))
+        }
+        FilledTonalIconButton(onClick = onExport) {
+            Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
         }
     }
 }

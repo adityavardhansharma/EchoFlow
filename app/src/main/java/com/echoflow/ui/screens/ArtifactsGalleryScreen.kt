@@ -2,6 +2,7 @@
 
 package com.echoflow.ui.screens
 
+import com.echoflow.ui.components.SlideUpSurface
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -83,23 +84,7 @@ fun ArtifactsGalleryScreen(
 ) {
     val artifacts by chatViewModel.galleryArtifacts.collectAsState()
 
-    var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
-    val openProgress by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
-        animationSpec = tween(durationMillis = 320),
-        label = "gallery-open",
-    )
-
-    Surface(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = (1f - openProgress) * size.height
-                alpha = openProgress
-            },
-        color = MaterialTheme.colorScheme.surface,
-    ) {
+    SlideUpSurface(color = MaterialTheme.colorScheme.surface, label = "gallery-open") {
         Column(Modifier.fillMaxSize()) {
             GalleryTopBar(count = artifacts.size, onClose = onClose)
             if (artifacts.isEmpty()) {

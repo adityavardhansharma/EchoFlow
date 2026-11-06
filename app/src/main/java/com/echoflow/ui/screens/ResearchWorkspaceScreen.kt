@@ -2,6 +2,7 @@
 
 package com.echoflow.ui.screens
 
+import com.echoflow.ui.components.SlideUpSurface
 import android.content.Intent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -75,23 +76,7 @@ fun ResearchWorkspaceScreen(
 
     // Slide up on open, but cut straight in when the user has asked for no animations.
     val reducedMotion = rememberReducedMotion()
-    var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
-    val openProgress by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
-        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 320),
-        label = "research-open",
-    )
-
-    Surface(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = if (reducedMotion) 0f else (1f - openProgress) * size.height
-                alpha = openProgress
-            },
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-    ) {
+    SlideUpSurface(color = MaterialTheme.colorScheme.surfaceContainerLowest, label = "research-open", reducedMotion = reducedMotion) {
         Column(Modifier.fillMaxSize()) {
             ResearchTopBar(
                 workspace = workspace,
@@ -155,51 +140,18 @@ private fun ResearchTopBar(
     onShare: () -> Unit,
     onExport: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = Spacing.s, vertical = Spacing.s),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Minimize to chat", Modifier.size(26.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        workspace.research.topic,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        workspace.research.engineLabel,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy report", Modifier.size(20.dp)) }
-                IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share report", Modifier.size(20.dp)) }
-                if (!workspace.research.structured) {
-                    FilledTonalIconButton(onClick = onExport) {
-                        Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
-                    }
-                }
-            }
+    WorkspaceTopBar(
+        onClose = onClose,
+        below = {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                ResearchTabButton(
+                WorkspaceTab(
                     label = if (workspace.research.structured) "Data" else "Report",
                     icon = Icons.Default.Description,
                     selected = tab == ResearchTab.REPORT,
                     onClick = { onTab(ResearchTab.REPORT) },
                     modifier = Modifier.weight(1f),
                 )
-                ResearchTabButton(
+                WorkspaceTab(
                     label = "Sources",
                     count = workspace.sources.size,
                     icon = Icons.Default.Link,
@@ -207,7 +159,7 @@ private fun ResearchTopBar(
                     onClick = { onTab(ResearchTab.SOURCES) },
                     modifier = Modifier.weight(1f),
                 )
-                ResearchTabButton(
+                WorkspaceTab(
                     label = "Steps",
                     count = workspace.steps.size,
                     icon = Icons.Default.AccountTree,
@@ -216,41 +168,34 @@ private fun ResearchTopBar(
                     modifier = Modifier.weight(1f),
                 )
             }
+        },
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                workspace.research.topic,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                workspace.research.engineLabel,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMono),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy report", Modifier.size(20.dp)) }
+        IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share report", Modifier.size(20.dp)) }
+        if (!workspace.research.structured) {
+            FilledTonalIconButton(onClick = onExport) {
+                Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
+            }
         }
     }
 }
 
-@Composable
-private fun ResearchTabButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    count: Int = 0,
-) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier,
-    ) {
-        Row(
-            Modifier.padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-            Icon(icon, null, Modifier.size(18.dp), tint = tint)
-            Text(
-                if (count > 0) "$label $count" else label,
-                style = MaterialTheme.typography.labelLarge,
-                color = tint,
-                maxLines = 1,
-            )
-        }
-    }
-}
 
 @Composable
 private fun SourcesTab(sources: List<SearchSource>) {
