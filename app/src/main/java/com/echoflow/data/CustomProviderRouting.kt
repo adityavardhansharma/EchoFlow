@@ -67,6 +67,34 @@ object CustomProviderRouting {
         if (provider == "ollama" || provider == "openai-compatible") "Settings → Echo Labs → Custom API Endpoint"
         else "Settings → Custom"
 
+    /**
+     * Why [provider] can't take a send right now, or null when it can. A saved model keeps its
+     * id after the user turns its provider (or Direct Cloud APIs) off, so every send checks
+     * the same switches the model picker does.
+     */
+    fun disabledMessage(provider: String?, config: CustomProviderConfig): String? {
+        if (provider == "sarvam") return config.sarvamConfigurationError()
+        val cloud = config.cloudApisEnabled
+        val (enabled, name) = when (provider) {
+            "openai" -> (cloud && config.openAiEnabled) to "OpenAI"
+            "claude" -> (cloud && config.claudeEnabled) to "Claude"
+            "gemini" -> (cloud && config.geminiEnabled) to "Gemini"
+            "cerebras" -> (cloud && config.cerebrasEnabled) to "Cerebras"
+            "xai" -> (cloud && config.xAiEnabled) to "xAI"
+            "vercel" -> (cloud && config.vercelEnabled) to "Vercel AI Gateway"
+            "groq" -> (cloud && config.groqEnabled) to "Groq"
+            "together" -> (cloud && config.togetherEnabled) to "Together AI"
+            "enclave" -> (cloud && config.enclaveEnabled) to "Enclave"
+            "experiential" -> (cloud && config.experientialEnabled) to "Experiential Labs"
+            "cloudflare" -> (cloud && config.cloudflareEnabled) to "Cloudflare Workers AI"
+            "ollama" -> config.ollamaEnabled to "Ollama"
+            "openai-compatible" -> config.openAiCompatibleEnabled to "The OpenAI-compatible endpoint"
+            else -> return null
+        }
+        return if (enabled) null
+        else "$name is turned off. Turn it on in ${settingsPath(provider)} or choose another model."
+    }
+
     fun pdfOffMessage(provider: String?): String =
         "PDF is off for this custom endpoint. Turn it on in ${settingsPath(provider)}."
 

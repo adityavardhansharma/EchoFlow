@@ -1624,11 +1624,9 @@ class ChatViewModel(
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
             val customProvider = CustomProviderRouting.providerFor(selectedModel)
-            if (customProvider == "sarvam") {
-                customProviderConfig.sarvamConfigurationError()?.let {
-                    _errorMessage.value = it
-                    return@launch
-                }
+            CustomProviderRouting.disabledMessage(customProvider, customProviderConfig)?.let {
+                _errorMessage.value = it
+                return@launch
             }
             val customProviderActive = customProvider != null
             val requestModel = CustomProviderRouting.requestModel(customProvider, selectedModel)
