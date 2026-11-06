@@ -150,7 +150,7 @@ class ChatViewModel(
      * into Chat while the last Imagine mode is still live.
      */
     private fun clearImagineArmedModes() {
-        if (_chatMode.value is ChatMode.ImageGen || _chatMode.value is ChatMode.VideoGen) {
+        if (_chatMode.value.lifetime == ModeLifetime.OneSend) {
             setMode(ChatMode.Normal)
         }
     }
@@ -1662,7 +1662,7 @@ class ChatViewModel(
         // Edit-turn never generates media — it re-asks as a normal chat reply.
         val imageGenMode = editingUserId == null && _chatMode.value is ChatMode.ImageGen
         val videoGenMode = editingUserId == null && _chatMode.value is ChatMode.VideoGen
-        if (imageGenMode || videoGenMode) clearImagineArmedModes()
+        if (editingUserId == null && _chatMode.value.lifetime == ModeLifetime.OneSend) clearImagineArmedModes()
 
         viewModelScope.launch {
             coroutineContext[Job]?.invokeOnCompletion { sendClaim.release(pendingSends) }
