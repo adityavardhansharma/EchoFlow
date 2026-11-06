@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import androidx.room.withTransaction
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -404,10 +405,14 @@ class DeepResearchForegroundService : Service() {
     }
 
     private suspend fun persist(run: ResearchRun) {
-        // A step finishing after a cancel must not reopen the run.
-        val stored = db.researchRunDao().getById(run.id)?.status
-        if (!DurableStatus.canMove(stored, run.status, ResearchRun.TERMINAL_STATUSES)) return
-        db.researchRunDao().upsert(run)
+        // A step finishing after a cancel must not reopen the run. One transaction, so a cancel
+        // can't land between the check and the write.
+        db.withTransaction {
+            val stored = db.researchRunDao().getById(run.id)?.status
+            if (DurableStatus.canMove(stored, run.status, ResearchRun.TERMINAL_STATUSES)) {
+                db.researchRunDao().upsert(run)
+            }
+        }
     }
 
     private fun stopIfIdle() {

@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 /**
@@ -44,6 +46,7 @@ class BrowserAgentManager(
     private val scope: CoroutineScope,
 ) {
     private val firecrawl = FirecrawlBrowserService()
+    private val saveLock = Mutex()
 
     /** The single app-wide live session (the start-a-session lock + the global pill). */
     val activeSession: StateFlow<BrowserSession?> =
@@ -496,10 +499,12 @@ class BrowserAgentManager(
 
     // ── small helpers ───────────────────────────────────────────────────────────────────
 
-    private suspend fun save(session: BrowserSession) {
+    private suspend fun save(session: BrowserSession) = saveLock.withLock {
         // A late write from a stale copy must not reopen a session that has already ended.
+        // Every session write comes through here, so the lock keeps a Stop from landing
+        // between this check and the write.
         val stored = sessionDao.getById(session.id)?.status
-        if (!DurableStatus.canMove(stored, session.status, BrowserSession.TERMINAL_STATUSES)) return
+        if (!DurableStatus.canMove(stored, session.status, BrowserSession.TERMINAL_STATUSES)) return@withLock
         sessionDao.upsert(session.copy(updatedAt = System.currentTimeMillis()))
     }
 
