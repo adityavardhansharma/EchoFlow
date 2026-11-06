@@ -14,6 +14,8 @@ class SettingsRepository(context: Context) {
     private val legacyPrefs: SharedPreferences = SettingsPreferenceStorage.legacy(context)
     private val prefs: SharedPreferences = SettingsPreferenceStorage.secureOrNull(context) ?: legacyPrefs
     private val customProviderStore = CustomProviderSettingsStore(prefs)
+    private val inferenceStore = InferenceParamsStore(prefs)
+    private val deepResearchStore = DeepResearchSettingsStore(prefs)
 
     init {
         SettingsPreferenceStorage.migrateLegacyIfNeeded(legacyPrefs, prefs)
@@ -481,30 +483,15 @@ class SettingsRepository(context: Context) {
      * Reads the stored sampler params for one side, falling back to the shipped defaults for
      * any value never set. [local] picks the on-device set; otherwise the OpenRouter set.
      */
-    fun getInferenceParamsDirect(local: Boolean): InferenceParams {
-        val defaults = if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS
-        val p = if (local) "local" else "cloud"
-        return InferenceParams(
-            temperature = prefs.getFloat("ip_${p}_temperature", defaults.temperature),
-            topK = prefs.getInt("ip_${p}_top_k", defaults.topK),
-            topP = prefs.getFloat("ip_${p}_top_p", defaults.topP),
-            maxTokens = prefs.getInt("ip_${p}_max_tokens", defaults.maxTokens),
-        )
-    }
+    fun getInferenceParamsDirect(local: Boolean): InferenceParams = inferenceStore.read(local)
 
     fun saveInferenceParams(local: Boolean, params: InferenceParams) {
-        val p = if (local) "local" else "cloud"
-        prefs.edit()
-            .putFloat("ip_${p}_temperature", params.temperature)
-            .putInt("ip_${p}_top_k", params.topK)
-            .putFloat("ip_${p}_top_p", params.topP)
-            .putInt("ip_${p}_max_tokens", params.maxTokens)
-            .apply()
+        inferenceStore.write(local, params)
         if (local) _localInferenceParams.value = params else _cloudInferenceParams.value = params
     }
 
     fun resetInferenceParams(local: Boolean) {
-        saveInferenceParams(local, if (local) InferenceLimits.LOCAL_DEFAULTS else InferenceLimits.CLOUD_DEFAULTS)
+        saveInferenceParams(local, inferenceStore.defaults(local))
     }
 
     // ── Custom provider (Echo Labs prerelease) ────────────────────────────────────────
@@ -553,45 +540,38 @@ class SettingsRepository(context: Context) {
 
     // ── Deep Research ────────────────────────────────────────────────────────────────
 
-    fun getDeepResearchModelDirect(): String =
-        prefs.getString("deep_research_model", "").orEmpty()
+    fun getDeepResearchModelDirect(): String = deepResearchStore.model()
 
     fun saveDeepResearchModel(id: String) {
-        prefs.edit().putString("deep_research_model", id).apply()
+        deepResearchStore.setModel(id)
         _deepResearchModel.value = id
     }
 
-    fun getDeepResearchSearchProviderDirect(): String {
-        val stored = prefs.getString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, "auto").orEmpty()
-        return if (stored in DEEP_RESEARCH_SEARCH_PROVIDERS) stored else "auto"
-    }
+    fun getDeepResearchSearchProviderDirect(): String = deepResearchStore.searchProvider()
 
     fun saveDeepResearchSearchProvider(provider: String) {
-        prefs.edit().putString(KEY_DEEP_RESEARCH_SEARCH_PROVIDER, provider).apply()
+        deepResearchStore.setSearchProvider(provider)
         _deepResearchSearchProvider.value = provider
     }
 
-    fun getDeepResearchMaxSearchesDirect(): Int =
-        prefs.getInt("deep_research_max_searches", 5)
+    fun getDeepResearchMaxSearchesDirect(): Int = deepResearchStore.maxSearches()
 
     fun saveDeepResearchMaxSearches(value: Int) {
-        prefs.edit().putInt("deep_research_max_searches", value).apply()
+        deepResearchStore.setMaxSearches(value)
         _deepResearchMaxSearches.value = value
     }
 
-    fun getDeepResearchMaxSourcesDirect(): Int =
-        prefs.getInt("deep_research_max_sources", 20)
+    fun getDeepResearchMaxSourcesDirect(): Int = deepResearchStore.maxSources()
 
     fun saveDeepResearchMaxSources(value: Int) {
-        prefs.edit().putInt("deep_research_max_sources", value).apply()
+        deepResearchStore.setMaxSources(value)
         _deepResearchMaxSources.value = value
     }
 
-    fun getDeepResearchExaEffortDirect(): String =
-        prefs.getString("deep_research_exa_effort", "auto").orEmpty()
+    fun getDeepResearchExaEffortDirect(): String = deepResearchStore.exaEffort()
 
     fun saveDeepResearchExaEffort(value: String) {
-        prefs.edit().putString("deep_research_exa_effort", value).apply()
+        deepResearchStore.setExaEffort(value)
         _deepResearchExaEffort.value = value
     }
 
@@ -922,7 +902,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_PROVIDER = "web_search_provider"
         private const val KEY_SEARCH_SCOPE = "web_search_scope"
         private const val KEY_LAST_SEARCH_PROVIDER = "last_search_provider"
-        private const val KEY_DEEP_RESEARCH_SEARCH_PROVIDER = "deep_research_search_provider"
+        private const val KEY_DEEP_RESEARCH_SEARCH_PROVIDER = DeepResearchSettingsStore.KEY_SEARCH_PROVIDER
         // v3: stacked copy + labeled buttons. Earlier dismiss keys do not hide this once.
         private const val KEY_ECHOCRAWL_INTRO_DISMISSED = "echocrawl_intro_dismissed_v3"
         private const val KEY_MONID_API_KEY = "monid_api_key"
@@ -935,7 +915,6 @@ class SettingsRepository(context: Context) {
             ClientSearchProviders.CONTEXT_DEV,
             ClientSearchProviders.ECHOCRAWL,
         )
-        private val DEEP_RESEARCH_SEARCH_PROVIDERS = setOf("auto", "exa", "parallel", "firecrawl")
         const val DEFAULT_MODEL_ID = DefaultChatModels.DEFAULT_MODEL_ID
         const val DEFAULT_IMAGE_MODEL_ID = "google/gemini-2.5-flash-image"
 
