@@ -65,6 +65,14 @@ internal class StreamingTextPacer {
         return emitted
     }
 
+    /** Starts already showing [shown] characters, e.g. text the user saw before switching away. */
+    fun startAt(shown: Int) {
+        if (shown <= 0) return
+        position = shown.toDouble()
+        lastEmitted = shown
+        started = true
+    }
+
     fun resume() {
         lastFrame = null
     }

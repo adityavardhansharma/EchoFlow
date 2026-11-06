@@ -302,9 +302,11 @@ internal fun SmoothStreamingText(
     segmentIndex: Int = -1,
 ) {
     val target by rememberUpdatedState(text)
-    val pacer = remember { StreamingTextPacer() }
     val reader = remember { Any() }
-    var shown by remember { mutableIntStateOf(0) }
+    // Coming back to a reply already on screen once picks up where it is, instead of typing
+    // the whole answer out again.
+    var shown by remember { mutableIntStateOf(revealState?.resumePoint(segmentIndex, text.length) ?: 0) }
+    val pacer = remember { StreamingTextPacer().apply { startAt(shown) } }
     val reducedMotion = rememberReducedMotion()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, segmentIndex, lifecycleOwner, reducedMotion) {
