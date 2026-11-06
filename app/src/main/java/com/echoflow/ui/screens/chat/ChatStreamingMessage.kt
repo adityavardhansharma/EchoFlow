@@ -319,7 +319,9 @@ internal fun SmoothStreamingText(
                 // Back from the background with the row still composed: text that arrived
                 // meanwhile shows at once rather than being typed out.
                 if (!firstStart) {
-                    val resume = revealState?.resumePoint(segmentIndex, target.length) ?: shown
+                    // resumePoint stays at 0 here: stopping the activity never abandons the
+                    // viewport, so it can't tell a first viewing from a return.
+                    val resume = revealState?.catchUpPoint(segmentIndex, target.length) ?: shown
                     if (resume > shown) {
                         shown = resume
                         pacer.startAt(resume)

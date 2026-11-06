@@ -118,4 +118,21 @@ class StreamRevealStateTest {
         assertEquals(1_000L, state.activityStartedAt(0, 9_000L))
         assertEquals(9_000L, state.activityStartedAt(3, 9_000L))
     }
+
+    @Test fun `returning from the background shows text that arrived while stopped`() {
+        val state = StreamRevealState()
+        val viewport = Any()
+        state.beginViewport(viewport)
+        state.attachViewport(viewport)
+        state.report(Any(), 0, 12)
+        // The row stays composed, so this path never consults resumePoint again: the lifecycle
+        // restart asks where to catch up. resumePoint would also jump, but only because this
+        // segment was drawn, which a brand-new segment arriving while stopped was not.
+        assertEquals(400, state.catchUpPoint(0, 400))
+        // A segment the user has not seen yet still types in from the start.
+        assertEquals(0, state.resumePoint(1, 40))
+        assertEquals(0, state.catchUpPoint(1, 40))
+        // Already caught up: nothing new arrived while stopped.
+        assertEquals(12, state.catchUpPoint(0, 12))
+    }
 }

@@ -27,6 +27,9 @@ class StreamRevealState {
      */
     @Volatile private var returning = false
 
+    /** How far each segment has been drawn, kept after its reader detaches. */
+    private val shownBySegment = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+
     /** Segments some reader has already drawn part of; kept after that reader leaves. */
     private val drawn: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
@@ -81,6 +84,16 @@ class StreamRevealState {
         return if (returning || segmentIndex in drawn) length else 0
     }
 
+    /**
+     * Where a reader that stayed composed should pick up [length] characters after its lifecycle
+     * restarts. Text that arrived past what was already drawn shows at once. A first viewing has
+     * drawn nothing, so it still types in from the start.
+     */
+    fun catchUpPoint(segmentIndex: Int, length: Int): Int {
+        val drawnTo = shownBySegment[segmentIndex] ?: 0
+        return if (drawnTo in 1 until length) length else drawnTo.coerceAtMost(length)
+    }
+
     private val activityStarts = java.util.concurrent.ConcurrentHashMap<Int, Long>()
 
     /**
@@ -91,6 +104,9 @@ class StreamRevealState {
 
     fun report(reader: Any, segmentIndex: Int, shown: Int) {
         if (shown > 0) drawn += segmentIndex
+        if (shown > 0 && shown != Int.MAX_VALUE) {
+            shownBySegment.merge(segmentIndex, shown) { current, next -> maxOf(current, next) }
+        }
         val progress = Reader(segmentIndex, shown)
         presentation.update {
             if (it.readers[reader] == progress) it else it.copy(readers = it.readers + (reader to progress))
