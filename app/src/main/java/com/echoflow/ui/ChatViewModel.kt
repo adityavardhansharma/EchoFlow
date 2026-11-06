@@ -1783,15 +1783,11 @@ class ChatViewModel(
             var agentReq: OpenRouterService.AgentRequest? = null
             var echoModel = selectedModel
             var echoSystemPrompt: String? = null
+            com.echoflow.ui.chat.EchoModeGate.modelError(_chatMode.value, isLocal, customProviderActive)?.let {
+                _errorMessage.value = it
+                return@launch
+            }
             if (_chatMode.value is ChatMode.EchoAgent) {
-                if (isLocal) {
-                    _errorMessage.value = "Echo Agents needs a cloud main model. Pick one from the model selector."
-                    return@launch
-                }
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Agents uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val profile = agentProfileDao.getById(settingsRepository.getEchoAgentProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Set up an Echo Agent first in Settings → Echo Agents, then pick it."
@@ -1800,14 +1796,6 @@ class ChatViewModel(
                 agentReq = OpenRouterService.AgentRequest(profile.workerModelId, profile.workerModelName, profile.maxToolCalls)
                 echoSystemPrompt = SystemPrompts.buildEchoAgent(profile.name)
             } else if (_chatMode.value is ChatMode.EchoAdviser) {
-                if (isLocal) {
-                    _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
-                    return@launch
-                }
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Adviser uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val profile = advisorProfileDao.getById(settingsRepository.getEchoAdviserProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Pick an advisor first — set one up in Settings → Echo Adviser."
@@ -1816,10 +1804,6 @@ class ChatViewModel(
                 advisorReq = OpenRouterService.AdvisorRequest(profile.name, profile.modelId)
                 echoSystemPrompt = SystemPrompts.buildEchoAdviser(profile.name)
             } else if (_chatMode.value is ChatMode.EchoFusion) {
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Fusion uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val panel = fusionPanelDao.getById(settingsRepository.getEchoFusionPanelIdDirect())
                 if (panel == null || panel.models.isEmpty()) {
                     _errorMessage.value = "Set up a Fusion panel first in Settings → Echo Fusion, then pick it."
