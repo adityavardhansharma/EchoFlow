@@ -1263,8 +1263,9 @@ class ChatViewModel(
     // ── Browser Flow actions (delegate to the manager; the card/workspace observe its rows) ──
 
     fun openBrowserWorkspace(chatId: String) {
-        openThread(chatId)
+        // Before openThread, which puts this chat's saved failure back on the banner.
         clearError()
+        openThread(chatId)
         _browserWorkspaceChatId.value = chatId
     }
 
@@ -1304,6 +1305,9 @@ class ChatViewModel(
         // Opening another conversation hangs up; the call is saved into the chat it belongs to.
         navigation.navigated()
         if (voiceModeState.value.active) endVoiceMode()
+        // Before openThread, which puts a failure that landed while this chat was closed
+        // back on the banner. Clearing afterwards would drop it.
+        clearError()
         openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a
         // null is parked too, because "I just started something new" is a position worth
@@ -1317,7 +1321,6 @@ class ChatViewModel(
         // existing thread means that thread's own projectId governs; a plain new chat is loose.
         // startNewChatInProject re-arms this immediately after calling here.
         _pendingProjectId.value = null
-        clearError()
     }
 
     fun clearError() {
