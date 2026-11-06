@@ -380,16 +380,12 @@ class CustomProviderService(
             .addHeader("Authorization", "Bearer ${apiKey.trim()}")
             .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception(customError("OpenAI", response.code, response.body?.string().orEmpty()))
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            body.source().use { source ->
-                OpenAiResponses.consumeStream(source) { event ->
-                    when (event) {
-                        is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
-                        is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
-                        else -> Unit
-                    }
+        client.readStream(request, { code, body -> customError("OpenAI", code, body) }) { source ->
+            OpenAiResponses.consumeStream(source) { event ->
+                when (event) {
+                    is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
+                    is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
+                    else -> Unit
                 }
             }
         }
@@ -422,18 +418,11 @@ class CustomProviderService(
             .addHeader("Content-Type", "application/json")
             .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception(customError("Claude", response.code, response.body?.string().orEmpty()))
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            body.source().use { source ->
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    val data = SseDecoder.dataLine(line) ?: continue
-                    if (data.isBlank() || data == "[DONE]") continue
-                    val map = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: continue
-                    val delta = map["delta"] as? Map<*, *>
-                    (delta?.get("text") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
-                }
+        client.readStream(request, { code, body -> customError("Claude", code, body) }) { source ->
+            source.forEachSseData { data ->
+                val map = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: return@forEachSseData
+                val delta = map["delta"] as? Map<*, *>
+                (delta?.get("text") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -470,18 +459,11 @@ class CustomProviderService(
             .addHeader("Content-Type", "application/json")
             .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, response.body?.string().orEmpty()))
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            body.source().use { source ->
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    val data = SseDecoder.dataLine(line) ?: continue
-                    if (data.isBlank() || data == "[DONE]") continue
-                    val event = runCatching { geminiStreamAdapter.fromJson(data) }.getOrNull() ?: continue
-                    event.candidates?.flatMap { it.content?.parts.orEmpty() }?.forEach { part ->
-                        part.text?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
-                    }
+        client.readStream(request, { code, body -> customError("Gemini", code, body) }) { source ->
+            source.forEachSseData { data ->
+                val event = runCatching { geminiStreamAdapter.fromJson(data) }.getOrNull() ?: return@forEachSseData
+                event.candidates?.flatMap { it.content?.parts.orEmpty() }?.forEach { part ->
+                    part.text?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
                 }
             }
         }
@@ -524,20 +506,13 @@ class CustomProviderService(
             .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception(customError("OpenAI-compatible provider", response.code, response.body?.string().orEmpty()))
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            body.source().use { source ->
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    val data = SseDecoder.dataLine(line) ?: continue
-                    if (data.isBlank() || data == "[DONE]") continue
-                    val event = runCatching { openAiStreamAdapter.fromJson(data) }.getOrNull() ?: continue
-                    event.choices?.forEach { choice ->
-                        choice.delta?.reasoning?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
-                        choice.delta?.reasoning_content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
-                        choice.delta?.content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
-                    }
+        client.readStream(request, { code, body -> customError("OpenAI-compatible provider", code, body) }) { source ->
+            source.forEachSseData { data ->
+                val event = runCatching { openAiStreamAdapter.fromJson(data) }.getOrNull() ?: return@forEachSseData
+                event.choices?.forEach { choice ->
+                    choice.delta?.reasoning?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
+                    choice.delta?.reasoning_content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
+                    choice.delta?.content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
                 }
             }
         }
@@ -570,18 +545,12 @@ class CustomProviderService(
             .post(dynamicAdapter.toJson(payload).toRequestBody("application/json".toMediaType()))
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception(customError("Ollama", response.code, response.body?.string().orEmpty()))
-            val body = response.body ?: throw Exception("Empty stream body received.")
-            body.source().use { source ->
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    if (line.isBlank()) continue
-                    val event = runCatching { ollamaStreamAdapter.fromJson(line) }.getOrNull() ?: continue
-                    event.error?.takeIf { it.isNotBlank() }?.let { throw Exception(it) }
-                    event.message?.content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
-                    event.response?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
-                }
+        client.readStream(request, { code, body -> customError("Ollama", code, body) }) { source ->
+            source.forEachJsonLine { line ->
+                val event = runCatching { ollamaStreamAdapter.fromJson(line) }.getOrNull() ?: return@forEachJsonLine
+                event.error?.takeIf { it.isNotBlank() }?.let { throw Exception(it) }
+                event.message?.content?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
+                event.response?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Content(it)) }
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -758,11 +727,7 @@ class CustomProviderService(
             .addHeader("Authorization", "Bearer ${apiKey.trim()}")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Vercel AI Gateway", response.code, body))
-            return ProviderHttpSupport.parseLanguageModelIds(body)
-        }
+        return ProviderHttpSupport.parseLanguageModelIds(client.fetchText(request) { code, body -> customError("Vercel AI Gateway", code, body) })
     }
 
     /** Together returns a bare array; `type` separates chat models from image, embedding and rerank ones. */
@@ -773,11 +738,7 @@ class CustomProviderService(
             .addHeader("Authorization", "Bearer ${apiKey.trim()}")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Together AI", response.code, body))
-            return ProviderHttpSupport.parseTogetherChatModelIds(body)
-        }
+        return ProviderHttpSupport.parseTogetherChatModelIds(client.fetchText(request) { code, body -> customError("Together AI", code, body) })
     }
 
     /** Workers AI has no OpenAI-style model list; its catalog search filters by task instead. */
@@ -790,11 +751,7 @@ class CustomProviderService(
             .addHeader("Authorization", "Bearer ${apiKey.trim()}")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Cloudflare Workers AI", response.code, body))
-            return ProviderHttpSupport.parseCloudflareModelNames(body)
-        }
+        return ProviderHttpSupport.parseCloudflareModelNames(client.fetchText(request) { code, body -> customError("Cloudflare Workers AI", code, body) })
     }
 
     private fun fetchModelsFromUrl(url: String, apiKey: String): List<String> {
@@ -803,11 +760,7 @@ class CustomProviderService(
             .apply { apiKey.trim().takeIf { it.isNotEmpty() }?.let { addHeader("Authorization", "Bearer $it") } }
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            return ProviderHttpSupport.parseModelIds(body)
-        }
+        return ProviderHttpSupport.parseModelIds(client.fetchText(request) { code, _ -> "HTTP $code" })
     }
 
     private fun fetchClaudeModels(apiKey: String): List<String> {
@@ -818,11 +771,7 @@ class CustomProviderService(
             .addHeader("anthropic-version", "2023-06-01")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Claude", response.code, body))
-            return ProviderHttpSupport.parseModelIds(body)
-        }
+        return ProviderHttpSupport.parseModelIds(client.fetchText(request) { code, body -> customError("Claude", code, body) })
     }
 
     private fun fetchGeminiModels(apiKey: String): List<String> {
@@ -834,12 +783,9 @@ class CustomProviderService(
             val url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${apiKey.trim()}" +
                 pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" }.orEmpty()
             val request = Request.Builder().url(url).get().build()
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, body))
-                models += ProviderHttpSupport.parseGeminiChatModelIds(body)
-                pageToken = ProviderHttpSupport.geminiNextPageToken(body)
-            }
+            val body = client.fetchText(request) { code, body -> customError("Gemini", code, body) }
+            models += ProviderHttpSupport.parseGeminiChatModelIds(body)
+            pageToken = ProviderHttpSupport.geminiNextPageToken(body)
             if (pageToken == null) return models.distinct()
         }
         return models.distinct()
@@ -851,11 +797,7 @@ class CustomProviderService(
             .url("${baseUrl.trim().trimEnd('/')}/api/tags")
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw Exception(customError("Ollama", response.code, body))
-            return ProviderHttpSupport.parseModelIds(body)
-        }
+        return ProviderHttpSupport.parseModelIds(client.fetchText(request) { code, body -> customError("Ollama", code, body) })
     }
 
     private fun getBase64FromUri(uriString: String?): String? {

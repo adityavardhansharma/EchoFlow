@@ -136,29 +136,22 @@ internal class CustomProviderToolStreamer(
 
             val pending = sortedMapOf<Int, OpenAiPendingCall>()
             val assistantContent = StringBuilder()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception(customError("provider", response.code, response.body?.string().orEmpty()))
-                val body = response.body ?: throw Exception("Empty stream body received.")
-                body.source().use { source ->
-                    while (!source.exhausted()) {
-                        val line = source.readUtf8Line() ?: break
-                        val data = SseDecoder.dataLine(line) ?: continue
-                        if (data.isBlank() || data == "[DONE]") continue
-                        val map = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: continue
-                        val choice = (map["choices"] as? List<*>)?.firstOrNull() as? Map<*, *> ?: continue
-                        val delta = choice["delta"] as? Map<*, *>
-                        (delta?.get("content") as? String)?.takeIf { it.isNotEmpty() }?.let { assistantContent.append(it); emit(StreamChunk.Content(it)) }
-                        (delta?.get("reasoning") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
-                        (delta?.get("reasoning_content") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
-                        (delta?.get("tool_calls") as? List<*>)?.forEach { tcAny ->
-                            val tc = tcAny as? Map<*, *> ?: return@forEach
-                            val idx = (tc["index"] as? Number)?.toInt() ?: 0
-                            val slot = pending.getOrPut(idx) { OpenAiPendingCall() }
-                            (tc["id"] as? String)?.takeIf { it.isNotEmpty() }?.let { slot.id = it }
-                            val fn = tc["function"] as? Map<*, *>
-                            (fn?.get("name") as? String)?.takeIf { it.isNotEmpty() }?.let { slot.name = it }
-                            (fn?.get("arguments") as? String)?.let { slot.args.append(it) }
-                        }
+            client.readStream(request, { code, body -> customError("provider", code, body) }) { source ->
+                source.forEachSseData { data ->
+                    val map = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: return@forEachSseData
+                    val choice = (map["choices"] as? List<*>)?.firstOrNull() as? Map<*, *> ?: return@forEachSseData
+                    val delta = choice["delta"] as? Map<*, *>
+                    (delta?.get("content") as? String)?.takeIf { it.isNotEmpty() }?.let { assistantContent.append(it); emit(StreamChunk.Content(it)) }
+                    (delta?.get("reasoning") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
+                    (delta?.get("reasoning_content") as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
+                    (delta?.get("tool_calls") as? List<*>)?.forEach { tcAny ->
+                        val tc = tcAny as? Map<*, *> ?: return@forEach
+                        val idx = (tc["index"] as? Number)?.toInt() ?: 0
+                        val slot = pending.getOrPut(idx) { OpenAiPendingCall() }
+                        (tc["id"] as? String)?.takeIf { it.isNotEmpty() }?.let { slot.id = it }
+                        val fn = tc["function"] as? Map<*, *>
+                        (fn?.get("name") as? String)?.takeIf { it.isNotEmpty() }?.let { slot.name = it }
+                        (fn?.get("arguments") as? String)?.let { slot.args.append(it) }
                     }
                 }
             }
@@ -252,32 +245,28 @@ internal class CustomProviderToolStreamer(
                 val key = itemId.ifBlank { "call_$round" }
                 return pending.getOrPut(key) { OpenAiPendingCall() }
             }
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception(customError("OpenAI", response.code, response.body?.string().orEmpty()))
-                val body = response.body ?: throw Exception("Empty stream body received.")
-                body.source().use { source ->
-                    OpenAiResponses.consumeStream(source) { event ->
-                        when (event) {
-                            is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
-                            is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
-                            is OpenAiResponses.Event.ResponseId -> previousResponseId = event.id
-                            is OpenAiResponses.Event.FunctionCallMeta -> {
-                                val call = slot(event.itemId)
-                                if (event.callId.isNotEmpty()) call.id = event.callId
-                                if (event.name.isNotEmpty()) call.name = event.name
-                            }
-                            is OpenAiResponses.Event.FunctionCallArgsDelta -> slot(event.itemId).args.append(event.delta)
-                            is OpenAiResponses.Event.FunctionCallArgsDone -> {
-                                val call = slot(event.itemId)
-                                if (event.callId.isNotEmpty()) call.id = event.callId
-                                if (event.name.isNotEmpty()) call.name = event.name
-                                if (event.arguments.isNotEmpty()) {
-                                    call.args.clear()
-                                    call.args.append(event.arguments)
-                                }
-                            }
-                            is OpenAiResponses.Event.Failed -> throw Exception(event.message)
+            client.readStream(request, { code, body -> customError("OpenAI", code, body) }) { source ->
+                OpenAiResponses.consumeStream(source) { event ->
+                    when (event) {
+                        is OpenAiResponses.Event.Content -> emit(StreamChunk.Content(event.text))
+                        is OpenAiResponses.Event.Reasoning -> emit(StreamChunk.Reasoning(event.text))
+                        is OpenAiResponses.Event.ResponseId -> previousResponseId = event.id
+                        is OpenAiResponses.Event.FunctionCallMeta -> {
+                            val call = slot(event.itemId)
+                            if (event.callId.isNotEmpty()) call.id = event.callId
+                            if (event.name.isNotEmpty()) call.name = event.name
                         }
+                        is OpenAiResponses.Event.FunctionCallArgsDelta -> slot(event.itemId).args.append(event.delta)
+                        is OpenAiResponses.Event.FunctionCallArgsDone -> {
+                            val call = slot(event.itemId)
+                            if (event.callId.isNotEmpty()) call.id = event.callId
+                            if (event.name.isNotEmpty()) call.name = event.name
+                            if (event.arguments.isNotEmpty()) {
+                                call.args.clear()
+                                call.args.append(event.arguments)
+                            }
+                        }
+                        is OpenAiResponses.Event.Failed -> throw Exception(event.message)
                     }
                 }
             }
@@ -358,27 +347,21 @@ internal class CustomProviderToolStreamer(
 
             val collected = StringBuilder()
             val toolCalls = mutableListOf<Pair<String, String>>() // name, argsJson
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception(customError("Ollama", response.code, response.body?.string().orEmpty()))
-                val body = response.body ?: throw Exception("Empty stream body received.")
-                body.source().use { source ->
-                    while (!source.exhausted()) {
-                        val line = source.readUtf8Line() ?: break
-                        if (line.isBlank()) continue
-                        val map = runCatching { dynamicAdapter.fromJson(line) as? Map<*, *> }.getOrNull() ?: continue
-                        (map["error"] as? String)?.takeIf { it.isNotBlank() }?.let { throw Exception(it) }
-                        val msg = map["message"] as? Map<*, *>
-                        (msg?.get("content") as? String)?.takeIf { it.isNotEmpty() }?.let { collected.append(it); emit(StreamChunk.Content(it)) }
-                        (msg?.get("tool_calls") as? List<*>)?.forEach { tcAny ->
-                            val fn = (tcAny as? Map<*, *>)?.get("function") as? Map<*, *> ?: return@forEach
-                            val name = fn["name"] as? String ?: return@forEach
-                            val argsJson = when (val a = fn["arguments"]) {
-                                is String -> a
-                                is Map<*, *> -> dynamicAdapter.toJson(a)
-                                else -> "{}"
-                            }
-                            toolCalls.add(name to argsJson)
+            client.readStream(request, { code, body -> customError("Ollama", code, body) }) { source ->
+                source.forEachJsonLine { line ->
+                    val map = runCatching { dynamicAdapter.fromJson(line) as? Map<*, *> }.getOrNull() ?: return@forEachJsonLine
+                    (map["error"] as? String)?.takeIf { it.isNotBlank() }?.let { throw Exception(it) }
+                    val msg = map["message"] as? Map<*, *>
+                    (msg?.get("content") as? String)?.takeIf { it.isNotEmpty() }?.let { collected.append(it); emit(StreamChunk.Content(it)) }
+                    (msg?.get("tool_calls") as? List<*>)?.forEach { tcAny ->
+                        val fn = (tcAny as? Map<*, *>)?.get("function") as? Map<*, *> ?: return@forEach
+                        val name = fn["name"] as? String ?: return@forEach
+                        val argsJson = when (val a = fn["arguments"]) {
+                            is String -> a
+                            is Map<*, *> -> dynamicAdapter.toJson(a)
+                            else -> "{}"
                         }
+                        toolCalls.add(name to argsJson)
                     }
                 }
             }
@@ -473,38 +456,31 @@ internal class CustomProviderToolStreamer(
                 .build()
 
             val blocks = sortedMapOf<Int, ClaudePendingBlock>()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception(customError("Claude", response.code, response.body?.string().orEmpty()))
-                val body = response.body ?: throw Exception("Empty stream body received.")
-                body.source().use { source ->
-                    while (!source.exhausted()) {
-                        val line = source.readUtf8Line() ?: break
-                        val data = SseDecoder.dataLine(line) ?: continue
-                        if (data.isBlank()) continue
-                        val ev = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: continue
-                        when (ev["type"] as? String) {
-                            "content_block_start" -> {
-                                val idx = (ev["index"] as? Number)?.toInt() ?: 0
-                                val cb = ev["content_block"] as? Map<*, *>
-                                val slot = blocks.getOrPut(idx) { ClaudePendingBlock() }
-                                slot.type = cb?.get("type") as? String ?: ""
-                                if (slot.type == "tool_use") {
-                                    slot.id = cb?.get("id") as? String ?: ""
-                                    slot.name = cb?.get("name") as? String ?: ""
-                                }
+            client.readStream(request, { code, body -> customError("Claude", code, body) }) { source ->
+                source.forEachSseData { data ->
+                    val ev = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: return@forEachSseData
+                    when (ev["type"] as? String) {
+                        "content_block_start" -> {
+                            val idx = (ev["index"] as? Number)?.toInt() ?: 0
+                            val cb = ev["content_block"] as? Map<*, *>
+                            val slot = blocks.getOrPut(idx) { ClaudePendingBlock() }
+                            slot.type = cb?.get("type") as? String ?: ""
+                            if (slot.type == "tool_use") {
+                                slot.id = cb?.get("id") as? String ?: ""
+                                slot.name = cb?.get("name") as? String ?: ""
                             }
-                            "content_block_delta" -> {
-                                val idx = (ev["index"] as? Number)?.toInt() ?: 0
-                                val d = ev["delta"] as? Map<*, *>
-                                when (d?.get("type") as? String) {
-                                    "text_delta" -> (d["text"] as? String)?.takeIf { it.isNotEmpty() }?.let {
-                                        blocks.getOrPut(idx) { ClaudePendingBlock() }.text.append(it); emit(StreamChunk.Content(it))
-                                    }
-                                    "input_json_delta" -> (d["partial_json"] as? String)?.let {
-                                        blocks.getOrPut(idx) { ClaudePendingBlock() }.json.append(it)
-                                    }
-                                    "thinking_delta" -> (d["thinking"] as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
+                        }
+                        "content_block_delta" -> {
+                            val idx = (ev["index"] as? Number)?.toInt() ?: 0
+                            val d = ev["delta"] as? Map<*, *>
+                            when (d?.get("type") as? String) {
+                                "text_delta" -> (d["text"] as? String)?.takeIf { it.isNotEmpty() }?.let {
+                                    blocks.getOrPut(idx) { ClaudePendingBlock() }.text.append(it); emit(StreamChunk.Content(it))
                                 }
+                                "input_json_delta" -> (d["partial_json"] as? String)?.let {
+                                    blocks.getOrPut(idx) { ClaudePendingBlock() }.json.append(it)
+                                }
+                                "thinking_delta" -> (d["thinking"] as? String)?.takeIf { it.isNotEmpty() }?.let { emit(StreamChunk.Reasoning(it)) }
                             }
                         }
                     }
@@ -605,26 +581,19 @@ internal class CustomProviderToolStreamer(
 
             val functionCalls = mutableListOf<Pair<String, Map<*, *>>>() // name, args
             val modelParts = mutableListOf<Map<String, Any?>>()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception(customError("Gemini", response.code, response.body?.string().orEmpty()))
-                val body = response.body ?: throw Exception("Empty stream body received.")
-                body.source().use { source ->
-                    while (!source.exhausted()) {
-                        val line = source.readUtf8Line() ?: break
-                        val data = SseDecoder.dataLine(line) ?: continue
-                        if (data.isBlank()) continue
-                        val ev = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: continue
-                        val cand = (ev["candidates"] as? List<*>)?.firstOrNull() as? Map<*, *>
-                        val parts = (cand?.get("content") as? Map<*, *>)?.get("parts") as? List<*>
-                        parts?.forEach { pAny ->
-                            val p = pAny as? Map<*, *> ?: return@forEach
-                            (p["text"] as? String)?.takeIf { it.isNotEmpty() }?.let { modelParts.add(mapOf("text" to it)); emit(StreamChunk.Content(it)) }
-                            (p["functionCall"] as? Map<*, *>)?.let { fc ->
-                                val name = fc["name"] as? String ?: return@let
-                                val args = fc["args"] as? Map<*, *> ?: emptyMap<String, Any>()
-                                functionCalls.add(name to args)
-                                modelParts.add(p.entries.associate { it.key.toString() to it.value })
-                            }
+            client.readStream(request, { code, body -> customError("Gemini", code, body) }) { source ->
+                source.forEachSseData { data ->
+                    val ev = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: return@forEachSseData
+                    val cand = (ev["candidates"] as? List<*>)?.firstOrNull() as? Map<*, *>
+                    val parts = (cand?.get("content") as? Map<*, *>)?.get("parts") as? List<*>
+                    parts?.forEach { pAny ->
+                        val p = pAny as? Map<*, *> ?: return@forEach
+                        (p["text"] as? String)?.takeIf { it.isNotEmpty() }?.let { modelParts.add(mapOf("text" to it)); emit(StreamChunk.Content(it)) }
+                        (p["functionCall"] as? Map<*, *>)?.let { fc ->
+                            val name = fc["name"] as? String ?: return@let
+                            val args = fc["args"] as? Map<*, *> ?: emptyMap<String, Any>()
+                            functionCalls.add(name to args)
+                            modelParts.add(p.entries.associate { it.key.toString() to it.value })
                         }
                     }
                 }
