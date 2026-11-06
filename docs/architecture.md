@@ -42,6 +42,25 @@ Tool results are grouped by feature: `AdvisorCard`, `SubagentCard`, and `FusionC
 - Artifact workspace opens cancel the previous lookup. Closing cancels a pending open and clears selection. The open-session counter lets Compose reset version selection on repeated opens of the same artifact.
 - Project imports track admission separately from extraction completion. Progress is keyed by project, and import IDs prevent an older success from dismissing a newer failure.
 - Streaming remains keyed by chat so switching surfaces does not move an answer into another conversation.
+- A send claims its chat (`SendClaim`) before its first suspend and holds it until the turn registers in `streamJobs`, so two quick sends can't both start a turn.
+
+## Explicit state machines
+
+Where a feature's phase used to live in several loose flags, it now lives in one sealed state with
+pure transitions that plain JUnit tests cover:
+
+| State | Where | Notes |
+|-------|-------|-------|
+| `TemporaryChat` (Off, Armed, Live) | `ui/chat/TemporaryChat.kt`, owned by `TemporaryChatController` | Transitions return effects (crash marker, memory exclusion, discard) that the controller runs. |
+| `ProjectsSurface` (Closed, Hub, Home) | `ui/projects/ProjectsSurface.kt` | A project home always has the hub under it. Exposed as the old flows through `mapState`. |
+| `ModeLifetime` (Sticky, OneSend, UntilRunEnds) | `data/ChatMode.kt` | Each `ChatMode` declares how long it stays on. |
+| `DurableStatus.canMove` | `data/DurableStatus.kt` | Browser sessions and research runs never leave a finished status. Video jobs don't use it: OpenRouter's "completed" is followed by our "downloading". |
+| `ForegroundTracker` | `ui/lock/AppLock.kt` | How long the app was away, for the lock timer. |
+| `NavigationGuard` | `data/NavigationGuard.kt` | The one "has the user moved since" token, used by restore and voice mode. |
+
+Provider quirks that chat routing needs (which prefix, image and PDF support, the error text) live
+in `CustomProviderRouting`; the Echo Agents/Adviser/Fusion model rule lives in `EchoModeGate`.
+`scripts/refactor-metrics.sh` prints the package import graph and special-case counts.
 
 ## Provider boundary
 
