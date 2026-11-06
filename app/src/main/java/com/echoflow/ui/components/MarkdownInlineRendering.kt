@@ -65,68 +65,6 @@ import com.hrm.latex.renderer.model.LatexTheme
  * bold/italic/strikethrough/code/links.
  */
 
-@Composable
-internal fun InlineMarkdownText(
-    text: String,
-    color: Color,
-    linkColor: Color,
-    style: TextStyle,
-    modifier: Modifier = Modifier
-) {
-    val nodes = remember(text) { InlineParser(text).parse() }
-    val mathNodes = remember(nodes) { nodes.collectMathNodes() }
-    val hasMath = mathNodes.isNotEmpty()
-    if (!hasMath) {
-        val annotated = remember(text, linkColor) { parseInlineStyles(text, linkColor) }
-        CitationPeekText(annotated, style = style.copy(color = color), modifier = modifier)
-        return
-    }
-
-    val textStyle = style.copy(color = color, lineHeight = lineHeightForInlineMath(style))
-    val config = latexConfigFor(style, scale = 0.86f)
-    val measurer = rememberLatexMeasurer(config)
-    val density = LocalDensity.current
-    val darkTheme = isSystemInDarkTheme()
-    val measured = remember(mathNodes, config, darkTheme) {
-        mathNodes.associate { math -> math.id to measurer.measure(math.latex, config, darkTheme) }
-    }
-    val annotated = remember(nodes, measured, linkColor) {
-        buildAnnotatedString {
-            appendNodes(nodes, linkColor, measured.keys)
-        }
-    }
-    val inlineContent = remember(mathNodes, measured, config, density, darkTheme) {
-        buildMap {
-            mathNodes.forEach { math ->
-                val dims = measured[math.id] ?: return@forEach
-                put(
-                    "math_${math.id}",
-                    InlineTextContent(
-                        placeholder = Placeholder(
-                            width = with(density) { dims.widthPx.toSp() },
-                            height = with(density) { dims.heightPx.toSp() },
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                        )
-                    ) {
-                        Latex(
-                            latex = math.latex,
-                            config = config,
-                            isDarkTheme = darkTheme
-                        )
-                    }
-                )
-            }
-        }
-    }
-
-    CitationPeekText(
-        text = annotated,
-        inlineContent = inlineContent,
-        style = textStyle,
-        modifier = modifier
-    )
-}
-
 internal fun List<InlineNode>.collectMathNodes(): List<InlineNode.Math> {
     val out = mutableListOf<InlineNode.Math>()
     fun visit(nodes: List<InlineNode>) {
@@ -194,12 +132,6 @@ internal fun AnnotatedString.Builder.appendNodes(
     }
 }
 
-internal fun lineHeightForInlineMath(style: TextStyle): TextUnit {
-    val baseSize = if (style.fontSize == TextUnit.Unspecified) 16.sp else style.fontSize
-    val current = if (style.lineHeight == TextUnit.Unspecified) baseSize * 1.5f else style.lineHeight
-    return current * 1.12f
-}
-
 @Composable
 internal fun latexConfigFor(style: TextStyle, scale: Float): LatexConfig {
     val baseSize = if (style.fontSize == TextUnit.Unspecified) 16.sp else style.fontSize
@@ -208,14 +140,6 @@ internal fun latexConfigFor(style: TextStyle, scale: Float): LatexConfig {
         theme = LatexTheme.material3(),
         accessibilityEnabled = true
     )
-}
-
-/**
- * Parses inline markdown — **bold**, *italic*, ~~strikethrough~~, `code`, and [text](url) links —
- * into a styled [AnnotatedString]. Nested spans (e.g. bold containing code) are handled recursively.
- */
-fun parseInlineStyles(text: String, linkColor: Color): AnnotatedString = buildAnnotatedString {
-    appendInline(text, linkColor)
 }
 
 internal fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color) {

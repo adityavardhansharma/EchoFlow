@@ -788,23 +788,6 @@ class OpenRouterService(private val context: Context) {
         }
     }
 
-    /** Each subagent delegation's (task_name, task_description), from the assistant's tool_calls. */
-    private fun extractSubagentDelegations(message: Map<*, *>?): List<Pair<String, String>> {
-        val calls = message?.get("tool_calls") as? List<*> ?: return emptyList()
-        val out = mutableListOf<Pair<String, String>>()
-        for (raw in calls) {
-            val m = raw as? Map<*, *> ?: continue
-            val type = (m["type"] as? String).orEmpty()
-            val fn = m["function"] as? Map<*, *>
-            val name = (fn?.get("name") as? String).orEmpty()
-            val looksAgent = type.contains("subagent") || name.contains("subagent") || name.contains("delegate")
-            if (!looksAgent) continue
-            val args = fn?.get("arguments") as? String ?: continue
-            parseTaskArgs(args)?.let { out.add(it) }
-        }
-        return out
-    }
-
     /** The prompt the answering model sent its advisor, from the assistant message's tool_calls. */
     private fun findAskedPrompt(message: Map<*, *>?): String {
         val calls = message?.get("tool_calls") as? List<*> ?: return ""

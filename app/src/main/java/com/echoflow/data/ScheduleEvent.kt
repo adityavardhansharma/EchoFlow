@@ -21,9 +21,6 @@ data class ScheduleEvent(
         scheduledAt?.let { put("scheduledAt", it) }
     }.toString()
 
-    /** Rows that are the schedule speaking for itself rather than a conversational reply. */
-    val isLifecycle: Boolean get() = type != EDITS && type != RUN
-
     companion object {
         /** A run's answer. */
         const val RUN = "run"

@@ -31,13 +31,6 @@ internal object ImageDotField {
         sqrt(2f) * c
     }
 
-    fun distanceFromCenter(col: Int, row: Int): Float {
-        val c = (GRID - 1) / 2f
-        val dx = col - c
-        val dy = row - c
-        return sqrt(dx * dx + dy * dy)
-    }
-
     /**
      * Ripple: a thin ring radiating from the center with a fainter trailing echo, then rest.
      * [timeMs] is any monotonic clock; [dist] is the dot's distance from center in cells.

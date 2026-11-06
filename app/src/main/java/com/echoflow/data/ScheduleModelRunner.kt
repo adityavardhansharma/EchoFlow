@@ -35,13 +35,6 @@ sealed interface ScheduleWebAccess {
 class ScheduleModelRunner(private val context: Context) {
     private val settings = SettingsRepository(context.applicationContext)
 
-    /** Schedules respect the active search setting; a saved but disabled provider stays off. */
-    fun activeSearchProvider(modelId: String): String? = when (val access = webAccess(modelId)) {
-        ScheduleWebAccess.None -> null
-        ScheduleWebAccess.Server -> "openrouter"
-        is ScheduleWebAccess.Client -> access.provider
-    }
-
     fun webAccess(modelId: String): ScheduleWebAccess {
         val provider = settings.getWebSearchProviderDirect()
         return when {

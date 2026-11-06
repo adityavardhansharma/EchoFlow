@@ -62,26 +62,6 @@ class RoundedPolygonShape(private val polygon: RoundedPolygon) : Shape {
 }
 
 /**
- * Like [RoundedPolygonShape] but stretches the polygon non-uniformly to fill the layout's full
- * width AND height — so a [MaterialShapes] polygon (e.g. ClamShell) can be used as the outline of a
- * wide button, giving an expressive faceted shape instead of a plain rounded rectangle.
- */
-class StretchedPolygonShape(private val polygon: RoundedPolygon) : Shape {
-    private val matrix = Matrix()
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val path: Path = polygon.toPath().asComposePath()
-        matrix.reset()
-        val b = polygon.bounds()
-        val w = b.width.takeIf { it > 0f } ?: 1f
-        val h = b.height.takeIf { it > 0f } ?: 1f
-        matrix.scale(size.width / w, size.height / h)
-        matrix.translate(-b.left, -b.top)
-        path.transform(matrix)
-        return Outline.Generic(path)
-    }
-}
-
-/**
  * Clips content to a [Morph] between two [MaterialShapes] polygons at the given [progress]
  * (0f..1f). The transform is derived from the morphed path's own bounds so it fills the layout
  * correctly regardless of how the source polygons are normalized.

@@ -32,9 +32,6 @@ interface ChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertThread(thread: ChatThread)
 
-    @Update
-    suspend fun updateThread(thread: ChatThread)
-
     @Query("UPDATE chat_threads SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchUpdatedAt(id: String, updatedAt: Long)
 
@@ -150,16 +147,9 @@ interface MessageDao {
     )
     suspend fun cameraPhotoReferences(): List<String>
 
-    @Query("DELETE FROM chat_messages WHERE chatId = :chatId")
-    suspend fun deleteMessagesForChat(chatId: String)
-
     /** Chat ids whose message text matches the drawer search query. */
     @Query("SELECT DISTINCT chatId FROM chat_messages WHERE content LIKE '%' || :query || '%'")
     fun searchChatIdsByContent(query: String): Flow<List<String>>
-
-    /** Jev Router history for one chat: assistant rows carrying a classification. */
-    @Query("SELECT * FROM chat_messages WHERE chatId = :chatId AND jevJson IS NOT NULL ORDER BY createdAt DESC LIMIT :limit")
-    fun getJevDecisionsForChat(chatId: String, limit: Int = 50): Flow<List<ChatMessage>>
 
     /** Latest Jev classifications across chats for the Echo Labs > Jev page. */
     @Query("SELECT * FROM chat_messages WHERE jevJson IS NOT NULL ORDER BY createdAt DESC LIMIT :limit")

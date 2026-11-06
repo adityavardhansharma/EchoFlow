@@ -47,15 +47,11 @@ data class Artifact(
     val hiddenFromGallery: Boolean? = null,
 ) {
     val isHtml: Boolean get() = type == TYPE_HTML
-    val isMarkdown: Boolean get() = type == TYPE_MARKDOWN
-    val isReport: Boolean get() = type == TYPE_LATEX
 
     companion object {
         const val TYPE_HTML = "html"       // single self-contained HTML/CSS/JS, rendered in a WebView
         const val TYPE_MARKDOWN = "markdown" // prose document, rendered natively
         const val TYPE_LATEX = "latex"      // printable report (Markdown + LaTeX math), exportable to PDF
-
-        val ALL_TYPES = setOf(TYPE_HTML, TYPE_MARKDOWN, TYPE_LATEX)
 
         /** Normalize a model-declared type attribute to a known type (defaults to HTML). */
         fun normalizeType(raw: String?): String = when (raw?.trim()?.lowercase()) {

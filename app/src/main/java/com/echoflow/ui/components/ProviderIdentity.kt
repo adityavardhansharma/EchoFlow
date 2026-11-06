@@ -164,21 +164,3 @@ private val ProviderIdentity.glyph: ImageVector
         ProviderIdentity.Kling, ProviderIdentity.ByteDance -> Icons.Default.Movie
         else -> Icons.Default.Cloud
     }
-
-/** The mark for a generative surface that has no single provider yet (empty Imagine states). */
-@Composable
-fun ImagineMark(size: Dp = 24.dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .size(size)
-            .clip(RoundedPolygonShape(MaterialShapes.Flower))
-            .background(MaterialTheme.colorScheme.tertiaryContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Default.AutoFixHigh, null,
-            Modifier.size(size * 0.46f),
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
-    }
-}

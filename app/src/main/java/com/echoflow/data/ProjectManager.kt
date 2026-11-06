@@ -100,11 +100,6 @@ class ProjectManager(
         runCatching { projectDir(id).deleteRecursively() }
     }
 
-    suspend fun assignChat(chatId: String, projectId: String?) {
-        chatDao.setProjectId(chatId, projectId)
-        if (projectId != null) touch(projectId)
-    }
-
     /**
      * Import [uri] as a reference document: copy it into the project's folder, insert a
      * PENDING row immediately, then extract on this IO dispatcher. The Files UI observes the

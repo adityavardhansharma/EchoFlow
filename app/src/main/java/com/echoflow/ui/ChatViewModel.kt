@@ -536,7 +536,6 @@ class ChatViewModel(
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
     private val _chatMode = MutableStateFlow<ChatMode>(ChatMode.Normal)
-    val chatMode: StateFlow<ChatMode> = _chatMode.asStateFlow()
 
     val deepResearchActive: StateFlow<Boolean> = modeIs<ChatMode.DeepResearch>()
     val webSearchChipOn: StateFlow<Boolean> = modeIs<ChatMode.WebSearch>()
@@ -551,13 +550,6 @@ class ChatViewModel(
     // Artifact mode: sticky like the Echo modes. While on, every turn builds/updates an artifact;
     // follow-ups iterate the chat's current artifact (full version history).
     val artifactActive: StateFlow<Boolean> = modeIs<ChatMode.Artifact>()
-
-    // Image generation mode: sticky, so follow-up turns keep editing the chat's latest image.
-    val imageGenActive: StateFlow<Boolean> = modeIs<ChatMode.ImageGen>()
-
-    // Video generation mode: sticky like image mode, so a run of clips doesn't need the menu
-    // reopened between each one.
-    val videoGenActive: StateFlow<Boolean> = modeIs<ChatMode.VideoGen>()
 
     /**
      * The live row behind one video card. Cards resolve their state from here rather than
@@ -1019,12 +1011,6 @@ class ChatViewModel(
         viewModelScope.launch { projectManager.removeDocument(document) }
     }
 
-    /** Move the open conversation into a project (or out of one when [projectId] is null). */
-    fun assignCurrentChatToProject(projectId: String?) {
-        val chatId = _currentChatThreadId.value ?: return
-        viewModelScope.launch { projectManager.assignChat(chatId, projectId) }
-    }
-
     /** Start a fresh conversation that will belong to [projectId], and leave the projects surfaces. */
     fun startNewChatInProject(projectId: String) {
         selectThread(null)
@@ -1197,8 +1183,6 @@ class ChatViewModel(
     }
 
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
-    fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
-    fun toggleVideoGen() = toggleMode(ChatMode.VideoGen)
 
     // ── Imagine ──────────────────────────────────────────────────────────────────────────
 
