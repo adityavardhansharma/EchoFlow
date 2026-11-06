@@ -17,6 +17,7 @@ import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
+import com.echoflow.ui.chat.TemporaryChat
 import com.echoflow.ui.chat.blankSendKey
 import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
@@ -1602,6 +1603,8 @@ class ChatViewModel(
         // there, even if the user opens another chat while the send is getting ready.
         val startChatId = _currentChatThreadId.value
         val startMode = appMode.value
+        val startToken = navigation.begin()
+        val startedTemporary = startChatId == null && temporaryChat.state.value == TemporaryChat.Armed
         startChatId?.let { chatId ->
             if (turns.isRunning(chatId)) return
         }
@@ -1633,9 +1636,12 @@ class ChatViewModel(
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
             val customProvider = CustomProviderRouting.providerFor(selectedModel)
-            CustomProviderRouting.disabledMessage(customProvider, customProviderConfig)?.let {
-                _errorMessage.value = it
-                return@launch
+            // Image and video run on their own OpenRouter models, whatever chat model is picked.
+            if (!imageGenMode && !videoGenMode) {
+                CustomProviderRouting.disabledMessage(customProvider, customProviderConfig)?.let {
+                    _errorMessage.value = it
+                    return@launch
+                }
             }
             val customProviderActive = customProvider != null
             val requestModel = CustomProviderRouting.requestModel(customProvider, selectedModel)
@@ -1840,6 +1846,12 @@ class ChatViewModel(
             var chatId = startChatId
 
             if (chatId == null) {
+                // Open the new thread only if the user is still on the blank composer this send
+                // came from; otherwise it finishes in the background and shows up in history.
+                val stillOnBlank = _currentChatThreadId.value == null && appMode.value == startMode &&
+                    navigation.stillCurrent(startToken)
+                // Leaving an armed temporary chat already threw it away: don't save it as history.
+                if (startedTemporary && !stillOnBlank) return@launch
                 isFirstMsgInChat = true
                 // Project chats are always Chat threads — projects are a Chat concept, so a thread
                 // that carries a projectId is stamped 'chat' regardless of the active surface.
@@ -1847,12 +1859,14 @@ class ChatViewModel(
                     mode = if (activeProjectId != null) AppMode.Chat else startMode,
                     projectId = activeProjectId,
                 ).id
-                openNewThread(chatId)
-                // The new thread is open now, so a send typed into it must see this turn too.
+                // A send typed into the new thread must see this turn too, open or not.
                 turns.extend(sendClaim, chatId)
-                // The blank thread is real now, so this mode returns here rather than to
-                // whatever came before it.
-                settingsRepository.saveLastPosition(startMode, ModePosition.Thread(chatId))
+                if (stillOnBlank) {
+                    openNewThread(chatId)
+                    // The blank thread is real now, so this mode returns here rather than to
+                    // whatever came before it.
+                    settingsRepository.saveLastPosition(startMode, ModePosition.Thread(chatId))
+                }
                 if (activeProjectId != null) {
                     projectManager.touch(activeProjectId)
                     _pendingProjectId.value = null

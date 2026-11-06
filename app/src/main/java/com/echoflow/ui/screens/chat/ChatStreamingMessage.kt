@@ -313,8 +313,19 @@ internal fun SmoothStreamingText(
     val reducedMotion = rememberReducedMotion()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(revealState, segmentIndex, lifecycleOwner, reducedMotion) {
+        var firstStart = true
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
+                // Back from the background with the row still composed: text that arrived
+                // meanwhile shows at once rather than being typed out.
+                if (!firstStart) {
+                    val resume = revealState?.resumePoint(segmentIndex, target.length) ?: shown
+                    if (resume > shown) {
+                        shown = resume
+                        pacer.startAt(resume)
+                    }
+                }
+                firstStart = false
                 revealState?.report(reader, segmentIndex, if (reducedMotion) target.length else shown)
                 if (reducedMotion) {
                     snapshotFlow { target }.collect {
