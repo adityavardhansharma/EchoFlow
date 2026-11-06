@@ -19,9 +19,7 @@ import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
 import com.echoflow.ui.chat.BLANK_SEND_KEY
 import com.echoflow.ui.chat.SendClaim
-import com.echoflow.ui.chat.TemporaryChat
-import com.echoflow.ui.chat.TemporaryChatEffect
-import com.echoflow.ui.chat.TemporaryChatMachine
+import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
 import com.echoflow.ui.projects.ProjectsSurface
 import java.io.File
@@ -365,19 +363,16 @@ class ChatViewModel(
         }
 
     // Temporary chat state; declared before [allThreads], which hides the open one.
-    private val temporaryPrefs = application.getSharedPreferences("temporary_chat", Application.MODE_PRIVATE)
-
-    /** Written as soon as a temporary chat gets a row, so process death can't turn it into history. */
-    private val leftoverTemporaryChatId: String? = temporaryPrefs.getString(KEY_TEMPORARY_CHAT_ID, null)
-
-    /** Off, armed on a blank composer, or live in its own thread. See [TemporaryChatMachine]. */
-    private val _temporaryChat = MutableStateFlow<TemporaryChat>(TemporaryChat.Off)
+    private val temporaryChat = TemporaryChatController(application, viewModelScope) { id ->
+        chatRepository.thread(id)?.let { deleteThreadNow(it) }
+    }
+    private val leftoverTemporaryChatId: String? get() = temporaryChat.leftoverChatId
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val allThreads: StateFlow<List<ChatThread>> = combine(
         appMode.flatMapLatest { chatRepository.threadsForMode(it) },
-        _temporaryChat.map { it.chatId }.distinctUntilChanged(),
+        temporaryChat.state.map { it.chatId }.distinctUntilChanged(),
     ) { threads, temporaryId -> if (temporaryId == null) threads else threads.filter { it.id != temporaryId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -594,9 +589,7 @@ class ChatViewModel(
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
         // A temporary chat the process died inside is discarded on the next launch.
-        leftoverTemporaryChatId?.let { id ->
-            viewModelScope.launch { chatRepository.thread(id)?.let { deleteThreadNow(it) }; forgetTemporaryChatId() }
-        }
+        temporaryChat.discardLeftover()
         // Completion pings suppress per-conversation rather than per-app, so they need to know
         // which one is actually on screen. Reading chat A is no reason to swallow chat B.
         viewModelScope.launch {
@@ -951,7 +944,7 @@ class ChatViewModel(
                     // Keep it out of memory before any turn is written, wherever the user is now.
                     runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
                     if (stillOnBlank) {
-                        applyTemporary(TemporaryChatMachine.arm(_temporaryChat.value))
+                        temporaryChat.arm()
                         openNewThread(chatId)
                     } else {
                         // The user left the temporary chat mid-call: delete it once the call is saved.
@@ -1415,7 +1408,7 @@ class ChatViewModel(
     // ── Temporary chat ────────────────────────────────────────────────────────────────
 
     /** True while the user is in a temporary chat, blank or not. Drives the "not saved" pill. */
-    val isTemporaryChat: StateFlow<Boolean> = combine(_temporaryChat, _currentChatThreadId) { temporary, current ->
+    val isTemporaryChat: StateFlow<Boolean> = combine(temporaryChat.state, _currentChatThreadId) { temporary, current ->
         temporary.covers(current)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -1426,45 +1419,23 @@ class ChatViewModel(
     fun startTemporaryChat() {
         if (appMode.value != AppMode.Chat) return
         selectThread(null)
-        applyTemporary(TemporaryChatMachine.arm(_temporaryChat.value))
+        temporaryChat.arm()
     }
 
-    private fun isTemporaryNow(): Boolean = _temporaryChat.value.covers(_currentChatThreadId.value)
+    private fun isTemporaryNow(): Boolean = temporaryChat.covers(_currentChatThreadId.value)
 
     /**
      * [openThread] for a thread the app just created. When a temporary chat was armed, the new
      * thread becomes it — excluded from memory before any of its messages exist.
      */
     private fun openNewThread(chatId: String) {
-        val before = _temporaryChat.value
+        val before = temporaryChat.beforeNewThread()
         openThread(chatId, carryMode = true)
-        TemporaryChatMachine.threadCreated(before, chatId)?.let(::applyTemporary)
+        temporaryChat.threadCreated(before, chatId)
     }
 
     /** Leaving a temporary chat for anything other than itself discards it. */
-    private fun leaveTemporaryChat(except: String?) {
-        applyTemporary(TemporaryChatMachine.leave(_temporaryChat.value, to = except))
-    }
-
-    private fun applyTemporary(step: TemporaryChatMachine.Step) {
-        _temporaryChat.value = step.state
-        for (effect in step.effects) when (effect) {
-            is TemporaryChatEffect.Remember ->
-                temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, effect.chatId).commit()
-            // Best effort: every turn here already skips memory; this also keeps a manual
-            // "learn now" flush from picking the chat up before it is deleted.
-            is TemporaryChatEffect.ExcludeFromMemory ->
-                runCatching { MemorySettings(getApplication<Application>()).exclude(effect.chatId) }
-            is TemporaryChatEffect.Discard -> viewModelScope.launch {
-                chatRepository.thread(effect.chatId)?.let { deleteThreadNow(it) }
-                forgetTemporaryChatId()
-            }
-        }
-    }
-
-    private fun forgetTemporaryChatId() {
-        temporaryPrefs.edit().remove(KEY_TEMPORARY_CHAT_ID).apply()
-    }
+    private fun leaveTemporaryChat(except: String?) = temporaryChat.leave(to = except)
 
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch { deleteThreadNow(thread) }
@@ -1859,9 +1830,9 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
-            val temporaryChat = isTemporaryNow()
-            val learningSession = memorySettings.session().takeUnless { temporaryChat }
-            val memoryRequested = !temporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
+            val inTemporaryChat = isTemporaryNow()
+            val learningSession = memorySettings.session().takeUnless { inTemporaryChat }
+            val memoryRequested = !inTemporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
             val customToolCallingActive = customProviderActive &&
                 (effectiveProvider in CLIENT_SEARCH_PROVIDERS || memoryRequested) &&
@@ -3072,7 +3043,6 @@ class ChatViewModel(
 
         private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
         private const val STREAM_UI_EMIT_MS = 33L
-        private const val KEY_TEMPORARY_CHAT_ID = "temporary_chat_id"
         private const val ASSISTANT_HANDOFF_TIMEOUT_MS = 5_000L
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */
