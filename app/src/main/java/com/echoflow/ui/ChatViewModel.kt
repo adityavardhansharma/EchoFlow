@@ -17,6 +17,11 @@ import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
+import com.echoflow.ui.chat.BLANK_SEND_KEY
+import com.echoflow.ui.chat.SendClaim
+import com.echoflow.ui.chat.TemporaryChat
+import com.echoflow.ui.chat.TemporaryChatEffect
+import com.echoflow.ui.chat.TemporaryChatMachine
 import com.echoflow.ui.projects.ProjectImportController
 import java.io.File
 import java.util.UUID
@@ -364,17 +369,14 @@ class ChatViewModel(
     /** Written as soon as a temporary chat gets a row, so process death can't turn it into history. */
     private val leftoverTemporaryChatId: String? = temporaryPrefs.getString(KEY_TEMPORARY_CHAT_ID, null)
 
-    /** A blank composer whose first send will create a temporary chat. */
-    private val _temporaryArmed = MutableStateFlow(false)
-
-    /** The open temporary chat's thread, once its first message has created one. */
-    private val _temporaryChatId = MutableStateFlow<String?>(null)
+    /** Off, armed on a blank composer, or live in its own thread. See [TemporaryChatMachine]. */
+    private val _temporaryChat = MutableStateFlow<TemporaryChat>(TemporaryChat.Off)
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val allThreads: StateFlow<List<ChatThread>> = combine(
         appMode.flatMapLatest { chatRepository.threadsForMode(it) },
-        _temporaryChatId,
+        _temporaryChat.map { it.chatId }.distinctUntilChanged(),
     ) { threads, temporaryId -> if (temporaryId == null) threads else threads.filter { it.id != temporaryId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -539,6 +541,9 @@ class ChatViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     private val streamJobs = mutableMapOf<String, Job>()
+
+    /** Conversations with a send that has started but not yet registered in [streamJobs]. */
+    private val pendingSends: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
     // every path: cloud/image sends read the first entry (they only ever stage one); the local
@@ -979,7 +984,7 @@ class ChatViewModel(
                     // Keep it out of memory before any turn is written, wherever the user is now.
                     runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
                     if (stillOnBlank) {
-                        _temporaryArmed.value = true
+                        applyTemporary(TemporaryChatMachine.arm(_temporaryChat.value))
                         openNewThread(chatId)
                     } else {
                         // The user left the temporary chat mid-call: delete it once the call is saved.
@@ -1444,8 +1449,8 @@ class ChatViewModel(
     // ── Temporary chat ────────────────────────────────────────────────────────────────
 
     /** True while the user is in a temporary chat, blank or not. Drives the "not saved" pill. */
-    val isTemporaryChat: StateFlow<Boolean> = combine(_temporaryArmed, _temporaryChatId, _currentChatThreadId) { armed, id, current ->
-        armed || (id != null && id == current)
+    val isTemporaryChat: StateFlow<Boolean> = combine(_temporaryChat, _currentChatThreadId) { temporary, current ->
+        temporary.covers(current)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
@@ -1455,36 +1460,39 @@ class ChatViewModel(
     fun startTemporaryChat() {
         if (appMode.value != AppMode.Chat) return
         selectThread(null)
-        _temporaryArmed.value = true
+        applyTemporary(TemporaryChatMachine.arm(_temporaryChat.value))
     }
 
-    private fun isTemporaryNow(): Boolean =
-        _temporaryArmed.value || (_temporaryChatId.value != null && _temporaryChatId.value == _currentChatThreadId.value)
+    private fun isTemporaryNow(): Boolean = _temporaryChat.value.covers(_currentChatThreadId.value)
 
     /**
      * [openThread] for a thread the app just created. When a temporary chat was armed, the new
      * thread becomes it — excluded from memory before any of its messages exist.
      */
     private fun openNewThread(chatId: String) {
-        val temporary = _temporaryArmed.value
+        val before = _temporaryChat.value
         openThread(chatId, carryMode = true)
-        if (!temporary) return
-        _temporaryChatId.value = chatId
-        temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, chatId).commit()
-        // Best effort: every turn here already skips memory; this also keeps a manual
-        // "learn now" flush from picking the chat up before it is deleted.
-        runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
+        TemporaryChatMachine.threadCreated(before, chatId)?.let(::applyTemporary)
     }
 
     /** Leaving a temporary chat for anything other than itself discards it. */
     private fun leaveTemporaryChat(except: String?) {
-        _temporaryArmed.value = false
-        val id = _temporaryChatId.value ?: return
-        if (id == except) return
-        _temporaryChatId.value = null
-        viewModelScope.launch {
-            chatRepository.thread(id)?.let { deleteThreadNow(it) }
-            forgetTemporaryChatId()
+        applyTemporary(TemporaryChatMachine.leave(_temporaryChat.value, to = except))
+    }
+
+    private fun applyTemporary(step: TemporaryChatMachine.Step) {
+        _temporaryChat.value = step.state
+        for (effect in step.effects) when (effect) {
+            is TemporaryChatEffect.Remember ->
+                temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, effect.chatId).commit()
+            // Best effort: every turn here already skips memory; this also keeps a manual
+            // "learn now" flush from picking the chat up before it is deleted.
+            is TemporaryChatEffect.ExcludeFromMemory ->
+                runCatching { MemorySettings(getApplication<Application>()).exclude(effect.chatId) }
+            is TemporaryChatEffect.Discard -> viewModelScope.launch {
+                chatRepository.thread(effect.chatId)?.let { deleteThreadNow(it) }
+                forgetTemporaryChatId()
+            }
         }
     }
 
@@ -1676,6 +1684,11 @@ class ChatViewModel(
         _currentChatThreadId.value?.let { chatId ->
             if (streamJobs[chatId]?.isActive == true) return
         }
+        // Claim the conversation before the first suspend. Validation below reads settings and
+        // Room before the turn registers in [streamJobs], so without this two quick sends could
+        // both pass the check above and run two turns in one chat.
+        val sendClaim = SendClaim(_currentChatThreadId.value ?: BLANK_SEND_KEY)
+        if (!sendClaim.tryClaim(pendingSends)) return
 
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
@@ -1686,6 +1699,7 @@ class ChatViewModel(
         if (imageGenMode || videoGenMode) clearImagineArmedModes()
 
         viewModelScope.launch {
+            coroutineContext[Job]?.invokeOnCompletion { sendClaim.release(pendingSends) }
             clearError()
 
             if (editingUserId != null) {
@@ -1998,6 +2012,8 @@ class ChatViewModel(
                     projectId = activeProjectId,
                 ).id
                 openNewThread(chatId)
+                // The new thread is open now, so a send typed into it must see this turn too.
+                sendClaim.extend(pendingSends, chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
@@ -2023,6 +2039,8 @@ class ChatViewModel(
             }
             val streamJob = coroutineContext[Job]
             streamJob?.let { streamJobs[chatId] = it }
+            // [streamJobs] guards this chat from here on.
+            sendClaim.release(pendingSends)
             // Allocate the durable assistant identity before any transient UI appears. The same ID
             // keys the live row and the Room message, so completion never replaces the list item.
             val assistantMessageId = UUID.randomUUID().toString()
