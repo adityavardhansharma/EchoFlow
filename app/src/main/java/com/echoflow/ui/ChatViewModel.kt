@@ -18,7 +18,6 @@ import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
 import com.echoflow.ui.chat.BLANK_SEND_KEY
-import com.echoflow.ui.chat.SendClaim
 import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
 import com.echoflow.ui.projects.ProjectsSurface
@@ -462,7 +461,8 @@ class ChatViewModel(
 
     // Streaming & Loading states. Streams are scoped per chat so a live reply in one
     // conversation never appears while viewing another conversation.
-    private val _activeStreams = MutableStateFlow<Map<String, ActiveStreamState>>(emptyMap())
+    private val turns = ChatTurnRegistry()
+    private val _activeStreams = turns.streams
 
     /**
      * The open conversation's turn in flight, or null. Every per-turn flow below is a view of
@@ -512,10 +512,6 @@ class ChatViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val streamJobs = mutableMapOf<String, Job>()
-
-    /** Conversations with a send that has started but not yet registered in [streamJobs]. */
-    private val pendingSends: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
     // every path: cloud/image sends read the first entry (they only ever stage one); the local
@@ -1473,7 +1469,7 @@ class ChatViewModel(
      * not enough: a coroutine is only stopped once it has actually unwound.
      */
     private suspend fun cancelWorkForChat(chatId: String) {
-        streamJobs.remove(chatId)?.cancelAndJoin()
+        turns.cancelAndJoin(chatId)
         videoRecovery.cancelForChat(chatId)
     }
 
@@ -1500,7 +1496,7 @@ class ChatViewModel(
 
     fun stopStreaming() {
         _currentChatThreadId.value?.let { chatId ->
-            streamJobs[chatId]?.cancel()
+            turns.cancel(chatId)
         }
     }
 
@@ -1529,9 +1525,7 @@ class ChatViewModel(
     // -------------------------------------------------------------------------------
 
     private fun setStreamState(chatId: String, state: ActiveStreamState?) {
-        _activeStreams.value = _activeStreams.value.toMutableMap().apply {
-            if (state == null) remove(chatId) else put(chatId, state)
-        }
+        turns.setState(chatId, state)
     }
 
     /**
@@ -1558,10 +1552,7 @@ class ChatViewModel(
 
     /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
     private fun clearStreamIfOwned(chatId: String, streamJob: Job?): Boolean {
-        if (streamJob == null || streamJobs[chatId] !== streamJob) return false
-        streamJobs.remove(chatId)
-        setStreamState(chatId, null)
-        return true
+        return turns.clearIfOwned(chatId, streamJob)
     }
 
     fun sendMessage(content: String, forceMemory: Boolean = false) {
@@ -1619,13 +1610,12 @@ class ChatViewModel(
         }
 
         _currentChatThreadId.value?.let { chatId ->
-            if (streamJobs[chatId]?.isActive == true) return
+            if (turns.isRunning(chatId)) return
         }
         // Claim the conversation before the first suspend. Validation below reads settings and
-        // Room before the turn registers in [streamJobs], so without this two quick sends could
+        // Room before the turn registers in [turns], so without this two quick sends could
         // both pass the check above and run two turns in one chat.
-        val sendClaim = SendClaim(_currentChatThreadId.value ?: BLANK_SEND_KEY)
-        if (!sendClaim.tryClaim(pendingSends)) return
+        val sendClaim = turns.claim(_currentChatThreadId.value ?: BLANK_SEND_KEY) ?: return
 
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
@@ -1636,7 +1626,7 @@ class ChatViewModel(
         if (editingUserId == null && _chatMode.value.lifetime == ModeLifetime.OneSend) clearImagineArmedModes()
 
         viewModelScope.launch {
-            coroutineContext[Job]?.invokeOnCompletion { sendClaim.release(pendingSends) }
+            coroutineContext[Job]?.invokeOnCompletion { turns.release(sendClaim) }
             clearError()
 
             if (editingUserId != null) {
@@ -1696,7 +1686,7 @@ class ChatViewModel(
                 }
             }
 
-            if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
+            if (isLocal && turns.anyLocal()) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
                 return@launch
             }
@@ -1868,7 +1858,7 @@ class ChatViewModel(
                 ).id
                 openNewThread(chatId)
                 // The new thread is open now, so a send typed into it must see this turn too.
-                sendClaim.extend(pendingSends, chatId)
+                turns.extend(sendClaim, chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
@@ -1878,7 +1868,7 @@ class ChatViewModel(
                 }
             }
 
-            if (streamJobs[chatId]?.isActive == true) return@launch
+            if (turns.isRunning(chatId)) return@launch
             // Remember the model this turn used, so reopening the chat picks it back up.
             chatDao.setModelId(chatId, selectedModel)
             // Record provenance before user text is stored: a cancelled local reply must
@@ -1893,9 +1883,8 @@ class ChatViewModel(
                 }
             }
             val streamJob = coroutineContext[Job]
-            streamJob?.let { streamJobs[chatId] = it }
-            // [streamJobs] guards this chat from here on.
-            sendClaim.release(pendingSends)
+            // The registered job guards this chat from here on.
+            turns.register(chatId, streamJob, sendClaim)
             // Allocate the durable assistant identity before any transient UI appears. The same ID
             // keys the live row and the Room message, so completion never replaces the list item.
             val assistantMessageId = UUID.randomUUID().toString()
