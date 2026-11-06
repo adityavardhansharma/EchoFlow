@@ -23,6 +23,7 @@ import com.echoflow.ui.chat.TemporaryChat
 import com.echoflow.ui.chat.TemporaryChatEffect
 import com.echoflow.ui.chat.TemporaryChatMachine
 import com.echoflow.ui.projects.ProjectImportController
+import com.echoflow.ui.projects.ProjectsSurface
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
@@ -806,12 +807,11 @@ class ChatViewModel(
     // fullscreen surfaces opened from the drawer, mirroring the workspace overlay pattern. Home
     // stacks on top of the hub, so back steps home → hub → closed.
 
-    private val _projectsHubOpen = MutableStateFlow(false)
-    val projectsHubOpen: StateFlow<Boolean> = _projectsHubOpen.asStateFlow()
+    private val _projectsSurface = MutableStateFlow<ProjectsSurface>(ProjectsSurface.Closed)
+    val projectsHubOpen: StateFlow<Boolean> = _projectsSurface.mapState { it.hubOpen }
 
     /** The project whose home is open, layered above the hub list; null = showing the list. */
-    private val _openProjectId = MutableStateFlow<String?>(null)
-    val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
+    val openProjectId: StateFlow<String?> = _projectsSurface.mapState { it.openProjectId }
 
     private val projectImports = ProjectImportController(projectManager, viewModelScope)
     val projectFileError = projectImports.projectFileError
@@ -849,28 +849,25 @@ class ChatViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun openProjectsHub() {
-        _projectsHubOpen.value = true
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Hub
     }
 
     fun openProjectHome(projectId: String) {
-        _openProjectId.value = projectId
+        _projectsSurface.update { it.openHome(projectId) }
         viewModelScope.launch { projectManager.backfillProject(projectId) }
     }
 
     val modelReadsFiles: StateFlow<Boolean> = settingsRepository.selectedModel
         .map { com.echoflow.data.extract.ModelFileCapability.readsFiles(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
-    fun closeProjectHome() { _openProjectId.value = null }
+    fun closeProjectHome() { _projectsSurface.update { it.closeHome() } }
 
     fun closeProjectsHub() {
-        _projectsHubOpen.value = false
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Closed
     }
 
     private fun dismissProjectSurfaces() {
-        _projectsHubOpen.value = false
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Closed
         _artifactsGalleryOpen.value = false
     }
 
@@ -896,7 +893,7 @@ class ChatViewModel(
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
             projectManager.deleteProject(projectId)
-            if (_openProjectId.value == projectId) _openProjectId.value = null
+            _projectsSurface.update { it.projectDeleted(projectId) }
             // Drop a pending assignment to the now-deleted project so the next blank-chat send
             // can't stamp a thread with a dangling project id.
             if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
@@ -1078,8 +1075,7 @@ class ChatViewModel(
 
     /** From the in-chat pill: open the current chat's project home over the conversation. */
     fun openProjectFromChat(projectId: String) {
-        _projectsHubOpen.value = true
-        _openProjectId.value = projectId
+        _projectsSurface.value = ProjectsSurface.Home(projectId)
     }
 
     /**
