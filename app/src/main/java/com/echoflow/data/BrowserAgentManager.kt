@@ -497,6 +497,9 @@ class BrowserAgentManager(
     // ── small helpers ───────────────────────────────────────────────────────────────────
 
     private suspend fun save(session: BrowserSession) {
+        // A late write from a stale copy must not reopen a session that has already ended.
+        val stored = sessionDao.getById(session.id)?.status
+        if (!DurableStatus.canMove(stored, session.status, BrowserSession.TERMINAL_STATUSES)) return
         sessionDao.upsert(session.copy(updatedAt = System.currentTimeMillis()))
     }
 

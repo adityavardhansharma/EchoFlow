@@ -404,6 +404,9 @@ class DeepResearchForegroundService : Service() {
     }
 
     private suspend fun persist(run: ResearchRun) {
+        // A step finishing after a cancel must not reopen the run.
+        val stored = db.researchRunDao().getById(run.id)?.status
+        if (!DurableStatus.canMove(stored, run.status, ResearchRun.TERMINAL_STATUSES)) return
         db.researchRunDao().upsert(run)
     }
 
