@@ -22,83 +22,38 @@ import com.echoflow.ui.theme.Spacing
 
 @Composable
 internal fun EchoAgentPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val apiKey by viewModel.apiKey.collectAsState()
     val profiles by viewModel.agentProfiles.collectAsState()
     val selectedId by viewModel.echoAgentProfileId.collectAsState()
-    val orQuery by viewModel.orModelQuery.collectAsState()
-    val orResults by viewModel.orModelResults.collectAsState()
-    val orLoading by viewModel.orDirectoryLoading.collectAsState()
-    val orError by viewModel.orDirectoryError.collectAsState()
-
+    val enabled by viewModel.echoAgentEnabled.collectAsState()
     var showDirectory by remember { mutableStateOf(false) }
     var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
 
-    SettingsPageScaffold(title = "Echo Agents", subtitle = "Your main model hands work to an Echo Agent", onBack = onBack) {
-        val agentEnabled by viewModel.echoAgentEnabled.collectAsState()
-        LabMasterToggle("Echo Agents", "Show this mode in the chat + menu", agentEnabled, viewModel::saveEchoAgentEnabled)
-        Spacer(Modifier.height(Spacing.m))
-        FormCard {
-            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                "Your main model gets a full toolbox — web search, web fetch, and an Echo Agent (a faster, cheaper model) it can hand self-contained tasks to. It decides which tools to use and in what order, chaining them freely. Pick the main model per chat from the model selector; choose the Echo Agent here. OpenRouter only; each message can add cost.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (apiKey.isBlank()) {
-            Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Agents.", error = true)
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Your Echo Agents", "Tap to set the default; pick per chat from the model selector")
-        if (profiles.isEmpty()) {
-            EchoNoticeCard(Icons.Default.Hub, "No Echo Agents yet.\nAdd one below — a fast, cheap model works best.")
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-                profiles.forEach { profile ->
-                    DrEngineSelectRow(
-                        name = profile.name,
-                        subtitle = "${profile.workerModelName.ifBlank { profile.workerModelId }} · up to ${profile.maxToolCalls} steps",
-                        selected = profile.id == selectedId,
-                        onClick = { viewModel.saveEchoAgentProfile(profile.id) },
-                        onDelete = { viewModel.deleteAgentProfile(profile.id) },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(Spacing.s))
-        FilledTonalButton(
-            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(Spacing.s))
-            Text("Add an Echo Agent")
-        }
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            "Your Echo Agent can search and fetch the web while doing its task. It never sees the chat history — only the task the main model gives it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Spacing.xs),
-        )
-    }
+    EchoProfilesPage(
+        viewModel = viewModel,
+        mode = "Echo Agents",
+        subtitle = "Your main model hands work to an Echo Agent",
+        enabled = enabled,
+        onEnabledChange = viewModel::saveEchoAgentEnabled,
+        description = "Your main model gets a full toolbox — web search, web fetch, and an Echo Agent (a faster, cheaper model) it can hand self-contained tasks to. It decides which tools to use and in what order, chaining them freely. Pick the main model per chat from the model selector; choose the Echo Agent here. OpenRouter only; each message can add cost.",
+        sectionTitle = "Your Echo Agents",
+        emptyIcon = Icons.Default.Hub,
+        emptyText = "No Echo Agents yet.\nAdd one below — a fast, cheap model works best.",
+        rows = profiles.map {
+            EchoProfileRow(it.id, it.name, "${it.workerModelName.ifBlank { it.workerModelId }} · up to ${it.maxToolCalls} steps")
+        },
+        selectedId = selectedId,
+        onSelect = viewModel::saveEchoAgentProfile,
+        onDelete = viewModel::deleteAgentProfile,
+        addLabel = "Add an Echo Agent",
+        onAdd = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+        onBack = onBack,
+        footnote = "Your Echo Agent can search and fetch the web while doing its task. It never sees the chat history — only the task the main model gives it.",
+    )
 
     if (showDirectory) {
-        OpenRouterDirectorySheet(
-            query = orQuery,
-            results = orResults,
-            loading = orLoading,
-            error = orError,
-            addedIds = emptySet(),
-            onQueryChange = viewModel::updateOrModelQuery,
-            onRetry = viewModel::loadOpenRouterDirectory,
+        OpenRouterPickerSheet(
+            viewModel,
             onAdd = { info -> pendingModel = info; showDirectory = false },
-            onRemove = {},
             onDismiss = { showDirectory = false },
         )
     }
