@@ -61,7 +61,7 @@ pure transitions that plain JUnit tests cover:
 | `DictationCycle` | `data/DictationCycle.kt` | System dictation's phase and generation; a stale capture can't finish a newer one. |
 | `LoadedEngine` / `SessionBinding` | `data/LocalEngineState.kt` | Which on-device model is loaded, and whether its session can carry on the same chat. |
 | `ChatTurnRegistry` | `ui/ChatTurnRegistry.kt` | Each chat's turn: claimed, registered, visible. Replaces three loose fields in `ChatViewModel`. |
-| `OverlayStack` | `OverlayStack.kt` | The full-screen layers over the chat, in drawing order, and the one back handler that closes the top. |
+| `OverlayStack` | `navigation/OverlayStack.kt` | The full-screen layers over the chat, in drawing order. One back handler closes the top layer, except `ProjectsHub` and `Schedules` (`ownsBack`), which handle Back themselves so they can step back through their own pages first. |
 
 Provider quirks that chat routing needs (which prefix, image and PDF support, the error text) live
 in `CustomProviderRouting`; the Echo Agents/Adviser/Fusion model rule lives in `EchoModeGate`.
