@@ -3,6 +3,7 @@
 
 package com.echoflow.ui.screens.chat
 
+import com.echoflow.ui.components.copyText
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons

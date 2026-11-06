@@ -30,9 +30,10 @@ class DictationVocabularyTest {
         assertEquals(emptyList<String>(), DictationVocabulary.decode(null))
     }
 
-    @Test fun `only Gemini Transcribe accepts a vocabulary`() {
+    @Test fun `only Gemini Transcribe and Scribe v2 accept a vocabulary`() {
+        // Scribe takes the vocabulary as keyterms on both of its routes.
         assertEquals(
-            listOf(SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID),
+            listOf(SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID, SttCatalog.SCRIBE_MODEL_ID),
             (SttCatalog.CLOUD_MODELS + SttCatalog.SARVAM_MODEL).filter { it.supportsCustomVocabulary }.map { it.id },
         )
     }

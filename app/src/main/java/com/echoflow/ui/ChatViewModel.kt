@@ -17,7 +17,10 @@ import com.echoflow.data.extract.ModelFileCapability
 import com.echoflow.ui.artifacts.ArtifactWorkspaceController
 import com.echoflow.ui.chat.ChatAttachmentController
 import com.echoflow.ui.chat.LocalSearchProtocol
+import com.echoflow.ui.chat.BLANK_SEND_KEY
+import com.echoflow.ui.chat.TemporaryChatController
 import com.echoflow.ui.projects.ProjectImportController
+import com.echoflow.ui.projects.ProjectsSurface
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
@@ -128,7 +131,7 @@ class ChatViewModel(
      */
     fun switchMode(mode: AppMode) {
         if (mode == appMode.value) return
-        navigationEpoch++
+        navigation.navigated()
         if (voiceModeState.value.active) endVoiceMode()
         if (mode == AppMode.Chat) clearImagineArmedModes()
         parkCurrentPosition()
@@ -144,7 +147,7 @@ class ChatViewModel(
      * into Chat while the last Imagine mode is still live.
      */
     private fun clearImagineArmedModes() {
-        if (_chatMode.value is ChatMode.ImageGen || _chatMode.value is ChatMode.VideoGen) {
+        if (_chatMode.value.lifetime == ModeLifetime.OneSend) {
             setMode(ChatMode.Normal)
         }
     }
@@ -359,22 +362,16 @@ class ChatViewModel(
         }
 
     // Temporary chat state; declared before [allThreads], which hides the open one.
-    private val temporaryPrefs = application.getSharedPreferences("temporary_chat", Application.MODE_PRIVATE)
-
-    /** Written as soon as a temporary chat gets a row, so process death can't turn it into history. */
-    private val leftoverTemporaryChatId: String? = temporaryPrefs.getString(KEY_TEMPORARY_CHAT_ID, null)
-
-    /** A blank composer whose first send will create a temporary chat. */
-    private val _temporaryArmed = MutableStateFlow(false)
-
-    /** The open temporary chat's thread, once its first message has created one. */
-    private val _temporaryChatId = MutableStateFlow<String?>(null)
+    private val temporaryChat = TemporaryChatController(application, viewModelScope) { id ->
+        chatRepository.thread(id)?.let { deleteThreadNow(it) }
+    }
+    private val leftoverTemporaryChatId: String? get() = temporaryChat.leftoverChatId
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val allThreads: StateFlow<List<ChatThread>> = combine(
         appMode.flatMapLatest { chatRepository.threadsForMode(it) },
-        _temporaryChatId,
+        temporaryChat.state.map { it.chatId }.distinctUntilChanged(),
     ) { threads, temporaryId -> if (temporaryId == null) threads else threads.filter { it.id != temporaryId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -464,55 +461,32 @@ class ChatViewModel(
 
     // Streaming & Loading states. Streams are scoped per chat so a live reply in one
     // conversation never appears while viewing another conversation.
-    private val _activeStreams = MutableStateFlow<Map<String, ActiveStreamState>>(emptyMap())
+    private val turns = ChatTurnRegistry()
+    private val _activeStreams = turns.streams
 
-    val isStreaming: StateFlow<Boolean> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        chatId != null && streams.containsKey(chatId)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+    /**
+     * The open conversation's turn in flight, or null. Every per-turn flow below is a view of
+     * this one, so they can never disagree about which turn they describe.
+     */
+    private val currentStream: StateFlow<ActiveStreamState?> =
+        combine(_currentChatThreadId, _activeStreams) { chatId, streams -> chatId?.let(streams::get) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isStreaming: StateFlow<Boolean> = currentStream.mapState { it != null }
 
     /** Ordered timeline of the in-progress reply: text, reasoning and search blocks. */
-    val activeSegments: StateFlow<List<StreamSegment>> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.segments ?: emptyList()
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val activeSegments: StateFlow<List<StreamSegment>> = currentStream.mapState { it?.segments ?: emptyList() }
 
     /** Visible readers acknowledge their reveal before the persisted-message handoff. */
-    val streamRevealState: StateFlow<StreamRevealState?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.revealState
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val streamRevealState: StateFlow<StreamRevealState?> = currentStream.mapState { it?.revealState }
 
     /** Stable identity shared by the live row and its eventual persisted message. */
-    val activeStreamMessageId: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.messageId
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null,
-    )
+    val activeStreamMessageId: StateFlow<String?> = currentStream.mapState { it?.messageId }
 
     /** Transient status line shown under the streaming bubble (e.g. search failures). */
-    val statusNote: StateFlow<String?> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.statusNote
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+    val statusNote: StateFlow<String?> = currentStream.mapState { it?.statusNote }
 
-    val apiProgressLoading: StateFlow<Boolean> = combine(_currentChatThreadId, _activeStreams) { chatId, streams ->
-        streams[chatId]?.progressLoading == true
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false
-    )
+    val apiProgressLoading: StateFlow<Boolean> = currentStream.mapState { it?.progressLoading == true }
 
     /** True while an on-device model is being loaded into RAM / its context prefilled. */
     val localModelLoading: StateFlow<Boolean> = combine(
@@ -538,7 +512,6 @@ class ChatViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val streamJobs = mutableMapOf<String, Job>()
 
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
     // every path: cloud/image sends read the first entry (they only ever stage one); the local
@@ -563,7 +536,6 @@ class ChatViewModel(
     // Per-message capability selected by the "+" menu. Exposed as legacy boolean flows so
     // existing UI components can stay simple while illegal combinations remain unrepresentable.
     private val _chatMode = MutableStateFlow<ChatMode>(ChatMode.Normal)
-    val chatMode: StateFlow<ChatMode> = _chatMode.asStateFlow()
 
     val deepResearchActive: StateFlow<Boolean> = modeIs<ChatMode.DeepResearch>()
     val webSearchChipOn: StateFlow<Boolean> = modeIs<ChatMode.WebSearch>()
@@ -578,13 +550,6 @@ class ChatViewModel(
     // Artifact mode: sticky like the Echo modes. While on, every turn builds/updates an artifact;
     // follow-ups iterate the chat's current artifact (full version history).
     val artifactActive: StateFlow<Boolean> = modeIs<ChatMode.Artifact>()
-
-    // Image generation mode: sticky, so follow-up turns keep editing the chat's latest image.
-    val imageGenActive: StateFlow<Boolean> = modeIs<ChatMode.ImageGen>()
-
-    // Video generation mode: sticky like image mode, so a run of clips doesn't need the menu
-    // reopened between each one.
-    val videoGenActive: StateFlow<Boolean> = modeIs<ChatMode.VideoGen>()
 
     /**
      * The live row behind one video card. Cards resolve their state from here rather than
@@ -612,9 +577,7 @@ class ChatViewModel(
     init {
         viewModelScope.launch { videoRecovery.resumeInterrupted() }
         // A temporary chat the process died inside is discarded on the next launch.
-        leftoverTemporaryChatId?.let { id ->
-            viewModelScope.launch { chatRepository.thread(id)?.let { deleteThreadNow(it) }; forgetTemporaryChatId() }
-        }
+        temporaryChat.discardLeftover()
         // Completion pings suppress per-conversation rather than per-app, so they need to know
         // which one is actually on screen. Reading chat A is no reason to swallow chat B.
         viewModelScope.launch {
@@ -801,12 +764,11 @@ class ChatViewModel(
     // fullscreen surfaces opened from the drawer, mirroring the workspace overlay pattern. Home
     // stacks on top of the hub, so back steps home → hub → closed.
 
-    private val _projectsHubOpen = MutableStateFlow(false)
-    val projectsHubOpen: StateFlow<Boolean> = _projectsHubOpen.asStateFlow()
+    private val _projectsSurface = MutableStateFlow<ProjectsSurface>(ProjectsSurface.Closed)
+    val projectsHubOpen: StateFlow<Boolean> = _projectsSurface.mapState { it.hubOpen }
 
     /** The project whose home is open, layered above the hub list; null = showing the list. */
-    private val _openProjectId = MutableStateFlow<String?>(null)
-    val openProjectId: StateFlow<String?> = _openProjectId.asStateFlow()
+    val openProjectId: StateFlow<String?> = _projectsSurface.mapState { it.openProjectId }
 
     private val projectImports = ProjectImportController(projectManager, viewModelScope)
     val projectFileError = projectImports.projectFileError
@@ -844,28 +806,25 @@ class ChatViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun openProjectsHub() {
-        _projectsHubOpen.value = true
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Hub
     }
 
     fun openProjectHome(projectId: String) {
-        _openProjectId.value = projectId
+        _projectsSurface.update { it.openHome(projectId) }
         viewModelScope.launch { projectManager.backfillProject(projectId) }
     }
 
     val modelReadsFiles: StateFlow<Boolean> = settingsRepository.selectedModel
         .map { com.echoflow.data.extract.ModelFileCapability.readsFiles(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
-    fun closeProjectHome() { _openProjectId.value = null }
+    fun closeProjectHome() { _projectsSurface.update { it.closeHome() } }
 
     fun closeProjectsHub() {
-        _projectsHubOpen.value = false
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Closed
     }
 
     private fun dismissProjectSurfaces() {
-        _projectsHubOpen.value = false
-        _openProjectId.value = null
+        _projectsSurface.value = ProjectsSurface.Closed
         _artifactsGalleryOpen.value = false
     }
 
@@ -891,7 +850,7 @@ class ChatViewModel(
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
             projectManager.deleteProject(projectId)
-            if (_openProjectId.value == projectId) _openProjectId.value = null
+            _projectsSurface.update { it.projectDeleted(projectId) }
             // Drop a pending assignment to the now-deleted project so the next blank-chat send
             // can't stamp a thread with a dangling project id.
             if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
@@ -935,12 +894,6 @@ class ChatViewModel(
     /** New temporary chats a voice call made after the user had already left them. */
     private val orphanedVoiceChats = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-    /**
-     * Bumped on every explicit navigation. A voice call compares it with the value at its start,
-     * so a late first save never opens its chat over a different blank chat the user moved to.
-     */
-    @Volatile private var navigationEpoch = 0L
-
     // Lazy: navigation can run during construction (restoring the last chat), before this line.
     private val voiceMode by lazy { com.echoflow.ui.chat.VoiceModeController(
         app = getApplication(),
@@ -957,7 +910,7 @@ class ChatViewModel(
                     projectContext = projectId?.let { projectManager.buildSystemContext(it) }.orEmpty(),
                     projectId = projectId,
                     temporary = isTemporaryNow(),
-                    navigationToken = navigationEpoch,
+                    navigationToken = navigation.begin(),
                 )
             }
 
@@ -974,12 +927,12 @@ class ChatViewModel(
                     projectManager.touch(projectId)
                     if (_pendingProjectId.value == projectId) _pendingProjectId.value = null
                 }
-                val stillOnBlank = _currentChatThreadId.value == null && navigationEpoch == context.navigationToken
+                val stillOnBlank = _currentChatThreadId.value == null && navigation.stillCurrent(context.navigationToken)
                 if (context.temporary) {
                     // Keep it out of memory before any turn is written, wherever the user is now.
                     runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
                     if (stillOnBlank) {
-                        _temporaryArmed.value = true
+                        temporaryChat.arm()
                         openNewThread(chatId)
                     } else {
                         // The user left the temporary chat mid-call: delete it once the call is saved.
@@ -1058,12 +1011,6 @@ class ChatViewModel(
         viewModelScope.launch { projectManager.removeDocument(document) }
     }
 
-    /** Move the open conversation into a project (or out of one when [projectId] is null). */
-    fun assignCurrentChatToProject(projectId: String?) {
-        val chatId = _currentChatThreadId.value ?: return
-        viewModelScope.launch { projectManager.assignChat(chatId, projectId) }
-    }
-
     /** Start a fresh conversation that will belong to [projectId], and leave the projects surfaces. */
     fun startNewChatInProject(projectId: String) {
         selectThread(null)
@@ -1079,8 +1026,7 @@ class ChatViewModel(
 
     /** From the in-chat pill: open the current chat's project home over the conversation. */
     fun openProjectFromChat(projectId: String) {
-        _projectsHubOpen.value = true
-        _openProjectId.value = projectId
+        _projectsSurface.value = ProjectsSurface.Home(projectId)
     }
 
     /**
@@ -1237,8 +1183,6 @@ class ChatViewModel(
     }
 
     fun toggleArtifact() = toggleMode(ChatMode.Artifact)
-    fun toggleImageGen() = toggleMode(ChatMode.ImageGen)
-    fun toggleVideoGen() = toggleMode(ChatMode.VideoGen)
 
     // ── Imagine ──────────────────────────────────────────────────────────────────────────
 
@@ -1347,7 +1291,7 @@ class ChatViewModel(
 
     fun selectThread(chatId: String?) {
         // Opening another conversation hangs up; the call is saved into the chat it belongs to.
-        navigationEpoch++
+        navigation.navigated()
         if (voiceModeState.value.active) endVoiceMode()
         openThread(chatId)
         // Parked so this mode reopens here after a round trip through the other one — and a
@@ -1444,8 +1388,8 @@ class ChatViewModel(
     // ── Temporary chat ────────────────────────────────────────────────────────────────
 
     /** True while the user is in a temporary chat, blank or not. Drives the "not saved" pill. */
-    val isTemporaryChat: StateFlow<Boolean> = combine(_temporaryArmed, _temporaryChatId, _currentChatThreadId) { armed, id, current ->
-        armed || (id != null && id == current)
+    val isTemporaryChat: StateFlow<Boolean> = combine(temporaryChat.state, _currentChatThreadId) { temporary, current ->
+        temporary.covers(current)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
@@ -1455,42 +1399,23 @@ class ChatViewModel(
     fun startTemporaryChat() {
         if (appMode.value != AppMode.Chat) return
         selectThread(null)
-        _temporaryArmed.value = true
+        temporaryChat.arm()
     }
 
-    private fun isTemporaryNow(): Boolean =
-        _temporaryArmed.value || (_temporaryChatId.value != null && _temporaryChatId.value == _currentChatThreadId.value)
+    private fun isTemporaryNow(): Boolean = temporaryChat.covers(_currentChatThreadId.value)
 
     /**
      * [openThread] for a thread the app just created. When a temporary chat was armed, the new
      * thread becomes it — excluded from memory before any of its messages exist.
      */
     private fun openNewThread(chatId: String) {
-        val temporary = _temporaryArmed.value
+        val before = temporaryChat.beforeNewThread()
         openThread(chatId, carryMode = true)
-        if (!temporary) return
-        _temporaryChatId.value = chatId
-        temporaryPrefs.edit().putString(KEY_TEMPORARY_CHAT_ID, chatId).commit()
-        // Best effort: every turn here already skips memory; this also keeps a manual
-        // "learn now" flush from picking the chat up before it is deleted.
-        runCatching { MemorySettings(getApplication<Application>()).exclude(chatId) }
+        temporaryChat.threadCreated(before, chatId)
     }
 
     /** Leaving a temporary chat for anything other than itself discards it. */
-    private fun leaveTemporaryChat(except: String?) {
-        _temporaryArmed.value = false
-        val id = _temporaryChatId.value ?: return
-        if (id == except) return
-        _temporaryChatId.value = null
-        viewModelScope.launch {
-            chatRepository.thread(id)?.let { deleteThreadNow(it) }
-            forgetTemporaryChatId()
-        }
-    }
-
-    private fun forgetTemporaryChatId() {
-        temporaryPrefs.edit().remove(KEY_TEMPORARY_CHAT_ID).apply()
-    }
+    private fun leaveTemporaryChat(except: String?) = temporaryChat.leave(to = except)
 
     fun deleteThread(thread: ChatThread) {
         viewModelScope.launch { deleteThreadNow(thread) }
@@ -1528,7 +1453,7 @@ class ChatViewModel(
      * not enough: a coroutine is only stopped once it has actually unwound.
      */
     private suspend fun cancelWorkForChat(chatId: String) {
-        streamJobs.remove(chatId)?.cancelAndJoin()
+        turns.cancelAndJoin(chatId)
         videoRecovery.cancelForChat(chatId)
     }
 
@@ -1555,7 +1480,7 @@ class ChatViewModel(
 
     fun stopStreaming() {
         _currentChatThreadId.value?.let { chatId ->
-            streamJobs[chatId]?.cancel()
+            turns.cancel(chatId)
         }
     }
 
@@ -1584,9 +1509,7 @@ class ChatViewModel(
     // -------------------------------------------------------------------------------
 
     private fun setStreamState(chatId: String, state: ActiveStreamState?) {
-        _activeStreams.value = _activeStreams.value.toMutableMap().apply {
-            if (state == null) remove(chatId) else put(chatId, state)
-        }
+        turns.setState(chatId, state)
     }
 
     /**
@@ -1613,10 +1536,7 @@ class ChatViewModel(
 
     /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
     private fun clearStreamIfOwned(chatId: String, streamJob: Job?): Boolean {
-        if (streamJob == null || streamJobs[chatId] !== streamJob) return false
-        streamJobs.remove(chatId)
-        setStreamState(chatId, null)
-        return true
+        return turns.clearIfOwned(chatId, streamJob)
     }
 
     fun sendMessage(content: String, forceMemory: Boolean = false) {
@@ -1674,8 +1594,12 @@ class ChatViewModel(
         }
 
         _currentChatThreadId.value?.let { chatId ->
-            if (streamJobs[chatId]?.isActive == true) return
+            if (turns.isRunning(chatId)) return
         }
+        // Claim the conversation before the first suspend. Validation below reads settings and
+        // Room before the turn registers in [turns], so without this two quick sends could
+        // both pass the check above and run two turns in one chat.
+        val sendClaim = turns.claim(_currentChatThreadId.value ?: BLANK_SEND_KEY) ?: return
 
         // Capture and consume image/video gen before the coroutine starts. These modes are
         // armed per send by [sendImagineMessage]; leaving them sticky makes Chat generate
@@ -1683,9 +1607,10 @@ class ChatViewModel(
         // Edit-turn never generates media — it re-asks as a normal chat reply.
         val imageGenMode = editingUserId == null && _chatMode.value is ChatMode.ImageGen
         val videoGenMode = editingUserId == null && _chatMode.value is ChatMode.VideoGen
-        if (imageGenMode || videoGenMode) clearImagineArmedModes()
+        if (editingUserId == null && _chatMode.value.lifetime == ModeLifetime.OneSend) clearImagineArmedModes()
 
         viewModelScope.launch {
+            coroutineContext[Job]?.invokeOnCompletion { turns.release(sendClaim) }
             clearError()
 
             if (editingUserId != null) {
@@ -1698,23 +1623,7 @@ class ChatViewModel(
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
-            val customProvider = when {
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI) -> "openai"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> "sarvam"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_VERCEL) -> "vercel"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_GROQ) -> "groq"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_TOGETHER) -> "together"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_ENCLAVE) -> "enclave"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_EXPERIENTIAL) -> "experiential"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLOUDFLARE) -> "cloudflare"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
-                else -> null
-            }
+            val customProvider = CustomProviderRouting.providerFor(selectedModel)
             if (customProvider == "sarvam") {
                 customProviderConfig.sarvamConfigurationError()?.let {
                     _errorMessage.value = it
@@ -1722,23 +1631,7 @@ class ChatViewModel(
                 }
             }
             val customProviderActive = customProvider != null
-            val requestModel = when (customProvider) {
-                "openai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI)
-                "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
-                "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
-                "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
-                "sarvam" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_SARVAM)
-                "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
-                "vercel" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_VERCEL)
-                "groq" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GROQ)
-                "together" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_TOGETHER)
-                "enclave" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_ENCLAVE)
-                "experiential" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_EXPERIENTIAL)
-                "cloudflare" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLOUDFLARE)
-                "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
-                "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
-                else -> selectedModel
-            }
+            val requestModel = CustomProviderRouting.requestModel(customProvider, selectedModel)
             // The "+ → Web Search" chip force-enables search using the last-used provider,
             // so the user never has to open Settings just to search one message.
             val chipProvider = if (_chatMode.value is ChatMode.WebSearch) settingsRepository.resolveChipSearchProvider() else null
@@ -1777,7 +1670,7 @@ class ChatViewModel(
                 }
             }
 
-            if (isLocal && _activeStreams.value.values.any { it.isLocal }) {
+            if (isLocal && turns.anyLocal()) {
                 _errorMessage.value = "The on-device model is still responding. Wait for it to finish before starting another local reply."
                 return@launch
             }
@@ -1798,51 +1691,17 @@ class ChatViewModel(
                 return@launch
             }
 
-            val customImageAllowed = when (customProvider) {
-                "openai", "claude", "gemini" -> true
-                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
-                "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
-                "vercel" -> CustomProviderCapabilities.vercelSupportsImages(requestModel)
-                "experiential" -> CustomProviderCapabilities.experientialSupportsImages(requestModel)
-                "groq", "together", "enclave", "cloudflare" -> CustomProviderCapabilities.openModelSupportsImages(requestModel)
-                "ollama" -> customProviderConfig.ollamaImagesEnabled
-                "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
-                else -> false
-            }
-            val customPdfAllowed = when (customProvider) {
-                "openai", "claude", "gemini" -> true
-                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
-                "xai" -> CustomProviderCapabilities.xAiSupportsPdfs(requestModel)
-                "vercel" -> CustomProviderCapabilities.vercelSupportsPdfs(requestModel)
-                "ollama" -> customProviderConfig.ollamaPdfsEnabled
-                "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
-                else -> false
-            }
+            val customImageAllowed = CustomProviderRouting.imagesAllowed(customProvider, requestModel, customProviderConfig)
+            val customPdfAllowed = CustomProviderRouting.pdfsAllowed(customProvider, requestModel, customProviderConfig)
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            // Sarvam never sends raw files (docs ride as anydoc Markdown, images as OCR
-            // text), so the raw-attachment gates below don't apply to it.
-            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
-                val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
-                    "Settings → Echo Labs → Custom API Endpoint"
-                } else {
-                    "Settings → Custom"
-                }
-                _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in $where."
+            val gatesRawAttachment = CustomProviderRouting.sendsRawAttachments(customProvider) &&
+                !imageGenMode && !videoGenMode && attachmentUri != null
+            if (gatesRawAttachment && pendingIsPdf && !customPdfAllowed) {
+                _errorMessage.value = CustomProviderRouting.pdfOffMessage(customProvider)
                 return@launch
             }
-            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
-                _errorMessage.value = if (customProvider == "xai") {
-                    "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
-                } else if (customProvider == "groq" || customProvider == "together" || customProvider == "enclave" || customProvider == "cloudflare") {
-                    "$requestModel does not support image attachments. Choose a vision model, such as a Llama 4 model."
-                } else {
-                    val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
-                        "Settings → Echo Labs → Custom API Endpoint"
-                    } else {
-                        "Settings → Custom"
-                    }
-                    "Images are off for this custom endpoint. Turn them on in $where."
-                }
+            if (gatesRawAttachment && !pendingIsPdf && !customImageAllowed) {
+                _errorMessage.value = CustomProviderRouting.imageOffMessage(customProvider, requestModel)
                 return@launch
             }
 
@@ -1879,9 +1738,9 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
-            val temporaryChat = isTemporaryNow()
-            val learningSession = memorySettings.session().takeUnless { temporaryChat }
-            val memoryRequested = !temporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
+            val inTemporaryChat = isTemporaryNow()
+            val learningSession = memorySettings.session().takeUnless { inTemporaryChat }
+            val memoryRequested = !inTemporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
             val customToolCallingActive = customProviderActive &&
                 (effectiveProvider in CLIENT_SEARCH_PROVIDERS || memoryRequested) &&
@@ -1898,15 +1757,11 @@ class ChatViewModel(
             var agentReq: OpenRouterService.AgentRequest? = null
             var echoModel = selectedModel
             var echoSystemPrompt: String? = null
+            com.echoflow.ui.chat.EchoModeGate.modelError(_chatMode.value, isLocal, customProviderActive)?.let {
+                _errorMessage.value = it
+                return@launch
+            }
             if (_chatMode.value is ChatMode.EchoAgent) {
-                if (isLocal) {
-                    _errorMessage.value = "Echo Agents needs a cloud main model. Pick one from the model selector."
-                    return@launch
-                }
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Agents uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val profile = agentProfileDao.getById(settingsRepository.getEchoAgentProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Set up an Echo Agent first in Settings → Echo Agents, then pick it."
@@ -1915,14 +1770,6 @@ class ChatViewModel(
                 agentReq = OpenRouterService.AgentRequest(profile.workerModelId, profile.workerModelName, profile.maxToolCalls)
                 echoSystemPrompt = SystemPrompts.buildEchoAgent(profile.name)
             } else if (_chatMode.value is ChatMode.EchoAdviser) {
-                if (isLocal) {
-                    _errorMessage.value = "Echo Adviser needs a cloud model. Pick one from the model selector."
-                    return@launch
-                }
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Adviser uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val profile = advisorProfileDao.getById(settingsRepository.getEchoAdviserProfileIdDirect())
                 if (profile == null) {
                     _errorMessage.value = "Pick an advisor first — set one up in Settings → Echo Adviser."
@@ -1931,10 +1778,6 @@ class ChatViewModel(
                 advisorReq = OpenRouterService.AdvisorRequest(profile.name, profile.modelId)
                 echoSystemPrompt = SystemPrompts.buildEchoAdviser(profile.name)
             } else if (_chatMode.value is ChatMode.EchoFusion) {
-                if (customProviderActive) {
-                    _errorMessage.value = "Echo Fusion uses OpenRouter server tools. Pick an OpenRouter Cloud model first."
-                    return@launch
-                }
                 val panel = fusionPanelDao.getById(settingsRepository.getEchoFusionPanelIdDirect())
                 if (panel == null || panel.models.isEmpty()) {
                     _errorMessage.value = "Set up a Fusion panel first in Settings → Echo Fusion, then pick it."
@@ -1998,6 +1841,8 @@ class ChatViewModel(
                     projectId = activeProjectId,
                 ).id
                 openNewThread(chatId)
+                // The new thread is open now, so a send typed into it must see this turn too.
+                turns.extend(sendClaim, chatId)
                 // The blank thread is real now, so this mode returns here rather than to
                 // whatever came before it.
                 settingsRepository.saveLastPosition(appMode.value, ModePosition.Thread(chatId))
@@ -2007,7 +1852,7 @@ class ChatViewModel(
                 }
             }
 
-            if (streamJobs[chatId]?.isActive == true) return@launch
+            if (turns.isRunning(chatId)) return@launch
             // Remember the model this turn used, so reopening the chat picks it back up.
             chatDao.setModelId(chatId, selectedModel)
             // Record provenance before user text is stored: a cancelled local reply must
@@ -2022,7 +1867,8 @@ class ChatViewModel(
                 }
             }
             val streamJob = coroutineContext[Job]
-            streamJob?.let { streamJobs[chatId] = it }
+            // The registered job guards this chat from here on.
+            turns.register(chatId, streamJob, sendClaim)
             // Allocate the durable assistant identity before any transient UI appears. The same ID
             // keys the live row and the Room message, so completion never replaces the list item.
             val assistantMessageId = UUID.randomUUID().toString()
@@ -3088,7 +2934,6 @@ class ChatViewModel(
 
         private val CLIENT_SEARCH_PROVIDERS = ClientSearchProviders.asSet
         private const val STREAM_UI_EMIT_MS = 33L
-        private const val KEY_TEMPORARY_CHAT_ID = "temporary_chat_id"
         private const val ASSISTANT_HANDOFF_TIMEOUT_MS = 5_000L
 
         /** ~6 MB of base64: comfortably a phone photo, well under OpenRouter's body limit. */

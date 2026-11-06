@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
  */
 class FirecrawlBrowserService {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         // A single interact action can run up to Firecrawl's 300s cap; give headroom.
         .readTimeout(330, TimeUnit.SECONDS)

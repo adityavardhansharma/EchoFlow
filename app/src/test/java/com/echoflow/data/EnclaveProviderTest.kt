@@ -1,13 +1,21 @@
 package com.echoflow.data
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.echoflow.ui.CustomProviderModelCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class EnclaveProviderTest {
-    private val config = CustomProviderConfig(
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    // Start from the saved defaults so the test names only the fields it cares about.
+    private val config = SettingsRepository(context).getCustomProviderConfigDirect().copy(
         cloudApisEnabled = true,
         enclaveEnabled = true,
         enclaveApiKey = "enclave-key",

@@ -204,7 +204,6 @@ object LocalModelCatalog {
     /** File-name based runtime detection — kept here so every layer agrees on the rules. */
     fun isGguf(fileName: String): Boolean = fileName.endsWith(".gguf", ignoreCase = true)
     fun isLiteRtLm(fileName: String): Boolean = fileName.endsWith(".litertlm", ignoreCase = true)
-    fun isTask(fileName: String): Boolean = fileName.endsWith(".task", ignoreCase = true)
 
     /** Supported on-device model file extensions, for the import picker and validation. */
     val supportedExtensions = listOf(".task", ".litertlm", ".gguf")

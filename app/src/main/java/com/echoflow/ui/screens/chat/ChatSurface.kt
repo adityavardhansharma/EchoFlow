@@ -231,8 +231,6 @@ internal fun ChatSurface(
     val browserSession by chatViewModel.currentBrowserSession.collectAsState()
     val browserSteps by chatViewModel.currentBrowserSteps.collectAsState()
     val browserStartConflict by chatViewModel.browserStartConflict.collectAsState()
-    // The owning chat is "captured" while a session is live — every message drives the browser.
-    val browserCaptured = browserSession != null
     val browserBusy = browserSession?.let {
         it.status == com.echoflow.data.BrowserSession.STATUS_RUNNING ||
             it.status == com.echoflow.data.BrowserSession.STATUS_STARTING ||

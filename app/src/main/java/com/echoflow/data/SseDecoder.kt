@@ -47,4 +47,17 @@ internal class SseDecoder {
         data.clear()
         return frame
     }
+
+    companion object {
+        /**
+         * The payload of a single `data:` line, or null for any other line. For streams that act
+         * on each line as it arrives (chat deltas), where waiting for the frame's blank line
+         * would only add latency.
+         */
+        fun dataLine(line: String): String? {
+            val trimmed = line.trimStart()
+            if (!trimmed.startsWith("data:")) return null
+            return trimmed.substring(5).trim()
+        }
+    }
 }

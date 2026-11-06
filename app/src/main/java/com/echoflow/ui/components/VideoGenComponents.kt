@@ -207,30 +207,7 @@ fun GeneratedVideoSegment(
                 Box(
                     Modifier
                         .matchParentSize()
-                        .drawWithContent {
-                            val fraction = reveal.value
-                            clipRect(bottom = size.height * fraction) { this@drawWithContent.drawContent() }
-                            if (fraction > 0f && fraction < 1f) {
-                                val y = size.height * fraction
-                                // Density-aware: raw px would be a near-invisible hairline.
-                                val lineHeight = 2.5.dp.toPx()
-                                val glowHeight = 40.dp.toPx()
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(Color.Transparent, scanColor.copy(alpha = 0.4f)),
-                                        startY = (y - glowHeight).coerceAtLeast(0f),
-                                        endY = y,
-                                    ),
-                                    topLeft = Offset(0f, (y - glowHeight).coerceAtLeast(0f)),
-                                    size = Size(size.width, glowHeight.coerceAtMost(y)),
-                                )
-                                drawRect(
-                                    color = scanColor,
-                                    topLeft = Offset(0f, y - lineHeight / 2f),
-                                    size = Size(size.width, lineHeight),
-                                )
-                            }
-                        },
+                        .scanlineReveal({ reveal.value }, scanColor),
                 ) {
                     // The player is only built once the user asks for it: a chat can hold many
                     // clips, and a decoder per card would exhaust the device's codecs.

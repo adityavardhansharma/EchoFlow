@@ -19,76 +19,35 @@ import com.echoflow.ui.theme.Spacing
 
 @Composable
 internal fun EchoAdviserPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val apiKey by viewModel.apiKey.collectAsState()
     val profiles by viewModel.advisorProfiles.collectAsState()
     val selectedId by viewModel.echoAdviserProfileId.collectAsState()
-    val orQuery by viewModel.orModelQuery.collectAsState()
-    val orResults by viewModel.orModelResults.collectAsState()
-    val orLoading by viewModel.orDirectoryLoading.collectAsState()
-    val orError by viewModel.orDirectoryError.collectAsState()
-
+    val enabled by viewModel.echoAdviserEnabled.collectAsState()
     var showDirectory by remember { mutableStateOf(false) }
     var pendingModel by remember { mutableStateOf<OpenRouterModelInfo?>(null) }
 
-    SettingsPageScaffold(title = "Echo Adviser", subtitle = "Escalate hard parts to a stronger model", onBack = onBack) {
-        val adviserEnabled by viewModel.echoAdviserEnabled.collectAsState()
-        LabMasterToggle("Echo Adviser", "Show this mode in the chat + menu", adviserEnabled, viewModel::saveEchoAdviserEnabled)
-        Spacer(Modifier.height(Spacing.m))
-        FormCard {
-            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                "Any cloud model answers, and consults a stronger, domain-specific advisor mid-answer — before committing to an approach or finishing a hard task. Set up advisors for different jobs (coding, maths, research), then pick one per chat from the model selector. OpenRouter only; each consult adds cost.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (apiKey.isBlank()) {
-            Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Adviser.", error = true)
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Your advisors", "Tap to set the default; pick per chat from the model selector")
-        if (profiles.isEmpty()) {
-            EchoNoticeCard(Icons.Default.Psychology, "No advisors yet.\nAdd one below — e.g. a strong model for coding or maths.")
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-                profiles.forEach { profile ->
-                    DrEngineSelectRow(
-                        name = profile.name,
-                        subtitle = profile.modelName.ifBlank { profile.modelId },
-                        selected = profile.id == selectedId,
-                        onClick = { viewModel.saveEchoAdviserProfile(profile.id) },
-                        onDelete = { viewModel.deleteAdvisorProfile(profile.id) },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(Spacing.s))
-        FilledTonalButton(
-            onClick = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(Spacing.s))
-            Text("Add an advisor")
-        }
-    }
+    EchoProfilesPage(
+        viewModel = viewModel,
+        mode = "Echo Adviser",
+        subtitle = "Escalate hard parts to a stronger model",
+        enabled = enabled,
+        onEnabledChange = viewModel::saveEchoAdviserEnabled,
+        description = "Any cloud model answers, and consults a stronger, domain-specific advisor mid-answer — before committing to an approach or finishing a hard task. Set up advisors for different jobs (coding, maths, research), then pick one per chat from the model selector. OpenRouter only; each consult adds cost.",
+        sectionTitle = "Your advisors",
+        emptyIcon = Icons.Default.Psychology,
+        emptyText = "No advisors yet.\nAdd one below — e.g. a strong model for coding or maths.",
+        rows = profiles.map { EchoProfileRow(it.id, it.name, it.modelName.ifBlank { it.modelId }) },
+        selectedId = selectedId,
+        onSelect = viewModel::saveEchoAdviserProfile,
+        onDelete = viewModel::deleteAdvisorProfile,
+        addLabel = "Add an advisor",
+        onAdd = { showDirectory = true; viewModel.loadOpenRouterDirectory() },
+        onBack = onBack,
+    )
 
     if (showDirectory) {
-        OpenRouterDirectorySheet(
-            query = orQuery,
-            results = orResults,
-            loading = orLoading,
-            error = orError,
-            addedIds = emptySet(),
-            onQueryChange = viewModel::updateOrModelQuery,
-            onRetry = viewModel::loadOpenRouterDirectory,
+        OpenRouterPickerSheet(
+            viewModel,
             onAdd = { info -> pendingModel = info; showDirectory = false },
-            onRemove = {},
             onDismiss = { showDirectory = false },
         )
     }

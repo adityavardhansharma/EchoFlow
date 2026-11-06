@@ -90,11 +90,6 @@ object DeepResearchCatalog {
     /** True when [id] is one of the built-in provider-native engines. */
     fun isProviderEngine(id: String): Boolean = providerEngineById(id) != null
 
-    /** True when [id] is the Exa Agent engine (the only one that uses the effort pill). */
-    fun usesEffort(id: String): Boolean = id == "exa-agent"
-
-    /** Which providers have at least one provider-native engine. */
-    val knownProviders = setOf("exa", "parallel", "firecrawl")
 }
 
 /** Exa Agent effort levels (cost/depth dial). "auto" lets Exa pick. */

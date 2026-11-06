@@ -61,24 +61,19 @@ class LocalLlmService(private val context: Context) {
 
     // ── MediaPipe runtime (.task) ────────────────────────────────────────────────────
     private var mpEngine: LlmInference? = null
-    private var mpLoadedPath: String? = null
-    private var mpLoadedMaxTokens = -1
-    private var mpLoadedMaxTopK = -1
+    private var mpLoaded: LoadedEngine? = null
     private var mpSession: LlmInferenceSession? = null
-    private var mpSessionChatId: String? = null
-    private var mpLastHistorySize = -1
+    private var mpBinding: SessionBinding? = null
     private var mpParams: InferenceParams? = null
 
     // ── LiteRT-LM runtime (.litertlm) ────────────────────────────────────────────────
     private var lrtEngine: Engine? = null
-    private var lrtLoadedPath: String? = null
-    private var lrtLoadedMaxTokens = -1
+    private var lrtLoaded: LoadedEngine? = null
     private var lrtSupportsVision = false
     /** Imported bundles whose vision encoder turned out to be missing, so reloads skip it. */
     private val lrtTextOnlyPaths = mutableSetOf<String>()
     private var lrtConversation: Conversation? = null
-    private var lrtChatId: String? = null
-    private var lrtLastHistorySize = -1
+    private var lrtBinding: SessionBinding? = null
     private var lrtSystemPrompt: String? = null
     private var lrtParams: InferenceParams? = null
     @Volatile private var lrtConversationReusable = true
@@ -93,8 +88,7 @@ class LocalLlmService(private val context: Context) {
     // ── llama.cpp runtime (.gguf) ─────────────────────────────────────────────────────
     private var ggufEngine: LlamaAndroid? = null
     private var ggufContextId: Int? = null
-    private var ggufLoadedPath: String? = null
-    private var ggufLoadedMaxTokens = -1
+    private var ggufLoaded: LoadedEngine? = null
     private var ggufChatId: String? = null
     /** Conversation text the next completion continues from (full reprompt per turn). */
     private var ggufBasePrompt: String = ""
@@ -278,17 +272,14 @@ class LocalLlmService(private val context: Context) {
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
         mpEngine = null
-        mpLoadedPath = null
-        mpLoadedMaxTokens = -1
-        mpLoadedMaxTopK = -1
+        mpLoaded = null
     }
 
     private fun releaseLrtInternal() {
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
         lrtEngine = null
-        lrtLoadedPath = null
-        lrtLoadedMaxTokens = -1
+        lrtLoaded = null
         lrtSupportsVision = false
     }
 
@@ -306,14 +297,13 @@ class LocalLlmService(private val context: Context) {
         val path = file.absolutePath
         // The kv-cache size is baked in at engine creation, so a changed token budget needs
         // a fresh engine, not just a fresh conversation.
-        if (lrtEngine != null && lrtLoadedPath == path && lrtLoadedMaxTokens == maxTokens) return
+        if (lrtEngine != null && lrtLoaded == LoadedEngine(path, maxTokens)) return
         releaseRuntimesExcept(LocalLlmRuntime.LITERT)
 
         closeLrtConversationInternal()
         runCatching { lrtEngine?.close() }
         lrtEngine = null
-        lrtLoadedPath = null
-        lrtLoadedMaxTokens = -1
+        lrtLoaded = null
 
         checkRamBudget(file)
 
@@ -348,8 +338,7 @@ class LocalLlmService(private val context: Context) {
         }
         lrtEngine = engine ?: throw Exception(friendlyLoadError(lastError ?: Exception("Unknown error")))
         lrtSupportsVision = withVision
-        lrtLoadedPath = path
-        lrtLoadedMaxTokens = maxTokens
+        lrtLoaded = LoadedEngine(path, maxTokens)
     }
 
     /**
@@ -373,8 +362,7 @@ class LocalLlmService(private val context: Context) {
     private fun closeLrtConversationInternal() {
         runCatching { lrtConversation?.close() }
         lrtConversation = null
-        lrtChatId = null
-        lrtLastHistorySize = -1
+        lrtBinding = null
         lrtSystemPrompt = null
         lrtPendingContext = null
         lrtParams = null
@@ -395,16 +383,15 @@ class LocalLlmService(private val context: Context) {
             val text: String
             try {
                 val maxTokens = effectiveMaxTokens(model, params)
-                val coldStart = lrtLoadedPath != modelFile(model).absolutePath || lrtLoadedMaxTokens != maxTokens
+                val coldStart = lrtLoaded != LoadedEngine(modelFile(model).absolutePath, maxTokens)
                 if (coldStart) _modelLoading.value = true
                 ensureLitertEngine(model, maxTokens)
 
                 val incremental = lrtConversation != null &&
                     lrtConversationReusable &&
-                    lrtChatId == chatId &&
+                    lrtBinding?.continuesWith(chatId, history.size) == true &&
                     lrtSystemPrompt == systemPrompt &&
                     lrtParams == params &&
-                    history.size == lrtLastHistorySize + 2 &&
                     !searchResultsCrowdContext(maxTokens)
 
                 if (incremental) {
@@ -428,7 +415,6 @@ class LocalLlmService(private val context: Context) {
                             initialMessages = initialMessages,
                         )
                     )
-                    lrtChatId = chatId
                     lrtSystemPrompt = systemPrompt
                     lrtParams = params
                     lrtUsedChars = systemPrompt.length.toLong() + prior.sumOf { it.content.length.toLong() }
@@ -437,7 +423,7 @@ class LocalLlmService(private val context: Context) {
                     // current user message separate lets the bundle's own chat template render it.
                     text = history.last().content
                 }
-                lrtLastHistorySize = history.size
+                lrtBinding = SessionBinding(chatId, history.size)
             } finally {
                 _modelLoading.value = false
             }
@@ -553,15 +539,13 @@ class LocalLlmService(private val context: Context) {
         val path = file.absolutePath
         // Token budget and the top-k ceiling are fixed at engine creation, so a change in
         // either forces a rebuild.
-        if (mpEngine != null && mpLoadedPath == path && mpLoadedMaxTokens == maxTokens && mpLoadedMaxTopK == maxTopK) return
+        if (mpEngine != null && mpLoaded == LoadedEngine(path, maxTokens, maxTopK)) return
         releaseRuntimesExcept(LocalLlmRuntime.MEDIAPIPE)
 
         closeMpSessionInternal()
         runCatching { mpEngine?.close() }
         mpEngine = null
-        mpLoadedPath = null
-        mpLoadedMaxTokens = -1
-        mpLoadedMaxTopK = -1
+        mpLoaded = null
 
         checkRamBudget(file)
 
@@ -582,9 +566,7 @@ class LocalLlmService(private val context: Context) {
                 throw Exception(friendlyLoadError(cpuError))
             }
         }
-        mpLoadedPath = path
-        mpLoadedMaxTokens = maxTokens
-        mpLoadedMaxTopK = maxTopK
+        mpLoaded = LoadedEngine(path, maxTokens, maxTopK)
     }
 
     private fun newMpSession(params: InferenceParams, maxTopK: Int): LlmInferenceSession =
@@ -597,8 +579,7 @@ class LocalLlmService(private val context: Context) {
     private fun closeMpSessionInternal() {
         runCatching { mpSession?.close() }
         mpSession = null
-        mpSessionChatId = null
-        mpLastHistorySize = -1
+        mpBinding = null
         mpParams = null
     }
 
@@ -616,15 +597,13 @@ class LocalLlmService(private val context: Context) {
                 // The session top-k must be <= the engine ceiling, so the ceiling is the
                 // larger of the default 64 and whatever the user asked for.
                 val maxTopK = maxOf(64, params.topK)
-                val coldStart = mpLoadedPath != modelFile(model).absolutePath ||
-                    mpLoadedMaxTokens != maxTokens || mpLoadedMaxTopK != maxTopK
+                val coldStart = mpLoaded != LoadedEngine(modelFile(model).absolutePath, maxTokens, maxTopK)
                 if (coldStart) _modelLoading.value = true
                 ensureMpEngine(model, maxTokens, maxTopK)
 
                 val incremental = mpSession != null &&
-                    mpSessionChatId == chatId &&
-                    mpParams == params &&
-                    history.size == mpLastHistorySize + 2
+                    mpBinding?.continuesWith(chatId, history.size) == true &&
+                    mpParams == params
 
                 // Rebuilding a session with prior turns means a slow prefill, surface it too.
                 if (!incremental && history.size > 1) _modelLoading.value = true
@@ -637,7 +616,6 @@ class LocalLlmService(private val context: Context) {
                     closeMpSessionInternal()
                     activeSession = newMpSession(params, maxTopK)
                     mpSession = activeSession
-                    mpSessionChatId = chatId
                     mpParams = params
 
                     if (systemPrompt.isNotBlank()) {
@@ -665,7 +643,7 @@ class LocalLlmService(private val context: Context) {
                     }
                     activeSession.addQueryChunk(userTurnPrompt(history.last().content))
                 }
-                mpLastHistorySize = history.size
+                mpBinding = SessionBinding(chatId, history.size)
             } finally {
                 _modelLoading.value = false
             }
@@ -737,8 +715,7 @@ class LocalLlmService(private val context: Context) {
         }
         ggufEngine = null
         ggufContextId = null
-        ggufLoadedPath = null
-        ggufLoadedMaxTokens = -1
+        ggufLoaded = null
         ggufChatId = null
         ggufBasePrompt = ""
         ggufPendingContext = null
@@ -748,7 +725,7 @@ class LocalLlmService(private val context: Context) {
     private fun ensureGgufEngine(model: LocalModel, maxTokens: Int) {
         val file = modelFile(model)
         val path = file.absolutePath
-        if (ggufEngine != null && ggufContextId != null && ggufLoadedPath == path && ggufLoadedMaxTokens == maxTokens) return
+        if (ggufEngine != null && ggufContextId != null && ggufLoaded == LoadedEngine(path, maxTokens)) return
         releaseRuntimesExcept(LocalLlmRuntime.GGUF)
 
         releaseGgufInternal()
@@ -795,8 +772,7 @@ class LocalLlmService(private val context: Context) {
 
         ggufContextId = (result["contextId"] as Number).toInt()
         ggufEngine = engine
-        ggufLoadedPath = path
-        ggufLoadedMaxTokens = maxTokens
+        ggufLoaded = LoadedEngine(path, maxTokens)
     }
 
     /** Producer of the in-flight GGUF generation; set under the setup lock before launch. */
@@ -838,7 +814,7 @@ class LocalLlmService(private val context: Context) {
             val prompt: String
             try {
                 val maxTokens = effectiveMaxTokens(model, params)
-                val coldStart = ggufLoadedPath != modelFile(model).absolutePath || ggufLoadedMaxTokens != maxTokens
+                val coldStart = ggufLoaded != LoadedEngine(modelFile(model).absolutePath, maxTokens)
                 if (coldStart) _modelLoading.value = true
                 ensureGgufEngine(model, maxTokens)
                 if (history.size > 1) _modelLoading.value = true

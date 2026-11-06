@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
- * Application-scoped composition root.
+ * Application-scoped composition root, owned by [EchoFlowApplication.graph].
  *
  * Keeping construction here prevents Activities and composables from knowing the complete data
  * graph while retaining the existing factories and object lifetimes.

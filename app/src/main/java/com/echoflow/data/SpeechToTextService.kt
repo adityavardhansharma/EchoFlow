@@ -184,7 +184,7 @@ class AudioWavRecorder(private val sampleRate: Int = 16_000) {
 
 /** Sends composer WAV recordings to the selected dictation provider. */
 class SpeechToTextTranscriber(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .addInterceptor(UsageInterceptor.shared)

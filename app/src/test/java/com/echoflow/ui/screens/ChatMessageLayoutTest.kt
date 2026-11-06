@@ -42,7 +42,8 @@ class ChatMessageLayoutTest {
             }
         }
 
-        val reasoningBounds = composeRule.onNodeWithText("Reasoning")
+        // A finished reasoning block now shows as the collapsed activity pill.
+        val reasoningBounds = composeRule.onNodeWithText("Thought it through")
             .fetchSemanticsNode().boundsInRoot
         val answerBounds = composeRule.onNodeWithText("Visible answer")
             .fetchSemanticsNode().boundsInRoot

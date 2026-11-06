@@ -50,10 +50,7 @@ internal object AppLockState {
     private val _locked = MutableStateFlow(false)
     val locked: StateFlow<Boolean> = _locked.asStateFlow()
 
-    // When the app last left the foreground; null while it is showing.
-    private var backgroundedAt: Long? = null
-    // MainActivity instances between onStart and onStop.
-    private var started = 0
+    private val foreground = ForegroundTracker()
     // The system prompt (or, before Android 10, the confirm-credential screen) is up. It can send
     // the app to the background, which must not count as leaving it.
     var authenticating = false
@@ -69,20 +66,14 @@ internal object AppLockState {
     }
 
     fun activityStarted() {
-        started++
-        if (started != 1) return
-        val since = backgroundedAt ?: return
-        backgroundedAt = null
-        if (_enabled.value && SystemClock.elapsedRealtime() - since >= _lockAfter.value.millis) lock()
+        val away = foreground.started(SystemClock.elapsedRealtime()) ?: return
+        if (_enabled.value && away >= _lockAfter.value.millis) lock()
     }
 
     fun activityStopped(changingConfigurations: Boolean) {
-        started = (started - 1).coerceAtLeast(0)
         // The system prompt covering the app, or a rotation about to start a new instance, isn't
         // the user leaving.
-        if (started == 0 && !changingConfigurations && !authenticating) {
-            backgroundedAt = SystemClock.elapsedRealtime()
-        }
+        foreground.stopped(SystemClock.elapsedRealtime(), countsAsLeaving = !changingConfigurations && !authenticating)
     }
 
     fun setEnabled(on: Boolean) {
@@ -239,3 +230,32 @@ class AppLock(private val activity: ComponentActivity) : DefaultLifecycleObserve
 
 /** The activity's [AppLock], for the lock screen and its Echo Labs settings row. */
 val LocalAppLock = staticCompositionLocalOf<AppLock?> { null }
+
+/**
+ * Counts started MainActivity instances and times how long the app was away. Pure, so the
+ * "when does the app count as backgrounded" rules can be tested without Android.
+ */
+internal class ForegroundTracker {
+    // MainActivity instances between onStart and onStop.
+    private var started = 0
+    // When the app last left the foreground; null while it is showing.
+    private var backgroundedAt: Long? = null
+
+    /**
+     * An activity started at [now]. Returns how long the app was in the background when this
+     * brings it back, or null when it was already showing (or never left).
+     */
+    fun started(now: Long): Long? {
+        started++
+        if (started != 1) return null
+        val since = backgroundedAt ?: return null
+        backgroundedAt = null
+        return now - since
+    }
+
+    /** An activity stopped at [now]. The clock starts only if it was the last one and [countsAsLeaving]. */
+    fun stopped(now: Long, countsAsLeaving: Boolean) {
+        started = (started - 1).coerceAtLeast(0)
+        if (started == 0 && countsAsLeaving) backgroundedAt = now
+    }
+}

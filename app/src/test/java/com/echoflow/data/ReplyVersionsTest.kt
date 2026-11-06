@@ -1,5 +1,6 @@
 package com.echoflow.data
 
+import com.echoflow.ui.components.copyText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

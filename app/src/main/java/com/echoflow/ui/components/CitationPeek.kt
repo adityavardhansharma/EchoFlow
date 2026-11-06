@@ -78,29 +78,6 @@ fun ProvideCitationTitles(sources: List<SearchSource>, content: @Composable () -
 private data class Peek(val url: String, val anchor: Rect)
 
 /**
- * Answer text whose `[n](url)` citations can be long-pressed to peek at the source — favicon,
- * page title and site — without leaving the reply. A plain tap still opens the website; the
- * release after a peek is swallowed so it doesn't also navigate.
- */
-@Composable
-internal fun CitationPeekText(
-    text: AnnotatedString,
-    style: TextStyle,
-    modifier: Modifier = Modifier,
-    inlineContent: Map<String, InlineTextContent> = emptyMap(),
-) {
-    CitationPeekArea(text) { peekModifier, onTextLayout ->
-        Text(
-            text = text,
-            style = style,
-            inlineContent = inlineContent,
-            onTextLayout = onTextLayout,
-            modifier = modifier.then(peekModifier),
-        )
-    }
-}
-
-/**
  * Markdown paragraph component for the answer renderer: the library's own paragraph, plus the
  * citation peek. Same annotated text and styling as [MarkdownParagraph]; only the gesture is new.
  */

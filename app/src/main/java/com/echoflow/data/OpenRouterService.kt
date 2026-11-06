@@ -22,7 +22,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class OpenRouterService(private val context: Context) {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
@@ -31,7 +31,7 @@ class OpenRouterService(private val context: Context) {
 
     // Echo Adviser/Fusion run a whole multi-model loop server-side in one (non-streaming)
     // request, which can take well over a minute — they get a client with long timeouts.
-    private val echoClient = OkHttpClient.Builder()
+    private val echoClient = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(300, TimeUnit.SECONDS)
         .writeTimeout(45, TimeUnit.SECONDS)
@@ -786,23 +786,6 @@ class OpenRouterService(private val context: Context) {
             return dynamicAdapter.fromJson(responseString) as? Map<*, *>
                 ?: throw Exception("OpenRouter returned an unreadable response.")
         }
-    }
-
-    /** Each subagent delegation's (task_name, task_description), from the assistant's tool_calls. */
-    private fun extractSubagentDelegations(message: Map<*, *>?): List<Pair<String, String>> {
-        val calls = message?.get("tool_calls") as? List<*> ?: return emptyList()
-        val out = mutableListOf<Pair<String, String>>()
-        for (raw in calls) {
-            val m = raw as? Map<*, *> ?: continue
-            val type = (m["type"] as? String).orEmpty()
-            val fn = m["function"] as? Map<*, *>
-            val name = (fn?.get("name") as? String).orEmpty()
-            val looksAgent = type.contains("subagent") || name.contains("subagent") || name.contains("delegate")
-            if (!looksAgent) continue
-            val args = fn?.get("arguments") as? String ?: continue
-            parseTaskArgs(args)?.let { out.add(it) }
-        }
-        return out
     }
 
     /** The prompt the answering model sent its advisor, from the assistant message's tool_calls. */

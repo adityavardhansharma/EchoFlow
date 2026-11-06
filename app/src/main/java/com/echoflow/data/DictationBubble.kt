@@ -16,7 +16,11 @@ import com.echoflow.R
 import kotlin.math.hypot
 import kotlin.math.sin
 
-internal enum class DictationPhase { Idle, Recording, Transcribing }
+/**
+ * Where a dictation is: the composer's mic button and system-wide dictation both run this
+ * Idle → Recording → Transcribing → Idle cycle.
+ */
+enum class DictationPhase { Idle, Recording, Transcribing }
 
 /** Exactly one 40dp non-focusable window. WindowManager never gets a fullscreen touch surface. */
 internal class DictationBubble(

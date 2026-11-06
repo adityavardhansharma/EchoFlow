@@ -1,7 +1,6 @@
 package com.echoflow.data
 
 import android.content.Context
-import com.echoflow.ui.CustomProviderFlowRouter
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -35,13 +34,6 @@ sealed interface ScheduleWebAccess {
 /** Headless text generation through the same providers and sampler settings as chat. */
 class ScheduleModelRunner(private val context: Context) {
     private val settings = SettingsRepository(context.applicationContext)
-
-    /** Schedules respect the active search setting; a saved but disabled provider stays off. */
-    fun activeSearchProvider(modelId: String): String? = when (val access = webAccess(modelId)) {
-        ScheduleWebAccess.None -> null
-        ScheduleWebAccess.Server -> "openrouter"
-        is ScheduleWebAccess.Client -> access.provider
-    }
 
     fun webAccess(modelId: String): ScheduleWebAccess {
         val provider = settings.getWebSearchProviderDirect()

@@ -40,7 +40,7 @@ class SystemDictationServiceTest {
             ReflectionHelpers.setField(service, "bubble", DictationBubble(service, settings, {}, {}))
             ReflectionHelpers.setField(service, "systemWideEnabled", true)
             ReflectionHelpers.setField(service, "prerequisitesReady", true)
-            ReflectionHelpers.setField(service, "phase", DictationPhase.Recording)
+            ReflectionHelpers.getField<DictationCycle>(service, "cycle").recording()
             ReflectionHelpers.setField(service, "recorder", capture)
             ReflectionHelpers.setField(service, "uninterrupted", true)
             if (ownWindow) {
@@ -60,7 +60,7 @@ class SystemDictationServiceTest {
                     .apply { isAccessible = true }.invoke(service, continuation)
             }
             withTimeout(5_000) { ReflectionHelpers.getField<Job?>(service, "session")?.join() }
-            assertNotEquals(DictationPhase.Recording, ReflectionHelpers.getField<DictationPhase>(service, "phase"))
+            assertNotEquals(DictationPhase.Recording, ReflectionHelpers.getField<DictationCycle>(service, "cycle").phase)
             assertFalse(ReflectionHelpers.getField<Boolean>(service, "uninterrupted"))
             assertNull(ReflectionHelpers.getField<AudioWavRecorder?>(service, "recorder"))
             assertTrue("The composer must be able to acquire the microphone", nextCapture.start())

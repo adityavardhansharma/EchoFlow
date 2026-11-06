@@ -2,6 +2,7 @@
 
 package com.echoflow.ui.screens
 
+import com.echoflow.ui.components.SlideUpSurface
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -130,23 +131,7 @@ fun ArtifactWorkspaceScreen(
     // Smooth open: the screen is always present (so "Open" is reliable); we just slide it up from
     // the bottom and fade it in on first appearance via a graphics layer, then reverse none — the
     // parent removes it on close. Driven by a flag flipped one frame after entering composition.
-    var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
-    val openProgress by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
-        animationSpec = tween(durationMillis = 320),
-        label = "artifact-open",
-    )
-
-    Surface(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = (1f - openProgress) * size.height
-                alpha = openProgress
-            },
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-    ) {
+    SlideUpSurface(color = MaterialTheme.colorScheme.surfaceContainerLowest, label = "artifact-open") {
         Column(Modifier.fillMaxSize()) {
             ArtifactTopBar(
                 artifact = a,
@@ -202,47 +187,19 @@ private fun ArtifactTopBar(
     onExport: () -> Unit,
     onCopy: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = Spacing.s, vertical = Spacing.s),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Minimize to chat", Modifier.size(26.dp))
-                }
-                Text(
-                    artifact.title.ifBlank { "Artifact" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (versions.size > 1) VersionMenu(versions, selectedVersion, onSelectVersion)
-                IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy source", Modifier.size(20.dp)) }
-                // Export to PDF only for documents/reports (markdown/LaTeX), where it renders the
-                // math/prose to a page. HTML pages aren't meant to be flattened to a PDF, so the
-                // action is hidden for them.
-                if (!artifact.isHtml) {
-                    FilledTonalIconButton(onClick = onExport) {
-                        Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
-                    }
-                }
-            }
+    WorkspaceTopBar(
+        onClose = onClose,
+        below = {
             // Preview / Code segmented switcher.
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                ModeTab(
+                WorkspaceTab(
                     label = if (artifact.isHtml) "Preview" else "Reading",
                     icon = Icons.Default.Preview,
                     selected = mode == ArtifactViewMode.PREVIEW,
                     onClick = { onMode(ArtifactViewMode.PREVIEW) },
                     modifier = Modifier.weight(1f),
                 )
-                ModeTab(
+                WorkspaceTab(
                     label = if (artifact.isHtml) "Code" else "Source",
                     icon = Icons.Default.Code,
                     selected = mode == ArtifactViewMode.CODE,
@@ -250,41 +207,29 @@ private fun ArtifactTopBar(
                     modifier = Modifier.weight(1f),
                 )
             }
+        },
+    ) {
+        Text(
+            artifact.title.ifBlank { "Artifact" },
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (versions.size > 1) VersionMenu(versions, selectedVersion, onSelectVersion)
+        IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy source", Modifier.size(20.dp)) }
+        // Export to PDF only for documents/reports (markdown/LaTeX), where it renders the
+        // math/prose to a page. HTML pages aren't meant to be flattened to a PDF, so the
+        // action is hidden for them.
+        if (!artifact.isHtml) {
+            FilledTonalIconButton(onClick = onExport) {
+                Icon(Icons.Default.PictureAsPdf, "Export PDF", Modifier.size(20.dp))
+            }
         }
     }
 }
 
-@Composable
-private fun ModeTab(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier,
-    ) {
-        Row(
-            Modifier.padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                icon, null, Modifier.size(18.dp),
-                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
 
 @Composable
 private fun VersionMenu(versions: List<Int>, selected: Int, onSelect: (Int) -> Unit) {

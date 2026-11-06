@@ -1,6 +1,8 @@
 package com.echoflow.ui.chat
 
 import com.echoflow.data.ChatMode
+import com.echoflow.data.ModeLifetime
+import com.echoflow.data.lifetime
 
 /**
  * Which mode each chat was left in, so a mode belongs to the chat it was turned on in: leaving a
@@ -27,10 +29,8 @@ internal class ChatModeMemory {
     }
 
     private fun park(chatId: String, mode: ChatMode) {
-        when (mode) {
-            // Imagine's media modes are armed per send, never parked.
-            ChatMode.Normal, ChatMode.ImageGen, ChatMode.VideoGen -> byChat.remove(chatId)
-            else -> byChat[chatId] = mode
-        }
+        // Imagine's media modes are armed per send, never parked.
+        if (mode == ChatMode.Normal || mode.lifetime == ModeLifetime.OneSend) byChat.remove(chatId)
+        else byChat[chatId] = mode
     }
 }

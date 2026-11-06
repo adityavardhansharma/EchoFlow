@@ -54,7 +54,6 @@ data class VoiceOption(
     /** Set for a Voice Library voice: it must be added to My Voices before an agent can use it. */
     val library: LibraryVoiceRef? = null,
 ) {
-    val isProfessionalClone: Boolean get() = category == "professional"
 
     /** "British · Female · Young · Narration", skipping whatever ElevenLabs left blank. */
     val traits: String

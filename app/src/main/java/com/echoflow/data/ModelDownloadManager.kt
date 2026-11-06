@@ -38,7 +38,7 @@ class ModelDownloadManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Downloads stream for many minutes; readTimeout only bounds gaps between packets.
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

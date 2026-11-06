@@ -43,7 +43,7 @@ data class OpenRouterModelInfo(
  * Image-API models appear.
  */
 class OpenRouterModelDirectory {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

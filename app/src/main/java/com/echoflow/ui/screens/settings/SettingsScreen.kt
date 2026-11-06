@@ -394,7 +394,6 @@ internal fun SettingsHomePage(
     val echoAgentEnabled by viewModel.echoAgentEnabled.collectAsState()
     val jevEnabledHome by viewModel.jevEnabled.collectAsState()
     val customProviderConfig by viewModel.customProviderConfig.collectAsState()
-    val firecrawlKeyHome by viewModel.firecrawlApiKey.collectAsState()
     val advisorProfiles by viewModel.advisorProfiles.collectAsState()
     val fusionPanels by viewModel.fusionPanels.collectAsState()
     val agentProfiles by viewModel.agentProfiles.collectAsState()
@@ -452,11 +451,6 @@ internal fun SettingsHomePage(
         !dataAgentEnabled -> "Off"
         else -> DataAgentCatalog.byId(dataAgentEngine)?.name ?: "On"
     }
-    val browserFlowSubtitle = when {
-        !browserFlowEnabled -> "Off"
-        firecrawlKeyHome.isBlank() -> "On · add a Firecrawl key"
-        else -> "Live browser · controlled by chat"
-    }
     val labsOnCount = listOf(
         dataAgentEnabled,
         echoAdviserEnabled,
@@ -470,18 +464,6 @@ internal fun SettingsHomePage(
     ).count { it }
     val echoLabsSubtitle =
         if (labsOnCount == 0) "Experimental modes · all off" else "Experimental modes · $labsOnCount on"
-    val echoAdviserSubtitle = when {
-        advisorProfiles.isEmpty() -> "Escalate to a stronger model · none set up"
-        else -> "${advisorProfiles.size} advisor" + (if (advisorProfiles.size == 1) "" else "s")
-    }
-    val echoFusionSubtitle = when {
-        fusionPanels.isEmpty() -> "A panel deliberates · no panels yet"
-        else -> "${fusionPanels.size} panel" + (if (fusionPanels.size == 1) "" else "s")
-    }
-    val echoAgentSubtitle = when {
-        agentProfiles.isEmpty() -> "Main model hands tasks to your Echo Agents · none yet"
-        else -> "${agentProfiles.size} Echo Agent" + (if (agentProfiles.size == 1) "" else "s")
-    }
 
     SettingsPageScaffold(title = "Settings", subtitle = "Make EchoFlow yours", onBack = onBackClicked) {
         Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {

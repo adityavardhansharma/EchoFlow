@@ -730,10 +730,6 @@ class SettingsViewModel(
         return CustomProviderModelCatalog.entries(this)
     }
 
-    fun clearImportError() {
-        _importError.value = null
-    }
-
     fun deleteLocalModel(model: LocalModel) {
         viewModelScope.launch {
             downloadManager.delete(model)

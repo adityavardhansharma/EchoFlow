@@ -1,6 +1,7 @@
 package com.echoflow
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.key
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -114,6 +115,24 @@ fun MainNavigationHub(
     val researchWorkspace by chatViewModel.researchWorkspace.collectAsState()
     val artifactsGalleryOpen by chatViewModel.artifactsGalleryOpen.collectAsState()
     val projectsHubOpen by chatViewModel.projectsHubOpen.collectAsState()
+    val overlays = OverlayStack.of(
+        browserWorkspace = browserWorkspaceChatId != null,
+        researchWorkspace = researchWorkspace != null,
+        artifactsGallery = artifactsGalleryOpen,
+        projectsHub = projectsHubOpen,
+        schedules = scheduleRoute != null,
+        artifactWorkspace = artifactWorkspaceOpen,
+    )
+    val closeOverlay: (Overlay) -> Unit = { overlay ->
+        when (overlay) {
+            Overlay.BrowserWorkspace -> chatViewModel.closeBrowserWorkspace()
+            Overlay.ResearchWorkspace -> chatViewModel.closeResearchWorkspace()
+            Overlay.ArtifactsGallery -> chatViewModel.closeArtifactsGallery()
+            Overlay.ArtifactWorkspace -> chatViewModel.closeArtifactWorkspace()
+            // These two step back through their own pages.
+            Overlay.ProjectsHub, Overlay.Schedules -> Unit
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         if (activeTab == "settings") {
@@ -144,22 +163,19 @@ fun MainNavigationHub(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp),
             )
         }
-        if (browserWorkspaceChatId != null) {
-            BackHandler { chatViewModel.closeBrowserWorkspace() }
+        if (overlays.isOpen(Overlay.BrowserWorkspace)) {
             com.echoflow.ui.screens.BrowserWorkspaceScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeBrowserWorkspace() },
             )
         }
-        if (researchWorkspace != null) {
-            BackHandler { chatViewModel.closeResearchWorkspace() }
+        if (overlays.isOpen(Overlay.ResearchWorkspace)) {
             com.echoflow.ui.screens.ResearchWorkspaceScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeResearchWorkspace() },
             )
         }
-        if (artifactsGalleryOpen) {
-            BackHandler { chatViewModel.closeArtifactsGallery() }
+        if (overlays.isOpen(Overlay.ArtifactsGallery)) {
             com.echoflow.ui.screens.ArtifactsGalleryScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeArtifactsGallery() },
@@ -183,12 +199,18 @@ fun MainNavigationHub(
         // The artifact workspace is the top-most overlay: opening a tile from the gallery slides it
         // up *over* the still-mounted gallery (one continuous flow), and closing it reveals the
         // gallery again rather than flashing the chat behind it.
-        if (artifactWorkspaceOpen) {
-            BackHandler { chatViewModel.closeArtifactWorkspace() }
+        if (overlays.isOpen(Overlay.ArtifactWorkspace)) {
             com.echoflow.ui.screens.ArtifactWorkspaceScreen(
                 chatViewModel = chatViewModel,
                 onClose = { chatViewModel.closeArtifactWorkspace() },
             )
+        }
+        // One back handler for every overlay that closes on back. Back handlers win by when they
+        // were registered, not where they sit, so it is re-registered each time the top overlay
+        // changes: that keeps it newer than anything opened beneath (Settings, a chat's own
+        // handlers). It is absent when the top layer handles back itself.
+        overlays.backTarget?.let { target ->
+            key(target) { BackHandler { closeOverlay(target) } }
         }
     }
 }

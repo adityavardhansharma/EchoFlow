@@ -1,5 +1,6 @@
 package com.echoflow.data.jev
 
+import com.echoflow.data.HttpClients
 import com.echoflow.data.memory.MemoryPrivacy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -36,7 +37,7 @@ data class JevScores(
  * one POST, structured JSON back, output tokens unmetered.
  */
 class JevClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .callTimeout(10, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
         .build(),

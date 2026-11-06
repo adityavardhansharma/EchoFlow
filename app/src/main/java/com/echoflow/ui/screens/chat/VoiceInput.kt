@@ -35,8 +35,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-/** What the composer's voice input is doing right now. */
-enum class VoicePhase { Idle, Recording, Transcribing }
+/** What the composer's voice input is doing right now. The same cycle system dictation runs. */
+typealias VoicePhase = com.echoflow.data.DictationPhase
 
 /**
  * Drives composer dictation: record → stop → transcribe, as one small state machine the composer

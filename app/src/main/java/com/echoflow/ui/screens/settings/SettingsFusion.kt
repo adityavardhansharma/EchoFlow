@@ -24,82 +24,37 @@ import com.echoflow.ui.theme.Spacing
 
 @Composable
 internal fun EchoFusionPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val apiKey by viewModel.apiKey.collectAsState()
     val panels by viewModel.fusionPanels.collectAsState()
     val selectedId by viewModel.echoFusionPanelId.collectAsState()
-    val orQuery by viewModel.orModelQuery.collectAsState()
-    val orResults by viewModel.orModelResults.collectAsState()
-    val orLoading by viewModel.orDirectoryLoading.collectAsState()
-    val orError by viewModel.orDirectoryError.collectAsState()
-
+    val enabled by viewModel.echoFusionEnabled.collectAsState()
     var showDirectory by remember { mutableStateOf(false) }
     val pendingModels = remember { mutableStateMapOf<String, String>() } // id -> display name
     var nameDialog by remember { mutableStateOf(false) }
 
-    SettingsPageScaffold(title = "Echo Fusion", subtitle = "A panel of models deliberates", onBack = onBack) {
-        val fusionEnabled by viewModel.echoFusionEnabled.collectAsState()
-        LabMasterToggle("Echo Fusion", "Show this mode in the chat + menu", fusionEnabled, viewModel::saveEchoFusionEnabled)
-        Spacer(Modifier.height(Spacing.m))
-        FormCard {
-            Text("What it does", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Spacing.s))
-            Text(
-                "Several models answer the same question in parallel and a judge compares them — surfacing where they agree, where they disagree, and what they all missed. Best for research, comparisons and high-stakes questions. OpenRouter only; cost-heavy — every message runs the whole panel plus a judge.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (apiKey.isBlank()) {
-            Spacer(Modifier.height(Spacing.m))
-            EchoNoticeCard(Icons.Default.Key, "Add your OpenRouter key under Models → OpenRouter to use Echo Fusion.", error = true)
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
-        PageSection("Your panels", "Tap to set the default; pick per chat from the model selector")
-        if (panels.isEmpty()) {
-            EchoNoticeCard(Icons.Default.AccountTree, "No panels yet.\nBuild one below from 2–8 models.")
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(GroupedItemGap)) {
-                panels.forEach { panel ->
-                    DrEngineSelectRow(
-                        name = panel.name,
-                        subtitle = panel.names.joinToString(" · ").ifBlank { "${panel.models.size} models" },
-                        selected = panel.id == selectedId,
-                        onClick = { viewModel.saveEchoFusionPanel(panel.id) },
-                        onDelete = { viewModel.deleteFusionPanel(panel.id) },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(Spacing.s))
-        FilledTonalButton(
-            onClick = { pendingModels.clear(); showDirectory = true; viewModel.loadOpenRouterDirectory() },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(Spacing.s))
-            Text("New panel")
-        }
-        Spacer(Modifier.height(Spacing.s))
-        Text(
-            "A panel needs 2–8 models. The first model judges unless you change it later.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Spacing.xs),
-        )
-    }
+    EchoProfilesPage(
+        viewModel = viewModel,
+        mode = "Echo Fusion",
+        subtitle = "A panel of models deliberates",
+        enabled = enabled,
+        onEnabledChange = viewModel::saveEchoFusionEnabled,
+        description = "Several models answer the same question in parallel and a judge compares them — surfacing where they agree, where they disagree, and what they all missed. Best for research, comparisons and high-stakes questions. OpenRouter only; cost-heavy — every message runs the whole panel plus a judge.",
+        sectionTitle = "Your panels",
+        emptyIcon = Icons.Default.AccountTree,
+        emptyText = "No panels yet.\nBuild one below from 2–8 models.",
+        rows = panels.map { EchoProfileRow(it.id, it.name, it.names.joinToString(" · ").ifBlank { "${it.models.size} models" }) },
+        selectedId = selectedId,
+        onSelect = viewModel::saveEchoFusionPanel,
+        onDelete = viewModel::deleteFusionPanel,
+        addLabel = "New panel",
+        onAdd = { pendingModels.clear(); showDirectory = true; viewModel.loadOpenRouterDirectory() },
+        onBack = onBack,
+        footnote = "A panel needs 2–8 models. The first model judges unless you change it later.",
+    )
 
     if (showDirectory) {
-        OpenRouterDirectorySheet(
-            query = orQuery,
-            results = orResults,
-            loading = orLoading,
-            error = orError,
+        OpenRouterPickerSheet(
+            viewModel,
             addedIds = pendingModels.keys.toSet(),
-            onQueryChange = viewModel::updateOrModelQuery,
-            onRetry = viewModel::loadOpenRouterDirectory,
             onAdd = { info -> if (pendingModels.size < 8) pendingModels[info.id] = info.name.substringAfter(": ") },
             onRemove = { id -> pendingModels.remove(id) },
             onDismiss = { showDirectory = false; if (pendingModels.size >= 2) nameDialog = true },

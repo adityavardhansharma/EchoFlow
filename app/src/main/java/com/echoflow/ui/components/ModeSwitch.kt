@@ -61,7 +61,6 @@ import kotlin.math.abs
 /** 48dp so every segment clears the accessibility touch minimum without an expansion hack. */
 private val TrayHeight = 48.dp
 private val TrayPadding = 4.dp
-private val MaxTrayWidth = 220.dp
 
 /** How far the thumb stretches along its direction of travel at the midpoint of a switch. */
 private const val TravelStretch = 0.08f

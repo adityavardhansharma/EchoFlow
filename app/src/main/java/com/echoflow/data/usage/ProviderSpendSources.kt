@@ -1,5 +1,6 @@
 package com.echoflow.data.usage
 
+import com.echoflow.data.HttpClients
 import android.content.Context
 import com.squareup.moshi.Moshi
 import java.util.concurrent.TimeUnit
@@ -30,7 +31,7 @@ data class OpenRouterKeySpend(
 object OpenRouterKeyUsage {
     private const val URL = "https://openrouter.ai/api/v1/key"
     private const val PREFS = "usage_ledger"
-    private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
+    private val client = HttpClients.builder().callTimeout(20, TimeUnit.SECONDS).build()
     private val json = Moshi.Builder().build().adapter(Any::class.java)
 
     /** Fetches fresh figures and caches them; on failure the cached figures stay as they were. */
@@ -88,7 +89,7 @@ object OpenRouterKeyUsage {
  */
 object DeepgramCosts {
     private const val BASE = "https://api.deepgram.com/v1"
-    private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
+    private val client = HttpClients.builder().callTimeout(20, TimeUnit.SECONDS).build()
     private val json = Moshi.Builder().build().adapter(Any::class.java)
 
     /** Returns how many rows were priced. */

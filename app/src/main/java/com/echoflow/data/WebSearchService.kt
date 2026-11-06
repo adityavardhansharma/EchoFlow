@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  */
 class WebSearchService {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

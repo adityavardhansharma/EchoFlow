@@ -1,11 +1,10 @@
 package com.echoflow.data.voice
 
+import com.echoflow.data.HttpClients
 import android.content.Context
 import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -77,45 +76,13 @@ internal interface LiveVoiceSession {
  * [typing] tells the agent to hold off speaking while the user writes.
  */
 internal class VoiceSession(
-    private val context: Context,
+    context: Context,
     private val listener: VoiceSessionListener,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build(),
-) : LiveVoiceSession {
-    private val _activity = MutableStateFlow(VoiceAgentActivity.Connecting)
-    override val activity: StateFlow<VoiceAgentActivity> = _activity.asStateFlow()
-
-    private val _inputLevel = MutableStateFlow(0f)
-    override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
-
-    private val _outputLevel = MutableStateFlow(0f)
-    override val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
-
-    /** What the user is saying right now, before ElevenLabs finalizes it. */
-    private val _userCaption = MutableStateFlow("")
-    override val userCaption: StateFlow<String> = _userCaption.asStateFlow()
-
-    /** The reply as it streams in, then as spoken. Cleared when the user starts a new turn. */
-    private val _agentCaption = MutableStateFlow("")
-    override val agentCaption: StateFlow<String> = _agentCaption.asStateFlow()
-
-    /** The user's last finished turn, spoken or typed, kept on screen under the line. */
-    private val _lastUserTurn = MutableStateFlow("")
-    override val lastUserTurn: StateFlow<String> = _lastUserTurn.asStateFlow()
-
-    /** Counts the user's finished turns, so the screen can pulse the moment one lands. */
-    private val _userTurns = MutableStateFlow(0)
-    override val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
-
-    /** True once the user spoke before the call connected, so the greeting is skipped. */
-    @Volatile private var heardEarly = false
-    override val spokeEarly: Boolean get() = heardEarly
-
-    private val routing = VoiceAudioRouting(context)
-    /** Held to the ear: the earpiece plays, as on a phone call (the screen goes dark separately). */
-    private val proximity = VoiceProximity(context) { atEar -> routing.holdToEar(atEar) }
+) : LiveVoiceSessionBase(context) {
     private var socket: WebSocket? = null
     private var microphone: VoiceMicrophone? = null
     private var player: VoicePlayer? = null
@@ -159,8 +126,7 @@ internal class VoiceSession(
         synchronized(this) {
             if (finished || audioOpen) return
             audioOpen = true
-            routing.acquire()
-            proximity.start()
+            acquireCallAudio()
             if (micAllowed && !openMic(EARLY_SAMPLE_RATE)) micFailed = true
         }
         if (micFailed) listener.onMicUnavailable()
@@ -412,10 +378,7 @@ internal class VoiceSession(
             player = null
         }
         synchronized(early) { early.clear() }
-        proximity.stop()
-        if (audioOpen) routing.release()
-        _inputLevel.value = 0f
-        _outputLevel.value = 0f
+        releaseCallAudio(acquired = audioOpen)
         socket = null
         listener.onEnded(error)
     }

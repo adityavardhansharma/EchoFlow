@@ -55,7 +55,7 @@ sealed class VideoGenerationException(message: String, cause: Throwable? = null)
  */
 class OpenRouterVideoService {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -63,7 +63,7 @@ class OpenRouterVideoService {
         .build()
 
     // Downloads are tens of megabytes over mobile links; they get their own generous budget.
-    private val downloadClient = OkHttpClient.Builder()
+    private val downloadClient = HttpClients.builder()
         .connectTimeout(45, TimeUnit.SECONDS)
         .readTimeout(300, TimeUnit.SECONDS)
         .callTimeout(600, TimeUnit.SECONDS)

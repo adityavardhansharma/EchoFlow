@@ -1,13 +1,11 @@
 package com.echoflow.data.voice
 
+import com.echoflow.data.HttpClients
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -30,45 +28,19 @@ import java.util.concurrent.TimeUnit
  * handle onto a new connection without the user noticing; audio said in between is held.
  */
 internal class RealtimeVoiceSession(
-    private val context: Context,
+    context: Context,
     private val listener: VoiceSessionListener,
     private val protocol: RealtimeVoiceProtocol,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
         .build(),
-) : LiveVoiceSession {
-    private val _activity = MutableStateFlow(VoiceAgentActivity.Connecting)
-    override val activity: StateFlow<VoiceAgentActivity> = _activity.asStateFlow()
-
-    private val _inputLevel = MutableStateFlow(0f)
-    override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
-
-    private val _outputLevel = MutableStateFlow(0f)
-    override val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
-
-    private val _userCaption = MutableStateFlow("")
-    override val userCaption: StateFlow<String> = _userCaption.asStateFlow()
-
-    private val _agentCaption = MutableStateFlow("")
-    override val agentCaption: StateFlow<String> = _agentCaption.asStateFlow()
-
-    private val _lastUserTurn = MutableStateFlow("")
-    override val lastUserTurn: StateFlow<String> = _lastUserTurn.asStateFlow()
-
-    private val _userTurns = MutableStateFlow(0)
-    override val userTurns: StateFlow<Int> = _userTurns.asStateFlow()
-
-    @Volatile private var heardEarly = false
-    override val spokeEarly: Boolean get() = heardEarly
-
+) : LiveVoiceSessionBase(context) {
     /** Tokens used so far, summed from the server's reports. */
     @Volatile var usage = RealtimeUsage()
         private set
 
-    private val routing = VoiceAudioRouting(context)
-    private val proximity = VoiceProximity(context) { atEar -> routing.holdToEar(atEar) }
     private val conversationId = "local-" + java.util.UUID.randomUUID().toString()
     private var socket: WebSocket? = null
     private val timeouts = Handler(Looper.getMainLooper())
@@ -132,8 +104,7 @@ internal class RealtimeVoiceSession(
         synchronized(this) {
             if (finished || audioOpen) return
             audioOpen = true
-            routing.acquire()
-            proximity.start()
+            acquireCallAudio()
             val newPlayer = VoicePlayer(protocol.outputSampleRate) { level -> _outputLevel.value = level }
             newPlayer.muted = speakerMuted
             newPlayer.start()
@@ -581,10 +552,7 @@ internal class RealtimeVoiceSession(
             connected = false
         }
         if (!endedByUser) socket?.close(1000, null)
-        proximity.stop()
-        if (audioOpen) routing.release()
-        _inputLevel.value = 0f
-        _outputLevel.value = 0f
+        releaseCallAudio(acquired = audioOpen)
         socket = null
         timeouts.removeCallbacksAndMessages(null)
         // Whatever was said last but never closed out still belongs in the chat.
