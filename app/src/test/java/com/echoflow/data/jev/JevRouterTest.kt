@@ -8,7 +8,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// Robolectric for a real org.json: the plain JVM stub throws on every call.
+@RunWith(RobolectricTestRunner::class)
 class JevRouterTest {
 
     @Test fun `cloud gate keeps local and lan providers out`() {
