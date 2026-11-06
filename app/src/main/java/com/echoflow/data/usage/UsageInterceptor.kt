@@ -1,5 +1,6 @@
 package com.echoflow.data.usage
 
+import com.echoflow.data.SseDecoder
 import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Interceptor
 import okhttp3.Request
@@ -136,9 +137,7 @@ class UsageInterceptor(
         }
 
         private fun keepIfUsage(line: String) {
-            val trimmed = line.trim()
-            if (!trimmed.startsWith("data:")) return
-            val payload = trimmed.removePrefix("data:").trim()
+            val payload = SseDecoder.dataLine(line) ?: return
             if (!payload.startsWith("{") || !payload.contains("\"usage")) return
             documents += Buffer().writeUtf8(payload)
         }

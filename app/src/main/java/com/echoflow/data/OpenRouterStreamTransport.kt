@@ -127,9 +127,7 @@ internal class OpenRouterStreamTransport(
             var line: String?
 
             while (reader.readLine().also { line = it } != null) {
-                val currentLine = line!!.trim()
-                if (!currentLine.startsWith("data: ")) continue
-                val dataPart = currentLine.substring(6).trim()
+                val dataPart = SseDecoder.dataLine(line!!) ?: continue
                 if (dataPart == "[DONE]" || dataPart.startsWith("[DONE]")) break
 
                 try {

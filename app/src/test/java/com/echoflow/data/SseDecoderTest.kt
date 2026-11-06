@@ -123,4 +123,20 @@ class SseDecoderTest {
         assertEquals("task_run.progress_msg.plan", frames[0].name)
         assertNull(frames[1].name)
     }
+
+    @Test
+    fun dataLineReadsOneLineWithOrWithoutTheSpace() {
+        assertEquals("{\"a\":1}", SseDecoder.dataLine("data: {\"a\":1}"))
+        assertEquals("[DONE]", SseDecoder.dataLine("data:[DONE]"))
+        assertEquals("x", SseDecoder.dataLine("  data: x  "))
+        assertEquals("", SseDecoder.dataLine("data:"))
+    }
+
+    @Test
+    fun dataLineIgnoresOtherLines() {
+        assertNull(SseDecoder.dataLine("event: message"))
+        assertNull(SseDecoder.dataLine(": keep-alive"))
+        assertNull(SseDecoder.dataLine(""))
+        assertNull(SseDecoder.dataLine("{\"done\":true}"))
+    }
 }

@@ -428,8 +428,7 @@ class CustomProviderService(
             body.source().use { source ->
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
+                    val data = SseDecoder.dataLine(line) ?: continue
                     if (data.isBlank() || data == "[DONE]") continue
                     val map = runCatching { dynamicAdapter.fromJson(data) as? Map<*, *> }.getOrNull() ?: continue
                     val delta = map["delta"] as? Map<*, *>
@@ -477,8 +476,7 @@ class CustomProviderService(
             body.source().use { source ->
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
+                    val data = SseDecoder.dataLine(line) ?: continue
                     if (data.isBlank() || data == "[DONE]") continue
                     val event = runCatching { geminiStreamAdapter.fromJson(data) }.getOrNull() ?: continue
                     event.candidates?.flatMap { it.content?.parts.orEmpty() }?.forEach { part ->
@@ -532,8 +530,7 @@ class CustomProviderService(
             body.source().use { source ->
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
+                    val data = SseDecoder.dataLine(line) ?: continue
                     if (data.isBlank() || data == "[DONE]") continue
                     val event = runCatching { openAiStreamAdapter.fromJson(data) }.getOrNull() ?: continue
                     event.choices?.forEach { choice ->
