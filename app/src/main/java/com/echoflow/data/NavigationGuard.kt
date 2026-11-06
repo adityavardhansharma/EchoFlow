@@ -13,10 +13,11 @@ package com.echoflow.data
  * yet" is exactly backwards, because a cold database makes that lookup the slowest it ever is.
  * A guard you have to hold is harder to forget than a convention you have to remember.
  *
- * Confined to the main thread, like the state it protects.
+ * Written on the main thread, like the state it protects; read from anywhere.
  */
 class NavigationGuard {
-    private var epoch = 0L
+    // Volatile: a voice call checks its token from the call's own thread.
+    @Volatile private var epoch = 0L
 
     /** Records that the user has moved. Call from wherever the open conversation changes. */
     fun navigated() {
