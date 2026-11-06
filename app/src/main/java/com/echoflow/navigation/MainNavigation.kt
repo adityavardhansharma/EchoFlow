@@ -1,6 +1,7 @@
 package com.echoflow
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.key
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -204,9 +205,13 @@ fun MainNavigationHub(
                 onClose = { chatViewModel.closeArtifactWorkspace() },
             )
         }
-        // One back handler for every overlay that closes on back. It is composed last, so it
-        // wins over the layers below; it stands aside when the top layer handles back itself.
-        BackHandler(enabled = overlays.backTarget != null) { overlays.backTarget?.let(closeOverlay) }
+        // One back handler for every overlay that closes on back. Back handlers win by when they
+        // were registered, not where they sit, so it is re-registered each time the top overlay
+        // changes: that keeps it newer than anything opened beneath (Settings, a chat's own
+        // handlers). It is absent when the top layer handles back itself.
+        overlays.backTarget?.let { target ->
+            key(target) { BackHandler { closeOverlay(target) } }
+        }
     }
 }
 
