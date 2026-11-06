@@ -1649,23 +1649,7 @@ class ChatViewModel(
             val apiKey = settingsRepository.getApiKeyDirect()
             val selectedModel = settingsRepository.getSelectedModelDirect()
             val customProviderConfig = settingsRepository.getCustomProviderConfigDirect()
-            val customProvider = when {
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI) -> "openai"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLAUDE) -> "claude"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_GEMINI) -> "gemini"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CEREBRAS) -> "cerebras"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_SARVAM) -> "sarvam"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_XAI) -> "xai"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_VERCEL) -> "vercel"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_GROQ) -> "groq"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_TOGETHER) -> "together"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_ENCLAVE) -> "enclave"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_EXPERIENTIAL) -> "experiential"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_CLOUDFLARE) -> "cloudflare"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OLLAMA) -> "ollama"
-                selectedModel.startsWith(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> "openai-compatible"
-                else -> null
-            }
+            val customProvider = CustomProviderRouting.providerFor(selectedModel)
             if (customProvider == "sarvam") {
                 customProviderConfig.sarvamConfigurationError()?.let {
                     _errorMessage.value = it
@@ -1673,23 +1657,7 @@ class ChatViewModel(
                 }
             }
             val customProviderActive = customProvider != null
-            val requestModel = when (customProvider) {
-                "openai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI)
-                "claude" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLAUDE)
-                "gemini" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GEMINI)
-                "cerebras" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CEREBRAS)
-                "sarvam" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_SARVAM)
-                "xai" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_XAI)
-                "vercel" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_VERCEL)
-                "groq" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_GROQ)
-                "together" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_TOGETHER)
-                "enclave" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_ENCLAVE)
-                "experiential" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_EXPERIENTIAL)
-                "cloudflare" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_CLOUDFLARE)
-                "ollama" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OLLAMA)
-                "openai-compatible" -> selectedModel.removePrefix(CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE)
-                else -> selectedModel
-            }
+            val requestModel = CustomProviderRouting.requestModel(customProvider, selectedModel)
             // The "+ → Web Search" chip force-enables search using the last-used provider,
             // so the user never has to open Settings just to search one message.
             val chipProvider = if (_chatMode.value is ChatMode.WebSearch) settingsRepository.resolveChipSearchProvider() else null
@@ -1749,51 +1717,17 @@ class ChatViewModel(
                 return@launch
             }
 
-            val customImageAllowed = when (customProvider) {
-                "openai", "claude", "gemini" -> true
-                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(requestModel)
-                "xai" -> CustomProviderCapabilities.xAiSupportsImages(requestModel)
-                "vercel" -> CustomProviderCapabilities.vercelSupportsImages(requestModel)
-                "experiential" -> CustomProviderCapabilities.experientialSupportsImages(requestModel)
-                "groq", "together", "enclave", "cloudflare" -> CustomProviderCapabilities.openModelSupportsImages(requestModel)
-                "ollama" -> customProviderConfig.ollamaImagesEnabled
-                "openai-compatible" -> customProviderConfig.openAiCompatibleImagesEnabled
-                else -> false
-            }
-            val customPdfAllowed = when (customProvider) {
-                "openai", "claude", "gemini" -> true
-                "cerebras" -> CustomProviderCapabilities.cerebrasSupportsPdfs(requestModel)
-                "xai" -> CustomProviderCapabilities.xAiSupportsPdfs(requestModel)
-                "vercel" -> CustomProviderCapabilities.vercelSupportsPdfs(requestModel)
-                "ollama" -> customProviderConfig.ollamaPdfsEnabled
-                "openai-compatible" -> customProviderConfig.openAiCompatiblePdfsEnabled
-                else -> false
-            }
+            val customImageAllowed = CustomProviderRouting.imagesAllowed(customProvider, requestModel, customProviderConfig)
+            val customPdfAllowed = CustomProviderRouting.pdfsAllowed(customProvider, requestModel, customProviderConfig)
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
-            // Sarvam never sends raw files (docs ride as anydoc Markdown, images as OCR
-            // text), so the raw-attachment gates below don't apply to it.
-            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&pendingIsPdf && !customPdfAllowed) {
-                val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
-                    "Settings → Echo Labs → Custom API Endpoint"
-                } else {
-                    "Settings → Custom"
-                }
-                _errorMessage.value = "PDF is off for this custom endpoint. Turn it on in $where."
+            val gatesRawAttachment = CustomProviderRouting.sendsRawAttachments(customProvider) &&
+                !imageGenMode && !videoGenMode && attachmentUri != null
+            if (gatesRawAttachment && pendingIsPdf && !customPdfAllowed) {
+                _errorMessage.value = CustomProviderRouting.pdfOffMessage(customProvider)
                 return@launch
             }
-            if (customProviderActive && customProvider != "sarvam" && !imageGenMode && !videoGenMode && attachmentUri != null &&!pendingIsPdf && !customImageAllowed) {
-                _errorMessage.value = if (customProvider == "xai") {
-                    "$requestModel does not support image attachments. Choose an xAI vision model such as grok-4.5."
-                } else if (customProvider == "groq" || customProvider == "together" || customProvider == "enclave" || customProvider == "cloudflare") {
-                    "$requestModel does not support image attachments. Choose a vision model, such as a Llama 4 model."
-                } else {
-                    val where = if (customProvider == "ollama" || customProvider == "openai-compatible") {
-                        "Settings → Echo Labs → Custom API Endpoint"
-                    } else {
-                        "Settings → Custom"
-                    }
-                    "Images are off for this custom endpoint. Turn them on in $where."
-                }
+            if (gatesRawAttachment && !pendingIsPdf && !customImageAllowed) {
+                _errorMessage.value = CustomProviderRouting.imageOffMessage(customProvider, requestModel)
                 return@launch
             }
 
