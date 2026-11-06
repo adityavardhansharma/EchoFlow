@@ -136,10 +136,9 @@ internal fun StreamingAssistantBubble(
                                 }
                                 SkipFoldedReasoning(revealState, run.filter { segments[it] is StreamSegment.Reasoning })
                                 if (steps.isNotEmpty()) {
-                                    ActivityPill(
-                                        steps,
-                                        startedAt = revealState?.activityStartedAt(index, android.os.SystemClock.elapsedRealtime()),
-                                    )
+                                    ActivityStart(revealState, index) { startedAt ->
+                                        ActivityPill(steps, startedAt = startedAt)
+                                    }
                                     Spacer(Modifier.height(Spacing.s))
                                 }
                             }
@@ -261,6 +260,19 @@ internal fun StreamingAssistantBubble(
 }
 
 private fun StreamSegment.isActivity() = this is StreamSegment.Reasoning || this is StreamSegment.Search
+
+/**
+ * The time the activity run was first drawn, recorded once its composition commits. A discarded
+ * composition never reaches [onCommit], so its timestamp can't become the timer's start.
+ */
+@Composable
+private fun ActivityStart(revealState: StreamRevealState?, segmentIndex: Int, content: @Composable (startedAt: Long?) -> Unit) {
+    var startedAt by remember { mutableStateOf(revealState?.activityStartedAt(segmentIndex)) }
+    if (startedAt == null && revealState != null) {
+        SideEffect { startedAt = revealState.activityStartedAt(segmentIndex, android.os.SystemClock.elapsedRealtime()) }
+    }
+    content(startedAt)
+}
 
 /** Indices of the unbroken run of reasoning / search segments starting at [start]. */
 private fun activityRun(segments: List<StreamSegment>, start: Int): List<Int> {

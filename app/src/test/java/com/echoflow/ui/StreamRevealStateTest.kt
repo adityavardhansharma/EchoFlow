@@ -96,8 +96,8 @@ class StreamRevealStateTest {
         val second = Any()
         state.beginViewport(second)
         assertEquals(300, state.resumePoint(0, 300))
-        // Text that only starts after the return still reveals at the same place it is.
-        assertEquals(5, state.resumePoint(1, 5))
+        // A segment that starts after the return types in, even though the reply was open before.
+        assertEquals(0, state.resumePoint(1, 5))
     }
 
     @Test fun `a row scrolled back into view keeps what it already showed`() {

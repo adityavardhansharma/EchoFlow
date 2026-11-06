@@ -30,6 +30,12 @@ class StreamRevealState {
     /** How far each segment has been drawn, kept after its reader detaches. */
     private val shownBySegment = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
+    /**
+     * Segments that existed when the user left. A segment that starts after they come back
+     * types in, instead of appearing all at once because the reply was already on screen.
+     */
+    private val presentWhenLeft: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     /** Segments some reader has already drawn part of; kept after that reader leaves. */
     private val drawn: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
@@ -64,6 +70,7 @@ class StreamRevealState {
     /** Abandons a pending or visible surface when its lifecycle owner leaves composition. */
     fun abandonViewport(viewport: Any) {
         returning = true
+        presentWhenLeft += drawn
         presentation.update {
             it.copy(
                 pendingViewports = it.pendingViewports - viewport,
@@ -81,7 +88,7 @@ class StreamRevealState {
      * back into view. Without this a remounted row would type the whole answer out again.
      */
     fun resumePoint(segmentIndex: Int, length: Int): Int {
-        return if (returning || segmentIndex in drawn) length else 0
+        return if (segmentIndex in drawn || (returning && segmentIndex in presentWhenLeft)) length else 0
     }
 
     /**
@@ -100,6 +107,9 @@ class StreamRevealState {
      * When the activity run starting at [segmentIndex] was first drawn, so its "thinking for"
      * timer keeps counting across a chat switch instead of restarting at zero.
      */
+    /** The start already recorded for [segmentIndex], or null if the pill has not committed yet. */
+    fun activityStartedAt(segmentIndex: Int): Long? = activityStarts[segmentIndex]
+
     fun activityStartedAt(segmentIndex: Int, now: Long): Long = activityStarts.getOrPut(segmentIndex) { now }
 
     fun report(reader: Any, segmentIndex: Int, shown: Int) {
