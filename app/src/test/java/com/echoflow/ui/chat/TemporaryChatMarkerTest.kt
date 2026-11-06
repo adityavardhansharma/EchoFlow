@@ -48,4 +48,13 @@ class TemporaryChatMarkerTest {
         prefs.edit().putString(TemporaryChatMarker.KEY_CHAT_ID, "legacy").commit()
         assertEquals("legacy", TemporaryChatMarker(prefs, file).read())
     }
+
+    @Test fun `both copies are recovered when they name different chats`() {
+        // The prefs write of the newer chat failed, so prefs still name the older one.
+        prefs.edit().putString(TemporaryChatMarker.KEY_CHAT_ID, "older").commit()
+        file.writeText("newer")
+        val marker = TemporaryChatMarker(prefs, file)
+        assertEquals(listOf("older", "newer"), marker.readAll())
+        assertEquals("older", marker.read())
+    }
 }

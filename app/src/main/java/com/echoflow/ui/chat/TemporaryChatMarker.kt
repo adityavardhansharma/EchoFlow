@@ -12,9 +12,18 @@ import java.io.File
  * failed to save would let the chat survive. Either copy is enough to find it again.
  */
 internal class TemporaryChatMarker(private val prefs: SharedPreferences, private val file: File) {
-    fun read(): String? =
-        prefs.getString(KEY_CHAT_ID, null)
-            ?: runCatching { file.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.ifBlank { null }
+    /**
+     * Every id still stored, prefs first. A prefs write can fail while the file copy moves on
+     * to a newer chat, so reading only the first one would delete the older chat and leave the
+     * newer one in history.
+     */
+    fun readAll(): List<String> {
+        val fromPrefs = prefs.getString(KEY_CHAT_ID, null)?.takeIf { it.isNotBlank() }
+        val fromFile = runCatching { file.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()?.ifBlank { null }
+        return listOfNotNull(fromPrefs, fromFile).distinct()
+    }
+
+    fun read(): String? = readAll().firstOrNull()
 
     /** False only when neither copy could be saved. */
     fun write(chatId: String): Boolean {

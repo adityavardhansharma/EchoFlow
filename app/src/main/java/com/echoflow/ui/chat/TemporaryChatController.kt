@@ -23,16 +23,21 @@ internal class TemporaryChatController(
         java.io.File(app.noBackupFilesDir, TemporaryChatMarker.FILE_NAME),
     )
 
-    /** Written as soon as a temporary chat gets a row; still set at launch means the process died in it. */
-    val leftoverChatId: String? = marker.read()
+    /**
+     * Written as soon as a temporary chat gets a row; still set at launch means the process died
+     * in it. Both copies, since they can name different chats when one write failed.
+     */
+    val leftoverChatIds: List<String> = marker.readAll()
+
+    val leftoverChatId: String? get() = leftoverChatIds.firstOrNull()
 
     private val _state = MutableStateFlow<TemporaryChat>(TemporaryChat.Off)
     val state: StateFlow<TemporaryChat> = _state.asStateFlow()
 
     /** A temporary chat the process died inside is discarded on the next launch. */
     fun discardLeftover() {
-        val id = leftoverChatId ?: return
-        scope.launch { discard(id); forget(id) }
+        if (leftoverChatIds.isEmpty()) return
+        scope.launch { leftoverChatIds.forEach { id -> discard(id); forget(id) } }
     }
 
     fun arm() = apply(TemporaryChatMachine.arm(_state.value))

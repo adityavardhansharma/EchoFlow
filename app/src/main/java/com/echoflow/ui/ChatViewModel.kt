@@ -211,6 +211,8 @@ class ChatViewModel(
         // Quotes point at replies in the conversation being left; reopening the same one (the
         // browser workspace does) keeps them.
         if (chatId != previousChatId) _quotes.value = emptyList()
+        // A failure that landed while this chat was in the background belongs on its banner now.
+        _errorMessage.value = chatId?.let { pendingChatErrors.remove(it) }
         applyModelForThread(chatId)
     }
 
@@ -363,7 +365,7 @@ class ChatViewModel(
         when (val position = settingsRepository.getLastPositionDirect(mode)) {
             is ModePosition.Thread ->
                 chatRepository.thread(position.chatId)
-                    ?.takeIf { it.mode == mode && it.id != leftoverTemporaryChatId }?.id
+                    ?.takeIf { it.mode == mode && it.id !in leftoverTemporaryChatIds }?.id
             ModePosition.Blank, ModePosition.Unset -> null
         }
 
@@ -371,7 +373,7 @@ class ChatViewModel(
     private val temporaryChat = TemporaryChatController(application, viewModelScope) { id ->
         chatRepository.thread(id)?.let { deleteThreadNow(it) }
     }
-    private val leftoverTemporaryChatId: String? get() = temporaryChat.leftoverChatId
+    private val leftoverTemporaryChatIds: Set<String> get() = temporaryChat.leftoverChatIds.toSet()
 
     /** This mode's conversations. The two histories never mix. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -517,6 +519,9 @@ class ChatViewModel(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    /** Failures for chats that were not open when they happened, shown when that chat reopens. */
+    private val pendingChatErrors = java.util.concurrent.ConcurrentHashMap<String, String>()
 
 
     // Pending attachments staged in the composer (up to [MAX_MESSAGE_ATTACHMENTS]). One list for
@@ -1605,6 +1610,9 @@ class ChatViewModel(
         val startMode = appMode.value
         val startToken = navigation.begin()
         val startedTemporary = startChatId == null && temporaryChat.state.value == TemporaryChat.Armed
+        // Taken before the first suspend. A temporary chat armed while this send is getting
+        // ready must not turn memory off for a message that was typed into a normal chat.
+        val startedInTemporaryChat = temporaryChat.covers(startChatId)
         startChatId?.let { chatId ->
             if (turns.isRunning(chatId)) return
         }
@@ -1751,7 +1759,7 @@ class ChatViewModel(
             // effective client provider). Cloud brands are always on; Ollama / OpenAI-compatible are
             // gated by a per-provider toggle since their tool support depends on the chosen model.
             val memorySettings = MemorySettings(getApplication<Application>())
-            val inTemporaryChat = isTemporaryNow()
+            val inTemporaryChat = startedInTemporaryChat
             val learningSession = memorySettings.session().takeUnless { inTemporaryChat }
             val memoryRequested = !inTemporaryChat && memorySettings.connected && memorySettings.recall && !isLocal &&
                 (customProvider != "ollama" || memorySettings.allowLocal)
@@ -2537,9 +2545,9 @@ class ChatViewModel(
                 e.printStackTrace()
                 // Several chats can stream at once: a failure belongs on its own chat's banner,
                 // not on whichever chat happens to be open. Its reply keeps the error text.
-                if (_currentChatThreadId.value == chatId) {
-                    _errorMessage.value = e.message ?: "An unexpected error occurred during chat."
-                }
+                val failure = e.message ?: "An unexpected error occurred during chat."
+                if (_currentChatThreadId.value == chatId) _errorMessage.value = failure
+                else pendingChatErrors[chatId] = failure
                 streamUiFlushJob?.cancel()
                 if (!assistantPersisted) {
                     if (editingUserId != null) {
