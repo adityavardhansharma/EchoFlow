@@ -12,7 +12,11 @@ import androidx.compose.ui.unit.TextUnit
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
 import com.swmansion.enriched.markdown.compose.MarkdownOptions
 import com.swmansion.enriched.markdown.compose.invoke
+import com.swmansion.enriched.markdown.compose.MarkdownPlugins
 import com.swmansion.enriched.markdown.compose.material3.rememberMaterialMarkdownStyle
+import com.swmansion.enriched.markdown.math.LatexMathPlugin
+import com.swmansion.enriched.markdown.math.compose.inlineMath
+import com.swmansion.enriched.markdown.math.compose.math
 
 /** The shared response renderer used for both streaming and persisted messages. */
 @Composable
@@ -29,8 +33,9 @@ fun MarkdownText(
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     val materialStyle = rememberMaterialMarkdownStyle()
-    val renderedStyle = remember(materialStyle, textColor, style) {
+    val renderedStyle = remember(materialStyle, textColor, style, scheme) {
         materialStyle.merge {
             paragraph {
                 color = textColor
@@ -48,13 +53,20 @@ fun MarkdownText(
                 color = textColor
                 headerTextColor = textColor
             }
+            math {
+                color = textColor
+                backgroundColor = scheme.surfaceContainerHigh
+            }
+            inlineMath { color = textColor }
         }
     }
-    EnrichedMarkdownText(
-        markdown = text,
-        modifier = modifier.fillMaxWidth(),
-        style = renderedStyle,
-        options = MarkdownOptions(admonitions = true, highlight = true),
-        onLinkClick = { url -> openUrl(context, url) },
-    )
+    MarkdownPlugins(LatexMathPlugin) {
+        EnrichedMarkdownText(
+            markdown = text,
+            modifier = modifier.fillMaxWidth(),
+            style = renderedStyle,
+            options = MarkdownOptions(admonitions = true, highlight = true),
+            onLinkClick = { url -> openUrl(context, url) },
+        )
+    }
 }
