@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
+import com.swmansion.enriched.markdown.compose.MarkdownOptions
 import com.swmansion.enriched.markdown.compose.invoke
 import com.swmansion.enriched.markdown.compose.material3.rememberMaterialMarkdownStyle
 
@@ -53,6 +54,7 @@ fun MarkdownText(
         markdown = text,
         modifier = modifier.fillMaxWidth(),
         style = renderedStyle,
+        options = MarkdownOptions(admonitions = true, highlight = true),
         onLinkClick = { url -> openUrl(context, url) },
     )
 }
