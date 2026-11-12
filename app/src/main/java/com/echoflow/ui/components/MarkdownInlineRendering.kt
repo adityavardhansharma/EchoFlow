@@ -43,27 +43,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
-import dev.snipme.highlights.Highlights
-import dev.snipme.highlights.model.BoldHighlight
-import dev.snipme.highlights.model.ColorHighlight
-import dev.snipme.highlights.model.SyntaxLanguage
-import dev.snipme.highlights.model.SyntaxThemes
-import com.hrm.latex.renderer.Latex
-import com.hrm.latex.renderer.LatexAutoWrap
-import com.hrm.latex.renderer.measure.rememberLatexMeasurer
-import com.hrm.latex.renderer.model.LatexConfig
-import com.hrm.latex.renderer.model.LatexTheme
 
-/**
- * One markdown renderer for the whole app — used identically while a message streams and once it is
- * finished, so the layout never "jumps" or re-styles when streaming completes. It is a lightweight,
- * block-incremental CommonMark/GFM renderer: parsing is memoized on the text and every block is a
- * child composable taking only stable params, so during streaming only the final, still-growing
- * block re-renders each frame. Supports headers, ordered/bulleted (nested) lists, blockquotes,
- * horizontal rules, GFM tables (wrapping cells — never truncated), fenced code blocks with real
- * syntax highlighting, LaTeX math (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`), and inline
- * bold/italic/strikethrough/code/links.
- */
+/** Inline helpers for the plain-text copy path: emphasis, links, and citation labels. */
 
 internal fun List<InlineNode>.collectMathNodes(): List<InlineNode.Math> {
     val out = mutableListOf<InlineNode.Math>()
@@ -130,16 +111,6 @@ internal fun AnnotatedString.Builder.appendNodes(
             ) { append(" ${node.label} ") }
         }
     }
-}
-
-@Composable
-internal fun latexConfigFor(style: TextStyle, scale: Float): LatexConfig {
-    val baseSize = if (style.fontSize == TextUnit.Unspecified) 16.sp else style.fontSize
-    return LatexConfig(
-        fontSize = baseSize * scale,
-        theme = LatexTheme.material3(),
-        accessibilityEnabled = true
-    )
 }
 
 internal fun AnnotatedString.Builder.appendInline(text: String, linkColor: Color) {
