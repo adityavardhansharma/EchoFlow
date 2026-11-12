@@ -76,6 +76,12 @@ android {
     compose = true
     buildConfig = true
   }
+  packaging {
+    jniLibs {
+      // The markdown parser, math engine, and code highlighter each ship these.
+      pickFirsts += listOf("**/libc++_shared.so", "**/libfbjni.so")
+    }
+  }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
