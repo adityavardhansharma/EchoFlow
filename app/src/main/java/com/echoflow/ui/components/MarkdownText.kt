@@ -9,6 +9,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import com.swmansion.enriched.markdown.codehighlight.CodeHighlightPlugin
+import com.swmansion.enriched.markdown.compose.CodeBlockLayout
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
 import com.swmansion.enriched.markdown.compose.MarkdownOptions
 import com.swmansion.enriched.markdown.compose.invoke
@@ -17,6 +20,7 @@ import com.swmansion.enriched.markdown.compose.material3.rememberMaterialMarkdow
 import com.swmansion.enriched.markdown.math.LatexMathPlugin
 import com.swmansion.enriched.markdown.math.compose.inlineMath
 import com.swmansion.enriched.markdown.math.compose.math
+import com.swmansion.enriched.markdown.spoiler.SpoilerOverlay
 
 /** The shared response renderer used for both streaming and persisted messages. */
 @Composable
@@ -60,12 +64,15 @@ fun MarkdownText(
             inlineMath { color = textColor }
         }
     }
-    MarkdownPlugins(LatexMathPlugin) {
+    MarkdownPlugins(LatexMathPlugin, CodeHighlightPlugin) {
         EnrichedMarkdownText(
             markdown = text,
             modifier = modifier.fillMaxWidth(),
             style = renderedStyle,
             options = MarkdownOptions(admonitions = true, highlight = true),
+            codeBlockLayout = CodeBlockLayout.Scrollable,
+            taskListToggleEnabled = false,
+            spoilerOverlay = SpoilerOverlay.Solid(cornerRadius = 4.dp),
             onLinkClick = { url -> openUrl(context, url) },
         )
     }
