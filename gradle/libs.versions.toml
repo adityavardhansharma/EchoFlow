@@ -13,9 +13,6 @@ composeBom = "2026.06.00"
 material3 = "1.5.0-alpha20"
 graphicsShapes = "1.0.1"
 enrichedMarkdown = "0.3.0"
-markdownRenderer = "0.41.0"
-highlights = "1.1.0"
-latexRenderer = "1.4.7"
 googleDevtoolsKsp = "2.3.13"
 navigationCompose = "2.8.9"
 roomRuntime = "2.7.0"
@@ -94,11 +91,6 @@ androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shape
 enriched-markdown-compose = { group = "com.swmansion.enriched.markdown", name = "compose", version.ref = "enrichedMarkdown" }
 enriched-markdown-math = { group = "com.swmansion.enriched.markdown", name = "math", version.ref = "enrichedMarkdown" }
 enriched-markdown-code-highlight = { group = "com.swmansion.enriched.markdown", name = "code-highlight", version.ref = "enrichedMarkdown" }
-markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
-markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
-markdown-renderer-code = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
-highlights = { group = "dev.snipme", name = "highlights", version.ref = "highlights" }
-latex-renderer = { group = "io.github.huarangmeng", name = "latex-renderer", version.ref = "latexRenderer" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coilCompose" }
