@@ -93,6 +93,7 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 enriched-markdown-compose = { group = "com.swmansion.enriched.markdown", name = "compose", version.ref = "enrichedMarkdown" }
 enriched-markdown-math = { group = "com.swmansion.enriched.markdown", name = "math", version.ref = "enrichedMarkdown" }
+enriched-markdown-code-highlight = { group = "com.swmansion.enriched.markdown", name = "code-highlight", version.ref = "enrichedMarkdown" }
 markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
 markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
 markdown-renderer-code = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
