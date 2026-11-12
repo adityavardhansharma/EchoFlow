@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import com.echoflow.ui.theme.JetBrainsMono
 import com.swmansion.enriched.markdown.codehighlight.CodeHighlightPlugin
 import com.swmansion.enriched.markdown.compose.CodeBlockLayout
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
@@ -57,6 +58,8 @@ fun MarkdownText(
                 color = textColor
                 headerTextColor = textColor
             }
+            code { fontFamily = JetBrainsMono }
+            codeBlock { fontFamily = JetBrainsMono }
             math {
                 color = textColor
                 backgroundColor = scheme.surfaceContainerHigh
