@@ -76,6 +76,12 @@ android {
     compose = true
     buildConfig = true
   }
+  packaging {
+    jniLibs {
+      // The markdown parser, math engine, and code highlighter each ship these.
+      pickFirsts += listOf("**/libc++_shared.so", "**/libfbjni.so")
+    }
+  }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
@@ -104,11 +110,9 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.graphics.shapes)
-  implementation(libs.markdown.renderer)
-  implementation(libs.markdown.renderer.m3)
-  implementation(libs.markdown.renderer.code)
-  implementation(libs.highlights)
-  implementation(libs.latex.renderer)
+  implementation(libs.enriched.markdown.compose)
+  implementation(libs.enriched.markdown.math)
+  implementation(libs.enriched.markdown.code.highlight)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
