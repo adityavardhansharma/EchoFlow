@@ -113,7 +113,6 @@ dependencies {
   implementation(libs.enriched.markdown.compose)
   implementation(libs.enriched.markdown.math)
   implementation(libs.enriched.markdown.code.highlight)
-  implementation(libs.markdown.renderer.code)
   implementation(libs.highlights)
   implementation(libs.latex.renderer)
   implementation(libs.androidx.core.ktx)
