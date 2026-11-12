@@ -104,6 +104,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.graphics.shapes)
+  implementation(libs.enriched.markdown.compose)
   implementation(libs.markdown.renderer)
   implementation(libs.markdown.renderer.m3)
   implementation(libs.markdown.renderer.code)
