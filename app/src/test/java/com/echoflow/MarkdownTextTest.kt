@@ -2,6 +2,7 @@ package com.echoflow
 
 import com.echoflow.ui.components.MarkdownBlock
 import com.echoflow.ui.components.markdownToPlainText
+import com.echoflow.ui.components.neutralizeUnsupportedVideo
 import com.echoflow.ui.components.parseMarkdownBlocks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -167,5 +168,48 @@ class MarkdownTextTest {
             "See the docs for more.",
             markdownToPlainText("See [the docs](https://example.com/guide) for more."),
         )
+    }
+
+    @Test
+    fun videoBlockKeepsTheSurroundingReply() {
+        val source = """
+            Before
+
+            <video src="https://example.com/clip.mp4"></video>
+
+            After **bold**
+        """.trimIndent()
+
+        val rendered = neutralizeUnsupportedVideo(source)
+        assertTrue(rendered.contains("Before"))
+        assertTrue(rendered.contains("After **bold**"))
+        assertTrue(rendered.contains("Video: https://example.com/clip.mp4"))
+        assertFalse(rendered.contains("<video"))
+    }
+
+    @Test
+    fun videoInsideCodeIsLeftAlone() {
+        val fenced = "See\n\n```html\n<video src=\"https://example.com/a.mp4\"></video>\n```\n\nDone"
+        assertEquals(fenced, neutralizeUnsupportedVideo(fenced))
+        val inline = "Use `<video src=\"https://example.com/a.mp4\">` here."
+        assertEquals(inline, neutralizeUnsupportedVideo(inline))
+    }
+
+    @Test
+    fun multilineVideoTagDoesNotSwallowTheNextParagraph() {
+        val source = """
+            Intro
+            <video
+              src='https://example.com/a.mp4'>
+            </video>
+            Still here
+        """.trimIndent()
+
+        val rendered = neutralizeUnsupportedVideo(source)
+        assertTrue(rendered.contains("Intro"))
+        assertTrue(rendered.contains("Video: https://example.com/a.mp4"))
+        assertTrue(rendered.contains("Still here"))
+        assertFalse(rendered.contains("<video"))
+        assertFalse(rendered.contains("</video"))
     }
 }
