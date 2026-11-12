@@ -82,7 +82,8 @@ private fun CitationPeekPopup(peek: Peek) {
                 val x = (a.center.x - popupContentSize.width / 2f).toInt()
                     .coerceIn(gap, (windowSize.width - popupContentSize.width - gap).coerceAtLeast(gap))
                 val above = (a.top - popupContentSize.height - gap).toInt()
-                val y = if (above >= gap) above else (a.bottom + gap).toInt()
+                val maxY = (windowSize.height - popupContentSize.height - gap).coerceAtLeast(gap)
+                val y = if (above >= gap) above else (a.bottom + gap).toInt().coerceIn(gap, maxY)
                 return IntOffset(x, y)
             }
         }
