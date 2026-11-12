@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
@@ -26,6 +27,7 @@ fun MarkdownText(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
+    val context = LocalContext.current
     val materialStyle = rememberMaterialMarkdownStyle()
     val renderedStyle = remember(materialStyle, textColor, style) {
         materialStyle.merge {
@@ -51,5 +53,6 @@ fun MarkdownText(
         markdown = text,
         modifier = modifier.fillMaxWidth(),
         style = renderedStyle,
+        onLinkClick = { url -> openUrl(context, url) },
     )
 }
