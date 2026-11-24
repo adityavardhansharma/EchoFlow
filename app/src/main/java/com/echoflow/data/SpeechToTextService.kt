@@ -193,6 +193,7 @@ class SpeechToTextTranscriber(
     private val deepgramBaseUrl: String = "https://api.deepgram.com",
     private val geminiBaseUrl: String = GeminiDictation.BASE_URL,
     private val elevenLabsBaseUrl: String = ElevenLabsDictation.BASE_URL,
+    private val mistralBaseUrl: String = MistralDictation.BASE_URL,
 ) {
     suspend fun transcribe(
         apiKey: String,
@@ -204,7 +205,7 @@ class SpeechToTextTranscriber(
         sarvamKey: String = apiKey,
         /**
          * True when [apiKey] is the model maker's own key (Gemini for Gemini Transcribe, ElevenLabs
-         * for Scribe v2) and the request should skip OpenRouter. See [SttCatalog.usesProviderDirect].
+         * for Scribe v2, Mistral for Voxtral) and the request should skip OpenRouter. See [SttCatalog.usesProviderDirect].
          */
         providerDirect: Boolean = false,
         /**
@@ -300,6 +301,35 @@ class SpeechToTextTranscriber(
                     ElevenLabsDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
                 }.onFailure { if (it is CancellationException) throw it }
             }
+            if (providerDirect && modelId == SttCatalog.VOXTRAL_MODEL_ID) {
+                return@withContext runCatching {
+                    check(apiKey.isNotBlank()) { "No Mistral key" }
+                    // Context bias only steers recognition, so like keyterms it never gates
+                    // dictation: a rejected request (400 or 422) retries once without it. A
+                    // "model not found" answer moves to the versioned model id instead.
+                    val bias = MistralDictation.contextBias(vocabulary)
+                    var code = 0
+                    var body = ""
+                    models@ for (model in MistralDictation.MODELS) {
+                        val attempts = if (bias.isEmpty()) listOf(bias) else listOf(bias, emptyList())
+                        for ((index, terms) in attempts.withIndex()) {
+                            currentCoroutineContext().ensureActive()
+                            val response = executeCancellable(
+                                MistralDictation.request(apiKey, wav, terms, model, mistralBaseUrl),
+                            )
+                            code = response.first
+                            body = response.second
+                            if (code in 200..299) break@models
+                            if (MistralDictation.isUnknownModel(code, body)) continue@models
+                            if ((code != 400 && code != 422) || index == attempts.lastIndex) break@models
+                        }
+                    }
+                    check(code in 200..299) {
+                        ProviderHttpSupport.errorMessage("Mistral dictation", code, body)
+                    }
+                    MistralDictation.parseTranscript(body) ?: error("Couldn't hear that — try again.")
+                }.onFailure { if (it is CancellationException) throw it }
+            }
             if (providerDirect && modelId == SttCatalog.GEMINI_TRANSCRIBE_MODEL_ID) {
                 return@withContext runCatching {
                     check(apiKey.isNotBlank()) { "No Gemini key" }
@@ -339,7 +369,7 @@ class SpeechToTextTranscriber(
                         OpenRouterSttAttempt(SttCatalog.MUSE_MODEL_ID),
                         OpenRouterSttAttempt(SttCatalog.GROK_MODEL_ID),
                     )
-                } else if (SttCatalog.supportsCustomVocabulary(modelId)) {
+                } else if (SttCatalog.supportsCustomVocabulary(modelId) && modelId != SttCatalog.VOXTRAL_MODEL_ID) {
                     // Vocabulary biasing is an enhancement, never a gate: if the provider rejects
                     // the hint list, the same model transcribes plainly before switching models.
                     val terms = DictationVocabulary.normalize(vocabulary)

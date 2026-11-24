@@ -75,6 +75,7 @@ object SttCatalog {
     const val GROK_MODEL_ID = "x-ai/grok-stt-1.0"
     const val GEMINI_TRANSCRIBE_MODEL_ID = "google/gemini-3.5-transcribe"
     const val SCRIBE_MODEL_ID = "elevenlabs/scribe-v2"
+    const val VOXTRAL_MODEL_ID = "mistralai/voxtral-small-transcribe-3-0"
     const val SARVAM_MODEL_ID = "saaras:v4"
     val SARVAM_MODEL = SttModel(
         id = SARVAM_MODEL_ID,
@@ -133,9 +134,24 @@ object SttCatalog {
     fun usesElevenLabsDirect(modelId: String, config: CustomProviderConfig): Boolean =
         modelId == SCRIBE_MODEL_ID && config.elevenLabsAvailable
 
+    /**
+     * Voxtral Small Transcribe 3 goes straight to Mistral, billed to the user's own key, while a
+     * Mistral key is saved under Custom; otherwise it runs through OpenRouter like the rest.
+     */
+    fun usesMistralDirect(modelId: String, config: CustomProviderConfig): Boolean =
+        modelId == VOXTRAL_MODEL_ID && config.mistralAvailable
+
     /** True when an OpenRouter-listed model runs on its maker's own API with the user's key instead. */
     fun usesProviderDirect(modelId: String, config: CustomProviderConfig): Boolean =
-        usesGeminiDirect(modelId, config) || usesElevenLabsDirect(modelId, config)
+        usesGeminiDirect(modelId, config) || usesElevenLabsDirect(modelId, config) || usesMistralDirect(modelId, config)
+
+    /**
+     * Voxtral's context bias is a Mistral API field OpenRouter doesn't document forwarding, so the
+     * vocabulary is sent only on the direct Mistral route. Every other vocabulary model takes it
+     * on both routes.
+     */
+    fun sendsVocabulary(modelId: String, config: CustomProviderConfig): Boolean =
+        supportsCustomVocabulary(modelId) && (modelId != VOXTRAL_MODEL_ID || usesMistralDirect(modelId, config))
 
     /** Rambler (Gemini's smart mode) exists only on the direct Gemini route; OpenRouter drops it. */
     fun supportsRambler(modelId: String, config: CustomProviderConfig): Boolean =
@@ -153,6 +169,7 @@ object SttCatalog {
         modelId == DEEPGRAM_MODEL_ID -> if (deepgramAvailable(config)) config.deepgramApiKey else ""
         usesGeminiDirect(modelId, config) -> config.geminiApiKey
         usesElevenLabsDirect(modelId, config) -> config.elevenLabsApiKey
+        usesMistralDirect(modelId, config) -> config.mistralApiKey
         else -> openRouterKey
     }
 
@@ -182,6 +199,17 @@ object SttCatalog {
             supportsCustomVocabulary = true,
             // $0.003/min sits exactly on the Cheap/Moderate cutoff; pin it so rounding can't flip the tag.
             costTierOverride = SttCostTier.Moderate,
+        ),
+        SttModel(
+            id = VOXTRAL_MODEL_ID,
+            name = "Voxtral Small Transcribe 3",
+            provider = "Mistral",
+            // Mistral lists $0.004/min → $0.24/hour; OpenRouter $0.000067/second (~$0.241/hour).
+            pricing = "~\$0.24 / hr",
+            blurb = "Mistral's most accurate transcription, in 50 languages.",
+            usdPerMinute = 0.004,
+            supportsCustomVocabulary = true,
+            vocabularyLabel = "Context bias",
         ),
         SttModel(
             id = MUSE_MODEL_ID,
