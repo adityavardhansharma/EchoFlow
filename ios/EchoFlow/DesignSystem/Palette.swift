@@ -21,31 +21,31 @@ enum Palette: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Tint for the one primary action on a screen. Light values pass 4.5:1 with white
-    /// text; dark values pass with near-black text.
+    /// Tint for the one primary action on a screen. Values stay close to the system colours
+    /// (Ocean is system blue, Lavender is system indigo) so the app feels native.
     var accent: Color {
         Color(light: lightHex, dark: darkHex)
     }
 
     private var lightHex: UInt32 {
         switch self {
-        case .mono: 0x1C1C1E
-        case .ocean: 0x0062CC
-        case .forest: 0x1E7B3A
-        case .sunset: 0xC0420B
-        case .lavender: 0x5E4BD1
-        case .rose: 0xC2185B
+        case .mono: 0x000000
+        case .ocean: 0x007AFF
+        case .forest: 0x248A3D
+        case .sunset: 0xE8590C
+        case .lavender: 0x5856D6
+        case .rose: 0xE0245E
         }
     }
 
     private var darkHex: UInt32 {
         switch self {
-        case .mono: 0xF2F2F7
-        case .ocean: 0x409CFF
-        case .forest: 0x4CD97B
-        case .sunset: 0xFF9F5A
-        case .lavender: 0xA99BFF
-        case .rose: 0xFF7FAE
+        case .mono: 0xFFFFFF
+        case .ocean: 0x0A84FF
+        case .forest: 0x30D158
+        case .sunset: 0xFF9F0A
+        case .lavender: 0x7D7AFF
+        case .rose: 0xFF375F
         }
     }
 }

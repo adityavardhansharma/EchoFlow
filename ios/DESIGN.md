@@ -10,8 +10,8 @@ reference; this file is the reasoning behind it.
 
 ## 1. The rules the canvas follows
 
-1. **Glass is the navigation layer only.** Nav bar buttons, the Chat/Imagine switch, the composer,
-   menus, sheets and floating actions are glass. Messages, cards, lists, reports, images and code
+1. **Glass is the navigation layer only.** The tab bar, nav bar buttons, the composer, menus,
+   sheets and floating actions are glass. Messages, cards, lists, reports, images and code
    blocks are solid content underneath. Never put glass on glass.
 2. **No custom bar backgrounds.** Content scrolls under the floating controls, and the system
    scroll-edge effect (a soft blur and fade) keeps them legible. The canvas draws that fade at the
@@ -24,9 +24,12 @@ reference; this file is the reasoning behind it.
    stop Browser Flow) use red.
 5. **Group related controls.** Neighbouring toolbar buttons share one glass shape inside a
    `GlassEffectContainer`, so they split and merge as the toolbar changes.
-6. **Regular glass by default, clear glass over media.** Imagine is the only place with `.clear`,
+6. **Structure like Apple's own apps.** A floating `TabView` (Chats, Imagine, Projects, Library)
+   with Search as its own circle, a `tabViewBottomAccessory` for running jobs, a Messages-style
+   composer, large titles and inset grouped lists. Not a drawer and not a web-style header.
+7. **Regular glass by default, clear glass over media.** Imagine is the only place with `.clear`,
    because the controls sit on generated images.
-7. **Respect accessibility settings.** Reduce Transparency, Increase Contrast and Reduce Motion are
+8. **Respect accessibility settings.** Reduce Transparency, Increase Contrast and Reduce Motion are
    handled by the system when we use the real APIs. Don't fake glass with custom blur views.
 
 ## 2. Theming
@@ -36,16 +39,17 @@ The Android app has six palettes plus dynamic colour. On iOS:
 - **Surfaces use system colours** (`.background`, `.secondarySystemBackground`, grouped
   backgrounds) so glass refracts what it is meant to, in light and dark.
 - **Each palette becomes an accent tint**, applied with `.tint(_:)` at the root. Values in the canvas
-  were picked so white text on the tint passes 4.5:1 in light mode, and dark text passes in dark mode:
+  stay close to the system colours so the app feels native. Text on a tinted button is white, except
+  Mono (inverted) and Forest and Sunset in dark mode (dark text). Check contrast again once SF Pro is in:
 
 | Palette | Light | Dark |
 |---|---|---|
-| Mono | `#1C1C1E` | `#F2F2F7` |
-| Ocean | `#0062CC` | `#409CFF` |
-| Forest | `#1E7B3A` | `#4CD97B` |
-| Sunset | `#C0420B` | `#FF9F5A` |
-| Lavender | `#5E4BD1` | `#A99BFF` |
-| Rose | `#C2185B` | `#FF7FAE` |
+| Mono | `#000000` | `#FFFFFF` |
+| Ocean | `#007AFF` (system blue) | `#0A84FF` |
+| Forest | `#248A3D` | `#30D158` |
+| Sunset | `#E8590C` | `#FF9F0A` |
+| Lavender | `#5856D6` (system indigo) | `#7D7AFF` |
+| Rose | `#E0245E` | `#FF375F` |
 
 - **Dynamic colour has no iOS equivalent.** Drop the "Wallpaper accent" option, or map it to the
   palette picker.
@@ -57,23 +61,24 @@ The Android app has six palettes plus dynamic colour. On iOS:
 
 | Android (Compose) | iOS (SwiftUI) | Canvas board |
 |---|---|---|
-| Chat top bar: drawer button, Chat/Imagine switch, new chat | Floating glass buttons in `.toolbar`, segmented `Picker` in `.principal` | Chat · new chat |
-| Greeting and suggestion chips | Same, as content | Chat · new chat |
-| Composer with model chip, mic, send | `.safeAreaBar(edge: .bottom)` holding a glass rounded rectangle; voice button turns into send when there's text | Chat · new chat, conversation |
-| Plus menu (Attach, Capabilities, Echo Labs) | `Menu` with `Section`s, growing out of the + button | Chat · plus menu |
-| Model picker bottom sheet | `.sheet` at `.medium` detent (inset glass), search field, filter `Picker` | Chat · model picker |
-| Navigation drawer | Full-screen chat list with a bottom search field and a prominent new-chat button. On iPad, the sidebar of a `NavigationSplitView` | Chats sidebar |
+| Navigation drawer | Root `TabView`: Chats, Imagine, Projects, Library, plus `Tab(role: .search)`. Minimises on scroll. On iPad, a sidebar via `.tabViewStyle(.sidebarAdaptable)` | Chats tab |
+| Chat list in the drawer | Chats tab: large title, pinned chats as avatars, Messages-style rows, Edit and settings/compose buttons in the toolbar | Chats tab |
+| Running Deep Research indicator | `.tabViewBottomAccessory` above the tab bar, with a stop button | Chats tab |
+| Chat top bar and greeting | Pushed chat with a back button, a glass title capsule that opens the model picker, greeting and suggestions as content | New chat |
+| Composer with model chip, mic, send | Messages-style: a glass + circle, a glass capsule field with dictation inside, and a tinted voice circle that becomes Send when there is text | New chat, Conversation |
+| Plus menu (Attach, Capabilities, Echo Labs) | `Menu` with `Section`s, growing out of the + button | Composer + menu |
+| Model picker bottom sheet | `.sheet` at `.medium` detent (inset glass), close and confirm glass buttons, search field | Model picker sheet |
 | Voice mode stage | Full-screen cover, glass control cluster at the bottom | Voice mode |
 | Deep Research workspace | Pushed view, Report / Sources / Steps picker in a bottom glass bar | Deep Research report |
 | Artifact workspace | Pushed view with `WKWebView` preview, version menu in the title | Artifact workspace |
 | Browser Flow | Full-screen `WKWebView`, glass address capsule, confirmation sheet at a small detent | Browser Flow |
 | Fusion, Adviser, Agents and memory lines in chat | Solid cards inside the message list (content, not glass) | Fusion, Adviser and Agents |
-| Artifacts gallery | `LazyVGrid` with a bottom search field | Artifacts gallery |
-| Imagine | Media canvas with `.clear` glass controls, the same composer | Imagine |
-| Imagine options sheet | `.sheet` with shape grid, resolution picker, sound toggle | Imagine · options |
-| Projects hub, project home | Large-title lists, project composer at the bottom | Projects, Project home |
-| Schedules | Large-title list, running-now card, toggles, prominent "New schedule" | Schedules |
-| Settings and its pages | Inset grouped `List` with coloured icon tiles, glass back button | Settings, Models, Echo Labs, Spend, Memory |
+| Artifacts gallery, reports, images | Library tab: one grid with a filter, Schedules reachable from its toolbar | Library tab |
+| Chat/Imagine switch | Imagine tab: media canvas with `.clear` glass controls; the tab bar minimises next to the composer | Imagine tab |
+| Imagine options sheet | `.sheet` with shape grid, resolution picker, sound toggle | Imagine · options sheet |
+| Projects hub, project home | Projects tab with a coloured card grid; project home with instructions, files and chats | Projects tab, Project home |
+| Schedules | Large-title list, running-now card, toggles, prominent + button | Schedules |
+| Settings and its pages | Inset grouped `List` with coloured icon tiles, search at the top, glass back button. Opened from the Chats toolbar | Settings, Models, Echo Labs, Spend, Memory |
 | App lock | Blurred content with a Face ID unlock button (`LocalAuthentication`) | App lock |
 
 ## 4. SwiftUI APIs to use
@@ -93,6 +98,7 @@ From WWDC25 session 323 and community references (confirm in Xcode):
 | Glass buttons | `.buttonStyle(.glass)`, `.buttonStyle(.glassProminent)`, `.buttonBorderShape(.circle)`, `.controlSize(.extraLarge)` |
 | Toolbar groups | `ToolbarSpacer(.fixed)`, `ToolbarSpacer(.flexible)`, `.sharedBackgroundVisibility(.hidden)` |
 | Bottom search | `.searchable(text:)` on iPhone sits at the bottom. `.searchToolbarBehavior(.minimized)` |
+| Tab bar | `TabView` with `Tab(role: .search)`, `.tabBarMinimizeBehavior(.onScrollDown)`, `.tabViewBottomAccessory { }` |
 | Content under bars | `.scrollEdgeEffectStyle(_:for:)`, `.backgroundExtensionEffect()` |
 | Sheet morphing from a button | `.matchedTransitionSource(id:in:)` + `.navigationTransition(.zoom(sourceID:in:))` |
 | Concentric corners | `RoundedRectangle(cornerRadius: .containerConcentric, style: .continuous)` |

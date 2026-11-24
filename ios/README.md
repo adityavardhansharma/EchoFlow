@@ -27,12 +27,13 @@ built or shipped yet, and the Android app in `app/` is unaffected.
 ios/
   EchoFlow.xcodeproj            (not created yet)
   EchoFlow/
-    App/                        EchoFlowApp, root navigation, app lock gate
+    App/                        EchoFlowApp, root TabView, app lock gate
     DesignSystem/               palettes, glass components, icons (SF Symbols)
     Features/
       Chat/                     composer, messages, plus menu, model picker
       Imagine/                  canvas, options sheet
       Projects/                 hub, project home, files, instructions
+      Library/                  artifacts, reports and images in one grid
       Schedules/
       Workspaces/               artifact, research and browser workspaces
       Settings/                 models, Echo Labs, spend, memory, voice
