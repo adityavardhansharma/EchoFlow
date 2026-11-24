@@ -48,6 +48,9 @@ ios/
   before the Models screen's "On iPhone" tab is final.
 - **Schedules.** iOS gives no exact-time background execution. Runs would use `BGTaskScheduler`
   plus a local notification, so the copy on that screen says iOS picks the moment.
-- **System-wide dictation.** Android uses an accessibility overlay. iOS needs a custom keyboard
-  extension with Full Access for the microphone, which is a review and privacy question.
+- **System-wide dictation.** Android uses an accessibility overlay. On iOS a custom keyboard
+  extension can insert text, but it can't record from the microphone, even with Full Access. So
+  recording is a separate decision: the keyboard would hand off to the containing app (or a Live
+  Activity it starts) to capture and transcribe audio, then pass the text back through a shared app
+  group. That flow needs a spike, plus a review and privacy check.
 - **Distribution.** TestFlight first. The Android sideload updater has no iOS equivalent.
