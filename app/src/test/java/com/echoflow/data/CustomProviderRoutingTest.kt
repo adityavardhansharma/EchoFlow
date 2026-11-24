@@ -17,6 +17,7 @@ class CustomProviderRoutingTest {
             CustomProviderConfig.PREFIX_TOGETHER to "together",
             CustomProviderConfig.PREFIX_ENCLAVE to "enclave",
             CustomProviderConfig.PREFIX_EXPERIENTIAL to "experiential",
+            CustomProviderConfig.PREFIX_MISTRAL to "mistral",
             CustomProviderConfig.PREFIX_CLOUDFLARE to "cloudflare",
             CustomProviderConfig.PREFIX_OLLAMA to "ollama",
             CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE to "openai-compatible",

@@ -18,6 +18,7 @@ object CustomProviderRouting {
         "together" to CustomProviderConfig.PREFIX_TOGETHER,
         "enclave" to CustomProviderConfig.PREFIX_ENCLAVE,
         "experiential" to CustomProviderConfig.PREFIX_EXPERIENTIAL,
+        "mistral" to CustomProviderConfig.PREFIX_MISTRAL,
         "cloudflare" to CustomProviderConfig.PREFIX_CLOUDFLARE,
         "ollama" to CustomProviderConfig.PREFIX_OLLAMA,
         "openai-compatible" to CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE,
@@ -40,6 +41,7 @@ object CustomProviderRouting {
         "xai" -> CustomProviderCapabilities.xAiSupportsImages(model)
         "vercel" -> CustomProviderCapabilities.vercelSupportsImages(model)
         "experiential" -> CustomProviderCapabilities.experientialSupportsImages(model)
+        "mistral" -> CustomProviderCapabilities.mistralSupportsImages(model)
         in openModelHosts -> CustomProviderCapabilities.openModelSupportsImages(model)
         "ollama" -> config.ollamaImagesEnabled
         "openai-compatible" -> config.openAiCompatibleImagesEnabled
@@ -86,6 +88,7 @@ object CustomProviderRouting {
             "together" -> (cloud && config.togetherEnabled) to "Together AI"
             "enclave" -> (cloud && config.enclaveEnabled) to "Enclave"
             "experiential" -> (cloud && config.experientialEnabled) to "Experiential Labs"
+            "mistral" -> (cloud && config.mistralEnabled) to "Mistral"
             "cloudflare" -> (cloud && config.cloudflareEnabled) to "Cloudflare Workers AI"
             "ollama" -> config.ollamaEnabled to "Ollama"
             "openai-compatible" -> config.openAiCompatibleEnabled to "The OpenAI-compatible endpoint"
@@ -100,6 +103,7 @@ object CustomProviderRouting {
 
     fun imageOffMessage(provider: String?, model: String): String = when (provider) {
         "xai" -> "$model does not support image attachments. Choose an xAI vision model such as grok-4.5."
+        "mistral" -> "$model does not support image attachments. Choose a Mistral vision model such as mistral-medium-latest."
         in openModelHosts -> "$model does not support image attachments. Choose a vision model, such as a Llama 4 model."
         else -> "Images are off for this custom endpoint. Turn them on in ${settingsPath(provider)}."
     }

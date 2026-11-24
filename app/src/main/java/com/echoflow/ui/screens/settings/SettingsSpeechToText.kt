@@ -89,6 +89,7 @@ internal fun SpeechToTextPage(
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
     onOpenElevenLabs: () -> Unit,
+    onOpenMistral: () -> Unit,
     onBack: () -> Unit,
 ) {
     val mode by viewModel.sttMode.collectAsState()
@@ -116,7 +117,7 @@ internal fun SpeechToTextPage(
             label = "sttSections",
         ) { current ->
             when (current) {
-                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram, onOpenElevenLabs)
+                SttMode.Cloud -> SttCloudSection(viewModel, onOpenCloudModels, onOpenSarvam, onOpenDeepgram, onOpenElevenLabs, onOpenMistral)
                 SttMode.OnDevice -> SttOnDeviceSection()
             }
         }
@@ -130,6 +131,7 @@ private fun SttCloudSection(
     onOpenSarvam: () -> Unit,
     onOpenDeepgram: () -> Unit,
     onOpenElevenLabs: () -> Unit,
+    onOpenMistral: () -> Unit,
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedId by viewModel.sttCloudModel.collectAsState()
@@ -138,6 +140,7 @@ private fun SttCloudSection(
     val isDeepgram = selectedId == SttCatalog.DEEPGRAM_MODEL_ID
     val isGeminiDirect = SttCatalog.usesGeminiDirect(selectedId, config)
     val isElevenLabsDirect = SttCatalog.usesElevenLabsDirect(selectedId, config)
+    val isMistralDirect = SttCatalog.usesMistralDirect(selectedId, config)
     val vocabulary by viewModel.sttVocabulary.collectAsState()
     val hasKey = SttCatalog.apiKey(selectedId, apiKey, config).isNotBlank()
 
@@ -149,12 +152,14 @@ private fun SttCloudSection(
                 isDeepgram -> "Deepgram"
                 isGeminiDirect -> "Gemini"
                 isElevenLabsDirect -> "ElevenLabs"
+                isMistralDirect -> "Mistral"
                 else -> "OpenRouter"
             },
             onOpenCloudModels = when {
                 isSarvam -> onOpenSarvam
                 isDeepgram -> onOpenDeepgram
                 isElevenLabsDirect -> onOpenElevenLabs
+                isMistralDirect -> onOpenMistral
                 else -> onOpenCloudModels
             },
         )
@@ -170,7 +175,7 @@ private fun SttCloudSection(
         // Vocabulary opens in place under the list when a model that accepts it is chosen, so it
         // reads as part of that choice rather than a separate setting.
         AnimatedVisibility(
-            visible = SttCatalog.supportsCustomVocabulary(selectedId),
+            visible = SttCatalog.sendsVocabulary(selectedId, config),
             enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
                 fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
             exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
@@ -209,6 +214,20 @@ private fun SttCloudSection(
                 SttScribeExtras(viewModel, direct = isElevenLabsDirect, onOpenElevenLabs = onOpenElevenLabs)
             }
         }
+        // Voxtral's context bias is a Mistral API option, so through OpenRouter the card points at
+        // the Mistral key instead of offering vocabulary that would not be sent.
+        AnimatedVisibility(
+            visible = selectedId == SttCatalog.VOXTRAL_MODEL_ID && !isMistralDirect,
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        ) {
+            Column {
+                Spacer(Modifier.height(Spacing.m))
+                SttVoxtralKeyHint(onOpenMistral)
+            }
+        }
         // Hinglish post-processes any model's output through Sarvam, so it shows with a Sarvam key.
         if (config.sarvamAvailable) {
             Spacer(Modifier.height(Spacing.m))
@@ -217,10 +236,10 @@ private fun SttCloudSection(
         Spacer(Modifier.height(Spacing.m))
         Text(
             "Prices are per hour of audio. Saaras and Nova-3 are billed directly to your Sarvam and " +
-                "Deepgram keys, and appear once those keys are saved under Custom. Gemini 3.5 Transcribe " +
-                "and Scribe v2 use your Gemini and ElevenLabs keys when saved there; the rest use OpenRouter. " +
+                "Deepgram keys, and appear once those keys are saved under Custom. Gemini 3.5 Transcribe, " +
+                "Scribe v2 and Voxtral use your Gemini, ElevenLabs and Mistral keys when saved there; the rest use OpenRouter. " +
                 "One red \$ is cheap; two or three green \$ cost more. " +
-                "Best is the recommended dictation model; Custom vocabulary and Keyterms models learn your names and terms.",
+                "Best is the recommended dictation model; Custom vocabulary, Keyterms and Context bias models learn your names and terms.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -306,6 +325,32 @@ private fun SttScribeExtras(viewModel: SettingsViewModel, direct: Boolean, onOpe
                         modifier = Modifier.semantics { contentDescription = "Smart mode" })
                 }
             }
+        }
+    }
+}
+
+/** Voxtral on OpenRouter: what a Mistral key adds, and a shortcut to save one. */
+@Composable
+private fun SttVoxtralKeyHint(onOpenMistral: () -> Unit) {
+    Surface(
+        onClick = onOpenMistral,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Text(
+                "Context bias with a Mistral key",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                "Running through OpenRouter. Save a Mistral key under Custom to run Voxtral on your own " +
+                    "Mistral account and teach it your names and terms with context bias.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

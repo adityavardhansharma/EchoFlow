@@ -181,6 +181,7 @@ internal const val PageCustomProviderGroq = "custom_provider_groq"
 internal const val PageCustomProviderTogether = "custom_provider_together"
 internal const val PageCustomProviderEnclave = "custom_provider_enclave"
 internal const val PageCustomProviderExperiential = "custom_provider_experiential"
+internal const val PageCustomProviderMistral = "custom_provider_mistral"
 internal const val PageCustomProviderCloudflare = "custom_provider_cloudflare"
 internal const val PageCustomProviderDeepgram = "custom_provider_deepgram"
 internal const val PageCustomProviderElevenLabs = "custom_provider_elevenlabs"
@@ -206,7 +207,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi, PageCustomProviderVercel,
-    PageCustomProviderGroq, PageCustomProviderTogether, PageCustomProviderEnclave, PageCustomProviderExperiential, PageCustomProviderCloudflare,
+    PageCustomProviderGroq, PageCustomProviderTogether, PageCustomProviderEnclave, PageCustomProviderExperiential, PageCustomProviderMistral, PageCustomProviderCloudflare,
     PageCustomProviderDeepgram, PageCustomProviderElevenLabs,
     -> PageCustomProviderCloud
     else -> PageHome
@@ -285,6 +286,7 @@ fun SettingsScreen(
                 onOpenSarvam = { page = PageCustomProviderSarvam },
                 onOpenDeepgram = { page = PageCustomProviderDeepgram },
                 onOpenElevenLabs = { page = PageCustomProviderElevenLabs },
+                onOpenMistral = { page = PageCustomProviderMistral },
                 onBack = navigateBack,
             )
             PageVoiceMode -> VoiceModePage(
@@ -314,6 +316,7 @@ fun SettingsScreen(
             PageCustomProviderTogether -> DirectCloudBrandPage(viewModel, CustomModelProvider.Together, onBack = navigateBack)
             PageCustomProviderEnclave -> DirectCloudBrandPage(viewModel, CustomModelProvider.Enclave, onBack = navigateBack)
             PageCustomProviderExperiential -> DirectCloudBrandPage(viewModel, CustomModelProvider.Experiential, onBack = navigateBack)
+            PageCustomProviderMistral -> DirectCloudBrandPage(viewModel, CustomModelProvider.Mistral, onBack = navigateBack)
             PageCustomProviderCloudflare -> DirectCloudBrandPage(viewModel, CustomModelProvider.Cloudflare, onBack = navigateBack)
             PageCustomProviderDeepgram -> DictationKeyPage(viewModel, CustomModelProvider.Deepgram, onBack = navigateBack)
             PageCustomProviderElevenLabs -> DictationKeyPage(viewModel, CustomModelProvider.ElevenLabs, onBack = navigateBack)
@@ -491,7 +494,7 @@ internal fun SettingsHomePage(
                 icon = Icons.Default.Key,
                 polygon = BrandShapes.avatarStart, // Cookie9Sided
                 title = "Custom",
-                subtitle = "OpenAI · Claude · Gemini · Cerebras · Sarvam · xAI · Deepgram",
+                subtitle = "OpenAI · Claude · Gemini · Mistral · Cerebras · Sarvam · xAI · Deepgram",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
                 index = 2, count = navCount,

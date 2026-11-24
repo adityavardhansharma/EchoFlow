@@ -103,6 +103,15 @@ data class CustomProviderConfig(
     val experientialModel: String = "",
     val experientialModels: String = "",
     val experientialSelectedModels: String = "",
+    /**
+     * Mistral: chat models from La Plateforme's OpenAI-compatible API, and the same key runs
+     * Voxtral Small Transcribe 3 in Dictation instead of OpenRouter.
+     */
+    val mistralEnabled: Boolean = false,
+    val mistralApiKey: String = "",
+    val mistralModel: String = "",
+    val mistralModels: String = "",
+    val mistralSelectedModels: String = "",
     val cloudflareEnabled: Boolean = false,
     val cloudflareApiKey: String = "",
     val cloudflareModel: String = "",
@@ -119,6 +128,9 @@ data class CustomProviderConfig(
 
     val elevenLabsAvailable: Boolean
         get() = cloudApisEnabled && elevenLabsEnabled && elevenLabsApiKey.isNotBlank()
+
+    val mistralAvailable: Boolean
+        get() = cloudApisEnabled && mistralEnabled && mistralApiKey.isNotBlank()
 
     val sarvamAvailable: Boolean
         get() = cloudApisEnabled && sarvamEnabled && sarvamApiKey.isNotBlank()
@@ -152,6 +164,8 @@ data class CustomProviderConfig(
         const val ENCLAVE_BASE_URL = "https://router.enclave.ai/v1"
         const val PREFIX_EXPERIENTIAL = "custom/experiential/"
         const val EXPERIENTIAL_BASE_URL = "https://api.experientiallabs.ai/v1"
+        const val PREFIX_MISTRAL = "custom/mistral/"
+        const val MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
         const val PREFIX_CLOUDFLARE = "custom/cloudflare/"
 
         fun cloudflareBaseUrl(accountId: String): String =
@@ -168,7 +182,7 @@ data class CustomProviderModel(
     val isLocalLike: Boolean,
 )
 
-enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Experiential, Cloudflare, Deepgram, ElevenLabs, Ollama, OpenAiCompatible }
+enum class CustomModelProvider { OpenAi, Claude, Gemini, Cerebras, Sarvam, XAi, Vercel, Groq, Together, Enclave, Experiential, Mistral, Cloudflare, Deepgram, ElevenLabs, Ollama, OpenAiCompatible }
 
 object CustomProviderCapabilities {
     /**
@@ -227,6 +241,17 @@ object CustomProviderCapabilities {
 
     /** Experiential Labs is a gateway like Vercel: images go to any model, and a text-only route says so. */
     fun experientialSupportsImages(model: String): Boolean = model.isNotBlank()
+
+    /**
+     * Mistral's vision models: Pixtral, and Mistral Small, Medium and Large, Ministral and Magistral
+     * since their multimodal releases. Codestral, Devstral, Voxtral and Nemo are text-only (Voxtral
+     * takes audio, which chat never sends).
+     */
+    fun mistralSupportsImages(model: String): Boolean {
+        val id = model.trim().lowercase()
+        return listOf("pixtral", "mistral-small", "mistral-medium", "mistral-large", "ministral", "magistral")
+            .any { id.startsWith(it) }
+    }
 
     /**
      * Groq, Together AI, Enclave and Workers AI host open-weight models that are mostly text-only and
@@ -618,6 +643,7 @@ class CustomProviderService(
                 // `/models` has no chat flag and also lists embedding and native-API models.
                 CustomModelProvider.Experiential -> fetchOpenAiStyleModels(CustomProviderConfig.EXPERIENTIAL_BASE_URL, apiKey)
                     .filterNot { id -> listOf("embed", "rerank", "tts", "whisper", "transcribe", "jev").any { it in id.lowercase() } }
+                CustomModelProvider.Mistral -> fetchMistralModels(apiKey)
                 CustomModelProvider.Cloudflare -> fetchCloudflareModels(baseUrl, apiKey)
                 CustomModelProvider.Deepgram -> emptyList() // dictation-only; no chat models
                 CustomModelProvider.ElevenLabs -> emptyList() // dictation-only; no chat models
@@ -728,6 +754,17 @@ class CustomProviderService(
             .get()
             .build()
         return ProviderHttpSupport.parseLanguageModelIds(client.fetchText(request) { code, body -> customError("Vercel AI Gateway", code, body) })
+    }
+
+    /** Mistral flags chat models in `capabilities`; its list also holds OCR, embedding and speech models. */
+    private fun fetchMistralModels(apiKey: String): List<String> {
+        if (apiKey.isBlank()) throw Exception("API key is missing.")
+        val request = Request.Builder()
+            .url("${CustomProviderConfig.MISTRAL_BASE_URL}/models")
+            .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+            .get()
+            .build()
+        return ProviderHttpSupport.parseMistralChatModelIds(client.fetchText(request) { code, body -> customError("Mistral", code, body) })
     }
 
     /** Together returns a bare array; `type` separates chat models from image, embedding and rerank ones. */
