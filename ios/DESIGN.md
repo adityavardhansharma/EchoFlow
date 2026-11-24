@@ -58,8 +58,10 @@ brand.
 | Rose | `#B01B49` | `#FFB2BD` |
 
 - **Expressive shapes.** The Sunny and Cookie shapes from Android's `MaterialShapes` stay as
-  content: the greeting hero morphs Sunny to Cookie12 and back, the voice-mode button is a Sunny,
-  and list icons sit on tonal Cookie9 shapes. On iOS these are SwiftUI `Shape`s built from the same
+  content: the voice-mode button is a Sunny and list icons sit on tonal Cookie9 shapes. The Sunny
+  to Cookie12 morph is Android's hero for the memory section (`EchoBrainSection` in Settings); the
+  canvas also puts it behind the chat greeting, which is an intentional iOS change, since
+  Android's empty state is text only. On iOS these are SwiftUI `Shape`s built from the same
   polygons, animated with `.animation(.smooth)` on a morph progress value.
 - **Glass bubble selection.** The Chat / Imagine switch uses the iOS 26 selection lens: a clear
   bubble that magnifies the label under it and stretches like a droplet as it moves. In SwiftUI,
