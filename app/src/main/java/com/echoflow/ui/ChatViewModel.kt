@@ -1718,13 +1718,19 @@ class ChatViewModel(
             val customImageAllowed = CustomProviderRouting.imagesAllowed(customProvider, requestModel, customProviderConfig)
             val customPdfAllowed = CustomProviderRouting.pdfsAllowed(customProvider, requestModel, customProviderConfig)
             val pendingIsPdf = attachmentMime.equals("application/pdf", ignoreCase = true)
+            // Sarvam documents ride as parsed Markdown, so they are not raw files. A photo on a
+            // text-only model is still refused, even when a document rides along.
+            val sarvamParsedDocs = customProvider == "sarvam" &&
+                stagedAttachments.any { !it.isImage && !it.extractedText.isNullOrBlank() }
             val gatesRawAttachment = CustomProviderRouting.sendsRawAttachments(customProvider) &&
-                !imageGenMode && !videoGenMode && attachmentUri != null
+                !imageGenMode && !videoGenMode && attachmentUri != null && !sarvamParsedDocs
+            val gatesSarvamImage = customProvider == "sarvam" && sarvamParsedDocs &&
+                stagedAttachments.any { it.isImage } && !customImageAllowed
             if (gatesRawAttachment && pendingIsPdf && !customPdfAllowed) {
                 _errorMessage.value = CustomProviderRouting.pdfOffMessage(customProvider)
                 return@launch
             }
-            if (gatesRawAttachment && !pendingIsPdf && !customImageAllowed) {
+            if ((gatesRawAttachment && !pendingIsPdf && !customImageAllowed) || gatesSarvamImage) {
                 _errorMessage.value = CustomProviderRouting.imageOffMessage(customProvider, requestModel)
                 return@launch
             }
@@ -2023,12 +2029,11 @@ class ChatViewModel(
             val localHistory = if (isLocal) {
                 fullHistory.map { it.copy(content = LocalLlmPrompting.contentWithAttachments(it)) }
             } else fullHistory
-            // Sarvam chat models are text-only and reject file parts: staged docs ride as
-            // on-device anydoc Markdown folded into a request-only history copy (the stored
-            // messages keep their typed text). Every other custom provider uses fullHistory
-            // unchanged.
             val customHistory = if (customProvider == "sarvam") {
-                LocalLlmPrompting.historyWithInjectedDocs(fullHistory)
+                LocalLlmPrompting.historyForSarvam(
+                    fullHistory,
+                    vision = requestModel.trim() in CustomProviderConfig.SARVAM_VISION_MODELS,
+                )
             } else fullHistory
             val openRouterHistory = if (ModelFileCapability.extractsDocsLocally(selectedModel) && !isLocal) {
                 LocalLlmPrompting.historyWithInjectedDocs(fullHistory)

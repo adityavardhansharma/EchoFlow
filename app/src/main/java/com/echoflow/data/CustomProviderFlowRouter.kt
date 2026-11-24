@@ -51,14 +51,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
     private fun refuseIfDisabled(provider: String?, config: CustomProviderConfig): Flow<StreamChunk>? =
         CustomProviderRouting.disabledMessage(provider, config)?.let { message -> flow { error(message) } }
 
-    /**
-     * Vision models keep image parts. Text-only models drop them: docs already ride as
-     * anydoc Markdown folded into the prompt, and these models reject file parts.
-     */
+    /** Schedules and other callers skip ChatViewModel, so the same history rules apply here. */
     private fun sarvamHistory(model: String, history: List<ChatMessage>): List<ChatMessage> =
-        if (model.trim() in CustomProviderConfig.SARVAM_VISION_MODELS) history
-        else history.map {
-            it.copy(localAttachmentUri = null, localAttachmentMimeType = null,
-                localAttachmentName = null, attachmentsJson = null)
-        }
+        LocalLlmPrompting.historyForSarvam(history, model.trim() in CustomProviderConfig.SARVAM_VISION_MODELS)
 }

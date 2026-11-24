@@ -41,6 +41,28 @@ class CustomProviderRoutingTest {
         assertTrue(CustomProviderRouting.sendsRawAttachments("groq"))
     }
 
+    @Test fun `Sarvam vision history keeps every photo and the parsed document`() {
+        val json = ToolEventJson.attachmentsToJson(listOf(
+            MessageAttachment("content://a", "image/jpeg", "a.jpg"),
+            MessageAttachment("content://b", "image/png", "b.png"),
+            MessageAttachment("content://doc", "application/pdf", "notes.pdf", extractedText = "hello"),
+        ))
+        val message = ChatMessage(
+            id = "m", chatId = "c", role = "user", content = "look", createdAt = 0,
+            localAttachmentUri = "content://a", localAttachmentMimeType = "image/jpeg",
+            attachmentsJson = json,
+        )
+        val vision = LocalLlmPrompting.historyForSarvam(listOf(message), vision = true).single()
+        assertEquals("content://a", vision.localAttachmentUri)
+        assertEquals(listOf("content://b"), vision.extraAttachments.map { it.uri })
+        assertTrue(vision.content.contains("hello"))
+        assertFalse(vision.attachments.any { it.mimeType == "application/pdf" })
+        val text = LocalLlmPrompting.historyForSarvam(listOf(message), vision = false).single()
+        assertNull(text.localAttachmentUri)
+        assertTrue(text.extraAttachments.isEmpty())
+        assertTrue(text.content.contains("hello"))
+    }
+
     @Test fun `messages point at the right settings page`() {
         assertEquals("PDF is off for this custom endpoint. Turn it on in Settings → Echo Labs → Custom API Endpoint.",
             CustomProviderRouting.pdfOffMessage("ollama"))

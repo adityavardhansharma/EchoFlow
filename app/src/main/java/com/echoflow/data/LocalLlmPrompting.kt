@@ -69,6 +69,29 @@ internal object LocalLlmPrompting {
             ).also { it.extraAttachments = emptyList() }
         }
 
+    /**
+     * Sarvam reads documents as Markdown but vision models still take their photos. Text-only
+     * models drop the photos too, since they reject file parts.
+     */
+    fun historyForSarvam(history: List<ChatMessage>, vision: Boolean): List<ChatMessage> =
+        history.map { message ->
+            val images = message.attachments.filter { it.mimeType.startsWith("image/", ignoreCase = true) }
+            val docs = message.attachments.filter { !it.extractedText.isNullOrBlank() }
+            val kept = if (vision) images else emptyList()
+            val first = kept.firstOrNull()
+            message.copy(
+                content = if (docs.isEmpty()) message.content else contentWithAttachments(message),
+                localAttachmentUri = first?.uri,
+                localAttachmentMimeType = first?.mimeType,
+                localAttachmentName = first?.name,
+                attachmentsJson = if (kept.isEmpty()) null else ToolEventJson.attachmentsToJson(kept),
+            ).also {
+                it.extraAttachments = kept.drop(1).map { photo ->
+                    LocalFileAttachment(uri = photo.uri, mimeType = photo.mimeType, name = photo.name)
+                }
+            }
+        }
+
     /** Combined Markdown budget injected from one turn's attachments into a local prompt. */
     internal const val MAX_ATTACHMENT_CONTEXT_CHARS = 24_000
 }
