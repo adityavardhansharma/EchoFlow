@@ -1,7 +1,9 @@
 // Sketch only: not part of a buildable project yet. See ios/README.md.
 //
-// The six Android palettes become accent tints. Surfaces stay system colours so
-// Liquid Glass picks up the right content behind it in light and dark.
+// The six Android palettes, keyed by their primary. Apply it with `.tint(_:)` at the
+// root. Surfaces use each palette's tinted base from `ui/theme/Color.kt`, not plain
+// system white or black (see ios/DESIGN.md, "Identity and theming"); the glass then
+// refracts that tinted content in light and dark.
 
 import SwiftUI
 
