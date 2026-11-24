@@ -36,7 +36,7 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             sarvamEnabled = prefs.getBoolean("direct_sarvam_enabled", false),
             sarvamApiKey = prefs.getString("direct_sarvam_api_key", "").orEmpty(),
             sarvamModel = prefs.getString("direct_sarvam_model", "").orEmpty(),
-            sarvamModels = prefs.getString("direct_sarvam_models", "sarvam-105b\nsarvam-105b-conversations").orEmpty(),
+            sarvamModels = prefs.getString("direct_sarvam_models", CustomProviderConfig.SARVAM_CHAT_MODELS).orEmpty(),
             sarvamSelectedModels = prefs.getString("direct_sarvam_selected_models", "sarvam-105b").orEmpty(),
             deepgramEnabled = prefs.getBoolean("direct_deepgram_enabled", false),
             deepgramApiKey = prefs.getString("direct_deepgram_api_key", "").orEmpty(),

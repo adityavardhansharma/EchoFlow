@@ -819,7 +819,7 @@ internal fun directProviderSummary(config: CustomProviderConfig, provider: Custo
 
 internal fun directProviderAttachmentText(provider: CustomModelProvider): String = when (provider) {
     CustomModelProvider.Cerebras -> "Images are available for Cerebras Gemma models. GPT OSS and GLM models are text-only; PDFs are off."
-    CustomModelProvider.Sarvam -> "Sarvam 105B is text-only — documents are parsed on-device and sent as text. Your key also enables Saaras v4 in Dictation."
+    CustomModelProvider.Sarvam -> "GLM 5.3 Flash, Gemma 4 31B, and DeepSeek V4.1 Flash take images. The other Sarvam models are text-only — documents are parsed on-device and sent as text. Your key also enables Saaras v4 in Dictation."
     CustomModelProvider.XAi -> "Images are available for Grok 4.3, 4.20, and 4.5 models. PDFs are off."
     CustomModelProvider.Vercel, CustomModelProvider.Experiential ->
         "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."

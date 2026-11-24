@@ -390,7 +390,8 @@ internal fun ChatSurface(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false // text-only: docs ride as on-device anydoc text, no images
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) ->
+                selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) in com.echoflow.data.CustomProviderConfig.SARVAM_VISION_MODELS
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->

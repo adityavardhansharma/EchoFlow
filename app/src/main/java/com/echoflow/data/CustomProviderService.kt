@@ -67,7 +67,7 @@ data class CustomProviderConfig(
     val sarvamEnabled: Boolean = false,
     val sarvamApiKey: String = "",
     val sarvamModel: String = "",
-    val sarvamModels: String = "sarvam-105b\nsarvam-105b-conversations",
+    val sarvamModels: String = SARVAM_CHAT_MODELS,
     val sarvamSelectedModels: String = "sarvam-105b",
     /** Deepgram is dictation-only: a key here unlocks Nova-3 Multilingual, never chat models. */
     val deepgramEnabled: Boolean = false,
@@ -155,6 +155,38 @@ data class CustomProviderConfig(
         const val PREFIX_GEMINI = "custom/gemini/"
         const val PREFIX_CEREBRAS = "custom/cerebras/"
         const val PREFIX_SARVAM = "custom/sarvam/"
+
+        /**
+         * Serverless chat models any Sarvam key can call. Provisioned models (DeepSeek V4 Pro,
+         * Kimi K3.1 Pro, Qwen 3.8 27B) and the Decisions / embeddings APIs are left out: those
+         * need a separate access grant and aren't chat completions.
+         * The first two are served by `/v1`; the rest only by `/v2`.
+         */
+        const val SARVAM_CHAT_MODELS =
+            "sarvam-105b\n" +
+                "sarvam-105b-conversations\n" +
+                "glm5.3\n" +
+                "glm5.3-flash\n" +
+                "gemma4\n" +
+                "deepseekv4.1-flash-1017\n" +
+                "deepseekv4.1-flash-1017-interactive"
+
+        /** Models Token Factory documents as accepting inline images. */
+        val SARVAM_VISION_MODELS = setOf(
+            "glm5.3-flash",
+            "gemma4",
+            "deepseekv4.1-flash-1017",
+            "deepseekv4.1-flash-1017-interactive",
+        )
+
+        /**
+         * The shared URL joiner appends `/v1` unless the base already ends in it, and the
+         * open-weight models are only served by `/v2`. Passing the full path keeps both.
+         */
+        fun sarvamBaseUrl(model: String): String =
+            if (model.trim() == "sarvam-105b" || model.trim() == "sarvam-105b-conversations")
+                "https://api.sarvam.ai/v1"
+            else "https://api.sarvam.ai/v2/v1"
         const val PREFIX_XAI = "custom/xai/"
         const val PREFIX_VERCEL = "custom/vercel/"
         const val VERCEL_BASE_URL = "https://ai-gateway.vercel.sh/v1"
@@ -648,7 +680,7 @@ class CustomProviderService(
                 CustomModelProvider.Claude -> fetchClaudeModels(apiKey)
                 CustomModelProvider.Gemini -> fetchGeminiModels(apiKey)
                 CustomModelProvider.Cerebras -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1", apiKey)
-                CustomModelProvider.Sarvam -> listOf("sarvam-105b", "sarvam-105b-conversations")
+                CustomModelProvider.Sarvam -> CustomProviderConfig.SARVAM_CHAT_MODELS.lines()
                 CustomModelProvider.XAi -> fetchOpenAiStyleModels("https://api.x.ai/v1", apiKey)
                 CustomModelProvider.Vercel -> fetchVercelModels(apiKey)
                 CustomModelProvider.Groq -> fetchOpenAiStyleModels(CustomProviderConfig.GROQ_BASE_URL, apiKey)
