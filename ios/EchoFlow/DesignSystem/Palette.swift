@@ -21,31 +21,31 @@ enum Palette: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Tint for the one primary action on a screen. Values stay close to the system colours
-    /// (Ocean is system blue, Lavender is system indigo) so the app feels native.
+    /// Tint for the one primary action on a screen: each palette's primary from the Android
+    /// theme (ui/theme/Color.kt), so EchoFlow looks like itself on both platforms.
     var accent: Color {
         Color(light: lightHex, dark: darkHex)
     }
 
     private var lightHex: UInt32 {
         switch self {
-        case .mono: 0x000000
-        case .ocean: 0x007AFF
-        case .forest: 0x248A3D
-        case .sunset: 0xE8590C
-        case .lavender: 0x5856D6
-        case .rose: 0xE0245E
+        case .mono: 0x1B1B1F
+        case .ocean: 0x1660A8
+        case .forest: 0x1C6E2E
+        case .sunset: 0x9A4500
+        case .lavender: 0x6750A4
+        case .rose: 0xB01B49
         }
     }
 
     private var darkHex: UInt32 {
         switch self {
-        case .mono: 0xFFFFFF
-        case .ocean: 0x0A84FF
-        case .forest: 0x30D158
-        case .sunset: 0xFF9F0A
-        case .lavender: 0x7D7AFF
-        case .rose: 0xFF375F
+        case .mono: 0xE3E2E9
+        case .ocean: 0xA1C9FF
+        case .forest: 0x8AD88C
+        case .sunset: 0xFFB68C
+        case .lavender: 0xD0BCFF
+        case .rose: 0xFFB2BD
         }
     }
 }

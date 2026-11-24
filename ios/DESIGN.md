@@ -33,30 +33,41 @@ reference; this file is the reasoning behind it.
 8. **Respect accessibility settings.** Reduce Transparency, Increase Contrast and Reduce Motion are
    handled by the system when we use the real APIs. Don't fake glass with custom blur views.
 
-## 2. Theming
+## 2. Identity and theming
 
-The Android app has six palettes plus dynamic colour. On iOS:
+EchoFlow keeps its Android personality on iOS. Liquid Glass changes the navigation layer, not the
+brand.
 
-- **Surfaces use system colours** (`.background`, `.secondarySystemBackground`, grouped
-  backgrounds) so glass refracts what it is meant to, in light and dark.
-- **Each palette becomes an accent tint**, applied with `.tint(_:)` at the root. Values in the canvas
-  stay close to the system colours so the app feels native. Text on a tinted button is white, except
-  Mono (inverted) and Forest and Sunset in dark mode (dark text). Check contrast again once SF Pro is in:
+- **Type.** Space Grotesk for display and large titles ("Evening, friend", screen titles, big
+  numbers), Hanken Grotesk for reading and UI text, JetBrains Mono for code. These are the families
+  bundled on Android (`ui/theme/Fonts.kt`). Register them with Dynamic Type through
+  `Font.custom(_:size:relativeTo:)` so text still scales.
+- **Palettes come over whole.** Each palette keeps its Android roles from `ui/theme/Color.kt`:
+  primary for the one tinted action, and the primary, secondary and tertiary containers for
+  suggestion chips (Explain, Write, Plan), the user's bubble, the drawer selection and the cookie
+  list icons. Surfaces use the palette's tinted base, not plain system white or black. Apply the
+  primary with `.tint(_:)` at the root.
 
-| Palette | Light | Dark |
+| Palette | Primary light | Primary dark |
 |---|---|---|
-| Mono | `#000000` | `#FFFFFF` |
-| Ocean | `#007AFF` (system blue) | `#0A84FF` |
-| Forest | `#248A3D` | `#30D158` |
-| Sunset | `#E8590C` | `#FF9F0A` |
-| Lavender | `#5856D6` (system indigo) | `#7D7AFF` |
-| Rose | `#E0245E` | `#FF375F` |
+| Mono | `#1B1B1F` | `#E3E2E9` |
+| Ocean | `#1660A8` | `#A1C9FF` |
+| Forest | `#1C6E2E` | `#8AD88C` |
+| Sunset | `#9A4500` | `#FFB68C` |
+| Lavender | `#6750A4` | `#D0BCFF` |
+| Rose | `#B01B49` | `#FFB2BD` |
 
+- **Expressive shapes.** The Sunny and Cookie shapes from Android's `MaterialShapes` stay as
+  content: the greeting hero morphs Sunny to Cookie12 and back, the voice-mode button is a Sunny,
+  and list icons sit on tonal Cookie9 shapes. On iOS these are SwiftUI `Shape`s built from the same
+  polygons, animated with `.animation(.smooth)` on a morph progress value.
+- **Glass bubble selection.** The Chat / Imagine switch uses the iOS 26 selection lens: a clear
+  bubble that magnifies the label under it and stretches like a droplet as it moves. In SwiftUI,
+  put the switch in a `GlassEffectContainer` and give the selection `.glassEffect(.regular.interactive())`
+  with a `glassEffectID` in a shared namespace, so the system morphs it between the two items.
 - **Dynamic colour has no iOS equivalent.** Drop the "Wallpaper accent" option, or map it to the
   palette picker.
-- **Type** is SF Pro with Dynamic Type text styles (`.largeTitle`, `.headline`, `.body`, …). The
-  canvas uses Inter as a stand-in because SF Pro can't be embedded on the web.
-- **Icons** are SF Symbols. The canvas draws simple line icons in their place.
+- **Icons** are SF Symbols. The canvas uses Ionicons in their place.
 
 ## 3. Screen map
 
