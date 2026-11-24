@@ -227,7 +227,7 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
                 if (provider == CustomModelProvider.Mistral) {
                     Spacer(Modifier.height(CustomProviderSectionGap))
                     PageSection("Dictation", "Mistral's speech-to-text model")
-                    MistralDictationCard(viewModel, keySaved = directProviderApiKey(saved, provider).isNotBlank())
+                    MistralDictationCard(viewModel, direct = saved.mistralAvailable, keySaved = directProviderApiKey(saved, provider).isNotBlank())
                 }
             }
         }
@@ -253,11 +253,11 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
 
 /**
  * Voxtral Small Transcribe 3, Mistral's most accurate transcription model, offered right where the
- * Mistral key is saved. With the key it runs on the user's Mistral account; one tap makes it the
+ * Mistral key is saved. With the key (and Direct Cloud APIs on) it runs on the user's Mistral account; one tap makes it the
  * dictation model (and switches Dictation to Cloud), the same choice as Settings → Dictation.
  */
 @Composable
-private fun MistralDictationCard(viewModel: SettingsViewModel, keySaved: Boolean) {
+private fun MistralDictationCard(viewModel: SettingsViewModel, direct: Boolean, keySaved: Boolean) {
     val selectedId by viewModel.sttCloudModel.collectAsState()
     val mode by viewModel.sttMode.collectAsState()
     val model = SttCatalog.resolve(SttCatalog.VOXTRAL_MODEL_ID)
@@ -301,9 +301,12 @@ private fun MistralDictationCard(viewModel: SettingsViewModel, keySaved: Boolean
             }
             Spacer(Modifier.height(Spacing.s))
             Text(
-                if (keySaved) {
+                if (direct) {
                     "Mistral's most accurate transcription, in 50 languages. Runs on your Mistral key and " +
                         "uses your vocabulary as context bias."
+                } else if (keySaved) {
+                    "Mistral's most accurate transcription, in 50 languages. Direct Cloud APIs are off, so it " +
+                        "runs through OpenRouter; turn them on under Custom to use your Mistral key."
                 } else {
                     "Mistral's most accurate transcription, in 50 languages. Save your key to run it on your " +
                         "Mistral account; until then it runs through OpenRouter."

@@ -400,7 +400,7 @@ internal fun ChatSurface(
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL) ->
                 CustomProviderCapabilities.experientialSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_MISTRAL) ->
-                CustomProviderCapabilities.mistralSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_MISTRAL))
+                CustomProviderCapabilities.mistralSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_MISTRAL), customProviderConfig)
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GROQ) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_TOGETHER) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_ENCLAVE) ||

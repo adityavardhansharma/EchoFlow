@@ -41,7 +41,7 @@ object CustomProviderRouting {
         "xai" -> CustomProviderCapabilities.xAiSupportsImages(model)
         "vercel" -> CustomProviderCapabilities.vercelSupportsImages(model)
         "experiential" -> CustomProviderCapabilities.experientialSupportsImages(model)
-        "mistral" -> CustomProviderCapabilities.mistralSupportsImages(model)
+        "mistral" -> CustomProviderCapabilities.mistralSupportsImages(model, config)
         in openModelHosts -> CustomProviderCapabilities.openModelSupportsImages(model)
         "ollama" -> config.ollamaImagesEnabled
         "openai-compatible" -> config.openAiCompatibleImagesEnabled
@@ -103,7 +103,7 @@ object CustomProviderRouting {
 
     fun imageOffMessage(provider: String?, model: String): String = when (provider) {
         "xai" -> "$model does not support image attachments. Choose an xAI vision model such as grok-4.5."
-        "mistral" -> "$model does not support image attachments. Choose a Mistral vision model such as mistral-medium-latest."
+        "mistral" -> "$model does not support image attachments. Choose a Mistral vision model such as mistral-medium-latest, or fetch models again."
         in openModelHosts -> "$model does not support image attachments. Choose a vision model, such as a Llama 4 model."
         else -> "Images are off for this custom endpoint. Turn them on in ${settingsPath(provider)}."
     }

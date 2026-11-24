@@ -445,7 +445,10 @@ class SettingsViewModel(
                         CustomModelProvider.Together -> config.copy(togetherModels = result.message)
                         CustomModelProvider.Enclave -> config.copy(enclaveModels = result.message)
                         CustomModelProvider.Experiential -> config.copy(experientialModels = result.message)
-                        CustomModelProvider.Mistral -> config.copy(mistralModels = result.message)
+                        CustomModelProvider.Mistral -> config.copy(
+                            mistralModels = result.message,
+                            mistralVisionModels = result.visionModels.orEmpty().joinToString("\n"),
+                        )
                         CustomModelProvider.Cloudflare -> config.copy(cloudflareModels = result.message)
                         CustomModelProvider.Deepgram, CustomModelProvider.ElevenLabs -> config
                         CustomModelProvider.Ollama -> config.copy(ollamaModels = result.message)

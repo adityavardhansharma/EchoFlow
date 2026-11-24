@@ -77,6 +77,7 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             mistralModel = prefs.getString("direct_mistral_model", "").orEmpty(),
             mistralModels = prefs.getString("direct_mistral_models", "").orEmpty(),
             mistralSelectedModels = prefs.getString("direct_mistral_selected_models", "").orEmpty(),
+            mistralVisionModels = prefs.getString("direct_mistral_vision_models", "").orEmpty(),
             cloudflareEnabled = prefs.getBoolean("direct_cloudflare_enabled", false),
             cloudflareApiKey = prefs.getString("direct_cloudflare_api_key", "").orEmpty(),
             cloudflareModel = prefs.getString("direct_cloudflare_model", "").orEmpty(),
@@ -169,6 +170,7 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             .putString("direct_mistral_model", clean.mistralModel)
             .putString("direct_mistral_models", clean.mistralModels)
             .putString("direct_mistral_selected_models", clean.mistralSelectedModels)
+            .putString("direct_mistral_vision_models", clean.mistralVisionModels)
             .putBoolean("direct_cloudflare_enabled", clean.cloudflareEnabled)
             .putString("direct_cloudflare_api_key", clean.cloudflareApiKey)
             .putString("direct_cloudflare_model", clean.cloudflareModel)

@@ -68,17 +68,32 @@ class MistralProviderTest {
         assertEquals("mistral-key", saved.mistralApiKey)
         assertTrue(saved.mistralEnabled)
         assertEquals("mistral-medium-latest\nvoxtral-small-latest", saved.mistralSelectedModels)
+        repository.saveCustomProviderConfig(saved.copy(mistralVisionModels = "mistral-medium-latest"))
+        assertEquals("mistral-medium-latest", SettingsRepository(context).getCustomProviderConfigDirect().mistralVisionModels)
         assertTrue(saved.mistralAvailable)
     }
 
-    @Test fun `images go only to Mistral's vision families`() {
-        for (id in listOf("mistral-medium-latest", "mistral-small-2603", "mistral-large-latest", "pixtral-large-latest", "ministral-8b-latest", "magistral-medium-latest")) {
-            assertTrue(id, CustomProviderRouting.imagesAllowed("mistral", id, enabledConfig()))
+    @Test fun `fetched models take images only when Mistral flagged them as vision`() {
+        val config = enabledConfig().copy(
+            mistralModels = "mistral-medium-latest\nmistral-large-2411\nmagistral-small-2506\npixtral-12b-2409",
+            mistralVisionModels = "mistral-medium-latest\npixtral-12b-2409",
+        )
+        assertTrue(CustomProviderRouting.imagesAllowed("mistral", "mistral-medium-latest", config))
+        assertTrue(CustomProviderRouting.imagesAllowed("mistral", "pixtral-12b-2409", config))
+        // Older dated versions of vision families were text-only, and the listing says so.
+        assertFalse(CustomProviderRouting.imagesAllowed("mistral", "mistral-large-2411", config))
+        assertFalse(CustomProviderRouting.imagesAllowed("mistral", "magistral-small-2506", config))
+        assertFalse(CustomProviderRouting.pdfsAllowed("mistral", "mistral-medium-latest", config))
+    }
+
+    @Test fun `hand-typed models fall back to Pixtral and current vision aliases`() {
+        val config = enabledConfig()
+        for (id in listOf("mistral-medium-latest", "mistral-small-latest", "pixtral-large-latest", "magistral-medium-latest")) {
+            assertTrue(id, CustomProviderRouting.imagesAllowed("mistral", id, config))
         }
-        for (id in listOf("codestral-latest", "devstral-medium-latest", "voxtral-small-latest", "open-mistral-nemo")) {
-            assertFalse(id, CustomProviderRouting.imagesAllowed("mistral", id, enabledConfig()))
+        for (id in listOf("mistral-small-2409", "codestral-latest", "devstral-medium-latest", "voxtral-small-latest", "open-mistral-nemo", "")) {
+            assertFalse(id, CustomProviderRouting.imagesAllowed("mistral", id, config))
         }
-        assertFalse(CustomProviderRouting.pdfsAllowed("mistral", "mistral-medium-latest", enabledConfig()))
     }
 
     @Test fun `model list keeps chat models, Voxtral chat included, and drops speech, OCR and retired models`() {
@@ -90,13 +105,15 @@ class MistralProviderTest {
               {"id":"voxtral-mini-transcribe-realtime-3-0","capabilities":{"completion_chat":true}},
               {"id":"voxtral-mini-tts-3-0","capabilities":{"completion_chat":false}},
               {"id":"mistral-embed","capabilities":{"completion_chat":false}},
-              {"id":"mistral-ocr-latest","capabilities":{"completion_chat":true}},
+              {"id":"mistral-ocr-latest","capabilities":{"completion_chat":true,"vision":true}},
               {"id":"mistral-moderation-latest","capabilities":{"completion_chat":false}},
               {"id":"mistral-large-2411","capabilities":{"completion_chat":true},"deprecation":"2026-12-01T00:00:00Z"},
               {"id":"mistral-medium-latest","capabilities":{"completion_chat":true}}
             ]}
         """.trimIndent()
         assertEquals(listOf("mistral-medium-latest", "voxtral-small-latest"), ProviderHttpSupport.parseMistralChatModelIds(body))
+        // Only listed chat models count as vision; OCR's flag is ignored with the model itself.
+        assertEquals(listOf("mistral-medium-latest"), ProviderHttpSupport.parseMistralVisionModelIds(body))
         assertTrue(ProviderHttpSupport.parseMistralChatModelIds("not json").isEmpty())
     }
 

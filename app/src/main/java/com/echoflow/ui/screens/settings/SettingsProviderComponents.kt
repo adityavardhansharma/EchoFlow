@@ -824,7 +824,7 @@ internal fun directProviderAttachmentText(provider: CustomModelProvider): String
     CustomModelProvider.Vercel, CustomModelProvider.Experiential ->
         "Images are sent to the model you pick; the gateway reports it if that model is text-only. PDFs are off."
     CustomModelProvider.Mistral ->
-        "Images are available for Mistral Medium, Small, Large, Ministral, Magistral and Pixtral. Codestral, Devstral and Voxtral are text-only; PDFs are off."
+        "Images go to the models Mistral lists as vision models, such as Mistral Medium and Pixtral. Codestral, Devstral and Voxtral are text-only; PDFs are off."
     CustomModelProvider.Groq, CustomModelProvider.Together, CustomModelProvider.Enclave, CustomModelProvider.Cloudflare ->
         "Images are available for vision models such as Llama 4. Other models are text-only; PDFs are off."
     else -> "Image and PDF attachments are enabled for selected ${providerLabel(provider)} models."

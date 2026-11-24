@@ -91,6 +91,19 @@ internal object ProviderHttpSupport {
         }.distinct()
     }
 
+    /** The chat models from [parseMistralChatModelIds] whose listing sets `capabilities.vision`. */
+    fun parseMistralVisionModelIds(body: String): List<String> {
+        val chat = parseMistralChatModelIds(body).toSet()
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["data"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val id = entry["id"] as? String ?: return@mapNotNull null
+            if (id !in chat || (entry["capabilities"] as? Map<*, *>)?.get("vision") != true) return@mapNotNull null
+            id
+        }.distinct()
+    }
+
     private val MISTRAL_NON_CHAT = listOf("transcribe", "realtime", "tts", "embed", "moderation", "ocr")
 
     /**
