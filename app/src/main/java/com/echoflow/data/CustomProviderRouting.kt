@@ -38,6 +38,7 @@ object CustomProviderRouting {
     fun imagesAllowed(provider: String?, model: String, config: CustomProviderConfig): Boolean = when (provider) {
         "openai", "claude", "gemini" -> true
         "cerebras" -> CustomProviderCapabilities.cerebrasSupportsImages(model)
+        "sarvam" -> model.trim() in CustomProviderConfig.SARVAM_VISION_MODELS
         "xai" -> CustomProviderCapabilities.xAiSupportsImages(model)
         "vercel" -> CustomProviderCapabilities.vercelSupportsImages(model)
         "experiential" -> CustomProviderCapabilities.experientialSupportsImages(model)
@@ -59,10 +60,10 @@ object CustomProviderRouting {
     }
 
     /**
-     * Sarvam never sends raw files (docs ride as anydoc Markdown, images as OCR text), so the
-     * raw-attachment checks don't apply to it.
+     * Text-only Sarvam models never send raw files (docs ride as anydoc Markdown). Vision
+     * models do, so an image on a text-only model is caught here instead of at the API.
      */
-    fun sendsRawAttachments(provider: String?): Boolean = provider != null && provider != "sarvam"
+    fun sendsRawAttachments(provider: String?): Boolean = provider != null
 
     /** Where the user turns a switchable capability on for [provider]. */
     private fun settingsPath(provider: String?): String =

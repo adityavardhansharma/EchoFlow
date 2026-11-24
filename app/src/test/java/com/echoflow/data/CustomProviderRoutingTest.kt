@@ -35,9 +35,9 @@ class CustomProviderRoutingTest {
         assertEquals("openai/gpt-5", CustomProviderRouting.requestModel(null, "openai/gpt-5"))
     }
 
-    @Test fun `Sarvam and OpenRouter skip the raw attachment checks`() {
-        assertFalse(CustomProviderRouting.sendsRawAttachments("sarvam"))
+    @Test fun `OpenRouter skips the raw attachment checks and text-only Sarvam rejects images`() {
         assertFalse(CustomProviderRouting.sendsRawAttachments(null))
+        assertTrue(CustomProviderRouting.sendsRawAttachments("sarvam"))
         assertTrue(CustomProviderRouting.sendsRawAttachments("groq"))
     }
 

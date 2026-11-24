@@ -503,7 +503,25 @@ class SettingsRepository(context: Context) {
 
     // ── Custom provider (Echo Labs prerelease) ────────────────────────────────────────
 
-    fun getCustomProviderConfigDirect(): CustomProviderConfig = customProviderStore.read()
+    fun getCustomProviderConfigDirect(): CustomProviderConfig {
+        val config = customProviderStore.read()
+        val merged = mergeSarvamCatalog(config.sarvamModels)
+        return if (merged == config.sarvamModels) config else config.copy(sarvamModels = merged)
+    }
+
+    /**
+     * Adds newly shipped serverless chat models to a list that still holds the previous
+     * built-in catalog. A cleared or hand-edited list is left alone, and nothing is selected.
+     */
+    private fun mergeSarvamCatalog(stored: String): String {
+        val lines = stored.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        if (lines.isEmpty()) return stored
+        val previous = setOf("sarvam-105b", "sarvam-105b-conversations")
+        val shipped = CustomProviderConfig.SARVAM_CHAT_MODELS.lines()
+        if (!lines.all { it in shipped } || lines.toSet() == shipped.toSet()) return stored
+        if (!previous.all { it in lines }) return stored
+        return (lines + shipped.filter { it !in lines }).joinToString("\n")
+    }
 
     fun saveCustomProviderConfig(config: CustomProviderConfig) {
         val clean = config.copy(

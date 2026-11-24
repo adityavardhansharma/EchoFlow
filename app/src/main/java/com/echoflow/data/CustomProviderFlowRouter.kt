@@ -11,7 +11,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         "claude" -> service.streamClaude(config.claudeApiKey, model, history, prompt, params)
         "gemini" -> service.streamGemini(config.geminiApiKey, model, history, prompt, params)
         "cerebras" -> service.streamCerebras(config.cerebrasApiKey, model, history, prompt, params)
-        "sarvam" -> service.streamOpenAiCompatible("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params)
+        "sarvam" -> service.streamOpenAiCompatible(CustomProviderConfig.sarvamBaseUrl(model), config.sarvamApiKey, model, sarvamHistory(model, history), prompt, params)
         "xai" -> service.streamOpenAiCompatible("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params)
         "vercel" -> service.streamOpenAiCompatible(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params)
         "groq" -> service.streamOpenAiCompatible(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params)
@@ -32,7 +32,7 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
         refuseIfDisabled(provider, config) ?: when (provider) {
         "openai" -> service.streamOpenAiResponsesTools(config.openAiApiKey, model, history, prompt, params, search)
         "cerebras" -> service.streamOpenAiTools("https://api.cerebras.ai/v1", config.cerebrasApiKey, model, history, prompt, params, search)
-        "sarvam" -> service.streamOpenAiTools("https://api.sarvam.ai/v1", config.sarvamApiKey, model, textOnlyHistory(history), prompt, params, search)
+        "sarvam" -> service.streamOpenAiTools(CustomProviderConfig.sarvamBaseUrl(model), config.sarvamApiKey, model, sarvamHistory(model, history), prompt, params, search)
         "xai" -> service.streamOpenAiTools("https://api.x.ai/v1", config.xAiApiKey, model, history, prompt, params, search)
         "vercel" -> service.streamOpenAiTools(CustomProviderConfig.VERCEL_BASE_URL, config.vercelApiKey, model, history, prompt, params, search)
         "groq" -> service.streamOpenAiTools(CustomProviderConfig.GROQ_BASE_URL, config.groqApiKey, model, history, prompt, params, search)
@@ -51,9 +51,14 @@ internal class CustomProviderFlowRouter(private val service: CustomProviderServi
     private fun refuseIfDisabled(provider: String?, config: CustomProviderConfig): Flow<StreamChunk>? =
         CustomProviderRouting.disabledMessage(provider, config)?.let { message -> flow { error(message) } }
 
-    // Copies preserve text without mutating stored history; transient extraAttachments reset too.
-    private fun textOnlyHistory(history: List<ChatMessage>): List<ChatMessage> = history.map {
-        it.copy(localAttachmentUri = null, localAttachmentMimeType = null,
-            localAttachmentName = null, attachmentsJson = null)
-    }
+    /**
+     * Vision models keep image parts. Text-only models drop them: docs already ride as
+     * anydoc Markdown folded into the prompt, and these models reject file parts.
+     */
+    private fun sarvamHistory(model: String, history: List<ChatMessage>): List<ChatMessage> =
+        if (model.trim() in CustomProviderConfig.SARVAM_VISION_MODELS) history
+        else history.map {
+            it.copy(localAttachmentUri = null, localAttachmentMimeType = null,
+                localAttachmentName = null, attachmentsJson = null)
+        }
 }
