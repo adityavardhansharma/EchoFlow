@@ -24,9 +24,10 @@ reference; this file is the reasoning behind it.
    stop Browser Flow) use red.
 5. **Group related controls.** Neighbouring toolbar buttons share one glass shape inside a
    `GlassEffectContainer`, so they split and merge as the toolbar changes.
-6. **Structure like Apple's own apps.** A floating `TabView` (Chats, Imagine, Projects, Library)
-   with Search as its own circle, a `tabViewBottomAccessory` for running jobs, a Messages-style
-   composer, large titles and inset grouped lists. Not a drawer and not a web-style header.
+6. **Keep EchoFlow's own structure.** The drawer, the Chat and Imagine switch in the top bar, the
+   greeting with suggestion chips, the model chip and mic above the composer, and the Settings pages
+   all stay as they are on Android. Only the material changes. Liquid Glass lenses what is under it
+   at the rim, so the canvas renders that refraction instead of a flat blur.
 7. **Regular glass by default, clear glass over media.** Imagine is the only place with `.clear`,
    because the controls sit on generated images.
 8. **Respect accessibility settings.** Reduce Transparency, Increase Contrast and Reduce Motion are
@@ -61,24 +62,23 @@ The Android app has six palettes plus dynamic colour. On iOS:
 
 | Android (Compose) | iOS (SwiftUI) | Canvas board |
 |---|---|---|
-| Navigation drawer | Root `TabView`: Chats, Imagine, Projects, Library, plus `Tab(role: .search)`. Minimises on scroll. On iPad, a sidebar via `.tabViewStyle(.sidebarAdaptable)` | Chats tab |
-| Chat list in the drawer | Chats tab: large title, pinned chats as avatars, Messages-style rows, Edit and settings/compose buttons in the toolbar | Chats tab |
-| Running Deep Research indicator | `.tabViewBottomAccessory` above the tab bar, with a stop button | Chats tab |
-| Chat top bar and greeting | Pushed chat with a back button, a glass title capsule that opens the model picker, greeting and suggestions as content | New chat |
-| Composer with model chip, mic, send | Messages-style: a glass + circle, a glass capsule field with dictation inside, and a tinted voice circle that becomes Send when there is text | New chat, Conversation |
-| Plus menu (Attach, Capabilities, Echo Labs) | `Menu` with `Section`s, growing out of the + button | Composer + menu |
-| Model picker bottom sheet | `.sheet` at `.medium` detent (inset glass), close and confirm glass buttons, search field | Model picker sheet |
-| Voice mode stage | Full-screen cover, glass control cluster at the bottom | Voice mode |
-| Deep Research workspace | Pushed view, Report / Sources / Steps picker in a bottom glass bar | Deep Research report |
-| Artifact workspace | Pushed view with `WKWebView` preview, version menu in the title | Artifact workspace |
-| Browser Flow | Full-screen `WKWebView`, glass address capsule, confirmation sheet at a small detent | Browser Flow |
+| Chat top bar: drawer, Chat/Imagine switch, new chat | Glass circle buttons in `.toolbar`, and a glass segmented `Picker` in `.principal` | New chat |
+| Greeting and suggestion chips | Same, as content | New chat |
+| Composer: model chip and mic above, field with + and Send | `.safeAreaBar(edge: .bottom)`: a glass model chip and mic row over a glass field; Send is the only tinted control | New chat, Conversation |
+| Plus menu (Attach, Capabilities, Echo Labs) | `Menu` with `Section`s, growing out of the + button | Plus menu |
+| Model picker bottom sheet | `.sheet` at `.medium` detent (inset glass), close and Manage buttons, search, filter | Model picker sheet |
+| Navigation drawer | A drawer panel the chat slides away from, with search, pinned and dated chats, and a tinted New chat button. On iPad, the sidebar of a `NavigationSplitView` | Chats drawer |
+| Voice mode stage | Full-screen cover, live card, transcript, glass controls (keyboard, stop, end) | Voice mode |
+| Deep Research workspace | Pushed view, Report / Sources / Steps switch in a bottom glass bar | Deep Research report |
+| Artifact workspace | Pushed view with `WKWebView` preview, version menu in a glass title, Preview / Code switch above the composer | Artifact workspace |
+| Browser Flow | Full-screen `WKWebView`, glass address capsule, a glass confirmation panel before paying | Browser Flow |
 | Fusion, Adviser, Agents and memory lines in chat | Solid cards inside the message list (content, not glass) | Fusion, Adviser and Agents |
-| Artifacts gallery, reports, images | Library tab: one grid with a filter, Schedules reachable from its toolbar | Library tab |
-| Chat/Imagine switch | Imagine tab: media canvas with `.clear` glass controls; the tab bar minimises next to the composer | Imagine tab |
-| Imagine options sheet | `.sheet` with shape grid, resolution picker, sound toggle | Imagine · options sheet |
-| Projects hub, project home | Projects tab with a coloured card grid; project home with instructions, files and chats | Projects tab, Project home |
-| Schedules | Large-title list, running-now card, toggles, prominent + button | Schedules |
-| Settings and its pages | Inset grouped `List` with coloured icon tiles, search at the top, glass back button. Opened from the Chats toolbar | Settings, Models, Echo Labs, Spend, Memory |
+| Artifacts gallery | Large-title grid with filter chips and a bottom glass search field | Creations gallery |
+| Imagine | The Imagine side of the switch: media canvas with `.clear` glass controls, the same composer | Imagine |
+| Imagine options sheet | `.sheet` with shape grid, count picker and start-from-image | Imagine · options sheet |
+| Projects hub, project home | Large-title card grid; project home with instructions, files, chats and a project composer | Projects, Project home |
+| Schedules | Large-title list, running-now card, toggles, tinted + button | Schedules |
+| Settings and its pages | Inset grouped `List` with coloured icon tiles and a glass back button, same pages and order as Android | Settings, Models, Echo Labs, Spend, Memory |
 | App lock | Blurred content with a Face ID unlock button (`LocalAuthentication`) | App lock |
 
 ## 4. SwiftUI APIs to use
@@ -98,7 +98,6 @@ From WWDC25 session 323 and community references (confirm in Xcode):
 | Glass buttons | `.buttonStyle(.glass)`, `.buttonStyle(.glassProminent)`, `.buttonBorderShape(.circle)`, `.controlSize(.extraLarge)` |
 | Toolbar groups | `ToolbarSpacer(.fixed)`, `ToolbarSpacer(.flexible)`, `.sharedBackgroundVisibility(.hidden)` |
 | Bottom search | `.searchable(text:)` on iPhone sits at the bottom. `.searchToolbarBehavior(.minimized)` |
-| Tab bar | `TabView` with `Tab(role: .search)`, `.tabBarMinimizeBehavior(.onScrollDown)`, `.tabViewBottomAccessory { }` |
 | Content under bars | `.scrollEdgeEffectStyle(_:for:)`, `.backgroundExtensionEffect()` |
 | Sheet morphing from a button | `.matchedTransitionSource(id:in:)` + `.navigationTransition(.zoom(sourceID:in:))` |
 | Concentric corners | `RoundedRectangle(cornerRadius: .containerConcentric, style: .continuous)` |

@@ -1,147 +1,109 @@
 // Sketch only: not part of a buildable project yet. See ios/README.md.
 //
-// The chat composer from the design canvas, laid out like Messages: a glass + circle,
-// a glass capsule field with dictation inside it, and a tinted voice-mode circle.
-// When there is text, Send appears inside the field and the voice circle steps aside.
-// The buttons inside the field are plain (no glass on glass).
+// The chat composer from the design canvas, with EchoFlow's own layout kept from Android:
+// a glass model chip and a dictation button above a glass field that holds + and Send.
+// Buttons inside the field are plain (no glass on glass); Send is the only tinted control.
 
 import SwiftUI
 
 struct ChatComposer: View {
     @Binding var text: String
-    var onPlus: () -> Void
+    var modelName: String
+    var onPickModel: () -> Void
     var onDictate: () -> Void
-    var onVoice: () -> Void
+    var onPlus: () -> Void
     var onSend: () -> Void
-
-    @Namespace private var glass
 
     private var isEmpty: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(alignment: .bottom, spacing: 8) {
-                Button(action: onPlus) {
-                    Image(systemName: "plus")
-                        .fontWeight(.semibold)
-                        .frame(width: 44, height: 44)
-                }
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Add")
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                HStack {
+                    Button(action: onPickModel) {
+                        Label(modelName, systemImage: "chevron.down")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.glass)
 
-                HStack(alignment: .bottom, spacing: 6) {
+                    Spacer()
+
+                    Button(action: onDictate) {
+                        Image(systemName: "mic")
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Dictate")
+                }
+
+                HStack(alignment: .bottom, spacing: 4) {
+                    Button(action: onPlus) {
+                        Image(systemName: "plus")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .background(.fill.tertiary, in: .circle)
+                    }
+                    .accessibilityLabel("Add")
+
                     TextField("Ask anything", text: $text, axis: .vertical)
                         .lineLimit(1...6)
                         .padding(.vertical, 11)
+                        .padding(.horizontal, 6)
 
-                    if isEmpty {
-                        Button(action: onDictate) {
-                            Image(systemName: "mic")
-                                .frame(width: 34, height: 34)
-                        }
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("Dictate")
-                    } else {
-                        Button(action: onSend) {
-                            Image(systemName: "arrow.up")
-                                .fontWeight(.bold)
-                                .frame(width: 34, height: 34)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.circle)
-                        .accessibilityLabel("Send")
-                    }
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 5)
-                .padding(.bottom, 5)
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                .glassEffectID("field", in: glass)
-
-                if isEmpty {
-                    Button(action: onVoice) {
-                        Image(systemName: "waveform")
-                            .fontWeight(.semibold)
+                    Button(action: onSend) {
+                        Image(systemName: "arrow.up")
+                            .fontWeight(.bold)
                             .frame(width: 44, height: 44)
                     }
-                    .glassEffect(.regular.tint(.accentColor).interactive(), in: .circle)
-                    .glassEffectID("voice", in: glass)
-                    .accessibilityLabel("Start voice mode")
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.circle)
+                    .disabled(isEmpty)
+                    .accessibilityLabel("Send")
                 }
+                .padding(6)
+                .glassEffect(.regular, in: .capsule)
             }
         }
-        .padding(.horizontal, 12)
-        .animation(.smooth, value: isEmpty)
+        .padding(.horizontal, 14)
     }
 }
 
-/// The app's root: a floating glass tab bar with Search as its own tab, and a bottom
-/// accessory for a running Deep Research job. Settings opens from the Chats toolbar.
-struct RootSketch: View {
-    @State private var researchRunning = true
+/// The chat screen keeps Android's top bar: drawer, the Chat / Imagine switch and new chat.
+/// Content scrolls under the glass, and the system scroll-edge effect keeps it legible.
+struct ChatScreenSketch: View {
+    @State private var draft = ""
+    @State private var mode = 0
+    @State private var drawerOpen = false
 
-    var body: some View {
-        TabView {
-            Tab("Chats", systemImage: "bubble.left.fill") { ChatListSketch() }
-            Tab("Imagine", systemImage: "wand.and.stars") { Text("Imagine") }
-            Tab("Projects", systemImage: "folder") { Text("Projects") }
-            Tab("Library", systemImage: "square.grid.2x2") { Text("Library") }
-            Tab(role: .search) { Text("Search") }
-        }
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory {
-            if researchRunning {
-                Label("Researching EV charger rebates", systemImage: "flask")
-            }
-        }
-    }
-}
-
-struct ChatListSketch: View {
     var body: some View {
         NavigationStack {
-            List {
-                // Pinned chats as avatars, then Messages-style rows.
+            ScrollView {
+                // Messages are solid content, never glass.
             }
-            .listStyle(.plain)
-            .navigationTitle("Chats")
+            .safeAreaBar(edge: .bottom) {
+                ChatComposer(
+                    text: $draft, modelName: "GPT-5.1",
+                    onPickModel: {}, onDictate: {}, onPlus: {}, onSend: {}
+                )
+            }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Edit") {} }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Settings", systemImage: "gearshape") {}
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Chats", systemImage: "line.3.horizontal") { drawerOpen = true }
+                }
+                ToolbarItem(placement: .principal) {
+                    Picker("Mode", selection: $mode) {
+                        Label("Chat", systemImage: "bubble.left.fill").tag(0)
+                        Label("Imagine", systemImage: "wand.and.stars").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .glassEffect(.regular, in: .capsule)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("New chat", systemImage: "square.and.pencil") {}
                 }
             }
         }
-    }
-}
-
-/// A conversation: content scrolls under the composer and the system scroll-edge
-/// effect keeps it legible. The title is a glass capsule that opens the model picker.
-struct ChatScreenSketch: View {
-    @State private var draft = ""
-
-    var body: some View {
-        ScrollView {
-            // Messages are solid content, never glass.
-        }
-        .safeAreaBar(edge: .bottom) {
-            ChatComposer(text: $draft, onPlus: {}, onDictate: {}, onVoice: {}, onSend: {})
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Button {} label: {
-                    Label("GPT-5.1", systemImage: "chevron.down")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.glass)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu("More", systemImage: "ellipsis") {}
-            }
-        }
-        .toolbar(.hidden, for: .tabBar)
     }
 }
