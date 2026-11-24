@@ -2,7 +2,8 @@
 //
 // The chat composer from the design canvas, with EchoFlow's own layout kept from Android:
 // a glass model chip and a dictation button above a glass field that holds + and Send.
-// Buttons inside the field are plain (no glass on glass); Send is the only tinted control.
+// Buttons inside the field are plain (no glass on glass). The trailing slot is the only tinted
+// control: voice mode while the field is empty, Send once there is text (as on Android).
 
 import SwiftUI
 
@@ -12,6 +13,7 @@ struct ChatComposer: View {
     var onPickModel: () -> Void
     var onDictate: () -> Void
     var onPlus: () -> Void
+    var onVoice: () -> Void
     var onSend: () -> Void
 
     private var isEmpty: Bool {
@@ -52,15 +54,15 @@ struct ChatComposer: View {
                         .padding(.vertical, 11)
                         .padding(.horizontal, 6)
 
-                    Button(action: onSend) {
-                        Image(systemName: "arrow.up")
+                    Button(action: isEmpty ? onVoice : onSend) {
+                        Image(systemName: isEmpty ? "waveform" : "arrow.up")
                             .fontWeight(.bold)
                             .frame(width: 44, height: 44)
+                            .contentTransition(.symbolEffect(.replace))
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.circle)
-                    .disabled(isEmpty)
-                    .accessibilityLabel("Send")
+                    .accessibilityLabel(isEmpty ? "Start voice mode" : "Send")
                 }
                 .padding(6)
                 .glassEffect(.regular, in: .capsule)
@@ -85,7 +87,7 @@ struct ChatScreenSketch: View {
             .safeAreaBar(edge: .bottom) {
                 ChatComposer(
                     text: $draft, modelName: "GPT-5.1",
-                    onPickModel: {}, onDictate: {}, onPlus: {}, onSend: {}
+                    onPickModel: {}, onDictate: {}, onPlus: {}, onVoice: {}, onSend: {}
                 )
             }
             .toolbar {

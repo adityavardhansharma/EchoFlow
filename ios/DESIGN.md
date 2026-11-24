@@ -64,7 +64,7 @@ The Android app has six palettes plus dynamic colour. On iOS:
 |---|---|---|
 | Chat top bar: drawer, Chat/Imagine switch, new chat | Glass circle buttons in `.toolbar`, and a glass segmented `Picker` in `.principal` | New chat |
 | Greeting and suggestion chips | Same, as content | New chat |
-| Composer: model chip and mic above, field with + and Send | `.safeAreaBar(edge: .bottom)`: a glass model chip and mic row over a glass field; Send is the only tinted control | New chat, Conversation |
+| Composer: model chip and mic above, field with + and Send | `.safeAreaBar(edge: .bottom)`: a glass model chip and mic row over a glass field; the tinted trailing button starts voice mode while the field is empty and becomes Send once there is text | New chat, Conversation |
 | Plus menu (Attach, Capabilities, Echo Labs) | `Menu` with `Section`s, growing out of the + button | Plus menu |
 | Model picker bottom sheet | `.sheet` at `.medium` detent (inset glass), close and Manage buttons, search, filter | Model picker sheet |
 | Navigation drawer | A drawer panel the chat slides away from, with search, pinned and dated chats, and a tinted New chat button. On iPad, the sidebar of a `NavigationSplitView` | Chats drawer |
