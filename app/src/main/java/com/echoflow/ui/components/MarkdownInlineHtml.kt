@@ -46,20 +46,8 @@ internal fun normalizeInlineHtml(source: String): String {
 
 private val INLINE_TAG = Regex("""</?(b|strong|i|em|s|del|strike|mark|u|ins|sub|sup|br)\s*/?>""", RegexOption.IGNORE_CASE)
 
-private val TABLE_DELIMITER_ROW = Regex("""^ {0,3}\|? *:?-+:? *(?:\| *:?-+:? *)*\|? *$""")
-
-/** Whether [index] sits in a GFM table: a leading pipe, or a block whose header has a delimiter row under it. */
+/** Whether [index] sits in a GFM table row: a leading pipe, or a line of a table block. */
 private fun isTableRow(source: String, index: Int): Boolean {
     val lineStart = source.lastIndexOf('\n', index - 1) + 1
-    if (source.substring(lineStart, index).trimStart().startsWith("|")) return true
-    var blockStart = lineStart
-    while (blockStart > 0) {
-        val previousStart = source.lastIndexOf('\n', blockStart - 2) + 1
-        if (source.substring(previousStart, blockStart - 1).isBlank()) break
-        blockStart = previousStart
-    }
-    val headerEnd = source.indexOf('\n', blockStart).takeIf { it >= 0 } ?: return false
-    val header = source.substring(blockStart, headerEnd)
-    val delimiter = source.substring(headerEnd + 1).substringBefore('\n')
-    return '|' in header && TABLE_DELIMITER_ROW.matches(delimiter)
+    return source.substring(lineStart, index).trimStart().startsWith("|") || isInTable(source, lineStart)
 }

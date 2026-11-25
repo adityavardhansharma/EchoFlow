@@ -131,6 +131,14 @@ class MarkdownStreamPlannerTest {
     }
 
     @Test
+    fun aQuotedOpenFenceEndsWithItsQuote() {
+        assertEquals(
+            "> ~~~text\n> example\n\n[a]: https://a.dev",
+            prepareMarkdownChunk("> ~~~text\n> example", "[a]: https://a.dev", streamingTail = false),
+        )
+    }
+
+    @Test
     fun indentedBackticksAreNotAnOpenFence() {
         assertEquals(
             "See [a].\n\n    ```\n    literal\n\n[a]: https://a.dev",

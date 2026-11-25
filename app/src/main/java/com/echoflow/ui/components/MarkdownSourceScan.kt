@@ -28,8 +28,34 @@ internal fun closesFence(line: String, fence: MarkdownFence, maxIndent: Int = In
     return length >= fence.length && line.substring(indent + length).isBlank()
 }
 
+/** A fence left open at the end of a text, inside [quoteDepth] block quotes. */
+internal class OpenFence(val fence: MarkdownFence, val quoteDepth: Int)
+
 /** The fence still open at the end of [source], by the same container rules as [markdownCodeMask], or null. */
-internal fun unclosedFence(source: String): MarkdownFence? = scanCodeBlocks(source, BooleanArray(source.length))
+internal fun unclosedFence(source: String): OpenFence? = scanCodeBlocks(source, BooleanArray(source.length))
+
+/** Characters on fenced or indented code lines only, without code spans. */
+internal fun markdownCodeBlockMask(source: String): BooleanArray =
+    BooleanArray(source.length).also { scanCodeBlocks(source, it) }
+
+private val TABLE_DELIMITER_ROW = Regex("""^ {0,3}\|? *:?-+:? *(?:\| *:?-+:? *)*\|? *$""")
+
+/**
+ * Whether the line starting at [lineStart] belongs to a GFM table: its block (from the last blank
+ * line) opens with a header holding a pipe, directly followed by a delimiter row.
+ */
+internal fun isInTable(source: String, lineStart: Int): Boolean {
+    var blockStart = lineStart
+    while (blockStart > 0) {
+        val previousStart = source.lastIndexOf('\n', blockStart - 2) + 1
+        if (source.substring(previousStart, blockStart - 1).isBlank()) break
+        blockStart = previousStart
+    }
+    val headerEnd = source.indexOf('\n', blockStart).takeIf { it >= 0 } ?: return false
+    val header = source.substring(blockStart, headerEnd)
+    val delimiter = source.substring(headerEnd + 1).substringBefore('\n')
+    return '|' in header && TABLE_DELIMITER_ROW.matches(delimiter)
+}
 
 /** Characters inside fenced code, indented code, and code spans. */
 internal fun markdownCodeMask(source: String): BooleanArray = scanMarkdown(source, includeLinks = false, includeTags = false)
@@ -48,7 +74,7 @@ private fun scanMarkdown(source: String, includeLinks: Boolean, includeTags: Boo
 }
 
 /** Marks fenced and indented code lines in [protected]; returns the fence still open at the end. */
-private fun scanCodeBlocks(source: String, protected: BooleanArray): MarkdownFence? {
+private fun scanCodeBlocks(source: String, protected: BooleanArray): OpenFence? {
     var fence: MarkdownFence? = null
     var fenceQuoteDepth = 0
     var fenceContainerIndent = 0
@@ -104,7 +130,7 @@ private fun scanCodeBlocks(source: String, protected: BooleanArray): MarkdownFen
         previousBlank = line.isBlank()
         lineStart = lineEnd + 1
     }
-    return fence
+    return fence?.let { OpenFence(it, fenceQuoteDepth) }
 }
 
 private fun protectInlineConstructs(source: String, protected: BooleanArray, includeLinks: Boolean, includeTags: Boolean) {

@@ -85,6 +85,11 @@ class MarkdownMathTest {
     }
 
     @Test
+    fun wrappedMathMayContainAPipeOutsideTables() {
+        assertEquals("Let \$P(A| B)\$ hold", normalizeMath("Let \$P(A|\nB)\$ hold"))
+    }
+
+    @Test
     fun pricesInTableRowsNeverMergeRows() {
         assertEquals(
             "Item | Price\n--- | ---\nA | \\\$5\nB | US\\\$",

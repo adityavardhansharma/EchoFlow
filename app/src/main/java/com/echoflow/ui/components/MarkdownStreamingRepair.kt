@@ -11,7 +11,9 @@ package com.echoflow.ui.components
 internal fun repairStreamingMarkdown(source: String): String {
     if (source.isEmpty()) return source
     val lines = source.split('\n').toMutableList()
-    if (unclosedFence(source) != null) return normalizeMath(source, streaming = true)
+    if (unclosedFence(source) != null || markdownCodeBlockMask(source)[source.length - 1]) {
+        return normalizeMath(source, streaming = true)
+    }
     val last = lines.last()
     when {
         PARTIAL_FENCE.matches(last) -> lines.removeAt(lines.lastIndex)

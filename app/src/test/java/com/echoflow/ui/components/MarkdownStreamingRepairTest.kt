@@ -36,6 +36,12 @@ class MarkdownStreamingRepairTest {
     }
 
     @Test
+    fun indentedCodeIsNotRepaired() {
+        assertEquals("    ```\n    literal [x", repair("    ```\n    literal [x"))
+        assertEquals("    a **b", repair("    a **b"))
+    }
+
+    @Test
     fun completeLinkDestinationsAreNotEmphasis() {
         assertEquals("[docs](https://example.test/*)", repair("[docs](https://example.test/*)"))
         assertEquals("[docs](https://example.test/*) **b**", repair("[docs](https://example.test/*) **b"))

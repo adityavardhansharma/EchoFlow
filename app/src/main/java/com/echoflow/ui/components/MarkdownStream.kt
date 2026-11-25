@@ -232,8 +232,9 @@ internal fun prepareMarkdownChunk(source: String, references: String, streamingT
     val html = normalizeInlineHtml(neutralizeUnsupportedVideo(source))
     val body = if (streamingTail) repairStreamingMarkdown(html) else normalizeMath(html)
     if (references.isEmpty()) return body
-    // Shared definitions must land outside a fence the chunk leaves open, or they draw as code.
-    val fence = unclosedFence(body)
-    val closed = if (fence == null) body else body + "\n" + fence.marker.toString().repeat(fence.length)
+    // Shared definitions must land outside a fence the chunk leaves open, or they draw as code. A
+    // quoted fence already ends with its quote at the blank line; a top-level one needs a closer.
+    val open = unclosedFence(body)
+    val closed = if (open == null || open.quoteDepth > 0) body else body + "\n" + open.fence.marker.toString().repeat(open.fence.length)
     return "$closed\n\n$references"
 }
