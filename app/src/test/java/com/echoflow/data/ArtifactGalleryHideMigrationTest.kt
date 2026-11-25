@@ -55,7 +55,7 @@ class ArtifactGalleryHideMigrationTest {
         db.execSQL(
             "INSERT INTO artifacts (id, chatId, title, type, currentVersion, createdAt, updatedAt) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            arrayOf("art-1", "chat-1", "Page", "html", 2, 1_000L, 2_000L),
+            arrayOf<Any?>("art-1", "chat-1", "Page", "html", 2, 1_000L, 2_000L),
         )
 
         AppDatabase.MIGRATION_24_25.migrate(db)

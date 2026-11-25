@@ -71,6 +71,7 @@ import com.echoflow.ui.theme.Spacing
 internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
     val terms by viewModel.sttVocabulary.collectAsState()
     val keyterms = model.id == SttCatalog.DEEPGRAM_MODEL_ID || model.id == SttCatalog.SCRIBE_MODEL_ID
+    val contextBias = model.id == SttCatalog.VOXTRAL_MODEL_ID
     var draft by rememberSaveable { mutableStateOf("") }
     val full = terms.size >= DictationVocabulary.MAX_TERMS
 
@@ -101,12 +102,16 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
                 Spacer(Modifier.width(Spacing.base))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (keyterms) "Vocabulary · Keyterms" else "Custom vocabulary",
+                        when {
+                            keyterms -> "Vocabulary · Keyterms"
+                            contextBias -> "Vocabulary · Context bias"
+                            else -> "Custom vocabulary"
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        if (keyterms) "Words and phrases ${model.provider} listens for and spells your way."
+                        if (keyterms || contextBias) "Words and phrases ${model.provider} listens for and spells your way."
                         else "Names and terms Gemini should hear and spell your way.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -189,7 +194,10 @@ internal fun SttVocabularyCard(viewModel: SettingsViewModel, model: SttModel) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (model.id == SttCatalog.SCRIBE_MODEL_ID) {
+                    if (contextBias) {
+                        "Sent to Mistral as context bias in chat and system-wide. It biases recognition toward " +
+                            "these spellings; it doesn't rewrite what you say."
+                    } else if (model.id == SttCatalog.SCRIBE_MODEL_ID) {
                         "Sent as ElevenLabs keyterms in chat and system-wide. They bias recognition toward " +
                             "these spellings; they don't rewrite what you say. Up to " +
                             "${ElevenLabsDictation.MAX_KEYTERMS} terms are sent per recording, adding 20% (~\$0.044 / hr). " +

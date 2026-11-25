@@ -81,6 +81,10 @@ class SettingsRepository(context: Context) {
         val elevenLabsKey = if (cloudApis && prefs.getBoolean("direct_elevenlabs_enabled", false))
             prefs.getString("direct_elevenlabs_api_key", "").orEmpty() else ""
         val elevenLabsDirect = model == SttCatalog.SCRIBE_MODEL_ID && elevenLabsKey.isNotBlank()
+        // Voxtral Small Transcribe 3 likewise uses the Mistral key whenever one is saved and Mistral is on.
+        val mistralKey = if (cloudApis && prefs.getBoolean("direct_mistral_enabled", false))
+            prefs.getString("direct_mistral_api_key", "").orEmpty() else ""
+        val mistralDirect = model == SttCatalog.VOXTRAL_MODEL_ID && mistralKey.isNotBlank()
         val smartMode = when {
             geminiDirect -> getSttRamblerEnabledDirect()
             elevenLabsDirect -> getSttScribeSmartEnabledDirect()
@@ -90,6 +94,7 @@ class SettingsRepository(context: Context) {
             SttCatalog.usesDirectKey(model) -> directKey
             geminiDirect -> geminiKey
             elevenLabsDirect -> elevenLabsKey
+            mistralDirect -> mistralKey
             else -> getApiKeyDirect()
         }
         // System-wide dictation remains cloud-backed while on-device transcription is only a
@@ -98,9 +103,11 @@ class SettingsRepository(context: Context) {
         val sarvamKey = if (sarvam) prefs.getString("direct_sarvam_api_key", "").orEmpty() else ""
         return DictationConfiguration(model, key,
             sarvamKey.isNotBlank() && getSarvamHinglishEnabledDirect(),
-            if (SttCatalog.supportsCustomVocabulary(model)) getSttVocabularyDirect() else emptyList(),
+            // Voxtral's context bias is sent only on the direct Mistral route.
+            if (SttCatalog.supportsCustomVocabulary(model) && (model != SttCatalog.VOXTRAL_MODEL_ID || mistralDirect))
+                getSttVocabularyDirect() else emptyList(),
             sarvamKey,
-            providerDirect = geminiDirect || elevenLabsDirect,
+            providerDirect = geminiDirect || elevenLabsDirect || mistralDirect,
             smartMode = smartMode)
     }
     fun getDictationBubbleRight() = dictationPrefs.getBoolean("bubble_right", true)
@@ -496,7 +503,25 @@ class SettingsRepository(context: Context) {
 
     // ── Custom provider (Echo Labs prerelease) ────────────────────────────────────────
 
-    fun getCustomProviderConfigDirect(): CustomProviderConfig = customProviderStore.read()
+    fun getCustomProviderConfigDirect(): CustomProviderConfig {
+        val config = customProviderStore.read()
+        val merged = mergeSarvamCatalog(config.sarvamModels)
+        return if (merged == config.sarvamModels) config else config.copy(sarvamModels = merged)
+    }
+
+    /**
+     * Adds newly shipped serverless chat models to a list that still holds the previous
+     * built-in catalog. A cleared or hand-edited list is left alone, and nothing is selected.
+     */
+    private fun mergeSarvamCatalog(stored: String): String {
+        val lines = stored.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        if (lines.isEmpty()) return stored
+        val previous = setOf("sarvam-105b", "sarvam-105b-conversations")
+        val shipped = CustomProviderConfig.SARVAM_CHAT_MODELS.lines()
+        if (!lines.all { it in shipped } || lines.toSet() == shipped.toSet()) return stored
+        if (!previous.all { it in lines }) return stored
+        return (lines + shipped.filter { it !in lines }).joinToString("\n")
+    }
 
     fun saveCustomProviderConfig(config: CustomProviderConfig) {
         val clean = config.copy(
@@ -524,6 +549,8 @@ class SettingsRepository(context: Context) {
             enclaveModel = config.enclaveModel.trim(),
             experientialApiKey = config.experientialApiKey.trim(),
             experientialModel = config.experientialModel.trim(),
+            mistralApiKey = config.mistralApiKey.trim(),
+            mistralModel = config.mistralModel.trim(),
             cloudflareApiKey = config.cloudflareApiKey.trim(),
             cloudflareModel = config.cloudflareModel.trim(),
             cloudflareAccountId = config.cloudflareAccountId.trim(),

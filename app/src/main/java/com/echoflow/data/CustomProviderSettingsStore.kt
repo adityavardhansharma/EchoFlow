@@ -36,7 +36,7 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             sarvamEnabled = prefs.getBoolean("direct_sarvam_enabled", false),
             sarvamApiKey = prefs.getString("direct_sarvam_api_key", "").orEmpty(),
             sarvamModel = prefs.getString("direct_sarvam_model", "").orEmpty(),
-            sarvamModels = prefs.getString("direct_sarvam_models", "sarvam-105b\nsarvam-105b-conversations").orEmpty(),
+            sarvamModels = prefs.getString("direct_sarvam_models", CustomProviderConfig.SARVAM_CHAT_MODELS).orEmpty(),
             sarvamSelectedModels = prefs.getString("direct_sarvam_selected_models", "sarvam-105b").orEmpty(),
             deepgramEnabled = prefs.getBoolean("direct_deepgram_enabled", false),
             deepgramApiKey = prefs.getString("direct_deepgram_api_key", "").orEmpty(),
@@ -72,6 +72,12 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             experientialModel = prefs.getString("direct_experiential_model", "").orEmpty(),
             experientialModels = prefs.getString("direct_experiential_models", "").orEmpty(),
             experientialSelectedModels = prefs.getString("direct_experiential_selected_models", "").orEmpty(),
+            mistralEnabled = prefs.getBoolean("direct_mistral_enabled", false),
+            mistralApiKey = prefs.getString("direct_mistral_api_key", "").orEmpty(),
+            mistralModel = prefs.getString("direct_mistral_model", "").orEmpty(),
+            mistralModels = prefs.getString("direct_mistral_models", "").orEmpty(),
+            mistralSelectedModels = prefs.getString("direct_mistral_selected_models", "").orEmpty(),
+            mistralVisionModels = prefs.getString("direct_mistral_vision_models", "").orEmpty(),
             cloudflareEnabled = prefs.getBoolean("direct_cloudflare_enabled", false),
             cloudflareApiKey = prefs.getString("direct_cloudflare_api_key", "").orEmpty(),
             cloudflareModel = prefs.getString("direct_cloudflare_model", "").orEmpty(),
@@ -159,6 +165,12 @@ internal class CustomProviderSettingsStore(private val prefs: SharedPreferences)
             .putString("direct_experiential_model", clean.experientialModel)
             .putString("direct_experiential_models", clean.experientialModels)
             .putString("direct_experiential_selected_models", clean.experientialSelectedModels)
+            .putBoolean("direct_mistral_enabled", clean.mistralEnabled)
+            .putString("direct_mistral_api_key", clean.mistralApiKey)
+            .putString("direct_mistral_model", clean.mistralModel)
+            .putString("direct_mistral_models", clean.mistralModels)
+            .putString("direct_mistral_selected_models", clean.mistralSelectedModels)
+            .putString("direct_mistral_vision_models", clean.mistralVisionModels)
             .putBoolean("direct_cloudflare_enabled", clean.cloudflareEnabled)
             .putString("direct_cloudflare_api_key", clean.cloudflareApiKey)
             .putString("direct_cloudflare_model", clean.cloudflareModel)

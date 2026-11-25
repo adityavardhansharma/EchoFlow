@@ -46,6 +46,7 @@ class SarvamIntegrationTest {
         assertEquals(SttCatalog.SARVAM_MODEL_ID, restarted.getSttCloudModelDirect())
         assertTrue(SttCatalog.availableModels(config).contains(SttCatalog.SARVAM_MODEL))
         assertEquals(listOf("custom/sarvam/sarvam-105b"), CustomProviderModelCatalog.entries(config).map { it.id })
+        assertEquals(CustomProviderConfig.SARVAM_CHAT_MODELS, config.sarvamModels)
         assertEquals("sarvam-test-key", SttCatalog.apiKey(SttCatalog.SARVAM_MODEL_ID, "", config))
         assertEquals("router-key", SttCatalog.apiKey(SttCatalog.DEFAULT_MODEL_ID, "router-key", config))
         for (disabled in listOf(config.copy(sarvamEnabled = false), config.copy(cloudApisEnabled = false), config.copy(sarvamApiKey = ""))) {
@@ -200,6 +201,37 @@ class SarvamIntegrationTest {
             "sarvam", enabledConfig(), "sarvam-105b", emptyList(), "Be helpful", InferenceLimits.CLOUD_DEFAULTS,
         ).toList()
         assertEquals(listOf(StreamChunk.Reasoning("Thinking"), StreamChunk.Content("Hello")), chunks)
+    }
+
+    @Test fun `open-weight chat models use v2 and vision models keep images`() = runTest {
+        val client = client { request ->
+            assertEquals("https://api.sarvam.ai/v2/v1/chat/completions", request.url.toString())
+            response(request, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+        }
+        val router = CustomProviderFlowRouter(CustomProviderService(client = client))
+        for (model in listOf("glm5.3", "glm5.3-flash", "gemma4", "deepseekv4.1-flash-1017", "deepseekv4.1-flash-1017-interactive")) {
+            router.stream("sarvam", enabledConfig(), model, emptyList(), "", InferenceLimits.CLOUD_DEFAULTS).toList()
+        }
+        assertTrue(CustomProviderRouting.imagesAllowed("sarvam", "gemma4", enabledConfig()))
+        assertTrue(CustomProviderRouting.imagesAllowed("sarvam", "deepseekv4.1-flash-1017-interactive", enabledConfig()))
+        assertFalse(CustomProviderRouting.imagesAllowed("sarvam", "glm5.3", enabledConfig()))
+        assertFalse(CustomProviderRouting.imagesAllowed("sarvam", "sarvam-105b", enabledConfig()))
+        assertFalse(CustomProviderConfig.SARVAM_CHAT_MODELS.lines().any {
+            it in setOf("deepseekv4-pro", "kimi-k3.1-pro", "qwen38-27b", "clef", "embedding-gemma-2")
+        })
+    }
+
+    @Test fun `an older built-in list gains the new models without selecting them`() {
+        val repository = SettingsRepository(context)
+        repository.saveCustomProviderConfig(enabledConfig().copy(
+            sarvamModels = "sarvam-105b\nsarvam-105b-conversations",
+            sarvamSelectedModels = "sarvam-105b",
+        ))
+        val config = SettingsRepository(context).getCustomProviderConfigDirect()
+        assertEquals(CustomProviderConfig.SARVAM_CHAT_MODELS, config.sarvamModels)
+        assertEquals("sarvam-105b", config.sarvamSelectedModels)
+        repository.saveCustomProviderConfig(config.copy(sarvamModels = "my-own-model"))
+        assertEquals("my-own-model", SettingsRepository(context).getCustomProviderConfigDirect().sarvamModels)
     }
 
     private fun client(handler: (Request) -> Response) = OkHttpClient.Builder()

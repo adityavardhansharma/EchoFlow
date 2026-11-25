@@ -364,6 +364,7 @@ internal fun DirectCloudApisPage(viewModel: SettingsViewModel, onOpen: (String) 
         CustomModelProvider.Together to PageCustomProviderTogether,
         CustomModelProvider.Enclave to PageCustomProviderEnclave,
         CustomModelProvider.Experiential to PageCustomProviderExperiential,
+        CustomModelProvider.Mistral to PageCustomProviderMistral,
         CustomModelProvider.Cloudflare to PageCustomProviderCloudflare,
         CustomModelProvider.Deepgram to PageCustomProviderDeepgram,
         CustomModelProvider.ElevenLabs to PageCustomProviderElevenLabs,

@@ -72,6 +72,41 @@ internal object ProviderHttpSupport {
     }
 
     /**
+     * Mistral's `/v1/models` marks chat models with `capabilities.completion_chat`. Speech models
+     * (Voxtral Transcribe, realtime and TTS), OCR, embeddings and moderation are dropped even if a
+     * listing flags them, and so are models with a retirement date. Voxtral's audio-understanding
+     * chat models stay: they answer text like any other chat model.
+     */
+    fun parseMistralChatModelIds(body: String): List<String> {
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["data"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val id = entry["id"] as? String ?: return@mapNotNull null
+            val capabilities = entry["capabilities"] as? Map<*, *>
+            if (capabilities != null && capabilities["completion_chat"] != true) return@mapNotNull null
+            if (entry["deprecation"] != null) return@mapNotNull null
+            if (MISTRAL_NON_CHAT.any { it in id.lowercase() }) return@mapNotNull null
+            id
+        }.distinct()
+    }
+
+    /** The chat models from [parseMistralChatModelIds] whose listing sets `capabilities.vision`. */
+    fun parseMistralVisionModelIds(body: String): List<String> {
+        val chat = parseMistralChatModelIds(body).toSet()
+        val map = runCatching { json.fromJson(body) as? Map<*, *> }.getOrNull() ?: return emptyList()
+        val items = map["data"] as? List<*> ?: return emptyList()
+        return items.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val id = entry["id"] as? String ?: return@mapNotNull null
+            if (id !in chat || (entry["capabilities"] as? Map<*, *>)?.get("vision") != true) return@mapNotNull null
+            id
+        }.distinct()
+    }
+
+    private val MISTRAL_NON_CHAT = listOf("transcribe", "realtime", "tts", "embed", "moderation", "ocr")
+
+    /**
      * Gemini's `/v1beta/models` lists every model the key can reach: embeddings, Imagen, Veo,
      * Lyria music, TTS, Live/native-audio, image output, and older Gemini generations.
      * Keeps current text chat models, without the `models/` prefix.

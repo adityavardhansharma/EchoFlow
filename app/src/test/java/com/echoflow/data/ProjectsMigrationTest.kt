@@ -60,7 +60,7 @@ class ProjectsMigrationTest {
     private fun insertThread(id: String) {
         db.execSQL(
             "INSERT INTO chat_threads (id, title, createdAt, updatedAt, kind) VALUES (?, ?, ?, ?, ?)",
-            arrayOf(id, "Existing chat", 1_000L, 2_000L, "chat"),
+            arrayOf<Any?>(id, "Existing chat", 1_000L, 2_000L, "chat"),
         )
     }
 
@@ -83,12 +83,12 @@ class ProjectsMigrationTest {
 
         db.execSQL(
             "INSERT INTO projects (id, name, instructions, colorIndex, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-            arrayOf("proj-1", "Novel", "Keep a noir tone.", 2, 10L, 20L),
+            arrayOf<Any?>("proj-1", "Novel", "Keep a noir tone.", 2, 10L, 20L),
         )
         db.execSQL(
             "INSERT INTO project_documents (id, projectId, name, mimeType, sizeBytes, filePath, extractedText, addedAt) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            arrayOf("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
+            arrayOf<Any?>("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
         )
         db.execSQL("UPDATE chat_threads SET projectId = 'proj-1' WHERE id = 'thread-1'")
 
@@ -110,12 +110,12 @@ class ProjectsMigrationTest {
         db.execSQL("PRAGMA foreign_keys=ON")
         db.execSQL(
             "INSERT INTO projects (id, name, instructions, colorIndex, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-            arrayOf("proj-1", "Novel", "", 0, 10L, 20L),
+            arrayOf<Any?>("proj-1", "Novel", "", 0, 10L, 20L),
         )
         db.execSQL(
             "INSERT INTO project_documents (id, projectId, name, mimeType, sizeBytes, filePath, extractedText, addedAt) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            arrayOf("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
+            arrayOf<Any?>("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
         )
         db.execSQL("UPDATE chat_threads SET projectId = 'proj-1' WHERE id = 'thread-1'")
 
@@ -155,12 +155,12 @@ class ProjectsMigrationTest {
         AppDatabase.MIGRATION_21_22.migrate(db)
         db.execSQL(
             "INSERT INTO projects (id, name, instructions, colorIndex, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-            arrayOf("proj-1", "Novel", "", 0, 10L, 20L),
+            arrayOf<Any?>("proj-1", "Novel", "", 0, 10L, 20L),
         )
         db.execSQL(
             "INSERT INTO project_documents (id, projectId, name, mimeType, sizeBytes, filePath, extractedText, addedAt) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            arrayOf("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
+            arrayOf<Any?>("doc-1", "proj-1", "notes.txt", "text/plain", 12L, "/tmp/doc-1", "hello", 30L),
         )
 
         AppDatabase.MIGRATION_22_23.migrate(db)

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
@@ -103,6 +104,8 @@ import com.echoflow.data.InferenceParams
 import com.echoflow.data.LocalModel
 import com.echoflow.data.LocalModelCatalog
 import com.echoflow.data.OpenRouterModelInfo
+import com.echoflow.data.SttCatalog
+import com.echoflow.data.SttMode
 import com.echoflow.ui.SettingsViewModel
 import com.echoflow.ui.components.GroupedItemGap
 import com.echoflow.ui.components.SectionLabel
@@ -220,6 +223,12 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                if (provider == CustomModelProvider.Mistral) {
+                    Spacer(Modifier.height(CustomProviderSectionGap))
+                    PageSection("Dictation", "Mistral's speech-to-text model")
+                    MistralDictationCard(viewModel, direct = saved.mistralAvailable, keySaved = directProviderApiKey(saved, provider).isNotBlank())
+                }
             }
         }
         AnimatedVisibility(visible = !enabled, enter = sectionEnter(), exit = sectionExit()) {
@@ -239,6 +248,88 @@ internal fun DirectCloudBrandPage(viewModel: SettingsViewModel, provider: Custom
                 showManual = false
             },
         )
+    }
+}
+
+/**
+ * Voxtral Small Transcribe 3, Mistral's most accurate transcription model, offered right where the
+ * Mistral key is saved. With the key (and Direct Cloud APIs on) it runs on the user's Mistral account; one tap makes it the
+ * dictation model (and switches Dictation to Cloud), the same choice as Settings → Dictation.
+ */
+@Composable
+private fun MistralDictationCard(viewModel: SettingsViewModel, direct: Boolean, keySaved: Boolean) {
+    val selectedId by viewModel.sttCloudModel.collectAsState()
+    val mode by viewModel.sttMode.collectAsState()
+    val model = SttCatalog.resolve(SttCatalog.VOXTRAL_MODEL_ID)
+    val inUse = selectedId == model.id && mode == SttMode.Cloud
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = if (inUse) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.base)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedPolygonShape(MaterialShapes.Cookie6Sided))
+                        .background(if (inUse) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.GraphicEq, null, Modifier.size(20.dp),
+                        tint = if (inUse) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+                Spacer(Modifier.width(Spacing.base))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        model.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (inUse) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "${model.provider} · ${model.pricing}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (inUse) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (inUse) {
+                    Spacer(Modifier.width(Spacing.s))
+                    Icon(Icons.Default.CheckCircle, "In use", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(Modifier.height(Spacing.s))
+            Text(
+                if (direct) {
+                    "Mistral's most accurate transcription, in 50 languages. Runs on your Mistral key and " +
+                        "uses your vocabulary as context bias."
+                } else if (keySaved) {
+                    "Mistral's most accurate transcription, in 50 languages. Direct Cloud APIs are off, so it " +
+                        "runs through OpenRouter; turn them on under Custom to use your Mistral key."
+                } else {
+                    "Mistral's most accurate transcription, in 50 languages. Save your key to run it on your " +
+                        "Mistral account; until then it runs through OpenRouter."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (inUse) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.m))
+            if (inUse) {
+                OutlinedButton(onClick = {}, enabled = false, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+                    Text("Used for dictation")
+                }
+            } else {
+                FilledTonalButton(
+                    onClick = {
+                        viewModel.saveSttCloudModel(model.id)
+                        viewModel.saveSttMode(SttMode.Cloud)
+                    },
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Use for dictation") }
+            }
+        }
     }
 }
 

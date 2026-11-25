@@ -262,11 +262,12 @@ internal fun ChatSurface(
     val hinglishEnabled by settingsViewModel.sarvamHinglishEnabled.collectAsState()
     val hinglishSarvamKey = if (customProviderConfig.sarvamAvailable) customProviderConfig.sarvamApiKey else ""
     val romanizeHindi = hinglishEnabled && hinglishSarvamKey.isNotBlank()
-    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram and Scribe keyterms).
+    // Custom vocabulary rides along only for models that accept it (Gemini Transcribe, Deepgram and Scribe
+    // keyterms, and Voxtral context bias on a Mistral key).
     val sttVocabulary by settingsViewModel.sttVocabulary.collectAsState()
     val dictationVocabulary =
-        if (com.echoflow.data.SttCatalog.supportsCustomVocabulary(sttCloudModelId)) sttVocabulary else emptyList()
-    // With a Gemini or ElevenLabs key saved, Gemini Transcribe or Scribe v2 runs on it directly.
+        if (com.echoflow.data.SttCatalog.sendsVocabulary(sttCloudModelId, customProviderConfig)) sttVocabulary else emptyList()
+    // With a Gemini, ElevenLabs or Mistral key saved, Gemini Transcribe, Scribe v2 or Voxtral runs on it directly.
     // Smart mode exists only on those direct routes: Rambler for Gemini, transcript editing for Scribe.
     val providerDictation = com.echoflow.data.SttCatalog.usesProviderDirect(sttCloudModelId, customProviderConfig)
     val ramblerEnabled by settingsViewModel.sttRamblerEnabled.collectAsState()
@@ -389,7 +390,8 @@ internal fun ChatSurface(
                     ?.fileName?.endsWith(".litertlm", ignoreCase = true) == true
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OLLAMA) -> customProviderConfig.ollamaImagesEnabled
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_OPENAI_COMPATIBLE) -> customProviderConfig.openAiCompatibleImagesEnabled
-            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) -> false // text-only: docs ride as on-device anydoc text, no images
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) ->
+                selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_SARVAM) in com.echoflow.data.CustomProviderConfig.SARVAM_VISION_MODELS
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS) ->
                 CustomProviderCapabilities.cerebrasSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_CEREBRAS))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_XAI) ->
@@ -398,6 +400,8 @@ internal fun ChatSurface(
                 CustomProviderCapabilities.vercelSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_VERCEL))
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL) ->
                 CustomProviderCapabilities.experientialSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_EXPERIENTIAL))
+            selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_MISTRAL) ->
+                CustomProviderCapabilities.mistralSupportsImages(selectedModelID.removePrefix(com.echoflow.data.CustomProviderConfig.PREFIX_MISTRAL), customProviderConfig)
             selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_GROQ) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_TOGETHER) ||
                 selectedModelID.startsWith(com.echoflow.data.CustomProviderConfig.PREFIX_ENCLAVE) ||

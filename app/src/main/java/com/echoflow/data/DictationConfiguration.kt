@@ -8,7 +8,7 @@ internal class DictationConfiguration(
     /** Custom vocabulary terms; empty unless [model] accepts them. */
     val vocabulary: List<String> = emptyList(),
     val sarvamKey: String = "",
-    /** Gemini Transcribe or Scribe v2 runs on its maker's API with the user's key; [key] is then that key. */
+    /** Gemini Transcribe, Scribe v2 or Voxtral runs on its maker's API with the user's key; [key] is then that key. */
     val providerDirect: Boolean = false,
     /** The direct route's smart mode: Rambler for Gemini, transcript editing for Scribe. False unless [providerDirect]. */
     val smartMode: Boolean = false,
