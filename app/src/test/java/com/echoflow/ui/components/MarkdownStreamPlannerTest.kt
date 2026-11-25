@@ -131,6 +131,14 @@ class MarkdownStreamPlannerTest {
     }
 
     @Test
+    fun indentedBackticksAreNotAnOpenFence() {
+        assertEquals(
+            "See [a].\n\n    ```\n    literal\n\n[a]: https://a.dev",
+            prepareMarkdownChunk("See [a].\n\n    ```\n    literal", "[a]: https://a.dev", streamingTail = false),
+        )
+    }
+
+    @Test
     fun chunksAreNormalisedForTheNativeParser() {
         assertEquals(
             "Costs \\\$5, so **x**\n\n\$\$\nE = mc^2\n\$\$",

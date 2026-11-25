@@ -28,15 +28,8 @@ internal fun closesFence(line: String, fence: MarkdownFence, maxIndent: Int = In
     return length >= fence.length && line.substring(indent + length).isBlank()
 }
 
-/** The fence still open at the end of [source], at any indent, or null. */
-internal fun unclosedFence(source: String): MarkdownFence? {
-    var fence: MarkdownFence? = null
-    for (line in source.split('\n')) {
-        val open = fence
-        fence = if (open != null) open.takeUnless { closesFence(line, open) } else openingFence(line, maxIndent = Int.MAX_VALUE)
-    }
-    return fence
-}
+/** The fence still open at the end of [source], by the same container rules as [markdownCodeMask], or null. */
+internal fun unclosedFence(source: String): MarkdownFence? = scanCodeBlocks(source, BooleanArray(source.length))
 
 /** Characters inside fenced code, indented code, and code spans. */
 internal fun markdownCodeMask(source: String): BooleanArray = scanMarkdown(source, includeLinks = false, includeTags = false)
@@ -49,6 +42,13 @@ internal fun markdownProtectedCharacters(source: String): BooleanArray = scanMar
 
 private fun scanMarkdown(source: String, includeLinks: Boolean, includeTags: Boolean): BooleanArray {
     val protected = BooleanArray(source.length)
+    scanCodeBlocks(source, protected)
+    protectInlineConstructs(source, protected, includeLinks, includeTags)
+    return protected
+}
+
+/** Marks fenced and indented code lines in [protected]; returns the fence still open at the end. */
+private fun scanCodeBlocks(source: String, protected: BooleanArray): MarkdownFence? {
     var fence: MarkdownFence? = null
     var fenceQuoteDepth = 0
     var fenceContainerIndent = 0
@@ -104,7 +104,10 @@ private fun scanMarkdown(source: String, includeLinks: Boolean, includeTags: Boo
         previousBlank = line.isBlank()
         lineStart = lineEnd + 1
     }
+    return fence
+}
 
+private fun protectInlineConstructs(source: String, protected: BooleanArray, includeLinks: Boolean, includeTags: Boolean) {
     var i = 0
     while (i < source.length) {
         if (protected[i]) {
@@ -145,7 +148,6 @@ private fun scanMarkdown(source: String, includeLinks: Boolean, includeTags: Boo
         }
         i++
     }
-    return protected
 }
 
 private val MARKDOWN_LIST_ITEM = Regex("""^([ \t]*)([*+-]|\d{1,9}[.)])([ \t]{1,4}).*$""")

@@ -85,6 +85,14 @@ class MarkdownMathTest {
     }
 
     @Test
+    fun pricesInTableRowsNeverMergeRows() {
+        assertEquals(
+            "Item | Price\n--- | ---\nA | \\\$5\nB | US\\\$",
+            normalizeMath("Item | Price\n--- | ---\nA | \$5\nB | US\$"),
+        )
+    }
+
+    @Test
     fun explicitBracketMathConvertsMidLine() {
         assertEquals("Result: \$\$x\$\$", normalizeMath("Result: \\[x\\]"))
         assertEquals("See \\[12\\]", normalizeMath("See \\[12\\]"))

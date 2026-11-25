@@ -197,14 +197,19 @@ private fun appendInlineMath(
 
 private val BLOCK_START = Regex("""^ {0,3}(?:#|>|\||[*+-](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|```|~~~|\$\$|\\\[)""")
 
-/** End of the last line that continues the paragraph holding the line ending at [lineEnd]. */
+/**
+ * End of the last line that continues the paragraph holding the line ending at [lineEnd]. A line
+ * with a pipe may be a table row, so math never wraps into or out of one.
+ */
 private fun paragraphContinuationEnd(source: String, lineEnd: Int): Int {
+    val lineStart = source.lastIndexOf('\n', lineEnd - 1) + 1
+    if (source.indexOf('|', lineStart).let { it in lineStart until lineEnd }) return lineEnd
     var end = lineEnd
     while (end < source.length) {
         val nextStart = end + 1
         val nextEnd = source.indexOf('\n', nextStart).let { if (it < 0) source.length else it }
         val line = source.substring(nextStart, nextEnd)
-        if (line.isBlank() || BLOCK_START.containsMatchIn(line)) break
+        if (line.isBlank() || '|' in line || BLOCK_START.containsMatchIn(line)) break
         end = nextEnd
     }
     return end
