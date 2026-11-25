@@ -89,7 +89,7 @@ fun MarkdownText(
     var anchor by remember { mutableStateOf<Rect?>(null) }
     // onLinkLongClick reports only the URL. Remember the finger without recomposing on every move.
     val press = remember { LinkPress() }
-    val rendered = remember(text) { neutralizeUnsupportedVideo(text) }
+    val rendered = remember(text) { normalizeInlineHtml(neutralizeUnsupportedVideo(text)) }
     MarkdownPlugins(LatexMathPlugin, CodeHighlightPlugin) {
         EnrichedMarkdownText(
             markdown = rendered,
@@ -109,7 +109,7 @@ fun MarkdownText(
                     false
                 },
             style = renderedStyle,
-            options = MarkdownOptions(admonitions = true, highlight = true),
+            options = MarkdownOptions(admonitions = true, highlight = true, permissiveAutolinks = true),
             codeBlockLayout = CodeBlockLayout.Scrollable,
             taskListToggleEnabled = false,
             spoilerOverlay = SpoilerOverlay.Solid(cornerRadius = 4.dp),
