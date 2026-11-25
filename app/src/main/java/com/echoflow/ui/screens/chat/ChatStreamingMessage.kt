@@ -367,7 +367,7 @@ internal fun SmoothStreamingText(
     }
     val revealed = if (reducedMotion) target else target.take(shown)
     if (markdown) {
-        MarkdownText(text = revealed, modifier = modifier, textColor = color, style = style)
+        MarkdownText(text = revealed, modifier = modifier, textColor = color, style = style, streaming = true)
     } else {
         com.echoflow.ui.components.QuotableSelectionContainer { Text(text = revealed, style = style, color = color, modifier = modifier) }
     }
