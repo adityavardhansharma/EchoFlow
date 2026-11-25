@@ -36,10 +36,10 @@ internal fun normalizeMath(source: String, streaming: Boolean = false): String {
             lineStart = display.end + 1
             continue
         }
-        appendInlineMath(out, source, lineStart, lineEnd, protected, streaming && lineEnd == source.length)
-        if (lineEnd >= source.length) break
+        val consumedEnd = appendInlineMath(out, source, lineStart, lineEnd, protected, streaming)
+        if (consumedEnd >= source.length) break
         out.append('\n')
-        lineStart = lineEnd + 1
+        lineStart = consumedEnd + 1
     }
     return out.toString()
 }
@@ -71,7 +71,6 @@ private fun displayMath(source: String, lineStart: Int, lineEnd: Int, protected:
         if (lineEndOfClose >= source.length) break
         val nextStart = lineEndOfClose + 1
         val nextEnd = source.indexOf('\n', nextStart).let { if (it < 0) source.length else it }
-        if (source.substring(nextStart, nextEnd).isBlank()) return null
         searchFrom = nextStart
         lineEndOfClose = nextEnd
     }
@@ -82,14 +81,28 @@ private fun displayMath(source: String, lineStart: Int, lineEnd: Int, protected:
 private fun cleanDisplayLatex(latex: String): String =
     latex.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
 
+/**
+ * Appends one line with its inline math rewritten. A formula may wrap onto the following lines of
+ * the same paragraph; the line end actually consumed is returned.
+ */
 private fun appendInlineMath(
     out: StringBuilder,
     source: String,
     lineStart: Int,
-    lineEnd: Int,
+    firstLineEnd: Int,
     protected: BooleanArray,
-    openAtEnd: Boolean,
-) {
+    streaming: Boolean,
+): Int {
+    val searchEnd = paragraphContinuationEnd(source, firstLineEnd)
+    var lineEnd = firstLineEnd
+    var openAtEnd = streaming && lineEnd == source.length
+    fun appendMath(delimiter: String, latex: String, close: Int) {
+        out.append(delimiter).append(latex.replace('\n', ' ')).append(delimiter)
+        if (close > lineEnd) {
+            lineEnd = source.indexOf('\n', close).let { if (it < 0) source.length else it }
+            openAtEnd = streaming && lineEnd == source.length
+        }
+    }
     var i = lineStart
     while (i < lineEnd) {
         val c = source[i]
@@ -103,18 +116,19 @@ private fun appendInlineMath(
             if (next == '(' || next == '[') {
                 val closer = if (next == '(') "\\)" else "\\]"
                 val open = if (next == '(') "$" else "$$"
-                val close = source.indexOfUnprotected(closer, i + 2, lineEnd, protected)
+                val close = source.indexOfUnprotected(closer, i + 2, searchEnd, protected)
                 if (close >= 0) {
                     val latex = source.substring(i + 2, close).trim()
-                    if (latex.isNotEmpty() && (next == '(' || latex.any { it in MATH_SIGNAL })) {
-                        out.append(open).append(latex).append(open)
+                    // `\[12\]` is more often an escaped citation than a formula.
+                    if (latex.isNotEmpty() && (next == '(' || !latex.all { it.isDigit() })) {
+                        appendMath(open, latex, close)
                         i = close + 2
                         continue
                     }
                 } else if (openAtEnd) {
                     val latex = balancePartialLatex(source.substring(i + 2, lineEnd).trim())
                     if (latex.isNotEmpty()) out.append(open).append(latex).append(open)
-                    return
+                    return lineEnd
                 }
             }
             if (next == null) {
@@ -132,17 +146,17 @@ private fun appendInlineMath(
             continue
         }
         if (source.getOrNull(i + 1) == '$' && i + 1 < lineEnd) {
-            val close = source.indexOfUnprotected("$$", i + 2, lineEnd, protected)
+            val close = source.indexOfUnprotected("$$", i + 2, searchEnd, protected)
             val latex = if (close >= 0) source.substring(i + 2, close).trim() else ""
             if (latex.isNotEmpty()) {
-                out.append("$$").append(latex).append("$$")
+                appendMath("$$", latex, close)
                 i = close + 2
                 continue
             }
             if (close < 0 && openAtEnd) {
                 val partial = balancePartialLatex(source.substring(i + 2, lineEnd).trim())
                 if (partial.isNotEmpty()) out.append("$$").append(partial).append("$$")
-                return
+                return lineEnd
             }
             out.append("\\$\\$")
             i += 2
@@ -159,11 +173,11 @@ private fun appendInlineMath(
             i++
             continue
         }
-        val close = findInlineDollarClose(source, i + 1, lineEnd, protected)
+        val close = findInlineDollarClose(source, i + 1, searchEnd, protected)
         if (close >= 0) {
             val latex = source.substring(i + 1, close)
             if (looksLikeMath(latex, source.getOrNull(i - 1), source.getOrNull(close + 1))) {
-                out.append('$').append(latex).append('$')
+                appendMath("$", latex, close)
                 i = close + 1
                 continue
             }
@@ -172,12 +186,28 @@ private fun appendInlineMath(
             if (looksLikePartialMath(rest)) {
                 val latex = balancePartialLatex(rest)
                 if (latex.isNotEmpty()) out.append('$').append(latex).append('$')
-                return
+                return lineEnd
             }
         }
         out.append("\\$")
         i++
     }
+    return lineEnd
+}
+
+private val BLOCK_START = Regex("""^ {0,3}(?:#|>|\||[*+-](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|```|~~~|\$\$|\\\[)""")
+
+/** End of the last line that continues the paragraph holding the line ending at [lineEnd]. */
+private fun paragraphContinuationEnd(source: String, lineEnd: Int): Int {
+    var end = lineEnd
+    while (end < source.length) {
+        val nextStart = end + 1
+        val nextEnd = source.indexOf('\n', nextStart).let { if (it < 0) source.length else it }
+        val line = source.substring(nextStart, nextEnd)
+        if (line.isBlank() || BLOCK_START.containsMatchIn(line)) break
+        end = nextEnd
+    }
+    return end
 }
 
 private const val MATH_SIGNAL = "\\^_={}+-*/<>|"

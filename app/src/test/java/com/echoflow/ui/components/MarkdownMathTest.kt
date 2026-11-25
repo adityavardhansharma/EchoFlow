@@ -68,6 +68,29 @@ class MarkdownMathTest {
     }
 
     @Test
+    fun displayMathMayContainBlankLines() {
+        assertEquals("\$\$\na=b\nc=d\n\$\$", normalizeMath("\$\$\na=b\n\nc=d\n\$\$"))
+    }
+
+    @Test
+    fun streamedDisplayMathSurvivesATrailingNewline() {
+        assertEquals("\$\$\nx\n\$\$", normalizeMath("\$\$\nx\n", streaming = true).trimEnd())
+    }
+
+    @Test
+    fun inlineMathMayWrapOntoTheNextLine() {
+        assertEquals("Let \$a + b\$ hold", normalizeMath("Let \$a +\nb\$ hold"))
+        assertEquals("Let \$a + b\$ hold\nnext", normalizeMath("Let \\(a +\nb\\) hold\nnext"))
+        assertEquals("Costs \\\$5\n- and \\\$6", normalizeMath("Costs \$5\n- and \$6"))
+    }
+
+    @Test
+    fun explicitBracketMathConvertsMidLine() {
+        assertEquals("Result: \$\$x\$\$", normalizeMath("Result: \\[x\\]"))
+        assertEquals("See \\[12\\]", normalizeMath("See \\[12\\]"))
+    }
+
+    @Test
     fun balancesPartialLatex() {
         assertEquals("\\frac{a}{b}", balancePartialLatex("\\frac{a}{b"))
         assertEquals("\\frac{a}{}", balancePartialLatex("\\frac{a}"))

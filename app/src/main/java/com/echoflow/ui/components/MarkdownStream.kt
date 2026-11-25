@@ -218,15 +218,22 @@ private fun displayMathCloser(line: String): String? {
 
 private val REFERENCE_DEFINITION = Regex("""(?m)^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*\S.*$""")
 
-/** Link reference definitions anywhere in the reply, so a reference resolves in every chunk. */
-private fun referenceDefinitions(text: String): String {
+/** Link reference definitions anywhere in the reply outside code, so a reference resolves in every chunk. */
+internal fun referenceDefinitions(text: String): String {
     if (!text.contains("]:")) return ""
-    return REFERENCE_DEFINITION.findAll(text).joinToString("\n") { it.value.trim() }
+    val code = markdownCodeMask(text)
+    return REFERENCE_DEFINITION.findAll(text)
+        .filterNot { code[it.range.first] }
+        .joinToString("\n") { it.value.trim() }
 }
 
 /** Markdown handed to the native renderer for one chunk. */
 internal fun prepareMarkdownChunk(source: String, references: String, streamingTail: Boolean): String {
     val html = normalizeInlineHtml(neutralizeUnsupportedVideo(source))
     val body = if (streamingTail) repairStreamingMarkdown(html) else normalizeMath(html)
-    return if (references.isEmpty()) body else "$body\n\n$references"
+    if (references.isEmpty()) return body
+    // Shared definitions must land outside a fence the chunk leaves open, or they draw as code.
+    val fence = unclosedFence(body)
+    val closed = if (fence == null) body else body + "\n" + fence.marker.toString().repeat(fence.length)
+    return "$closed\n\n$references"
 }

@@ -27,6 +27,21 @@ class MarkdownStreamingRepairTest {
     }
 
     @Test
+    fun codeSpansKeepTheirBrackets() {
+        assertEquals("`a[b`", repair("`a[b`"))
+        assertEquals("Use `[x`", repair("Use `[x`"))
+        assertEquals("`[x](url`", repair("`[x](url`"))
+        assertEquals("`<div`", repair("`<div`"))
+        assertEquals("`a` and b", repair("`a` and [b"))
+    }
+
+    @Test
+    fun completeLinkDestinationsAreNotEmphasis() {
+        assertEquals("[docs](https://example.test/*)", repair("[docs](https://example.test/*)"))
+        assertEquals("[docs](https://example.test/*) **b**", repair("[docs](https://example.test/*) **b"))
+    }
+
+    @Test
     fun closesOpenCodeSpans() {
         assertEquals("a `code`", repair("a `code"))
         assertEquals("a", repair("a `").trimEnd())

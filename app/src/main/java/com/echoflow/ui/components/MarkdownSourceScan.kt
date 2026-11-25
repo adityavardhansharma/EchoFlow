@@ -20,45 +20,77 @@ internal fun openingFence(line: String, maxIndent: Int = 3): MarkdownFence? {
     return MarkdownFence(marker, length, suffix.trim())
 }
 
-internal fun closesFence(line: String, fence: MarkdownFence): Boolean {
+/** A closer indented at most [maxIndent] spaces; callers that know the container pass its indent + 3. */
+internal fun closesFence(line: String, fence: MarkdownFence, maxIndent: Int = Int.MAX_VALUE): Boolean {
     val indent = line.takeWhile { it == ' ' }.length
-    if (line.getOrNull(indent) != fence.marker) return false
+    if (indent > maxIndent || line.getOrNull(indent) != fence.marker) return false
     val length = line.runLength(indent, fence.marker)
     return length >= fence.length && line.substring(indent + length).isBlank()
 }
 
+/** The fence still open at the end of [source], at any indent, or null. */
+internal fun unclosedFence(source: String): MarkdownFence? {
+    var fence: MarkdownFence? = null
+    for (line in source.split('\n')) {
+        val open = fence
+        fence = if (open != null) open.takeUnless { closesFence(line, open) } else openingFence(line, maxIndent = Int.MAX_VALUE)
+    }
+    return fence
+}
+
 /** Characters inside fenced code, indented code, and code spans. */
-internal fun markdownCodeMask(source: String): BooleanArray = scanMarkdown(source, includeLinksAndTags = false)
+internal fun markdownCodeMask(source: String): BooleanArray = scanMarkdown(source, includeLinks = false, includeTags = false)
+
+/** [markdownCodeMask] plus link destinations and titles. */
+internal fun markdownCodeAndLinkMask(source: String): BooleanArray = scanMarkdown(source, includeLinks = true, includeTags = false)
 
 /** [markdownCodeMask] plus link destinations, autolinks, and HTML tags. */
-internal fun markdownProtectedCharacters(source: String): BooleanArray = scanMarkdown(source, includeLinksAndTags = true)
+internal fun markdownProtectedCharacters(source: String): BooleanArray = scanMarkdown(source, includeLinks = true, includeTags = true)
 
-private fun scanMarkdown(source: String, includeLinksAndTags: Boolean): BooleanArray {
+private fun scanMarkdown(source: String, includeLinks: Boolean, includeTags: Boolean): BooleanArray {
     val protected = BooleanArray(source.length)
     var fence: MarkdownFence? = null
+    var fenceQuoteDepth = 0
+    var fenceContainerIndent = 0
+    var quoteDepth = 0
     var previousBlank = true
+    var inIndentedCode = false
     var listContentIndent: Int? = null
     var lineStart = 0
     while (lineStart < source.length) {
         val lineEnd = source.indexOf('\n', lineStart).takeIf { it >= 0 } ?: source.length
-        val line = source.substring(lineStart, lineEnd)
-        val activeFence = fence
-        val newFence = if (activeFence == null) openingFence(line, maxIndent = (listContentIndent ?: 0) + 3) else null
+        val rawLine = source.substring(lineStart, lineEnd)
+        var activeFence = fence
+        val quote = blockQuotePrefix(rawLine, maxDepth = if (activeFence != null) fenceQuoteDepth else Int.MAX_VALUE)
+        // A fence ends with the block quote that contains it.
+        if (activeFence != null && quote.depth < fenceQuoteDepth) activeFence = null
+        if (quote.depth != quoteDepth) {
+            if (quote.depth > quoteDepth) previousBlank = true
+            listContentIndent = null
+            inIndentedCode = false
+            quoteDepth = quote.depth
+        }
+        val line = rawLine.substring(quote.offset)
+        val containerIndent = listContentIndent ?: 0
+        val newFence = if (activeFence == null) openingFence(line, maxIndent = containerIndent + 3) else null
         val listIndent = markdownListIndent(line)
         val newListContentIndent = listIndent?.takeIf {
             it.marker <= 3 || (listContentIndent != null && it.marker >= listContentIndent)
         }?.content
-        val codeIndent = (listContentIndent?.plus(4) ?: 4)
-        val indentedCode = activeFence == null && newFence == null &&
-            previousBlank && newListContentIndent == null &&
-            line.leadingIndentColumns() >= codeIndent
+        val indentedCode = activeFence == null && newFence == null && newListContentIndent == null &&
+            line.isNotBlank() && (previousBlank || inIndentedCode) &&
+            line.leadingIndentColumns() >= containerIndent + 4
         if (activeFence != null || newFence != null || indentedCode) {
             for (index in lineStart until minOf(lineEnd + 1, source.length)) protected[index] = true
         }
         fence = when {
-            activeFence != null && closesFence(line, activeFence) -> null
+            activeFence != null && closesFence(line, activeFence, maxIndent = fenceContainerIndent + 3) -> null
             activeFence != null -> activeFence
-            newFence != null -> newFence
+            newFence != null -> {
+                fenceQuoteDepth = quoteDepth
+                fenceContainerIndent = containerIndent
+                newFence
+            }
             else -> null
         }
         listContentIndent = when {
@@ -68,6 +100,7 @@ private fun scanMarkdown(source: String, includeLinksAndTags: Boolean): BooleanA
             listContentIndent != null && line.leadingIndentColumns() >= listContentIndent -> listContentIndent
             else -> null
         }
+        inIndentedCode = indentedCode || (inIndentedCode && line.isBlank())
         previousBlank = line.isBlank()
         lineStart = lineEnd + 1
     }
@@ -94,7 +127,7 @@ private fun scanMarkdown(source: String, includeLinksAndTags: Boolean): BooleanA
             i += length
             continue
         }
-        if (includeLinksAndTags && c == ']' && source.getOrNull(i + 1) == '(') {
+        if (includeLinks && c == ']' && source.getOrNull(i + 1) == '(') {
             val close = findLinkDestinationClose(source, i + 1, source.length)
             if (close != null) {
                 for (index in i + 1..close) protected[index] = true
@@ -102,7 +135,7 @@ private fun scanMarkdown(source: String, includeLinksAndTags: Boolean): BooleanA
                 continue
             }
         }
-        if (includeLinksAndTags && c == '<') {
+        if (includeTags && c == '<') {
             val close = source.findAngleConstructEnd(i)
             if (close >= 0 && isHtmlTagOrAutolink(source.substring(i, close + 1))) {
                 for (index in i..close) protected[index] = true
@@ -125,6 +158,24 @@ private fun isHtmlTagOrAutolink(candidate: String): Boolean =
         URI_AUTOLINK.matches(candidate) ||
         EMAIL_AUTOLINK.matches(candidate) ||
         (candidate.startsWith("<!--") && candidate.endsWith("-->"))
+
+private class BlockQuotePrefix(val depth: Int, val offset: Int)
+
+/** Up to [maxDepth] leading `>` markers, each with up to three spaces before and one after. */
+private fun blockQuotePrefix(line: String, maxDepth: Int): BlockQuotePrefix {
+    var depth = 0
+    var offset = 0
+    while (depth < maxDepth) {
+        var i = offset
+        while (i < line.length && i - offset < 3 && line[i] == ' ') i++
+        if (line.getOrNull(i) != '>') break
+        i++
+        if (line.getOrNull(i) == ' ') i++
+        depth++
+        offset = i
+    }
+    return BlockQuotePrefix(depth, offset)
+}
 
 private data class MarkdownListIndent(val marker: Int, val content: Int)
 

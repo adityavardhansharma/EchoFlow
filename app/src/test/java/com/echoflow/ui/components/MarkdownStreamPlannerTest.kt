@@ -116,6 +116,21 @@ class MarkdownStreamPlannerTest {
     }
 
     @Test
+    fun definitionsInsideCodeAreNotShared() {
+        assertEquals("", referenceDefinitions("Literal [sample].\n\n```md\n[sample]: https://example.com\n```"))
+        assertEquals("", referenceDefinitions("    [sample]: https://example.com"))
+        assertEquals("[a]: https://a.dev", referenceDefinitions("[a]: https://a.dev\n\n```\n[b]: https://b.dev"))
+    }
+
+    @Test
+    fun sharedDefinitionsStayOutOfAnOpenFence() {
+        assertEquals(
+            "See [a].\n\n```kotlin\nval x = 1\n```\n\n[a]: https://a.dev",
+            prepareMarkdownChunk("See [a].\n\n```kotlin\nval x = 1", "[a]: https://a.dev", streamingTail = true),
+        )
+    }
+
+    @Test
     fun chunksAreNormalisedForTheNativeParser() {
         assertEquals(
             "Costs \\\$5, so **x**\n\n\$\$\nE = mc^2\n\$\$",
