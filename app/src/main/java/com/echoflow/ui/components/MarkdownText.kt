@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
@@ -23,10 +24,13 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.echoflow.ui.theme.JetBrainsMono
 import com.swmansion.enriched.markdown.codehighlight.CodeHighlightPlugin
+import com.swmansion.enriched.markdown.codehighlight.compose.CodeHighlightStyleScope
+import com.swmansion.enriched.markdown.codehighlight.compose.codeHighlight
 import com.swmansion.enriched.markdown.compose.CodeBlockLayout
 import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
 import com.swmansion.enriched.markdown.compose.MarkdownOptions
@@ -179,37 +183,159 @@ private fun EnrichedChunk(spec: MarkdownChunkSpec, style: MarkdownStyle, links: 
 /** GitHub autolinks bare URLs; `==highlight==` carries the HTML `<mark>` subset. */
 private val REPLY_MARKDOWN_OPTIONS = MarkdownOptions(admonitions = true, highlight = true, permissiveAutolinks = true)
 
+/**
+ * Reply typography on the app's type scale and Material 3 tokens. Prose, lists and quotes share the
+ * body face so a reply reads as one column; tinted surfaces are kept to code, where they help scan.
+ * Display math sits directly on the page, as it did with the previous renderer.
+ */
 @Composable
 private fun rememberReplyMarkdownStyle(textColor: Color, style: TextStyle): MarkdownStyle {
     val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
     val materialStyle = rememberMaterialMarkdownStyle()
-    return remember(materialStyle, textColor, style, scheme) {
+    return remember(materialStyle, textColor, style, scheme, typography) {
+        val bodySize = if (style.fontSize.isSp) style.fontSize else 16.sp
+        val bodyLineHeight = if (style.lineHeight.isSp) style.lineHeight else bodySize * 1.5f
+        val mutedColor = textColor.copy(alpha = 0.78f)
         materialStyle.merge {
             paragraph {
                 color = textColor
-                fontSize = style.fontSize
+                fontSize = bodySize
                 fontWeight = style.fontWeight
                 fontFamily = style.fontFamily
-                if (style.lineHeight != TextUnit.Unspecified) lineHeight = style.lineHeight
+                lineHeight = bodyLineHeight
             }
-            h1 { color = textColor }
-            h2 { color = textColor }
-            h3 { color = textColor }
-            h4 { color = textColor }
-            list { color = textColor }
+            h1 {
+                color = textColor
+                fontFamily = typography.headlineSmall.fontFamily
+                fontWeight = FontWeight.Bold
+                fontSize = bodySize * 1.375f
+                lineHeight = bodySize * 1.75f
+                marginBottom = 10.dp
+            }
+            h2 {
+                color = textColor
+                fontFamily = style.fontFamily
+                fontWeight = FontWeight.Bold
+                fontSize = bodySize * 1.1875f
+                lineHeight = bodySize * 1.625f
+                marginBottom = 8.dp
+            }
+            h3 {
+                color = textColor
+                fontFamily = style.fontFamily
+                fontWeight = FontWeight.Bold
+                fontSize = bodySize * 1.0625f
+                lineHeight = bodyLineHeight
+                marginBottom = 6.dp
+            }
+            h4 {
+                color = textColor
+                fontFamily = style.fontFamily
+                fontWeight = FontWeight.Bold
+                fontSize = bodySize
+                lineHeight = bodyLineHeight
+                marginBottom = 6.dp
+            }
+            h5 {
+                color = mutedColor
+                fontFamily = style.fontFamily
+                fontWeight = FontWeight.Bold
+                fontSize = bodySize * 0.9375f
+                lineHeight = bodyLineHeight
+                marginBottom = 4.dp
+            }
+            h6 {
+                color = mutedColor
+                fontFamily = style.fontFamily
+                fontWeight = FontWeight.SemiBold
+                fontSize = bodySize * 0.875f
+                lineHeight = bodySize * 1.375f
+                marginBottom = 4.dp
+            }
+            list {
+                color = textColor
+                fontSize = bodySize
+                fontWeight = style.fontWeight
+                fontFamily = style.fontFamily
+                lineHeight = bodyLineHeight
+                bulletColor = scheme.onSurfaceVariant
+                markerColor = scheme.onSurfaceVariant
+                marginStart = 20.dp
+                gapWidth = 10.dp
+            }
+            blockquote {
+                color = mutedColor
+                fontSize = bodySize
+                fontFamily = style.fontFamily
+                lineHeight = bodyLineHeight
+                backgroundColor = Color.Transparent
+                borderColor = scheme.outlineVariant
+                borderWidth = 3.dp
+                gapWidth = 14.dp
+            }
             table {
                 color = textColor
+                fontFamily = style.fontFamily
+                fontSize = bodySize * 0.875f
+                lineHeight = bodySize * 1.25f
                 headerTextColor = textColor
+                headerBackgroundColor = scheme.surfaceContainer
+                rowEvenBackgroundColor = Color.Transparent
+                rowOddBackgroundColor = scheme.surfaceContainerLow
+                borderColor = scheme.outlineVariant
+                cornerRadius = 12.dp
             }
-            code { fontFamily = JetBrainsMono }
-            codeBlock { fontFamily = JetBrainsMono }
-            math {
+            link { color = scheme.primary }
+            thematicBreak {
+                color = scheme.outlineVariant
+                marginTop = 20.dp
+                marginBottom = 20.dp
+            }
+            code {
+                fontFamily = JetBrainsMono
+                fontSize = bodySize * 0.875f
                 color = textColor
                 backgroundColor = scheme.surfaceContainerHigh
+                borderColor = Color.Transparent
+            }
+            codeBlock {
+                fontFamily = JetBrainsMono
+                fontSize = bodySize * 0.8125f
+                lineHeight = bodySize * 1.25f
+                color = textColor
+                backgroundColor = scheme.surfaceContainer
+                borderColor = scheme.outlineVariant
+                borderWidth = 1.dp
+                cornerRadius = 12.dp
+                padding = 14.dp
+            }
+            codeHighlight { if (scheme.surface.luminance() >= 0.5f) lightCodeHighlight() }
+            math {
+                color = textColor
+                backgroundColor = Color.Transparent
+                fontSize = bodySize * 1.125f
+                padding = 2.dp
+                marginTop = 0.dp
+                marginBottom = 12.dp
             }
             inlineMath { color = textColor }
         }
     }
+}
+
+/** GitHub's light palette; the plugin's default is the dark one, which washes out on a light block. */
+private fun CodeHighlightStyleScope.lightCodeHighlight() {
+    keyword = Color(0xFFCF222E)
+    string = Color(0xFF0A3069)
+    number = Color(0xFF0550AE)
+    constant = Color(0xFF0550AE)
+    comment = Color(0xFF6E7781)
+    function = Color(0xFF8250DF)
+    type = Color(0xFF953800)
+    property = Color(0xFF0550AE)
+    tag = Color(0xFF116329)
+    attribute = Color(0xFF0550AE)
 }
 
 /** Latest finger position for a link peek. Writes here do not recompose. */
