@@ -13,6 +13,7 @@ package com.echoflow.ui.components
 internal fun normalizeMath(source: String, streaming: Boolean = false): String {
     if (source.indexOf('$') < 0 && source.indexOf("\\(") < 0 && source.indexOf("\\[") < 0) return source
     val protected = markdownProtectedCharacters(source)
+    val paragraphs = MathParagraphs(source)
     val out = StringBuilder(source.length + 16)
     var lineStart = 0
     var blankAfterDisplay = false
@@ -36,7 +37,7 @@ internal fun normalizeMath(source: String, streaming: Boolean = false): String {
             lineStart = display.end + 1
             continue
         }
-        val consumedEnd = appendInlineMath(out, source, lineStart, lineEnd, protected, streaming)
+        val consumedEnd = appendInlineMath(out, source, lineStart, lineEnd, protected, streaming, paragraphs)
         if (consumedEnd >= source.length) break
         out.append('\n')
         lineStart = consumedEnd + 1
@@ -92,8 +93,9 @@ private fun appendInlineMath(
     firstLineEnd: Int,
     protected: BooleanArray,
     streaming: Boolean,
+    paragraphs: MathParagraphs,
 ): Int {
-    val searchEnd = paragraphContinuationEnd(source, firstLineEnd)
+    val searchEnd = paragraphs.continuationEnd(firstLineEnd)
     var lineEnd = firstLineEnd
     var openAtEnd = streaming && lineEnd == source.length
     fun appendMath(delimiter: String, latex: String, close: Int) {
@@ -198,20 +200,33 @@ private fun appendInlineMath(
 private val BLOCK_START = Regex("""^ {0,3}(?:#|>|\||[*+-](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|```|~~~|\$\$|\\\[)""")
 
 /**
- * End of the last line that continues the paragraph holding the line ending at [lineEnd]. Math
- * never wraps into or out of a table row.
+ * Where inline math may search for its closer: to the end of the paragraph holding a line. Math
+ * never wraps into or out of a table row or code. Masks are built once and each paragraph's end
+ * is cached, so a chunk is scanned in linear time.
  */
-private fun paragraphContinuationEnd(source: String, lineEnd: Int): Int {
-    if (isInTable(source, source.lastIndexOf('\n', lineEnd - 1) + 1)) return lineEnd
-    var end = lineEnd
-    while (end < source.length) {
-        val nextStart = end + 1
-        val nextEnd = source.indexOf('\n', nextStart).let { if (it < 0) source.length else it }
-        val line = source.substring(nextStart, nextEnd)
-        if (line.isBlank() || BLOCK_START.containsMatchIn(line) || isInTable(source, nextStart)) break
-        end = nextEnd
+private class MathParagraphs(private val source: String) {
+    private val table = markdownTableMask(source)
+    private val code = markdownCodeBlockMask(source)
+    private var cachedEnd = -1
+
+    private fun isBoundary(lineStart: Int): Boolean =
+        lineStart < source.length && (table[lineStart] || code[lineStart])
+
+    fun continuationEnd(lineEnd: Int): Int {
+        val lineStart = source.lastIndexOf('\n', lineEnd - 1) + 1
+        if (isBoundary(lineStart)) return lineEnd
+        if (lineEnd <= cachedEnd) return cachedEnd
+        var end = lineEnd
+        while (end < source.length) {
+            val nextStart = end + 1
+            val nextEnd = source.indexOf('\n', nextStart).let { if (it < 0) source.length else it }
+            val line = source.substring(nextStart, nextEnd)
+            if (line.isBlank() || BLOCK_START.containsMatchIn(line) || isBoundary(nextStart)) break
+            end = nextEnd
+        }
+        cachedEnd = end
+        return end
     }
-    return end
 }
 
 private const val MATH_SIGNAL = "\\^_={}+-*/<>|"

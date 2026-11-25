@@ -1,6 +1,7 @@
 package com.echoflow.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownMathTest {
@@ -87,6 +88,17 @@ class MarkdownMathTest {
     @Test
     fun wrappedMathMayContainAPipeOutsideTables() {
         assertEquals("Let \$P(A| B)\$ hold", normalizeMath("Let \$P(A|\nB)\$ hold"))
+    }
+
+    @Test
+    fun longCodeAndTablesStayLinear() {
+        val code = "```\n" + List(3_000) { "price_$it = \"\$$it\"" }.joinToString("\n") + "\n```"
+        val table = "A | B\n--- | ---\n" + List(3_000) { "\$$it | x" }.joinToString("\n")
+        val started = System.nanoTime()
+        assertEquals(code, normalizeMath(code))
+        normalizeMath(table)
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue("took ${elapsedMs}ms", elapsedMs < 2_000)
     }
 
     @Test

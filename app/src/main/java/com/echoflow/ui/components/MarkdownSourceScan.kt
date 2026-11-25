@@ -57,6 +57,32 @@ internal fun isInTable(source: String, lineStart: Int): Boolean {
     return '|' in header && TABLE_DELIMITER_ROW.matches(delimiter)
 }
 
+/** Characters on lines of GFM tables, by the rule of [isInTable], in one pass. */
+internal fun markdownTableMask(source: String): BooleanArray {
+    val mask = BooleanArray(source.length)
+    if (source.indexOf('|') < 0) return mask
+    var lineStart = 0
+    var inTable = false
+    var blockStart = true
+    while (lineStart < source.length) {
+        val lineEnd = source.indexOf('\n', lineStart).let { if (it < 0) source.length else it }
+        val line = source.substring(lineStart, lineEnd)
+        if (line.isBlank()) {
+            inTable = false
+            blockStart = true
+        } else {
+            if (blockStart && lineEnd < source.length) {
+                val delimiter = source.substring(lineEnd + 1).substringBefore('\n')
+                inTable = '|' in line && TABLE_DELIMITER_ROW.matches(delimiter)
+            }
+            blockStart = false
+            if (inTable) for (index in lineStart until minOf(lineEnd + 1, source.length)) mask[index] = true
+        }
+        lineStart = lineEnd + 1
+    }
+    return mask
+}
+
 /** Characters inside fenced code, indented code, and code spans. */
 internal fun markdownCodeMask(source: String): BooleanArray = scanMarkdown(source, includeLinks = false, includeTags = false)
 
