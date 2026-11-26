@@ -124,6 +124,23 @@ class ChatViewModel(
 
     /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
     val appMode: StateFlow<AppMode> = settingsRepository.appMode
+    /**
+     * The open chat's Intelligent UI override (05 §11.2). For a chat not created yet it is held
+     * here and written when the thread is created.
+     */
+    private val _pendingIntelligentUi = MutableStateFlow<String?>(null)
+    val chatIntelligentUi: StateFlow<String?> by lazy {
+        combine(allThreads, currentChatThreadId, _pendingIntelligentUi) { threads, id, pending ->
+            if (id == null) pending else threads.firstOrNull { it.id == id }?.intelligentUi
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    }
+
+    fun setChatIntelligentUi(level: String?) {
+        val id = _currentChatThreadId.value
+        if (id == null) { _pendingIntelligentUi.value = level; return }
+        viewModelScope.launch { chatDao.setIntelligentUi(id, level) }
+    }
+
     /** Echo UI level (05 §11.1); decides how many new blocks a reply renders (05 §11.4). */
     val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = settingsRepository.intelligentUiLevel
 
@@ -1398,6 +1415,7 @@ class ChatViewModel(
     }
 
     fun startNewChat() {
+        _pendingIntelligentUi.value = null
         selectThread(null)
     }
 
@@ -1845,7 +1863,7 @@ class ChatViewModel(
 
             // Echo UI (05 §11.3, §12): the Weave section for ordinary chat turns on cloud models.
             val echoUiSection = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
-                val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi }
+                val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi } ?: _pendingIntelligentUi.value
                 echoUiSection(prompt, requestModel, isLocal, chatLevel)
             } else ""
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
@@ -1893,6 +1911,9 @@ class ChatViewModel(
                     mode = if (activeProjectId != null) AppMode.Chat else startMode,
                     projectId = activeProjectId,
                 ).id
+                // An Intelligent UI level picked before the chat existed belongs to it now (05 §11.2).
+                _pendingIntelligentUi.value?.let { chatDao.setIntelligentUi(chatId, it) }
+                _pendingIntelligentUi.value = null
                 // A send typed into the new thread must see this turn too, open or not.
                 turns.extend(sendClaim, chatId)
                 if (stillOnBlank) {

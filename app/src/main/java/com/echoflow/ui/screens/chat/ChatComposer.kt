@@ -106,6 +106,10 @@ internal fun InputToolbar(
     projectName: String? = null,
     projectColorIndex: Int = 0,
     onOpenProject: () -> Unit = {},
+    intelligentUiShown: Boolean = false,
+    intelligentUi: String? = null,
+    intelligentUiGlobal: com.echoflow.weave.core.prompt.IntelligentUiLevel = com.echoflow.weave.core.prompt.IntelligentUiLevel.BALANCED,
+    onIntelligentUi: (String?) -> Unit = {},
     memoryAvailable: Boolean = false,
     memoryOn: Boolean = false,
     onToggleMemory: () -> Unit = {},
@@ -290,6 +294,10 @@ internal fun InputToolbar(
                         memoryAvailable = memoryAvailable,
                         memoryOn = memoryOn,
                         onToggleMemory = toggleThenClose(onToggleMemory),
+                        intelligentUiShown = intelligentUiShown,
+                        intelligentUi = intelligentUi,
+                        intelligentUiGlobal = intelligentUiGlobal,
+                        onIntelligentUi = { plusMenu.dismiss(); onIntelligentUi(it) },
                     )
                 }
 
