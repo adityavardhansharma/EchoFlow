@@ -306,8 +306,14 @@ as the first argument of state actions (§7.2).
    children, which are separate nodes — evaluate as waiting renders its streaming placeholder
    (04 §2.9) instead of showing `—`. So with `$rate` waiting, `Slider($rate)`, `Text($rate)` and
    `Metric("EMI", emi)` (where `emi` reads `$rate`) all show placeholders, while their parent
-   `Card` renders normally. Effects and actions never see waiting values: effects install only at
-   fence close (§8.1), and by then no state is waiting. This rule exists because the prompt cannot guarantee order: a model that writes
+   `Card` renders normally. **Effects** never see waiting values: they install only at fence close
+   (§8.1), and by then no state is waiting. **Actions from gestures** can run while the reply
+   streams (01 §17.4), so a static `Button(onTap: !set($out, $rate))` can be tapped before `$rate`
+   is ready. Rule: when an event's transaction (§7.2) reads a waiting value — in an action
+   argument, a condition or a handler — the whole transaction is **discarded**: no writes, no
+   deferred actions, no history entry, no diagnostic. The control gives the `reject` haptic and
+   works normally once the value arrives. Discarding (not delaying) keeps a tap from firing seconds
+   later with a value the user never saw. `[T-279b]` This rule exists because the prompt cannot guarantee order: a model that writes
    `$rate = defaultRate(10)` before `fn defaultRate` MUST still get the computed value, never a
    permanent `null`. `[T-278]` `[T-278b]` `[T-279]`
 2. **Restoration.** If the block has a stored state (05 §9), stored values are used for every state
