@@ -21,7 +21,12 @@ object SystemPrompts {
      * @param provider effective search provider: "off", "openrouter", or a [ClientSearchProviders] id.
      *        Callers must pass "off" for unavailable combinations (e.g. local model + openrouter).
      */
-    fun build(isLocalModel: Boolean, provider: String, currentDate: String = currentDate()): String {
+    /**
+     * @param echoUi the Echo UI section (06 §2, 05 §12), or empty. It goes immediately before the
+     *        freshness gate, which stays last: the gate is the recency slot the model reads right
+     *        before answering, and a long Weave section after it would bury it.
+     */
+    fun build(isLocalModel: Boolean, provider: String, currentDate: String = currentDate(), echoUi: String = ""): String {
         val sections = mutableListOf<String>()
 
         sections += identity(isLocalModel)
@@ -35,6 +40,7 @@ object SystemPrompts {
         }
 
         sections += formatting(isLocalModel)
+        if (echoUi.isNotBlank()) sections += echoUi
         sections += freshnessGate(currentDate, Remedy.forTransport(provider, isLocalModel))
 
         return sections.joinToString("\n\n")
@@ -132,13 +138,14 @@ object SystemPrompts {
      * @param provider effective search provider: "off" or a [ClientSearchProviders] id.
      *        ("openrouter" never reaches here — server search can't serve custom providers.)
      */
-    fun buildCustomProvider(provider: String, currentDate: String = currentDate()): String {
+    fun buildCustomProvider(provider: String, currentDate: String = currentDate(), echoUi: String = ""): String {
         val sections = mutableListOf<String>()
         sections += identity(false)
         sections += "Current date: $currentDate."
         val searchOn = provider in ClientSearchProviders.asSet
         sections += if (searchOn) injectedSearchGuidance(provider) else noSearch(false)
         sections += formatting(false)
+        if (echoUi.isNotBlank()) sections += echoUi
         // Same freshness rule as every other transport — only the remedy differs. With search on
         // the results are already in the prompt, so the remedy is "use them, don't reach for a
         // tool you don't have"; with it off, honest disclosure is all that is available.

@@ -124,6 +124,8 @@ class ChatViewModel(
 
     /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
     val appMode: StateFlow<AppMode> = settingsRepository.appMode
+    /** Echo UI level (05 §11.1); decides how many new blocks a reply renders (05 §11.4). */
+    val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = settingsRepository.intelligentUiLevel
 
     /**
      * Switches surface, parking the current conversation so this mode returns to it later and
@@ -1553,6 +1555,16 @@ class ChatViewModel(
         return turns.clearIfOwned(chatId, streamJob)
     }
 
+    /** The Echo UI prompt section for one turn (05 §11.3), or "" when the effective tier is 0. */
+    private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false): String {
+        val level = chatLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: settingsRepository.getIntelligentUiLevelDirect()
+        val downgraded = (settingsRepository.getEchoUiString("echoui_downgrade_until_$modelId")?.toLongOrNull() ?: 0L) > System.currentTimeMillis()
+        val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(modelId, isLocal, settingsRepository.getEchoUiTierOverride(modelId), downgraded)
+        val plan = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.plan(level, tier, latestUserMessage, makeInteractive)
+        if (plan.tier <= 0) return ""
+        return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
+    }
+
     fun sendMessage(content: String, forceMemory: Boolean = false) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
@@ -1831,14 +1843,19 @@ class ChatViewModel(
                 } else prompt
             } else null
 
+            // Echo UI (05 §11.3, §12): the Weave section for ordinary chat turns on cloud models.
+            val echoUiSection = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
+                val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi }
+                echoUiSection(prompt, requestModel, isLocal, chatLevel)
+            } else ""
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
                 // Tool-calling custom providers behave like cloud models: they call web_search
                 // themselves, so they get the standard "you have a web_search tool" prompt.
-                customToolCallingActive -> SystemPrompts.build(false, effectiveProvider)
+                customToolCallingActive -> SystemPrompts.build(false, effectiveProvider, echoUi = echoUiSection)
                 // Other custom providers have no native tool calling; their search results are
                 // pre-injected, so they need the "results are provided" prompt instead.
-                customProviderActive -> SystemPrompts.buildCustomProvider(effectiveProvider)
-                else -> SystemPrompts.build(isLocal, effectiveProvider)
+                customProviderActive -> SystemPrompts.buildCustomProvider(effectiveProvider, echoUi = echoUiSection)
+                else -> SystemPrompts.build(isLocal, effectiveProvider, echoUi = echoUiSection)
             }
 
             // Project context: the open thread's project (or the pending one for a brand-new
