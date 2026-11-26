@@ -1,0 +1,67 @@
+package com.echoflow.weave.core.eval
+
+/** Reading and writing places, 03 §5.4–5.5. */
+object Places {
+
+    /** Ordinary member/index access; missing → null. */
+    fun read(root: WValue, path: List<WValue>): WValue {
+        var v = root
+        for (seg in path) v = access(v, seg)
+        return v
+    }
+
+    fun access(v: WValue, seg: WValue): WValue = when {
+        v == WNull -> WNull
+        v is WRec && (seg is WStr || seg is WSym) -> v[key(seg)]
+        v is WList && seg is WNum -> listIndex(v.items.size, seg.v)?.let { v.items[it] } ?: WNull
+        v is WStr && seg is WNum -> {
+            val cps = v.v.codePoints().toArray()
+            listIndex(cps.size, seg.v)?.let { WStr(String(Character.toChars(cps[it]))) } ?: WNull
+        }
+        else -> WNull
+    }
+
+    private fun key(seg: WValue) = when (seg) { is WStr -> seg.v; is WSym -> seg.name; else -> seg.toString() }
+
+    /** `i` rounded half-up; negative from the end; out of range → null. */
+    fun listIndex(size: Int, i: Double): Int? {
+        var k = Math.floor(i + 0.5).toInt()
+        if (k < 0) k += size
+        return if (k in 0 until size) k else null
+    }
+
+    /**
+     * Writes [value] at [path] under [root], copying only along the path. Returns null when the
+     * write is ignored (`E205`): member on a non-record, list index out of range.
+     */
+    fun write(root: WValue, path: List<WValue>, value: WValue): WValue? {
+        if (path.isEmpty()) return value
+        val seg = path[0]
+        val rest = path.subList(1, path.size)
+        return when {
+            root is WRec && (seg is WStr || seg is WSym) -> {
+                val k = key(seg)
+                val child = write(root[k], rest, value) ?: return null
+                WRec(LinkedHashMap(root.fields).apply { put(k, child) })
+            }
+            root is WList && seg is WNum -> {
+                val n = root.items.size
+                var k = Math.floor(seg.v + 0.5).toInt()
+                if (k < 0) k += n
+                when {
+                    k in 0 until n -> {
+                        val child = write(root.items[k], rest, value) ?: return null
+                        WList(root.items.toMutableList().apply { set(k, child) })
+                    }
+                    k == n -> {
+                        val child = write(WNull, rest, value) ?: return null
+                        WList(root.items + child)
+                    }
+                    else -> null
+                }
+            }
+            root == WNull && rest.isEmpty() && (seg is WStr || seg is WSym) -> null
+            else -> null
+        }
+    }
+}
