@@ -526,6 +526,39 @@ class Session(
         startEvery()
     }
 
+    /** Whether the program has `frame` effects (tier 4); the host then drives [frame] per frame. */
+    val hasFrameEffects: Boolean get() = program.effects.values.any { it.trigger.callee == "frame" }
+    val hasMotionEffects: Boolean get() = program.effects.values.any { it.trigger.callee == "tilt" || it.trigger.callee == "shake" }
+
+    /** One display frame (03 §8.2 `frame`): `dt` is seconds since the last frame, capped at 0.1. */
+    fun frame(dtMs: Long) {
+        val dt = (dtMs.coerceIn(0, 100)) / 1000.0
+        for (e in program.effects.values.filter { it.trigger.callee == "frame" }) runEffectWith(e, mapOf("dt" to WNum.of(dt)))
+    }
+
+    /** Device tilt (03 §8.2 `tilt`): `x`, `y` in -1..1. */
+    fun tilt(x: Double, y: Double) {
+        for (e in program.effects.values.filter { it.trigger.callee == "tilt" }) runEffectWith(e, mapOf("x" to WNum.of(x.coerceIn(-1.0, 1.0)), "y" to WNum.of(y.coerceIn(-1.0, 1.0))))
+    }
+
+    fun shake() {
+        for (e in program.effects.values.filter { it.trigger.callee == "shake" }) runEffectWith(e, emptyMap())
+    }
+
+    private fun runEffectWith(e: Effect, vars: Map<String, WValue>) {
+        val scope = Scope(vars, null)
+        val ev = Evaluator(program, HashMap(state), ctx, catalog)
+        if (e.condition != null && !ev.topLevel(e.condition, scope).truthy()) return
+        val action = ev.topLevel(e.action, scope)
+        val before = LinkedHashMap(state)
+        val tx = Tx(LinkedHashMap(state), ArrayList(), fromEffect = true)
+        runIn(tx, action)
+        // frame-rate writes don't fill history (03 §7.5)
+        val undoBefore = undo.size
+        commit(tx, before, intArrayOf(0))
+        while (undo.size > undoBefore) undo.removeLast()
+    }
+
     private fun startEvery() {
         for (e in program.effects.values.filter { it.trigger.callee == "every" }) {
             val iv = (Evaluator(program, HashMap(state), ctx, catalog).topLevel(e.trigger.leads.firstOrNull() ?: continue) as? WDur)?.ms ?: continue

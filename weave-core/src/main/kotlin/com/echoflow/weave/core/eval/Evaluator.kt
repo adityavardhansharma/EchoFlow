@@ -43,6 +43,11 @@ class EvalContext(
     val userFirstName: String? = null,
     /** Reads `id::name` from earlier blocks' exports; null = not found. */
     val exports: (block: String, name: String) -> WValue? = { _, _ -> null },
+    /**
+     * Animation time in ms while the block is visible and motion is allowed, else null. `loop`
+     * reads it (04 §13.1); with null (tests, reduced motion, off-screen) `loop` returns `from`.
+     */
+    val animationTimeMs: () -> Long? = { null },
 ) {
     fun device() = WRec.of(
         "width" to WSym(deviceWidth), "landscape" to WBool.of(landscape), "dark" to WBool.of(dark),
