@@ -144,14 +144,23 @@ internal fun StreamingMarkdown(
     val planner = remember(extensions.keys) { MarkdownStreamPlanner(extensions.keys) }
     val plan = remember(planner, text) { planner.plan(text) }
     Column(modifier) {
+        val ordinals = HashMap<String, Int>()
         plan.blocks.forEachIndexed { index, block ->
             val last = index == plan.blocks.lastIndex
+            val ordinal = (block as? MarkdownExtensionPart)?.block?.let { b ->
+                val primary = b.info.trim() == b.kind
+                val n = ordinals.getOrDefault(b.kind, 0)
+                if (primary) ordinals[b.kind] = n + 1
+                n
+            } ?: 0
             key(block.key) {
                 when (block) {
                     is MarkdownChunk -> chunk(
                         MarkdownChunkSpec(block.source, plan.references, streamingTail = streaming && last, last = last)
                     )
-                    is MarkdownExtensionPart -> extensions[block.block.kind]?.Render(block.block, Modifier.fillMaxWidth())
+                    is MarkdownExtensionPart -> androidx.compose.runtime.CompositionLocalProvider(LocalMarkdownExtensionOrdinal provides ordinal) {
+                        extensions[block.block.kind]?.Render(block.block, Modifier.fillMaxWidth())
+                    }
                 }
             }
         }

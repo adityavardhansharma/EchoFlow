@@ -50,6 +50,13 @@ interface MarkdownBlockExtension {
 /** Fenced-block extensions by kind. Empty by default, so every fence draws as code. */
 val LocalMarkdownBlockExtensions = staticCompositionLocalOf<Map<String, MarkdownBlockExtension>> { emptyMap() }
 
+/**
+ * The position of the extension block being drawn among the reply's blocks of the same kind,
+ * counting only the ones whose info string is exactly the kind (not `weave edit …`). Lets an
+ * extension cap how many blocks a reply renders (Echo UI, 05 §11.4).
+ */
+val LocalMarkdownExtensionOrdinal = androidx.compose.runtime.compositionLocalOf { 0 }
+
 @Immutable
 internal class MarkdownStreamPlan(val blocks: List<MarkdownStreamBlock>, val references: String)
 
