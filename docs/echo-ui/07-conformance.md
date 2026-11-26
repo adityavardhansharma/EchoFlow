@@ -9,9 +9,14 @@ catalog and prompts; §10 is the model eval harness (run per release, not in CI)
 
 **Status of this document.** Nothing here runs yet: this is the test *specification*. The tests are
 written alongside the code they cover, in the same PR. The streaming corpus (§8) does not exist
-until it is collected; the eval harness (§10) does not exist until it is built. Tests marked
-**(phase 2)** or **(phase 3)** apply only once that phase is built (01 §29); a phase 1
-implementation is conformant when every unmarked test passes.
+until it is collected; the eval harness (§10) does not exist until it is built. A test
+**applies to a build only when everything it exercises ships in that build**: every component, mark
+and action it names has a renderer or handler in the build's registry (05 §3.3), and every feature
+it relies on (`!ask`, `lazy`, `query`, `frame`, Weave-JSON, the per-chat override, …) is in a phase
+the build includes (01 §29). For example, `T-454`–`T-458` apply from phase 2 and `T-452` from phase
+3. "Every component" in `T-401`, `T-408` and `T-500`–`T-504` means every component the build
+registers. A build is conformant when every test that applies to it passes; skipping an applicable
+test is a failure. §4.1 is marked **(phase 2)** as a reminder; the rule above is what decides.
 
 Notation: `⇒` means "produces". Unless stated, locale is `en-IN`, time zone `Asia/Kolkata`, light
 theme, font scale 1.0. "Tokens" lists token kinds; "AST" shows a canonical print (02 §13). "Diag"
@@ -242,6 +247,7 @@ lists diagnostic codes in order.
 | T-102 | `$r = 5` (user moved it to 9) | `$r = 1` | `$r == 9` |
 | T-103 | `$r = 5` (user moved it to 9) | `$r = 1 reset` | `$r == 1` |
 | T-104 | `on change($r) -> !haptic(tick)` | `-on change($r)` | no effect |
+| T-104b | `on change($r) -> !haptic(tick)` | `on change($r) -> !a()`, `-on change($r)`, `on change($r) -> !b()` | one effect: `on change($r) -> !b()` |
 | T-105 | `root = Text("x")` | `-root` | `E107`, ignored |
 | T-106 | `root = Text(a)`, `a = "x"` | `-a` | `root` shows `—` (a is `null`), `E301` |
 | T-106b | `root = Text("x")` | `root = Nope()` | edit applies, but `root` has no renderable node → **edit rejected**, block stays at version 1 |
@@ -267,9 +273,11 @@ lists diagnostic codes in order.
 |---|---|
 | T-400 | `TextField($p, label: …)` with `"Password"`, `"Enter OTP"`, `"Card number"`, `"PIN"`, `"ATM PIN"`, `"Aadhaar"` → field disabled with "EchoFlow blocks can't ask for secrets". |
 | T-400b | Labels `"Pincode"`, `"PIN code"`, `"Postal code"`, `"Spinner speed"`, `"Pinned notes"` → field enabled (not refused). |
+| T-400c | Labels `"ATM PIN code"`, `"UPI PIN"`, `"Card PIN"` → refused. |
 | T-401 | Every component in 04 renders without crashing for 200 random argument sets (fuzz: random types, nulls, huge strings, negative and huge numbers, empty lists). |
 | T-402 | Modifier order (04 §2.2): a `Card(bg: primary, shape: xl, border: true, pad: l, onTap: …)` produces a ripple clipped to the xl shape and padding inside the border (semantic and pixel assertions). |
 | T-403 | `Row` overflow: a `Row` with 4 `Button`s of 20-character labels at 360 dp width lays out as a column. The `Row` is implemented with `Layout`, not `SubcomposeLayout` (lint). |
+| T-403b | `Row [Text("a"), Carousel(items)]` renders without an exception and lays out as a column; with `wrap: never` the carousel gets the width left after `Text`. No intrinsic query reaches the carousel. |
 | T-404 | `Metric` animation: value 100 → 200 shows intermediate values during `motion: default` and ends exactly at `200`. |
 | T-405 | `Slider(step: 0.05)` writes values with no float noise (`8.55`, never `8.549999`). |
 | T-406 | `Tabs` composes only the selected page (a counter in an unselected page's binding is never evaluated). |
@@ -303,9 +311,10 @@ lists diagnostic codes in order.
 | T-462 | Existing blocks still render and work after switching the level to Off. |
 | T-463 | Room migration N → N + 1 (05 §9.2; N = `AppDatabase.version` when shipped) passes `MigrationTestHelper` (like the existing migration tests). |
 | T-464 | History to model: a block whose `$rate` was moved to 9.1 is sent as its current canonical source followed by `# state {"rate":9.1}` inside the fence. No `<weave-state>` tag appears anywhere. |
+| T-464b | 250 changed states named `s000`…`s249`: the state line is ≤ 2,000 characters, keeps a prefix of keys in declaration order with `"…"` values, and ends with `"…":"+<n> more"` where `<n>` is the number dropped. |
 | T-465 | Debug build: reading a binding from `Dispatchers.Default` throws; chart downsampling receives a `WValue` list and never calls the evaluator. |
 | T-466 | Block menu → "Show as plain text": the block is replaced by its plain text, "Show interactive" restores it with state intact, the choice survives a restart, and history sends the plain text. |
-| T-467 | A write that would push `stateJson` past `STATE_BYTES` rolls back the whole transaction, keeps the previous value and shows "This block is full"; `historyJson` is trimmed oldest-first. |
+| T-467 | A write that would push `stateJson` past `STATE_BYTES` rolls back the whole transaction, keeps the previous value and shows "This block is full"; `historyJson` is trimmed oldest-first. Initialisation too: `$big = map(range(1000), i => "x" * 1000)` then `$n = 1` → `$big` is `null` with `E304`, `$n == 1`, the chip shows once, and the stored `stateJson` is under `STATE_BYTES`. |
 
 ---
 

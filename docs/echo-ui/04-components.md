@@ -408,6 +408,14 @@ anchor. `[T-407]`
   the sum plus gaps with the incoming max width, then measures and places the children as a row or
   a column. It MUST NOT use `SubcomposeLayout`, which recomposes per pass and janks inside the chat
   `LazyColumn` on mid-range devices.
+- Some children can't answer intrinsic queries: Compose throws when a subcomposed or lazy layout is
+  asked for intrinsics. Each `ComponentSpec` (05 §3.3) has `intrinsics: Boolean`; it is `false` for
+  every component whose implementation uses `SubcomposeLayout`, a lazy layout or a pager — at least
+  `Carousel`, `Pager`, `Tabs`, `Wizard`, `Gallery`, `Table`, `List(lazy: true)`, `Calendar` — and
+  for any node wrapping one. The `Row` never queries such a child. With `wrap: auto`, a `Row` that
+  contains one is laid out as a `Column` (on a ~400 dp screen, those components need the full width
+  anyway). With `wrap: never`, such a child is measured with the width left after its intrinsic
+  siblings and gaps, or with `weight` if it has one. `[T-403b]`
 - Horizontal scrolling exists only in `Carousel`, `Tabs(scrollable: true)`, `Table` and `Chips`
   with `scroll: true`. No other component scrolls horizontally.
 - Vertical scrolling inside a block exists only where a fixed `h` is set on `Column(scroll: true)`,
@@ -873,14 +881,16 @@ Row: optional `label` (start, `bodyLarge`), then `FilledTonalIconButton(remove)`
 
   ```
   \b(password|passcode|otp|one[- ]time|cvv|cvc|card number|account number|routing|ifsc|ssn|aadhaar|pan number)\b
+  |\b(atm|card|debit|credit|upi|bank|mpin|secret|security|login)\s+pin\b
   |\bpin\b(?!\s*code)
   ```
 
   (newline not part of the pattern), the field renders disabled with supporting text "EchoFlow
   blocks can't ask for secrets". `pin` is matched as a whole word and not when followed by
-  `code`, so `PIN`, `ATM PIN` and `PIN number` are refused while `Pincode`, `PIN code`, `Postal
-  code`, `Spinner` and `Pinned notes` are allowed. India is the default locale (07 preamble); an
-  address form MUST work. `[T-400]` `[T-400b]`
+  `code` — unless it is qualified as a secret (`ATM PIN`, `UPI PIN`, `card PIN`), which is refused
+  even before `code`. So `PIN`, `ATM PIN`, `ATM PIN code`, `UPI PIN` and `PIN number` are refused,
+  while `Pincode`, `PIN code`, `Postal code`, `Spinner` and `Pinned notes` are allowed. India is the default locale (07 preamble); an
+  address form MUST work. `[T-400]`–`[T-400c]`
 - Aliases: `hint`→`placeholder`, `type`→`kind`, `bind`→`value`.
 
 ### Select

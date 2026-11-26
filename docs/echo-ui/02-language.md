@@ -480,8 +480,11 @@ The merge emits `W403`, not `W404`: it is a rewrite, not a loss. Because `!if` e
 condition at execution time inside the same transaction (03 §7.2), the merged effect behaves exactly
 like the separate guarded effects would have, in source order. `[T-042]` `[T-042b]`
 
-In an edit (§11.2), the edit's own effects are merged first; the merged effect then **replaces** the
-block's effect with the same key. To keep an existing guarded branch, the edit must restate it.
+In an edit (§11.2), statements apply in source order. S12 merges only a **run** of same-key effects
+that no `-on <trigger>` for that key separates; each deletion applies at its own position. So
+`on change($x) -> A`, `-on change($x)`, `on change($x) -> B` leaves one effect, `B`. Each merged
+run **replaces** the block's effect with that key at the run's position. To keep an existing guarded
+branch, the edit must restate it. `[T-104b]`
 
 ### 5.6 The root
 

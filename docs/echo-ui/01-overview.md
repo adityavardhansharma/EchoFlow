@@ -1313,7 +1313,8 @@ The prompt is generated from the Kotlin catalog, per tier and form, and cached.
 Tier 3–4 models with tool use keep the full signatures of the common components inline and get a
 compact **index** of the long tail (`Sort`, `Canvas`, `Shader`, `Quiz`, …) plus a
 `weave_docs(names: list)` tool returning full signatures and an example for each. The first
-interactive answer never waits on a tool call; only unusual components do (06 §2.1, §8).
+interactive answer never waits on a tool call; only unusual components do (06 §2.1, §8). This is
+phase 3; until then every advertised component's signature is in the prompt.
 
 ### 21.3 Prompt tests
 
@@ -1606,9 +1607,10 @@ appear as chat turns or affect conversation titles.
 - **1a — the slice.** `:weave-core` complete except Weave-JSON: normaliser, lexer, incremental
   parser, auto-fix, checker, evaluator, IR, canonical printer, prompt generator, with the JVM tests
   in 07 §1–4, §7 and §9. Fence registration (`weave` only). Renderer for the common set:
-  `Column`, `Row`, `Card`, `Title`, `Text`, `Metric`, `Callout`, `Button`, `Slider`, `Segmented`,
-  `TextField`, `Select`, `Table`, `List`, `Item`, `Tabs`, and `Chart` with line/area/bar/point/rule
-  marks. Local actions, `!say`, effects (`change`, `appear`, `every`). State persistence. The global
+  `Column`, `Row`, `Card`, `Title`, `Text`, `Metric`, `Stat`, `Callout`, `Button`, `Slider`,
+  `Segmented`, `TextField`, `Select`, `Table`, `List`, `Item`, `Tabs`, and `Chart` with
+  line/area/bar/point/rule marks plus the `LineChart`, `AreaChart` and `BarChart` sugars. This set
+  covers every component in the tier 1 and tier 2 prompt examples (06 §3.8), which `T-503` renders. Local actions, `!say`, effects (`change`, `appear`, `every`). State persistence. The global
   Intelligent UI setting. Because the prompt only advertises components the renderer has
   (05 §3.3), 1a is usable end to end in real chats.
 - **1b — the rest of phase 1.** Every other component tagged phase 1 in 04, `Wizard`, `Sheet`, the

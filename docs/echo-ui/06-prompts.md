@@ -35,11 +35,16 @@ it ships.
 6. **Rules** (§3.7) for the tier and level.
 7. **Examples** (§3.8) for the tier.
 
-If the model supports tool use and `tier ≥ 3`, parts 4–5 are **trimmed**, not replaced: the
+**Phase 3 only.** `weave_docs` ships in phase 3 (01 §29). Until then every prompt, at every tier,
+carries the full component lines for everything it advertises; there is no index. A prompt MUST
+never name a component without giving the model a way to get its signature in the same request.
+
+From phase 3, if the model supports tool use and `tier ≥ 3`, parts 4–5 are **trimmed**, not
+replaced: the
 **common set** keeps its full component lines (§3.3) and all functions, actions and effects stay
 inline; only the long tail moves to the **index** (§8) behind the `weave_docs` tool. The common set
-is `Column Row Card Title Text Metric Callout Button Slider Segmented TextField Select Chart Table
-Tabs List Item`, plus every component in the phase 1 slice (01 §29). This way the first interactive
+is the phase 1a slice (01 §29): `Column Row Card Title Text Metric Stat Callout Button Slider
+Segmented TextField Select Chart LineChart AreaChart BarChart Table Tabs List Item`. This way the first interactive
 answer never waits on a tool round-trip; `weave_docs` is only needed for things like `Sort`,
 `Canvas`, `Shader` or `Quiz`.
 
@@ -472,7 +477,7 @@ except examples are converted to JSON by the canonical JSON printer (05 §3; the
 
 ---
 
-## 8. Index and `weave_docs` tool (tier ≥ 3, tool-capable models)
+## 8. Index and `weave_docs` tool (phase 3; tier ≥ 3, tool-capable models)
 
 ### 8.1 Index (the long tail only; §2.1)
 

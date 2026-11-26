@@ -135,6 +135,7 @@ data class ComponentSpec(
     val positionalOrder: List<String>, val aliases: Map<String, String>,
     val children: ChildrenSpec, val tier: Int, val phase: Int, val doc: String,
     val placeholder: PlaceholderKind, val blockLevel: Boolean,
+    val intrinsics: Boolean,   // false if it can't answer intrinsic queries (04 §3.3)
 )
 data class MarkSpec(val name: String, val container: Set<String> /* "Chart", "Canvas" */,
                     val leads: List<ParamSpec>, val params: List<ParamSpec>,
@@ -456,9 +457,18 @@ Used in the history state line (06 §2.4, the only history encoding), `!ask`, `l
 | image | `"[image]"` (the image itself is attached as an image part only for `!say(attach:)` and only if the model supports images) |
 | node / action / fn | `"[node]"`, `"[action]"`, `"[function]"` |
 
-Truncation for history context (not for `!ask`): any JSON string value over 200 characters is cut to
-200 + `…`; any list over 20 items becomes `"list(<n>)"`; total state JSON over 2,000 characters →
-only the first-level keys with `"…"` values.
+Truncation for history context (not for `!ask`), applied in this order until the **complete
+serialised line** (keys, values, punctuation) is at most 2,000 characters:
+
+1. Any JSON string value over 200 characters is cut to 200 + `…`; any list over 20 items becomes
+   `"list(<n>)"`.
+2. If still over: every first-level value becomes `"…"`, keys kept.
+3. If still over: keep first-level keys in source order of their state declarations while the line,
+   including a final `"…":"+<n> more"` entry, fits; drop the rest and set `<n>` to the number
+   dropped.
+
+Step 3 always terminates: an object holding only the `"…"` entry is under 2,000 characters.
+`[T-464b]`
 
 ### 8.7 Tools and consent
 
@@ -847,11 +857,21 @@ rejected whole and the block stays at its current version (02 §11.2).
 `STATE_BYTES` caps the persisted size of one block's `stateJson` (§8.6 encoding, UTF-8, before any
 history truncation). A write (03 §7.2) whose committed result would exceed it is **rejected**: the
 whole transaction rolls back, the state keeps its previous value, the block shows a 4 s inline
-chip "This block is full", and `E304` is logged. `historyJson` keeps at most `HISTORY_ENTRIES`
-entries (03 §7.5) and is dropped oldest-first until it is also under `STATE_BYTES`. Together these
-bound a block's Room row at roughly `SOURCE_BYTES + 2 × STATE_BYTES` plus the small JSON columns.
-`[T-467]` Exceeding `NODES_VISIBLE_TOTAL`: blocks furthest
-from the viewport render their placeholder-sized snapshot instead of live UI.
+chip "This block is full", and `E304` is logged.
+
+The cap also applies to **initialisation** (03 §7.1), which is not an action write. States are
+initialised in the order 03 §7.1 gives; after each one, the encoded size of all states initialised
+so far is checked. A state whose initial value would take the total past `STATE_BYTES` is
+initialised to `null` instead, `E304` (`This block is too large (state).`) is logged, and the block
+shows the same "This block is full" chip once. Later states are still tried in order, so small
+states after a huge one still initialise. The same check applies to values restored from storage
+and to new states added by an edit (02 §11.3).
+
+`historyJson` keeps at most `HISTORY_ENTRIES` entries (03 §7.5) and is dropped oldest-first until it
+is also under `STATE_BYTES`. Together these bound a block's Room row at roughly
+`SOURCE_BYTES + 2 × STATE_BYTES` plus the small JSON columns. `[T-467]`
+
+Exceeding `NODES_VISIBLE_TOTAL`: blocks furthest from the viewport render their placeholder-sized snapshot instead of live UI.
 
 ---
 
