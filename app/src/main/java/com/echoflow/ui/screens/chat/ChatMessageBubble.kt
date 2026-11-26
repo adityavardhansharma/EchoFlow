@@ -66,6 +66,15 @@ internal fun MessageBubble(
     onOpenQuote: (com.echoflow.data.QuotedPassage) -> Unit = {},
 ) {
     val isUser = message.role == "user"
+    if (isUser && message.content.startsWith(com.echoflow.weave.compose.MAKE_INTERACTIVE_PREFIX)) {
+        // A "Make interactive" turn shows as a small divider, not as the instruction it carries (05 §11.6).
+        Row(modifier.fillMaxWidth().padding(vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
+            Text("  Made interactive  ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.material3.HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        return
+    }
     if (isUser) {
         val quotes = remember(message.quotesJson) { com.echoflow.data.QuotedPassages.fromJson(message.quotesJson) }
         UserPromptBubble(
@@ -150,6 +159,9 @@ internal fun AssistantAnswerActions(
         },
         onCopy = { onCopy(ReplyVersions.copyText(message, replyVersionIndex)) },
         showCopy = lastGeneratedMediaIndex == -1,
+        onMakeInteractive = com.echoflow.weave.compose.LocalMakeInteractive.current
+            ?.takeIf { !displayMessage.content.contains("```weave") && displayMessage.content.isNotBlank() && lastGeneratedMediaIndex == -1 }
+            ?.let { f -> { f(displayMessage.content) } },
     )
 }
 

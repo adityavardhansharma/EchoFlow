@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -205,8 +206,9 @@ internal fun AnswerActionBar(
     onCopy: () -> Unit,
     showCopy: Boolean,
     modifier: Modifier = Modifier,
+    onMakeInteractive: (() -> Unit)? = null,
 ) {
-    if (versionCount <= 1 && !showCopy) return
+    if (versionCount <= 1 && !showCopy && onMakeInteractive == null) return
 
     Row(
         modifier = modifier.padding(top = Spacing.xs),
@@ -241,6 +243,11 @@ internal fun AnswerActionBar(
                 onClick = onCopy,
             ) {
                 Icon(Icons.Default.ContentCopy, contentDescription = null, Modifier.size(16.dp))
+            }
+        }
+        if (onMakeInteractive != null) {
+            CompactActionButton(contentDescription = "Make interactive", onClick = onMakeInteractive) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, Modifier.size(16.dp))
             }
         }
     }

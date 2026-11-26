@@ -62,6 +62,15 @@ import java.time.ZoneId
 /** The chat screen's Echo UI runtime; null outside a chat (no blocks render there). */
 val LocalWeaveRuntime = staticCompositionLocalOf<WeaveRuntime?> { null }
 
+/**
+ * "Make interactive" on a reply (05 §11.6): null when unavailable (local model). Takes the
+ * reply's text.
+ */
+val LocalMakeInteractive = staticCompositionLocalOf<((String) -> Unit)?> { null }
+
+/** The user turn "Make interactive" sends starts with this; it renders as a divider, not a bubble. */
+const val MAKE_INTERACTIVE_PREFIX = "Turn the answer below into one Weave block"
+
 /** New blocks a reply may render, from the prompt level (05 §11.4). */
 val LocalWeaveMaxBlocks = androidx.compose.runtime.compositionLocalOf { 1 }
 
@@ -80,7 +89,7 @@ data class ConfirmRequest(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WeaveHostLayer(onSay: (String) -> Unit, maxBlocks: Int = 1, content: @Composable () -> Unit) {
+fun WeaveHostLayer(onSay: (String) -> Unit, maxBlocks: Int = 1, onMakeInteractive: ((String) -> Unit)? = null, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
     val say by rememberUpdatedState(onSay)
@@ -98,7 +107,7 @@ fun WeaveHostLayer(onSay: (String) -> Unit, maxBlocks: Int = 1, content: @Compos
         runtime.host = host
         onDispose { runtime.close() }
     }
-    CompositionLocalProvider(LocalWeaveRuntime provides runtime, LocalWeaveMaxBlocks provides maxBlocks) { content() }
+    CompositionLocalProvider(LocalWeaveRuntime provides runtime, LocalWeaveMaxBlocks provides maxBlocks, LocalMakeInteractive provides onMakeInteractive) { content() }
     confirm?.let { req ->
         ModalBottomSheet({ confirm = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

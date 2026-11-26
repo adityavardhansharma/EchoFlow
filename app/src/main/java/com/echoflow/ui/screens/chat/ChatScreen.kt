@@ -74,6 +74,7 @@ fun ChatScreen(
     com.echoflow.weave.compose.WeaveHostLayer(
         onSay = { text -> chatViewModel.sendMessage(text) },
         maxBlocks = if (uiLevel == com.echoflow.weave.core.prompt.IntelligentUiLevel.IMMERSIVE) 3 else 1,
+        onMakeInteractive = { text -> chatViewModel.makeInteractive(text) },
     ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
