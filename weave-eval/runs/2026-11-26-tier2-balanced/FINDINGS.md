@@ -40,6 +40,10 @@ prose.
    New auto-fix S13 turns it into `format: "dec(1)"`.
 3. **`item` as a lambda parameter.** `map(xs, item => …)` was `E106` because `item` is reserved.
    `item` and `index` are now allowed as parameters.
+4. **Default `List` rows hid data.** A `List` of records with `render: auto` showed only the first
+   string field, so GPT 6 Luna's workout plan showed the days but not the plans. Found when review
+   made the harness read only visible text (below); the default row now also shows the second
+   string field as its subtitle (04 §8).
 
 ## Remaining failures (model errors, not the spec)
 
@@ -55,6 +59,10 @@ prose.
 - Text checks read every reachable tab page, `List` rows produced by `render`, `Item` overlines,
   and what one tap on a button reveals; nodes with a falsy `show` are not read.
 - `cmp_storage` expected 650 / 2000 = 0.325 (was 0.32 with a tolerance a correct 0.33 missed).
+- After review: text checks read only what a user can see. A container's plain text no longer
+  includes `show: false` children, and raw `rows` / `items` / `data` fields a `Table` or `List`
+  doesn't display are not read. This changed one result (GPT 6 Luna `plan_workout`, fixed by spec
+  item 4); every other outcome is unchanged.
 
 ## Caveats
 

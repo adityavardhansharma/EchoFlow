@@ -17,7 +17,7 @@
 | calc_emi | calculators | 1 | ✓ | ✓ | ✓ | ok |
 | calc_tip | calculators | 1 | ✓ | ✓ | ✓ | ok |
 | calc_km_mi | calculators | 1 | ✓ | ✓ | ✓ | ok |
-| calc_bmi | calculators | 1 | ✓ | ✓ | ✗ | expected 22.857 ± 0.05; saw [70.0, 175.0, 228571.4, 70.0, 175.0, 228571.4] |
+| calc_bmi | calculators | 1 | ✓ | ✓ | ✗ | expected 22.857 ± 0.05; saw [70.0, 175.0, 228571.4] |
 | calc_compound | calculators | 1 | ✓ | ✓ | ✓ | ok |
 | calc_fd | calculators | 1 | ✓ | ✓ | ✓ | ok |
 | calc_temp | calculators | 1 | ✓ | ✓ | ✓ | ok |
@@ -30,7 +30,7 @@
 | data_population | data | 1 | ✓ | ✓ | ✓ | ok |
 | data_running | data | 1 | ✓ | ✓ | ✓ | ok |
 | data_grades | data | 1 | ✓ | ✓ | ✓ | ok |
-| data_visits | data | 1 | ✓ | ✓ | ✗ | expected 116.67 ± 0.1; saw [140000.0, 1200.0, 1500.0, 1350.0, 1800.0, 2100.0, 2600.0, 140000.0] \| expected 1400.0 ± 7.0; saw [140000.0, 1200.0, 1500.0, 1350.0, |
+| data_visits | data | 1 | ✓ | ✓ | ✗ | expected 116.67 ± 0.1; saw [140000.0] \| expected 1400.0 ± 7.0; saw [140000.0] |
 | data_electricity | data | 1 | ✓ | ✓ | ✓ | ok |
 | data_portfolio | data | 1 | ✓ | ✓ | ✓ | ok |
 | data_scores | data | 1 | ✓ | ✓ | ✓ | ok |
