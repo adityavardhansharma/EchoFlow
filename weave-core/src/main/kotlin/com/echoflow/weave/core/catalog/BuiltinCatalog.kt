@@ -154,7 +154,7 @@ object BuiltinCatalog : Catalog {
             "area chart", "Charts", placeholder = PlaceholderKind.CHART),
         comp("BarChart", "data: list<rec>, x: field, y: field | list, stack: bool = false, horizontal: bool = false, h: height = m", 1, 1, 1,
             "bar chart", "Charts", placeholder = PlaceholderKind.CHART),
-    )
+    ) + CatalogExtras.components
 
     // ---- Chart marks, 04 §12.3 (leads = every parameter before the first optional one) ----------
 
@@ -173,7 +173,7 @@ object BuiltinCatalog : Catalog {
         mark("band", "from: any, to: any, axis: x|y = x, tone: tone = neutral, label?: str", "shaded range"),
         mark("text", "x: field, y: field, content: any, tone?: tone", "text label at a point"),
         mark("arc", "value: field, label: field, tone?: tone", "pie slice (needs polar: true)"),
-    )
+    ) + CatalogExtras.marks
 
     // ---- Actions, 03 §7.3–7.4 -------------------------------------------------------------------
 
