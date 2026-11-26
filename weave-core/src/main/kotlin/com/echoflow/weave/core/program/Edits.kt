@@ -58,6 +58,7 @@ object Edits {
         for (e in program.effects.values) cur["e:" + e.key] = e
         val exports = LinkedHashSet(program.exports)
         val reset = HashSet<String>()
+        val deleted = HashSet<String>()
 
         for (s in mergedEdit) when (s) {
             is StateDecl -> { cur["s:" + s.name] = s; if (s.reset) reset += s.name }
@@ -72,6 +73,7 @@ object Edits {
                     s.target.startsWith("$") -> "s:" + s.target.removePrefix("$")
                     else -> "v:" + s.target
                 }
+                if (key != null && key.startsWith("v:") && key in cur) deleted += key.removePrefix("v:")
                 if (key != null && cur.remove(key) == null) {
                     if (key.startsWith("s:")) exports.remove("$" + key.removePrefix("s:")) else exports.remove(s.target)
                     diags += Diag.unresolved(s.span, s.target)
@@ -84,7 +86,7 @@ object Edits {
         val bindings = stmts.filterIsInstance<Binding>().map { it.name }.toSet()
         val functions = stmts.filterIsInstance<FnDecl>().map { it.name }.toSet()
         val states = stmts.filterIsInstance<StateDecl>().map { it.name }.toSet()
-        val checked = Compiler.checkFragment(program.header.stmt, stmts, catalog, bindings, functions, states)
+        val checked = Compiler.checkFragment(program.header.stmt, stmts, catalog, bindings, functions, states, deleted = deleted - bindings - functions)
         val next = Compiler.assemble(checked, catalog, complete = true, frozenCount = stmts.size, version = program.version + 1)
         val allDiags = diags + next.diagnostics
         val result = WeaveProgram(

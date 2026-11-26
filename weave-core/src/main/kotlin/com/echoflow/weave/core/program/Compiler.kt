@@ -111,9 +111,10 @@ object Compiler {
     fun checkFragment(
         header: HeaderStmt?, stmts: List<Stmt>, catalog: Catalog,
         bindings: Set<String>, functions: Set<String>, states: Set<String>, diags0: List<Diagnostic> = emptyList(),
+        deleted: Set<String> = emptySet(),
     ): Fragment {
         val diags = ArrayList(diags0)
-        val checker = Checker(catalog, bindings, functions, states)
+        val checker = Checker(catalog, bindings, functions, states, deleted)
         val checked = ArrayList<Stmt>()
         for (s in stmts) {
             val name = when (s) {

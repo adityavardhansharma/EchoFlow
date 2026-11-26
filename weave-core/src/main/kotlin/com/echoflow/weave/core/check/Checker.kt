@@ -52,6 +52,8 @@ class Checker(
     private val bindings: Set<String>,
     private val functions: Set<String>,
     private val states: Set<String>,
+    /** Names an edit deleted: references to them are `E301` and evaluate to null (T-106). */
+    private val deleted: Set<String> = emptySet(),
 ) {
     private val full = BuiltinCatalog
     val diags = ArrayList<Diagnostic>()
@@ -169,6 +171,7 @@ class Checker(
     private fun name(e: Name, ctx: Ctx): Expr {
         val n = e.name
         if (n in ctx.locals || n in ctx.eventVars || n in bindings || n in functions || n in CONSTANTS) return e
+        if (n in deleted) { diags += Diag.missingRef(e.span, n, stmtName); return Lit(WNull, e.span) }
         if (full.function(n) != null) return e // a built-in used as a value (`map(xs, abs)`)
         if (!ctx.tokenSlot) diags += Diag.unresolved(e.span, n, stmtName)
         return e
