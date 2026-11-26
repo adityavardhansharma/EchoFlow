@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo UI &amp; Weave v1.0 — Specification Critique</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-2: #334155;
+      --muted: #475569;
+      --code-bg: #eef2f6;
+      --accent: #1d4ed8;
+      --accent-soft: #e8efff;
+
+      --excellent: #0f6b63;
+      --excellent-bg: #eaf7f4;
+      --excellent-bd: #a7e3d8;
+
+      --good: #1d4ed8;
+      --good-bg: #eef4ff;
+      --good-bd: #bfd5ff;
+
+      --bad: #9a3412;
+      --bad-bg: #fff3eb;
+      --bad-bd: #fed2b3;
+
+      --ugly: #9f1239;
+      --ugly-bg: #fff0f3;
+      --ugly-bd: #fec7d4;
+    }
+
+    html.dark {
+      --bg: #0c0c0f;
+      --surface: #131318;
+      --surface-2: #1b1b22;
+      --border: #272731;
+      --border-strong: #3b3b49;
+      --text: #f2f2f6;
+      --text-2: #d2d2dc;
+      --muted: #9898a6;
+      --code-bg: #1c1c25;
+      --accent: #60a5fa;
+      --accent-soft: #142247;
+
+      --excellent: #2dd4bf;
+      --excellent-bg: #072623;
+      --excellent-bd: #134e48;
+
+      --good: #60a5fa;
+      --good-bg: #0f1b38;
+      --good-bd: #1e3a8a;
+
+      --bad: #fb923c;
+      --bad-bg: #291509;
+      --bad-bd: #7c2d12;
+
+      --ugly: #fb7185;
+      --ugly-bg: #2c0b16;
+      --ugly-bd: #881337;
+    }
+
+    * { box-sizing: border-box; }
+
+    ::selection {
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    html {
+      scrollbar-color: var(--border-strong) transparent;
+      scrollbar-width: thin;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      font-size: 15.5px;
+      line-height: 1.68;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3 {
+      font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+      color: var(--text);
+      text-wrap: balance;
+    }
+
+    a {
+      color: var(--accent);
+      text-underline-offset: 3px;
+    }
+
+    code, pre {
+      font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+
+    code {
+      background: var(--code-bg);
+      padding: 1.5px 5.5px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    /* Layout */
+    .shell {
+      display: grid;
+      grid-template-columns: 272px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .brand {
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-title {
+      font-family: "Iowan Old Style", Georgia, serif;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 3px;
+    }
+    .brand-sub {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 13.5px;
+    }
+    .search-input::placeholder { color: var(--muted); }
+
+    .nav-label-group {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0 8px 6px;
+    }
+
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 8px 11px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.14s ease-out, border-color 0.14s ease-out;
+    }
+    .nav-btn:hover { background: var(--surface-2); }
+    .nav-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--border-strong);
+      font-weight: 600;
+    }
+
+    .nav-left { display: flex; align-items: center; gap: 9px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .nav-btn[data-page="excellent"] .dot { background: var(--excellent); }
+    .nav-btn[data-page="good"] .dot { background: var(--good); }
+    .nav-btn[data-page="bad"] .dot { background: var(--bad); }
+    .nav-btn[data-page="ugly"] .dot { background: var(--ugly); }
+
+    .count-pill {
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+    }
+
+    .filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .f-chip {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.14s ease-out, background 0.14s ease-out;
+    }
+    .f-chip.active {
+      background: var(--accent-soft);
+      color: var(--text);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    .sidebar-foot {
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn-subtle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-subtle:hover { border-color: var(--border-strong); }
+
+    /* Main reading column */
+    .main {
+      padding: 44px 56px 88px;
+      max-width: 880px;
+      width: 100%;
+    }
+
+    .mobile-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 25;
+    }
+
+    .page-header {
+      padding-bottom: 22px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: -0.025em;
+      margin: 0 0 10px;
+    }
+
+    h2 {
+      font-size: 22px;
+      line-height: 1.25;
+      margin: 34px 0 12px;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 16.5px;
+      color: var(--muted);
+      max-width: 68ch;
+    }
+
+    /* Compact Dossier Strip (replaces generic metric cards) */
+    .dossier-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px 36px;
+      padding: 16px 0;
+      margin: 20px 0 28px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      font-variant-numeric: tabular-nums;
+    }
+    .dossier-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .dossier-label {
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+    .dossier-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 30px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    th, td {
+      padding: 11px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      background: var(--surface-2);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* Editorial Findings (no 1-sided bars, no card boxes) */
+    .findings {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .finding {
+      padding: 26px 0;
+      border-bottom: 1px solid var(--border);
+      max-width: 72ch;
+    }
+    .finding:first-child { padding-top: 6px; }
+    .finding:last-child { border-bottom: none; }
+
+    .finding-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .finding-title {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 0;
+      letter-spacing: -0.015em;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tag {
+      font-size: 12px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .finding p { margin: 8px 0; color: var(--text-2); }
+    .finding ul { margin: 8px 0; padding-left: 20px; color: var(--text-2); }
+    .finding li { margin: 5px 0; }
+
+    .note-box {
+      margin-top: 12px;
+      padding: 12px 15px;
+      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 14px;
+      color: var(--text-2);
+    }
+    .note-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+
+    .fix-box {
+      margin-top: 10px;
+      padding: 12px 15px;
+      border-radius: 8px;
+      background: var(--excellent-bg);
+      border: 1px solid var(--excellent-bd);
+      font-size: 14px;
+      color: var(--text);
+    }
+    .fix-box .note-label { color: var(--excellent); }
+
+    .badge-inline {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 1px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .b-excellent { color: var(--excellent); background: var(--excellent-bg); border-color: var(--excellent-bd); }
+    .b-good { color: var(--good); background: var(--good-bg); border-color: var(--good-bd); }
+    .b-bad { color: var(--bad); background: var(--bad-bg); border-color: var(--bad-bd); }
+    .b-ugly { color: var(--ugly); background: var(--ugly-bg); border-color: var(--ugly-bd); }
+
+    /* Pager */
+    .pager {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      gap: 12px;
+      max-width: 72ch;
+    }
+    .pager-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 15px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .pager-btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
+    .pager-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .empty-msg {
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      margin-top: 16px;
+      max-width: 72ch;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 880px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        width: 285px;
+      }
+      .sidebar.open { display: flex; }
+      .mobile-header { display: flex; }
+      .main { padding: 26px 18px 68px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="mobile-header">
+    <strong>Echo UI / Weave v1.0 Critique</strong>
+    <button class="pager-btn" id="menuBtn" aria-label="Open navigation">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      Menu
+    </button>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-title">Echo UI &amp; Weave v1.0</div>
+        <div class="brand-sub">Deep critique of <code>docs/echo-ui/</code></div>
+      </div>
+
+      <input type="search" id="searchBox" class="search-input" placeholder="Search findings, symbols, T-xxx..." aria-label="Search findings" />
+
+      <div>
+        <div class="nav-label-group">Pages</div>
+        <nav class="nav-list" aria-label="Critique sections">
+          <button class="nav-btn active" data-page="overview">
+            <span class="nav-left"><span class="dot"></span>Overview</span>
+            <span class="count-pill">Matrix</span>
+          </button>
+          <button class="nav-btn" data-page="excellent">
+            <span class="nav-left"><span class="dot"></span>Excellent</span>
+            <span class="count-pill" id="cnt-excellent">0</span>
+          </button>
+          <button class="nav-btn" data-page="good">
+            <span class="nav-left"><span class="dot"></span>Good</span>
+            <span class="count-pill" id="cnt-good">0</span>
+          </button>
+          <button class="nav-btn" data-page="bad">
+            <span class="nav-left"><span class="dot"></span>Bad</span>
+            <span class="count-pill" id="cnt-bad">0</span>
+          </button>
+          <button class="nav-btn" data-page="ugly">
+            <span class="nav-left"><span class="dot"></span>Ugly</span>
+            <span class="count-pill" id="cnt-ugly">0</span>
+          </button>
+        </nav>
+      </div>
+
+      <div>
+        <div class="nav-label-group">Filter by Spec Doc</div>
+        <div class="filter-chips" id="docFilters">
+          <button class="f-chip active" data-doc="all">All</button>
+          <button class="f-chip" data-doc="01">01</button>
+          <button class="f-chip" data-doc="02">02</button>
+          <button class="f-chip" data-doc="03">03</button>
+          <button class="f-chip" data-doc="04">04</button>
+          <button class="f-chip" data-doc="05">05</button>
+          <button class="f-chip" data-doc="06">06</button>
+          <button class="f-chip" data-doc="07">07</button>
+        </div>
+      </div>
+
+      <div class="sidebar-foot">
+        <button class="btn-subtle" id="themeBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          Toggle Light / Dark
+        </button>
+        <div class="brand-sub">Shortcuts: <code>1</code>–<code>5</code> pages, <code>/</code> search</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- OVERVIEW -->
+      <section class="page" id="page-overview">
+        <div class="page-header">
+          <h1>Echo UI &amp; Weave — Specification Critique</h1>
+          <p class="lead">
+            Line-by-line audit of all 8 documents in <code>docs/echo-ui/</code> (<code>README.md</code> and <code>01</code>–<code>07</code>). Concrete fixes are written directly inside each <strong>Bad</strong> and <strong>Ugly</strong> finding.
+          </p>
+        </div>
+
+        <div class="dossier-strip">
+          <div class="dossier-item">
+            <span class="dossier-label">Spec Rigor</span>
+            <span class="dossier-value">9 / 10</span>
+          </div>
+          <div class="dossier-item">
+            <span class="dossier-label">Value / Error Types</span>
+            <span class="dossier-value">15 WValues &middot; 25 Errors</span>
+          </div>
+          <div class="dossier-item">
+            <span class="dossier-label">Catalog Surface</span>
+            <span class="dossier-value">~70+ Components &middot; ~90 Builtins</span>
+          </div>
+          <div class="dossier-item">
+            <span class="dossier-label">Conformance Suite</span>
+            <span class="dossier-value">T-001 to T-610</span>
+          </div>
+          <div class="dossier-item">
+            <span class="dossier-label">Spec Bugs Found</span>
+            <span class="dossier-value">8 concrete issues</span>
+          </div>
+        </div>
+
+        <h2>Subsystem Matrix</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Subsystem</th>
+              <th>Primary Docs</th>
+              <th>Verdict</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Language &amp; Grammar</strong></td>
+              <td><code>02-language.md</code></td>
+              <td><span class="badge-inline b-excellent">Excellent</span></td>
+              <td>Flat reference bindings, 0–2 leads + named args, <code>A1</code>–<code>A10</code> / <code>S1</code>–<code>S11</code> auto-fix, dual <code>weave</code> + <code>weave-json</code> IR lowering, canonical printer.</td>
+            </tr>
+            <tr>
+              <td><strong>Evaluation &amp; State</strong></td>
+              <td><code>03-semantics.md</code></td>
+              <td><span class="badge-inline b-excellent">Excellent</span></td>
+              <td>Total evaluator, 20k step budget, immutable path writes, Compose snapshot transactions, deterministic <code>splitmix64</code>. Streaming state init vs bottom <code>fn</code> is a real bug.</td>
+            </tr>
+            <tr>
+              <td><strong>Components &amp; Tokens</strong></td>
+              <td><code>04-components.md</code></td>
+              <td><span class="badge-inline b-good">Good / Heavy</span></td>
+              <td>Strict M3 token contract, HCT harmonised semantic colours, exact 12-step modifier order, custom Canvas charts. v1 scope (~70+ components) and <code>SubcomposeLayout</code> per <code>Row</code> are heavy.</td>
+            </tr>
+            <tr>
+              <td><strong>Runtime, Loop &amp; Storage</strong></td>
+              <td><code>05-runtime.md</code></td>
+              <td><span class="badge-inline b-excellent">Excellent</span></td>
+              <td><code>WeaveSession</code> LRU (64), <code>!ask</code> latest-wins + 20/hr cap, SHA-256 <code>lazy</code> cache, Room v33 schema, <code>ConfirmSheet</code> anti-spoofing.</td>
+            </tr>
+            <tr>
+              <td><strong>Prompts &amp; Tiers</strong></td>
+              <td><code>06-prompts.md</code>, <code>05 §10–11</code></td>
+              <td><span class="badge-inline b-bad">Mixed</span></td>
+              <td>Clean <code>Off/Balanced/Immersive</code> vs <code>Tier</code> split; default <code>Balanced</code> adds ~1.2k–4k tokens/turn and <code>weave_docs</code> adds an extra round-trip in Tier 3+.</td>
+            </tr>
+            <tr>
+              <td><strong>Conformance &amp; Evals</strong></td>
+              <td><code>07-conformance.md</code></td>
+              <td><span class="badge-inline b-excellent">Excellent</span></td>
+              <td>Char-by-char streaming corpus equivalence, Roborazzi theme matrix, prompt snapshots, and 60-task model eval bar (&ge;95% parse, &ge;85% task).</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Document Coverage</h2>
+        <table>
+          <thead><tr><th>Document</th><th>Role</th><th>Verified Contents</th></tr></thead>
+          <tbody>
+            <tr><td><code>README.md</code></td><td>Index</td><td>RFC requirement words, glossary, minor/major versioning rules</td></tr>
+            <tr><td><code>01-overview.md</code></td><td>Informative</td><td>10 design principles, architecture, examples, phasing, 7 open questions</td></tr>
+            <tr><td><code>02-language.md</code></td><td>Normative</td><td>Fence rules, normalization, lexer, <code>spaceBefore</code> rules, 3-condition line splitter, EBNF, 21 auto-fix rules, 25 errors + 7 warnings, incremental streaming, edits, Weave-JSON, canonical printer</td></tr>
+            <tr><td><code>03-semantics.md</code></td><td>Normative</td><td>15 <code>WValue</code>s, coercion matrix, truthiness/ordering, <code>ContextValues</code>, step budget, places, transactions, 18 local + 23 deferred actions, 9 triggers, <code>!ask</code>/<code>lazy</code>, ~90 builtins, ICU/date formats, <code>query</code>/<code>!tool</code></td></tr>
+            <tr><td><code>04-components.md</code></td><td>Normative</td><td>All token sets, HCT harmonisation, 26 expressive shapes, 12-step modifier order, 9 placeholder rules, <code>Row</code> wrap, all component groups, 11 chart marks + 15 sugars + LTTB, 9 canvas marks, motion helpers</td></tr>
+            <tr><td><code>05-runtime.md</code></td><td>Normative</td><td>Module graph, AST/Catalog/Program types, <code>WeaveSession</code>, threading, chrome/expand/co-pilot, model loop, Room v33 SQL, tier table &amp; downgrade, <code>IntelligentUiLevel</code>, <code>Limits</code></td></tr>
+            <tr><td><code>06-prompts.md</code></td><td>Normative</td><td>Balanced/Immersive intros, Make interactive, <code># state</code> line, Tier 1–4 syntax cards, generated component/fn/action/effect lines, hidden templates, repair template, JSON card, <code>weave_docs</code></td></tr>
+            <tr><td><code>07-conformance.md</code></td><td>Normative</td><td>All test groups <code>T-001</code>–<code>T-610</code>, streaming corpus, catalog/prompt checks, 60-task eval harness</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- EXCELLENT -->
+      <section class="page hidden" id="page-excellent">
+        <div class="page-header">
+          <h1>Excellent — Architectural &amp; Language Strengths</h1>
+          <p class="lead">
+            Ten core decisions across syntax, Compose reactivity, the silent model loop, safety boundaries, and conformance testing that distinguish Echo UI.
+          </p>
+        </div>
+        <div class="findings" id="list-excellent"></div>
+      </section>
+
+      <!-- GOOD -->
+      <section class="page hidden" id="page-good">
+        <div class="page-header">
+          <h1>Good — Practical Engineering Choices</h1>
+          <p class="lead">
+            Well-reasoned mechanisms that handle real mobile, LLM, and streaming edge cases cleanly.
+          </p>
+        </div>
+        <div class="findings" id="list-good"></div>
+      </section>
+
+      <!-- BAD -->
+      <section class="page hidden" id="page-bad">
+        <div class="page-header">
+          <h1>Bad — Cost, Latency, Scope &amp; Performance Risks</h1>
+          <p class="lead">
+            Design trade-offs that hurt token cost, time-to-first-token, scroll performance, or delivery velocity—each paired with its concrete fix.
+          </p>
+        </div>
+        <div class="findings" id="list-bad"></div>
+      </section>
+
+      <!-- UGLY -->
+      <section class="page hidden" id="page-ugly">
+        <div class="page-header">
+          <h1>Ugly — Spec Bugs, Contradictions &amp; Edge-Case Traps</h1>
+          <p class="lead">
+            Concrete logical bugs, false positives, and cross-document drift found during line-by-line review—each paired with the exact patch.
+          </p>
+        </div>
+        <div class="findings" id="list-ugly"></div>
+      </section>
+
+      <div id="emptySearch" class="empty-msg hidden">No findings match your current search or document filter.</div>
+
+      <nav class="pager" aria-label="Page pagination">
+        <button class="pager-btn" id="prevBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Previous
+        </button>
+        <button class="pager-btn" id="nextBtn">
+          Next
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </nav>
+    </main>
+  </div>
+
+  <script>
+    const FINDINGS = {
+      excellent: [
+        {
+          docs: ["01", "02", "06"],
+          title: "1. Flat Reference-Based Syntax Built for Streaming & Partial Edits",
+          tags: ["01 §4.1", "02 §4.1", "06 §3.7"],
+          summary: "Weave separates layout composition (<code>root = Card(gap: m) [head, rate, kpis, chart]</code>) from flat named statements (<code>rate = Slider(...)</code>, <code>monthly = emi(...)</code>). Forward references are first-class.",
+          bullets: [
+            "<strong>Shallow bracket depth:</strong> Models don't lose bracket balance 8 levels deep in nested JSX/JSON; most lines have depth 1.",
+            "<strong>Top-down streaming order:</strong> <code>06 §3.7</code> prompts <em>header &rarr; state &rarr; root &rarr; children &rarr; helpers &rarr; effects</em>. The user sees the card outline immediately while children stream in top-to-bottom.",
+            "<strong>Surgical updates:</strong> Because every part has a top-level name, <code>!ask(..., update: [plan])</code> and <code>weave edit loan</code> can replace one binding without regenerating the rest of the UI."
+          ]
+        },
+        {
+          docs: ["02", "04"],
+          title: "2. 0–2 Positional Lead Args + Mandatory Named Args",
+          tags: ["02 §6.2", "04 §16", "T-050"],
+          summary: "Components and actions declare 0–2 lead parameters (<code>Text(content)</code>, <code>Slider($value)</code>, <code>Button(label, onTap)</code>); everything else must be named.",
+          bullets: [
+            "Avoids verbose JSON/XML boilerplate on common calls while preventing positional argument drift when parameters are added in future minor versions.",
+            "If a model passes extra positional args (<code>Slider($r, 0, 10, 0.5)</code>), auto-fix <code>S2</code> maps them via the catalog's <code>positionalOrder</code> list with <code>W403</code> instead of dropping them."
+          ]
+        },
+        {
+          docs: ["03", "05"],
+          title: "3. Compose Snapshot Reactivity (SnapshotStateMap + derivedStateOf)",
+          tags: ["05 §4.2–4.5", "03 §5.1, §7.2"],
+          summary: "<code>StateStore</code> backs state with <code>SnapshotStateMap&lt;String, WValue&gt;</code>, and <code>BindingCache</code> wraps each binding lazily in <code>derivedStateOf { evaluator.eval(binding) }</code>.",
+          bullets: [
+            "<strong>Zero custom reactive engine:</strong> Compose's snapshot system tracks exact state, binding, and <code>ContextValues</code> reads automatically.",
+            "<strong>Minimal recomposition:</strong> All <code>WValue</code> classes are <code>@Immutable</code> with structural equality, so unchanged derived values short-circuit recomposition.",
+            "<strong>Atomic transactions:</strong> Multi-action handlers run inside <code>Snapshot.withMutableSnapshot</code> (<code>05 §4.5</code>), producing one recomposition and one history entry."
+          ]
+        },
+        {
+          docs: ["01", "04", "07"],
+          title: "4. Strict Mobile Token Contract + HCT Harmonised Semantic Colours",
+          tags: ["04 §1", "04 §1.4.2", "T-409"],
+          summary: "Models cannot write raw dp, sp, or hex colours—only named tokens (<code>xs..xxl</code>, <code>primary..outline</code>, <code>titleMedium</code>, <code>cookie..heart</code>). <code>T-409</code> enforces a lint ban on hardcoded <code>Color(...)</code> outside <code>tokens/Semantic.kt</code>.",
+          bullets: [
+            "<strong>Palette-adaptive semantic colours:</strong> <code>success</code> (HCT hue 145) and <code>warning</code> (hue 75) are generated from a <code>TonalPalette</code> with chroma <code>max(36, primaryChroma)</code> (<code>04 §1.4.2</code>), so status callouts and chart bars never clash with Ocean, Forest, Sunset, Lavender, or Rose.",
+            "<strong>Contrast guaranteed by pairing:</strong> <code>tone</code> + <code>emphasis</code> (<code>low</code>/<code>medium</code>/<code>high</code>) always resolve to matched Material 3 container/content pairs."
+          ]
+        },
+        {
+          docs: ["03", "05", "06"],
+          title: "5. The Silent Model Loop (!ask, lazy, weave edit)",
+          tags: ["03 §9", "05 §8", "06 §4"],
+          summary: "Interactive blocks can invoke the model in place without polluting chat bubbles or thread titles.",
+          bullets: [
+            "<strong><code>!ask(prompt, update, with?)</code>:</strong> Renders a diagonal shimmer overlay (<code>04 §2.6</code>) only on bindings in <code>update</code>, keeps the rest of the UI interactive, enforces latest-wins cancellation, and discards any returned statement outside <code>update</code> + new helpers (<code>T-454</code>, <code>T-455</code>).",
+            "<strong><code>lazy(prompt, …context)</code>:</strong> Content-addressed by SHA-256 of <code>{\"p\": prompt, \"c\": sortedContext}</code>. Generates tabs/details only when opened, persists in <code>weave_blocks.lazyJson</code>, and shows a manual \"Update\" chip when context changes instead of surprise-spending.",
+            "<strong>Cost guards:</strong> Max 1 in-flight request per block and 20 hidden requests/hour rolling cap with an inline \"Keep updating / Stop\" banner (<code>T-456</code>)."
+          ]
+        },
+        {
+          docs: ["02", "05", "06"],
+          title: "6. Dual Frontends (Weave + Weave-JSON) Lowering to One IR",
+          tags: ["02 §12", "05 §3", "T-120–124"],
+          summary: "Both terse <code>weave</code> syntax and schema-constrained <code>weave-json</code> lower into the exact same immutable <code>WeaveProgram</code>.",
+          bullets: [
+            "Models at tier &le; 2 that support <code>response_format: json_schema</code> get constrained decoding (<code>05 §12</code>), while stronger models use token-efficient source syntax.",
+            "<code>TolerantJson</code> parses JSON incrementally during streaming so completed <code>nodes</code> entries render before the fence closes."
+          ]
+        },
+        {
+          docs: ["04", "05", "07"],
+          title: "7. BuiltinCatalog as Single Source of Truth",
+          tags: ["04 §16", "05 §3.3", "T-500–504"],
+          summary: "One Kotlin catalog (<code>ComponentSpec</code>, <code>MarkSpec</code>, <code>ActionSpec</code>, <code>FunctionSpec</code>) drives the checker, prompt generator, JSON Schema generator, and Compose renderer registry.",
+          bullets: [
+            "<code>T-500</code> parses the Markdown headings/tables in <code>03</code> and <code>04</code> to verify 1:1 parity with <code>BuiltinCatalog</code>.",
+            "<code>Catalog.restrictedTo(tier, phase)</code> ensures prompts never advertise components or actions disabled in the current build phase or model tier (<code>T-504</code>)."
+          ]
+        },
+        {
+          docs: ["03", "05"],
+          title: "8. Total, Budgeted, Deterministic Evaluation",
+          tags: ["03 §1, §5, §10.10", "05 §5.3, §13.3"],
+          summary: "Every top-level evaluation is strictly bounded (<code>EVAL_STEPS = 20_000</code>, <code>RECURSION = 64</code>, <code>RANGE_ITEMS = 10_000</code>), never throws, and uses deterministic <code>splitmix64</code> randomness.",
+          bullets: [
+            "Division by zero, <code>sqrt(-1)</code>, and overflow to &plusmn;&infin; produce <code>null</code> instead of exceptions (<code>T-200</code>).",
+            "<code>NodeRenderer</code> receives already-evaluated, coerced <code>ResolvedArgs</code> and is fuzzed with 200 random argument sets per component (<code>T-401</code>)."
+          ]
+        },
+        {
+          docs: ["03", "04", "05"],
+          title: "9. Defense-in-Depth Safety, Consent & Anti-Spoofing",
+          tags: ["03 §7.4", "05 §8.7, §13", "T-275, T-458–460"],
+          summary: "Strong capability boundaries prevent blocks from spoofing system UI or exfiltrating data.",
+          bullets: [
+            "<strong>Outbound confirmation:</strong> <code>!url</code> (https-only), <code>!share</code>, <code>!export</code>, <code>!calendar</code>, <code>!remind</code>, <code>!dial</code>, <code>!sms</code>, <code>!email</code>, <code>!map</code> all open <code>ConfirmSheet</code> with the block's icon/title and bold registrable domain.",
+            "<strong>Effects restricted:</strong> Effects can never fire outbound/confirmable actions (<code>T-275</code>).",
+            "<strong>Tool consent &amp; data isolation:</strong> <code>query</code>/<code>!tool</code> require \"Allow once\" / \"Always for this block\" consent, and tool outputs are never parsed as Weave."
+          ]
+        },
+        {
+          docs: ["02", "04", "07"],
+          title: "10. Rigorous Conformance & Streaming Equivalence Suite",
+          tags: ["07-conformance.md"],
+          summary: "Specifies <code>T-001</code>–<code>T-610</code> across JVM unit tests, Compose/Roborazzi theme matrices (6 palettes + dynamic &times; light/dark &times; 1.0/1.5 font scale), streaming corpus equivalence, and a 60-task model eval harness.",
+          bullets: [
+            "<code>07 §8</code> feeds &ge;300 corpus programs 1 char at a time and 1–6 chars at a time to <code>IncrementalParser</code> and asserts canonical print + diagnostic equality with one-shot <code>parse(p)</code>."
+          ]
+        }
+      ],
+
+      good: [
+        {
+          docs: ["01", "05"],
+          title: "1. Clean Split Between IntelligentUiLevel and Model Tier",
+          tags: ["05 §10–11", "T-600–610"],
+          summary: "Separates user preference (<code>Off</code> / <code>Balanced</code> / <code>Immersive</code>, stored in <code>intelligent_ui_level</code> + per-chat <code>chat_threads.intelligentUi</code>) from model capability (Tiers 0–4).",
+          bullets: [
+            "<code>effectiveTier = min(levelCap, modelTier, shippedTier)</code> ensures an <code>Immersive</code> user on a small model still only gets safe Tier 1 display blocks.",
+            "\"Make interactive\" on any plain reply gives <code>Off</code> users on-demand UI at the model's full tier."
+          ]
+        },
+        {
+          docs: ["02", "07"],
+          title: "2. Pragmatic Lexical & Structural Auto-Fix Pipeline",
+          tags: ["02 §8", "T-070–087"],
+          summary: "Rules <code>A1</code>–<code>A10</code> and <code>S1</code>–<code>S11</code> deterministically repair smart quotes, single quotes, <code>&amp;&amp;</code>/<code>||</code>, <code>!x</code>, <code>===</code>, <code>.5</code>, <code>12dp</code>, <code>5min</code>, <code>True</code>/<code>None</code>, trailing <code>;</code>, <code>if(c, a, b)</code>, hex-to-role HSL mapping, and <code>{k = v}</code>.",
+          bullets: [
+            "Runs deterministically before checking and emits <code>W403</code>, rescuing common LLM slips without polluting the core grammar."
+          ]
+        },
+        {
+          docs: ["05", "06"],
+          title: "3. State-Aware History Compression (# state + 10-Turn Collapse)",
+          tags: ["05 §9.4", "06 §2.4", "T-464"],
+          summary: "Appends <code># state {{json}}</code> inside the fence for modified state only (truncated past 200 chars/str or 20 list items), drops edit fences from history, and collapses blocks &gt;10 turns back to header + state.",
+          bullets: [
+            "Keeps multi-turn conversations cheap while letting the model see that the user moved <code>$rate</code> from 8.5 to 9.1."
+          ]
+        },
+        {
+          docs: ["01", "05"],
+          title: "4. Minimal-Invasion Integration with MarkdownStreamPlanner",
+          tags: ["05 §5.1", "MarkdownStream.kt"],
+          summary: "Hooks into EchoFlow's existing <code>LocalMarkdownBlockExtensions</code> and <code>MarkdownExtensionBlock(key, kind, info, body, complete)</code>.",
+          bullets: [
+            "Plain Markdown chunk freezing and rendering remain completely untouched when a reply has no Weave fences."
+          ]
+        },
+        {
+          docs: ["03", "05"],
+          title: "5. Coarse now() Reactivity + Off-Screen Suspension",
+          tags: ["03 §10.6", "05 §4.6, §5.6"],
+          summary: "<code>now()</code> updates once per minute on the minute; <code>every</code>, <code>frame</code>, and sensor effects pause when scrolled off-screen or backgrounded, and heavy media (<code>Video</code>, <code>Audio</code>, <code>Model3D</code>, <code>Shader</code>) release after 5 s off-screen."
+        },
+        {
+          docs: ["04"],
+          title: "6. Exact 12-Step Modifier Chain & Single-Pass Canvas Charts",
+          tags: ["04 §2.2", "04 §12"],
+          summary: "Specifying the exact modifier order (<code>AnimatedVisibility</code> &rarr; semantics &rarr; width &rarr; height &rarr; align &rarr; elevation &rarr; clip &rarr; bg/border &rarr; gestures &rarr; badge &rarr; padding &rarr; content) eliminates visual inconsistencies across components. Drawing charts in one <code>drawWithCache</code> pass with LTTB downsampling keeps 120 Hz slider-to-chart scrubs smooth."
+        },
+        {
+          docs: ["05"],
+          title: "7. Dedicated UI Model & 7-Day Auto-Downgrade",
+          tags: ["05 §8.8, §10.4", "T-610"],
+          summary: "Lets users pick a fast/cheap model for <code>!ask</code>/<code>lazy</code>/remix/repair, and automatically lowers a model's tier by 1 for 7 days if its rolling 10-block error average exceeds 2.0."
+        },
+        {
+          docs: ["03", "04"],
+          title: "8. Built-in Accessibility Defaults",
+          tags: ["04 §2.7, §12.6", "T-413"],
+          summary: "Enforces 48 dp touch targets, auto-derives labels from icon names (<code>\"flight_takeoff\"</code> &rarr; <code>\"Flight takeoff\"</code>), generates natural-language chart summaries + \"View as table\" sheet, and degrades animations to <code>snap()</code> under <code>device.reducedMotion</code>."
+        },
+        {
+          docs: ["05"],
+          title: "9. Non-Destructive Room v33 Versioning & Migration",
+          tags: ["05 §9"],
+          summary: "Never mutates the original streamed <code>ChatMessage</code> text; stores live source/state in <code>weave_blocks</code> and edit history in <code>weave_versions</code> with 500 ms debounced writes + immediate <code>ON_STOP</code> flush."
+        }
+      ],
+
+      bad: [
+        {
+          docs: ["02", "06", "07"],
+          title: "1. Novel DSL Cold-Start Risk vs. Model Priors",
+          tags: ["02", "06", "07 §10"],
+          summary: "No LLM has seen Weave in pretraining. Unfamiliar rules—<code>and</code>/<code>or</code>/<code>not</code>, <code>[]</code> for children vs <code>()</code> for args, <code>=&gt;</code> for lambdas vs <code>-&gt;</code> for effects, and token-only sizing—directly fight Python/JS/Kotlin muscle memory.",
+          fix: "Build <code>:weave-core</code> + <code>EchoUiPrompt</code> on pure JVM first and run the 60-task eval harness (<code>07 §10</code>) against Gemini, Claude, GPT, and Qwen before writing Android UI; expand <code>AutoFix</code> or default more models to <code>weave-json</code> based on measured failure rates."
+        },
+        {
+          docs: ["01", "05", "06"],
+          title: "2. Prompt Token Tax on Default 'Balanced' Level",
+          tags: ["01 §20.5", "05 §11.4", "06 §2"],
+          summary: "<code>Balanced</code> is the default for all new and upgraded users, appending ~1.2k–4k tokens to every cloud chat turn—even casual Q&amp;A where no block is needed.",
+          fix: "Measure token cost vs. engagement in beta, tighten the Tier 2/3 syntax card and examples, or gate full prompt injection behind a lightweight intent check on metered providers."
+        },
+        {
+          docs: ["06", "01"],
+          title: "3. weave_docs Tool Adds a Full Inference Round-Trip in Tier 3+",
+          tags: ["06 §8", "01 §21.2"],
+          summary: "Replacing inline component docs with <code>weave_docs</code> saves base prompt tokens, but forces tool-capable Tier 3+ models to execute an extra tool-call turn (1–3+ seconds of added TTFT latency) before streaming any reply.",
+          fix: "Keep the top ~15 most common components (<code>Card</code>, <code>Column</code>, <code>Row</code>, <code>Title</code>, <code>Text</code>, <code>Metric</code>, <code>Slider</code>, <code>Segmented</code>, <code>Button</code>, <code>Chart</code>, <code>Table</code>, <code>Tabs</code>) inline in the index so most blocks stream in one turn, reserving <code>weave_docs</code> for long-tail components (<code>Sort</code>, <code>Canvas</code>, <code>Shader</code>, <code>Quiz</code>)."
+        },
+        {
+          docs: ["01", "04"],
+          title: "4. Massive v1 Scope Inflation",
+          tags: ["01 §29", "04"],
+          summary: "~70+ components, 11 chart marks, 15 chart sugars, 9 canvas marks, 8 learning/play components, QuickJS, AGSL shaders, <code>Model3D</code>, and Glance widgets. Even Phase 1 alone requires a full compiler/evaluator + ~40 Compose components + custom Charts + sticky Table + Room v33 + Settings UI before proving user demand.",
+          fix: "Ship a thin vertical slice behind a developer flag with ~12 core components (<code>Column</code>, <code>Row</code>, <code>Card</code>, <code>Title</code>, <code>Text</code>, <code>Metric</code>, <code>Slider</code>, <code>Segmented</code>, <code>Button</code>, <code>TextField</code>, <code>LineChart</code>/<code>BarChart</code>, <code>Table</code>) to validate real chat UX and token cost first."
+        },
+        {
+          docs: ["04"],
+          title: "5. Row(wrap: auto) Uses SubcomposeLayout Inside LazyColumn",
+          tags: ["04 §3.3, §4"],
+          summary: "Every <code>Row</code> defaults to <code>wrap: auto</code> and specifies <code>SubcomposeLayout</code> to fall back to a <code>Column</code> on overflow. Nesting multiple <code>SubcomposeLayout</code>s inside chat <code>LazyColumn</code> items is measurably slower than single-pass layout during flings on mid-range phones.",
+          fix: "Replace <code>SubcomposeLayout</code> in <code>Row</code> with a custom <code>Layout</code> that queries <code>IntrinsicMeasurable.maxIntrinsicWidth()</code> once before measuring and placing children as a row or column."
+        },
+        {
+          docs: ["04", "05"],
+          title: "6. Streaming Placeholders Snap Shorter at Fence Close",
+          tags: ["04 §2.9", "05 §6.4", "T-407"],
+          summary: "Placeholders never shrink during streaming, but <code>04 §2.9</code> snaps shorter heights at fence close—causing the chat list to jump upward right as the block finishes and the user reaches to tap it.",
+          fix: "Animate the final shrink smoothly over <code>motion: fast</code> on fence close when the block is currently visible, and tighten default placeholder heights for short inline text slots."
+        },
+        {
+          docs: ["02", "07"],
+          title: "7. One Effect Per Trigger Key (when Excluded from Key)",
+          tags: ["02 §5.5", "T-042"],
+          summary: "Trigger keys omit the <code>when</code> condition, so two effects on the same trigger with different guards (e.g. <code>on change($x) when $x &gt; 10 -&gt; ...</code> and <code>on change($x) when $x &lt; 0 -&gt; ...</code>) collide on key <code>change($x)</code> and the second silently overwrites the first (<code>W404</code>).",
+          fix: "Include the canonical print of the <code>when</code> expression in the trigger key so distinct guarded effects on the same trigger coexist."
+        },
+        {
+          docs: ["05", "07"],
+          title: "8. No One-Tap 'Show as Text' Escape When Balanced Over-Triggers",
+          tags: ["05 §11.6", "07 §10.2"],
+          summary: "Users can upgrade prose to UI via \"Make interactive\", but when <code>Balanced</code> emits an unwanted block (~10% allowed over-use), there is no quick \"Show as text\" button.",
+          fix: "Add a \"Show as plain text\" action in the block's <code>⋯</code> menu (or message action bar) that collapses the block or requests a concise text-only rewrite."
+        },
+        {
+          docs: ["05", "07"],
+          title: "9. Explicit-Request Regex False Positives When 'Off'",
+          tags: ["05 §11.5", "T-608"],
+          summary: "<code>T-608</code> accepts false positives like <em>\"the plot of the novel\"</em> matching <code>\\bplot\\b</code>, silently injecting 2–4k tokens of Weave instructions even when Intelligent UI is set to <code>Off</code>.",
+          fix: "Narrow the regex to action-intent phrases (e.g. <code>(draw|make|plot|show|create|build) (a |me a )?(plot|chart|graph|table|calculator)</code>) instead of bare nouns like <code>plot</code>, <code>form</code>, or <code>table</code>."
+        }
+      ],
+
+      ugly: [
+        {
+          docs: ["03", "05", "06"],
+          title: "1. Streaming StateDecl Initialization Fails on Bottom-of-Block fn Helpers",
+          tags: ["03 §7.1", "05 §4.2", "06 §3.7"],
+          summary: "<code>06 §3.7</code> instructs models to write <code>state</code> at the top and helper <code>fn</code>s near the bottom. Yet <code>03 §7.1</code> and <code>05 §4.2</code> initialize each state variable the moment its <code>StateDecl</code> freezes during streaming.",
+          detail: "If a state initializer calls a bottom-defined helper (<code>$rate = defaultRate(10)</code>), <code>defaultRate</code> hasn't streamed yet—so it evaluates to <code>null</code> with <code>E202</code>. Because the key now exists in <code>StateStore</code>, <code>sync()</code> at fence close skips it and the state stays permanently <code>null</code>.",
+          fix: "Track states whose init saw unresolved refs during streaming and re-evaluate them once at fence close (unless the user already interacted with that state), or instruct models to place pure <code>fn</code>s used in state initializers before <code>state</code>."
+        },
+        {
+          docs: ["04", "07"],
+          title: "2. 'Pincode' Blocked as a Secret Field in en-IN Locale",
+          tags: ["04 §7", "T-400"],
+          summary: "The secret-field regex in <code>04 §7</code> matches substring <code>pin</code>, and <code>T-400</code> explicitly accepts <code>\"Pincode\"</code> as a blocked false positive.",
+          detail: "The spec's own primary locale is <code>en-IN</code> (<code>inr</code>, lakh/crore, Jaipur examples), where postal codes are universally called \"Pincode\". Any delivery, address, or travel calculator asking for a Pincode will render disabled with <em>\"EchoFlow blocks can't ask for secrets\"</em>.",
+          fix: "Use word-boundary matching <code>\\bpin\\b(?!\\s*code)</code> (and allow <code>pincode</code> / <code>pin code</code> / <code>postal</code>) so <code>PIN</code> / <code>ATM PIN</code> stay blocked while Indian address forms work."
+        },
+        {
+          docs: ["02", "07"],
+          title: "3. Raw String trimIndent() Contradicts Conformance Test T-016",
+          tags: ["02 §2.9", "T-016"],
+          summary: "<code>02 §2.9</code> says raw strings strip common leading indentation <em>\"like Kotlin <code>trimIndent()</code>\"</em>, whereas <code>T-016</code> asserts that <code>\"\"\"\\n    line1\\n      line2\\n    \"\"\"</code> produces <code>\"line1\\n  line2\\n\"</code> (explicitly keeping the trailing newline).",
+          detail: "Kotlin's <code>String.trimIndent()</code> drops a blank last line before closing quotes, so calling <code>.trimIndent()</code> directly will fail <code>T-016</code>.",
+          fix: "Update <code>02 §2.9</code> to specify exact indent stripping on non-blank lines while preserving any trailing newline before <code>\"\"\"</code> (remove the \"like Kotlin <code>trimIndent()</code>\" claim)."
+        },
+        {
+          docs: ["01", "05", "06"],
+          title: "4. History State Format Drift (<weave-state> vs. # state)",
+          tags: ["01 §22", "05 §8.6", "06 §2.4"],
+          summary: "<code>01 §22</code> and <code>05 §8.6</code> reference XML-style <code>&lt;weave-state id=\"loan\" v=\"3\"&gt;{...}&lt;/weave-state&gt;</code>, while normative <code>06 §2.4</code> specifies appending <code># state {{json}}</code> inside the fence.",
+          fix: "Update <code>01 §22</code> and <code>05 §8.6</code> to reference <code># state {{json}}</code> so no engineer implements the obsolete XML tag."
+        },
+        {
+          docs: ["01", "04"],
+          title: "5. displayLarge / displayMedium Clamping Mismatch",
+          tags: ["01 §11.4", "04 §1.6"],
+          summary: "<code>01 §11.4</code> states that <code>display*</code> styles are capped to <code>headlineLarge</code> when inline, whereas normative <code>04 §1.6</code> states that <code>displayLarge</code> and <code>displayMedium</code> are replaced by <code>displaySmall</code> in both <code>inline</code> and <code>card</code> blocks.",
+          fix: "Update <code>01 §11.4</code> to match <code>04 §1.6</code> (<code>displaySmall</code> in inline and card blocks)."
+        },
+        {
+          docs: ["02", "07"],
+          title: "6. Fragile Token-Adjacency Rules for % and #",
+          tags: ["02 §2.5", "02 §2.10", "T-012", "T-017"],
+          summary: "<code>45%</code> vs <code>10%3</code> depends on the character immediately after <code>%</code>, and <code>#FF0000</code> vs <code># comment</code> depends on whether the previous non-space token is one of <code>: ( , = [</code>.",
+          detail: "An accidentally typed comment starting with 3 hex digits after <code>=</code> (e.g. <code>a = #123</code>) lexes as a <code>HEX</code> token instead of a comment.",
+          fix: "Restrict <code>HEX</code> auto-fix detection to 6/8-digit hex codes (or add explicit edge-case tests in <code>T-017</code>) to prevent 3-digit false positives after <code>=</code>."
+        },
+        {
+          docs: ["03", "05"],
+          title: "7. Editorial Cross-Reference & Section Numbering Bugs",
+          tags: ["03 §10.10–11", "05 §5.6"],
+          summary: "<code>05 §5.6</code> (Off-screen behaviour) links to <code>05 §6.6</code>, which does not exist (it meant <code>05 §5.6</code> itself). In <code>03-semantics.md</code>, <code>§10.11</code> (Motion helpers) appears before <code>§10.10</code> (Deterministic randomness).",
+          fix: "Fix the section reference in <code>05 §5.6</code> and swap <code>§10.10</code> / <code>§10.11</code> ordering in <code>03-semantics.md</code>."
+        },
+        {
+          docs: ["05"],
+          title: "8. Missing Limit Rule for Edits Exceeding 400 Statements / 48 KB",
+          tags: ["05 §13.3", "02 §11.2"],
+          summary: "<code>05 §13.3</code> defines what happens when <code>SOURCE_BYTES</code> (48 KB) or <code>STATEMENTS</code> (400) are exceeded during streaming (stop parsing further statements and show <code>E304</code>), but doesn't state whether an <code>edit</code> that pushes a block over 400 statements is rejected entirely (like no-root edits in <code>02 §11.2</code>) or truncated.",
+          fix: "Specify in <code>02 §11.2</code> that an edit exceeding <code>SOURCE_BYTES</code> or <code>STATEMENTS</code> is rejected cleanly (keeping version <em>n</em>), just like an edit with no renderable root."
+        }
+      ]
+    };
+
+    const PAGES = ["overview", "excellent", "good", "bad", "ugly"];
+    let currentPage = "overview";
+    let activeDoc = "all";
+
+    function buildFinding(item) {
+      const el = document.createElement("article");
+      el.className = "finding";
+      el.dataset.docs = item.docs.join(",");
+      el.dataset.search = [
+        item.title,
+        item.summary,
+        ...(item.tags || []),
+        ...(item.bullets || []),
+        item.detail || "",
+        item.fix || ""
+      ].join(" ").toLowerCase();
+
+      const tagsHtml = item.tags.map(t => `<span class="tag">${t}</span>`).join("");
+      const bulletsHtml = item.bullets ? `<ul>${item.bullets.map(b => `<li>${b}</li>`).join("")}</ul>` : "";
+      const detailHtml = item.detail ? `<div class="note-box"><span class="note-label">Failure Mode / Impact</span>${item.detail}</div>` : "";
+      const fixHtml = item.fix ? `<div class="fix-box"><span class="note-label">Concrete Fix</span>${item.fix}</div>` : "";
+
+      el.innerHTML = `
+        <div class="finding-head">
+          <h3 class="finding-title">${item.title}</h3>
+          <div class="tags">${tagsHtml}</div>
+        </div>
+        <p>${item.summary}</p>
+        ${bulletsHtml}
+        ${detailHtml}
+        ${fixHtml}
+      `;
+      return el;
+    }
+
+    function renderAll() {
+      ["excellent", "good", "bad", "ugly"].forEach(kind => {
+        const host = document.getElementById(`list-${kind}`);
+        host.innerHTML = "";
+        FINDINGS[kind].forEach(item => host.appendChild(buildFinding(item)));
+        document.getElementById(`cnt-${kind}`).textContent = FINDINGS[kind].length;
+      });
+    }
+
+    function navigate(page, updateHash = true) {
+      if (!PAGES.includes(page)) page = "overview";
+      currentPage = page;
+
+      document.querySelectorAll(".page").forEach(p => {
+        p.classList.toggle("hidden", p.id !== `page-${page}`);
+      });
+
+      document.querySelectorAll(".nav-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.page === page);
+      });
+
+      const idx = PAGES.indexOf(page);
+      document.getElementById("prevBtn").disabled = idx === 0;
+      document.getElementById("nextBtn").disabled = idx === PAGES.length - 1;
+
+      if (updateHash) history.replaceState(null, "", `#${page}`);
+      document.getElementById("sidebar").classList.remove("open");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const q = document.getElementById("searchBox").value.trim().toLowerCase();
+      const pageEl = document.getElementById(`page-${currentPage}`);
+      const items = pageEl.querySelectorAll(".finding");
+
+      if (items.length === 0) {
+        document.getElementById("emptySearch").classList.add("hidden");
+        return;
+      }
+
+      let shown = 0;
+      items.forEach(item => {
+        const docMatch = activeDoc === "all" || (item.dataset.docs || "").split(",").includes(activeDoc);
+        const textMatch = !q || (item.dataset.search || "").includes(q);
+        const ok = docMatch && textMatch;
+        item.classList.toggle("hidden", !ok);
+        if (ok) shown++;
+      });
+
+      document.getElementById("emptySearch").classList.toggle("hidden", shown > 0);
+    }
+
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      document.documentElement.classList.add("dark");
+    }
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      document.documentElement.classList.toggle("dark");
+    });
+
+    document.getElementById("menuBtn").addEventListener("click", () => {
+      document.getElementById("sidebar").classList.toggle("open");
+    });
+
+    document.querySelectorAll(".nav-btn").forEach(btn => {
+      btn.addEventListener("click", () => navigate(btn.dataset.page));
+    });
+
+    document.querySelectorAll(".f-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        activeDoc = chip.dataset.doc;
+        document.querySelectorAll(".f-chip").forEach(c => c.classList.toggle("active", c === chip));
+        applyFilters();
+      });
+    });
+
+    document.getElementById("searchBox").addEventListener("input", applyFilters);
+
+    document.getElementById("prevBtn").addEventListener("click", () => {
+      const i = PAGES.indexOf(currentPage);
+      if (i > 0) navigate(PAGES[i - 1]);
+    });
+    document.getElementById("nextBtn").addEventListener("click", () => {
+      const i = PAGES.indexOf(currentPage);
+      if (i < PAGES.length - 1) navigate(PAGES[i + 1]);
+    });
+
+    document.addEventListener("keydown", e => {
+      if (document.activeElement === document.getElementById("searchBox")) {
+        if (e.key === "Escape") document.getElementById("searchBox").blur();
+        return;
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        document.getElementById("searchBox").focus();
+      } else if (["1", "2", "3", "4", "5"].includes(e.key)) {
+        navigate(PAGES[Number(e.key) - 1]);
+      }
+    });
+
+    window.addEventListener("hashchange", () => {
+      const h = location.hash.replace("#", "");
+      if (PAGES.includes(h)) navigate(h, false);
+    });
+
+    renderAll();
+    const initial = location.hash.replace("#", "");
+    navigate(PAGES.includes(initial) ? initial : "overview", false);
+  </script>
+</body>
+</html>
