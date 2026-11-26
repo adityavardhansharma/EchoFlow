@@ -52,10 +52,11 @@ object Finance {
         var yi = 0.0
         for (m in 1..months) {
             val interest = bal * r
-            var princ = pay - interest
-            if (m == months || princ > bal) princ = bal
-            bal = Math.round((bal - princ) * 100) / 100.0
-            if (m == months) bal = 0.0
+            // principal paid is measured against the rounded balance, so the yearly sums add up
+            // to exactly the loan; the last payment clears whatever is left
+            val next = if (m == months) 0.0 else Math.max(0.0, Math.round((bal - (pay - interest)) * 100) / 100.0)
+            val princ = bal - next
+            bal = next
             yp += princ
             yi += interest
             if (m % 12 == 0 || m == months) {
