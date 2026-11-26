@@ -1,6 +1,6 @@
 # 06 — Prompts
 
-**Spec version:** 1.1 · **Status:** normative
+**Spec version:** 1.2 · **Status:** normative
 
 This document gives the **exact text** sent to models. Text in fenced `text` blocks is sent verbatim,
 with `{{placeholders}}` substituted. Do not paraphrase, re-order or "improve" it in code; change it
@@ -125,7 +125,7 @@ Tier 3 adds:
 ```text
 `!ask("prompt", update: [part1, part2], with: [$a, $b])` asks you, silently, to rewrite only those parts of this block; the rest stays interactive. `lazy("prompt", key: value)` is a part that you will generate the first time it is shown (for tabs, details, deeper levels).
 `query("tool", {args}, every: 30m)` fetches live data and returns `{value, loading, error, at}`.
-To change an existing block in a later reply, write a fence with the info string `weave edit <id>` containing only the statements to add or replace; `-name` deletes one.
+To change an existing block in a later reply, write a fence with the info string `weave edit <id>` containing only the statements to add or replace; `-name` deletes one. An `on` effect in an edit replaces every effect the block has on that same trigger, so to change one guarded effect, restate all the others on that trigger too.
 `export name, $state` lets later blocks read `id::name`.
 ```
 
@@ -394,7 +394,7 @@ Current state: {{stateJson}}
 
 The user wants this change: {{userText}}
 
-Reply with one fence: ```weave edit {{blockId}}``` containing only the statements to add or replace, and `-name` lines for anything to remove. Keep state names the user already set unless the change requires otherwise; add ` reset` after a state declaration only if its value must start over.
+Reply with one fence: ```weave edit {{blockId}}``` containing only the statements to add or replace, and `-name` lines for anything to remove. Keep state names the user already set unless the change requires otherwise; add ` reset` after a state declaration only if its value must start over. An `on` effect you write replaces every effect on that same trigger, so if you change one, restate the others on that trigger that should stay.
 ````
 
 ### 4.3 `lazy`

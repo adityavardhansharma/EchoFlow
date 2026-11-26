@@ -1,6 +1,6 @@
 # 04 — Components, marks and tokens
 
-**Spec version:** 1.1 · **Status:** normative
+**Spec version:** 1.2 · **Status:** normative
 
 This is the reference for everything a block can draw. For each component it gives: the signature,
 every parameter with type and default, positional order and aliases (for auto-fix), children,
@@ -350,9 +350,13 @@ release builds the chip is shown only if the node has **no** valid children to s
 
 ### 2.9 Placeholders (streaming)
 
-When a binding that is referenced has not arrived yet, a placeholder is shown in its place. The
-placeholder's form comes from the **slot** it is referenced in, then from the binding's call if the
-statement has started but not finished:
+A placeholder is shown in place of a node when either:
+
+- a binding it references has not arrived yet; or
+- its own arguments read a **waiting** state, directly or through bindings and functions (03 §7.1).
+
+The placeholder's form comes from the **slot** it is referenced in, then from the binding's call if
+the statement has started but not finished, then from the node's own component:
 
 | Slot / component | Placeholder |
 |---|---|

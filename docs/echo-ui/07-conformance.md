@@ -1,6 +1,6 @@
 # 07 — Conformance tests
 
-**Spec version:** 1.1 · **Status:** normative
+**Spec version:** 1.2 · **Status:** normative
 
 An implementation conforms when **every test in this document passes**. Each test has an id
 (`T-xxx`) that the other documents cite. Tests in §1–§4 and §11 are JVM unit tests in `weave-core`
@@ -98,6 +98,7 @@ lists diagnostic codes in order.
 | T-042 | `on change($x) -> !inc($a)\non change($x) -> !inc($b)` | one effect: `on change($x) -> [!inc($a), !inc($b)]` | `W403` (S12) |
 | T-042b | `on change($x) when $x > 10 -> !toast("high")\non change($x) when $x < 0 -> !toast("low")` | one effect: `on change($x) -> [!if($x > 10, !toast("high")), !if($x < 0, !toast("low"))]`; setting `$x` to 11 toasts "high" only, to -1 toasts "low" only | `W403` (S12) |
 | T-042c | `on change($x, debounce: 300ms) -> !a()\non change($x) -> !b()` | two effects (different trigger keys) | — |
+| T-042d | `$x = 0`, `$n = 0`, `on change($x) when $x > 10 -> !set($x, 0)`, `on change($x) when $x < 5 -> !inc($n)`; set `$x` to 11 | merged effect: first branch resets `$x` to 0, second branch sees 0 and runs → `$n == 1`; counts as **one** firing toward the 8-firing cap (plus one more for the `change` the reset causes); one history entry | `W403` (S12) |
 | T-043a | No `root`; `card = Card [Text("x")]` | root = `card` | `W405` |
 | T-043b | Only `x = 1` | renders as code fence with chip | `W405` |
 | T-044 | `export emi, $nope` | exports `emi` only | `W407` |
@@ -192,6 +193,7 @@ lists diagnostic codes in order.
 | T-276 | `$a = 1`, no history | `[!inc($a), !undo]` in one tap | `$a == 2` and one history entry: `!undo` runs inside the same transaction, before the `!inc` entry is committed, so there is nothing to undo yet |
 | T-277 | slider drag over 10 values | — | one history entry; `!undo` restores the value before the drag |
 | T-278 | streamed in order: `$rate = base(10)`, `root = Text($rate)`, `fn base(n) = n * 2`, fence close | — | `$rate == 20` (initialised when `base` arrives); before that `root` shows its placeholder, never `—` |
+| T-278b | streamed: `$rate = base(10)`, `emi = $rate * 3`, `root = Card [Title("Loan"), Metric("EMI", emi)]`, then `fn base(n) = n * 2` | — | before `base` arrives: `Card` and `Title` render, `Metric` shows its placeholder (its argument `emi` read the waiting `$rate`), never `—`; after: `Metric` shows `60` |
 | T-279 | streamed: `$rate = nope(10)`, `root = Text($rate)`, fence close | — | at fence close `$rate` is initialised to `null` with `E202`; it is **not** re-evaluated later |
 | T-280 | `$a = 0`, `$b = 0`, `on change($a) -> !inc($b)`, `on change($b) -> !inc($a)` | tap `!inc($a)` | `$a == 5`, `$b == 4`, one `E306` |
 | T-281 | `on change($q, debounce: 400ms) -> !inc($n)` | 5 writes to `$q` 100 ms apart | `$n` increments once, 400 ms after the last write |
@@ -404,10 +406,12 @@ render success ≥ 97 %, task completion ≥ 85 %, and (Balanced) over-use ≤ 1
 | T-603 | `effectiveTier(BALANCED, modelTier = 4, false, false, shippedTier = 4)` | 3 |
 | T-604 | `effectiveTier(IMMERSIVE, 1, false, false, 4)` | 1 |
 | T-605 | `effectiveTier(OFF, 3, explicitUiRequest = true, false, 4)` | 3, prompt level `BALANCED` |
+| T-605b | Level `OFF`, explicit UI request, reply with 2 `weave` fences | first renders as a block, second as code (max 1 new block, from prompt level `BALANCED`) |
 | T-606 | `effectiveTier(OFF, 3, false, makeInteractive = true, 4)` | 3 |
+| T-606b | Level `OFF`, "Make interactive" reply with 1 `weave` fence | renders as a block. A normal reply in the same chat with 1 fence renders it as code |
 | T-607 | `effectiveTier(IMMERSIVE, 4, false, false, shippedTier = 2)` | 2 |
-| T-608 | Explicit-request regex (05 §11.5), true: "make a loan calculator", "show it as a table", "plot my expenses for March", "draw a chart of rainfall", "turn this into a checklist", "make this interactive", "build me a budget tracker", "show me how the table of contents works" (accepted false positive) | all true |
-| T-608b | Explicit-request regex, false: "what's the capital of France", "any good tabletop games?", "the plot of the novel", "explain the periodic table", "how do I set a timer on my phone?", "is this form valid HTML?" | all false |
+| T-608 | Explicit-request regex (05 §11.5), true: "make a loan calculator", "show it as a table", "plot my expenses for March", "draw a chart of rainfall", "turn this into a checklist", "make this interactive", "build me a budget tracker", "show me how the table of contents works" (accepted false positive), "give me a chart of my spending", "put this in a table" | all true |
+| T-608b | Explicit-request regex, false: "what's the capital of France", "any good tabletop games?", "the plot of the novel", "explain the periodic table", "how do I set a timer on my phone?", "is this form valid HTML?", "give up on this game", "lay the table for dinner", "my money is stuck in a card" | all false |
 | T-609 | Unknown model, tools + 128k context | tier 2; no tools, 16k → 1; 4k → 0 |
 | T-610 | Quality record averages 2.3 errors over 10 blocks | automatic tier lowered by 1 for 7 days; a user override is unaffected |
 | T-611 | Chat on a local model | effective tier 0; no Weave section; "Make interactive" and the per-chat Intelligent UI row hidden; existing blocks render, local actions work, `!ask` disabled with "Live updates need a cloud model" |

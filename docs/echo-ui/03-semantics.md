@@ -1,6 +1,6 @@
 # 03 — Semantics
 
-**Spec version:** 1.1 · **Status:** normative
+**Spec version:** 1.2 · **Status:** normative
 
 This document defines what a parsed Weave program **means**: the values it computes, how state
 changes, what actions do, when effects run, and the exact behaviour of every built-in function and
@@ -299,11 +299,17 @@ as the first argument of state actions (§7.2).
    Initial expressions may **not** read bindings that depend on a state that isn't initialised yet:
    such reads see `null`.
 
-   Until a state is initialised it is **absent** from the `StateStore` (05 §4.2): reads see
-   `null`, and an input bound to it shows its streaming placeholder (04 §2.9), not a `null`
-   value. This rule exists because the prompt cannot guarantee order: a model that writes
+   Until a state is initialised it is **absent** from the `StateStore` (05 §4.2) and is called
+   **waiting**. Reading a waiting state gives `null` and marks the read as **waiting**. The mark
+   propagates: any expression, binding or function call whose evaluation read a waiting value is
+   itself waiting (like `pending`, §9.2, but automatic). A node whose own arguments — not its
+   children, which are separate nodes — evaluate as waiting renders its streaming placeholder
+   (04 §2.9) instead of showing `—`. So with `$rate` waiting, `Slider($rate)`, `Text($rate)` and
+   `Metric("EMI", emi)` (where `emi` reads `$rate`) all show placeholders, while their parent
+   `Card` renders normally. Effects and actions never see waiting values: effects install only at
+   fence close (§8.1), and by then no state is waiting. This rule exists because the prompt cannot guarantee order: a model that writes
    `$rate = defaultRate(10)` before `fn defaultRate` MUST still get the computed value, never a
-   permanent `null`. `[T-278]` `[T-279]`
+   permanent `null`. `[T-278]` `[T-278b]` `[T-279]`
 2. **Restoration.** If the block has a stored state (05 §9), stored values are used for every state
    whose name exists, coerced to the declared type; failed coercion → re-initialise.
 3. **Transient** states are always initialised fresh when the block is shown again (a new
@@ -459,7 +465,8 @@ event's data).
 ### 8.5 Loops
 
 An effect's action may change state that triggers another `change` effect. Chains are allowed up to
-**8** effect firings caused (directly or indirectly) by one original event. The 9th is not run and
+**8** effect firings caused (directly or indirectly) by one original event. An effect produced by
+merging same-trigger effects (02 §5.5, S12) is one firing, whatever its branch count. The 9th is not run and
 `E306 effect-loop` is reported once per block version. `frame` effects do not count toward chains
 they start (their writes trigger `change` effects normally, but each frame starts a fresh count).
 `[T-280]`
