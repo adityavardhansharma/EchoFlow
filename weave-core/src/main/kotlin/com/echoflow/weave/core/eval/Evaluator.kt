@@ -300,7 +300,8 @@ class Evaluator(
                 }
             }
             else -> {
-                val spec = catalog.full.function(c.callee) ?: return WNull
+                // While streaming, an unknown callee is a `fn` that hasn't arrived: waiting (03 §7.1).
+                val spec = catalog.full.function(c.callee) ?: run { if (!program.complete) readWaiting = true; return WNull }
                 val args = c.leads.map { eval(it, scope) }
                 val named = c.named.associate { (k, v) -> k to eval(v, scope) }
                 Builtins.call(c.callee, bindArgs(spec.params, args, named, c.callee in BuiltinCatalog.VARIADIC), this, c.span)
@@ -367,6 +368,9 @@ class Evaluator(
     }
 
     internal fun currentStmt(): String = inProgress.lastOrNull() ?: ""
+
+    /** Whether anything evaluated so far read a waiting state. */
+    val sawWaiting: Boolean get() = readWaiting || waitingCache.isNotEmpty()
 
     internal fun withWaitingTracking(block: () -> Unit): Boolean {
         val saved = readWaiting

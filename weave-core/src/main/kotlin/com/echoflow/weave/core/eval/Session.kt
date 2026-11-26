@@ -50,6 +50,9 @@ class Session(
     private val undo = ArrayDeque<Pair<Map<String, WValue>, Map<String, WValue>>>()
     private val redo = ArrayDeque<Pair<Map<String, WValue>, Map<String, WValue>>>()
     val historySize get() = undo.size
+    /** Gesture transactions discarded because they read a waiting state; the host gives the reject haptic. */
+    var rejectedTaps = 0
+        private set
     private var effectLoopReported = false
     private var appeared = false
 
@@ -60,7 +63,74 @@ class Session(
     private val timers = ArrayList<Timer>()
 
     init {
-        initStates(program.states.keys.toList())
+        sync(program)
+    }
+
+    /**
+     * Takes a newer version of a streaming block (05 §4.2 `StateStore.sync`). While the block is
+     * incomplete, a declared state is initialised only once everything its initial expression
+     * reaches has arrived (03 §7.1); until then it is *waiting* (absent). At fence close every
+     * remaining state is initialised and states no longer declared are dropped. During streaming
+     * states are only ever added.
+     */
+    fun sync(next: WeaveProgram) {
+        program = next
+        if (next.complete) {
+            for (n in state.keys.toList()) if (n !in next.states) state.remove(n)
+            initStates(next.states.keys.toList())
+            return
+        }
+        while (true) {
+            val ready = next.states.keys.filter { it !in state && missingNames(next.states.getValue(it).init).isEmpty() }
+            if (ready.isEmpty()) break
+            initStates(ready)
+            if (ready.none { it in state }) break
+        }
+    }
+
+    /** States declared but not initialised yet (03 §7.1). */
+    val waitingStates: Set<String> get() = program.states.keys - state.keys
+
+    /**
+     * Names an expression reaches that haven't arrived: undeclared bindings and functions, and
+     * states that are undeclared or still waiting. Empty means the expression is ready.
+     */
+    fun missingNames(e: Expr): Set<String> {
+        val out = HashSet<String>()
+        val seen = HashSet<String>()
+        fun walk(x: Expr, bound: Set<String>) {
+            when (x) {
+                is StateRef -> if (x.name !in state) out += "$" + x.name
+                is Name -> when {
+                    x.name in bound -> {}
+                    x.name in program.bindings -> if (seen.add(x.name)) walk(program.bindings.getValue(x.name).expr, emptySet())
+                    x.name in program.functions -> if (seen.add(x.name)) program.functions.getValue(x.name).let { f -> f.body?.let { walk(it, f.params.toSet()) } }
+                    catalog.full.function(x.name) != null || x.name in CONTEXT_NAMES -> {}
+                    else -> out += x.name
+                }
+                is Call -> {
+                    if (x.kind == CallKind.FUNCTION) when {
+                        x.callee in bound -> {}
+                        x.callee in program.functions -> if (seen.add(x.callee)) program.functions.getValue(x.callee).let { f -> f.body?.let { walk(it, f.params.toSet()) } }
+                        catalog.full.function(x.callee) != null -> {}
+                        else -> out += x.callee
+                    }
+                    x.leads.forEach { walk(it, bound) }; x.named.forEach { walk(it.second, bound) }; x.children?.forEach { walk(it, bound) }
+                }
+                is Member -> walk(x.target, bound)
+                is Index -> { walk(x.target, bound); walk(x.index, bound) }
+                is Unary -> walk(x.operand, bound)
+                is BinaryOp -> { walk(x.left, bound); walk(x.right, bound) }
+                is Ternary -> { walk(x.cond, bound); walk(x.then, bound); walk(x.otherwise, bound) }
+                is ListLit -> x.items.forEach { walk(it, bound) }
+                is RecLit -> x.fields.forEach { walk(it.second, bound) }
+                is Lambda -> walk(x.body, bound + x.params)
+                is Str -> x.parts.forEach { if (it is InterpPart) walk(it.expr, bound) }
+                else -> {}
+            }
+        }
+        walk(e, emptySet())
+        return out
     }
 
     private fun report(d: Diagnostic) {
@@ -184,7 +254,12 @@ class Session(
 
     private class Tx(val work: LinkedHashMap<String, WValue>, val deferred: ArrayList<Pair<WAction, Evaluator>>, val fromEffect: Boolean) {
         var undid = false
+        val evaluators = ArrayList<Evaluator>()
+        /** True when anything this transaction evaluated read a waiting state (03 §7.1). */
+        val readWaiting get() = evaluators.any { it.sawWaiting }
     }
+
+    private fun txEvaluator(tx: Tx) = Evaluator(program, HashMap(tx.work), ctx, catalog).also { tx.evaluators += it }
 
     /** Fires [action] (an action, a list of actions, or a handler fn) with optional event [data]. */
     fun fire(action: WValue, data: WValue? = null) {
@@ -199,7 +274,7 @@ class Session(
         val before = LinkedHashMap(state)
         writePlace(tx, place, value)
         if (onChange != null) {
-            val ev = Evaluator(program, HashMap(tx.work), ctx, catalog)
+            val ev = txEvaluator(tx)
             val a = if (onChange is WFn) ev.callFn(onChange, listOf(Places.read(tx.work[place.state] ?: WNull, place.path))) else onChange
             runIn(tx, a)
         }
@@ -211,7 +286,7 @@ class Session(
         val tx = Tx(LinkedHashMap(state), ArrayList(), fromEffect)
         var a = action
         if (a is WFn) {
-            val ev = Evaluator(program, HashMap(tx.work), ctx, catalog)
+            val ev = txEvaluator(tx)
             a = ev.callFn(a, listOfNotNull(data))
         }
         runIn(tx, a)
@@ -232,7 +307,7 @@ class Session(
             return
         }
         // arguments are evaluated now, inside the transaction (they see earlier writes)
-        val ev = Evaluator(program, HashMap(tx.work), ctx, catalog)
+        val ev = txEvaluator(tx)
         val nb = NodeBuilder(ev)
         fun arg(i: Int) = a.args.getOrNull(i)?.let { ev.topLevel(it, a.scope) } ?: WNull
         fun named(k: String) = a.named.firstOrNull { it.first == k }?.second?.let { ev.topLevel(it, a.scope) }
@@ -302,7 +377,7 @@ class Session(
 
     private fun reinit(name: String, tx: Tx): WValue {
         val decl = program.states[name] ?: return WNull
-        val ev = Evaluator(program, HashMap(tx.work), ctx, catalog)
+        val ev = txEvaluator(tx)
         var v = ev.topLevel(decl.init, name = "$$name")
         decl.type?.let { t -> val c = Coercion(ctx.formatter).toType(v, t); v = if (c.ok) c.value else WNull }
         return v
@@ -323,6 +398,9 @@ class Session(
     }
 
     private fun commit(tx: Tx, before: Map<String, WValue>, chain: IntArray) {
+        // A gesture that read a waiting value is discarded whole: no writes, no deferred
+        // actions, no history (03 §7.1, T-279b).
+        if (!tx.fromEffect && tx.readWaiting) { rejectedTaps++; return }
         // STATE_BYTES: an over-size commit rolls back (05 §13.3)
         val bytes = ctx.formatter.json(WRec(LinkedHashMap(tx.work))).toByteArray(Charsets.UTF_8).size
         if (bytes > Limits.STATE_BYTES) {
@@ -492,4 +570,9 @@ class Session(
 
     @Suppress("unused")
     private fun unused(b: Binding) = b
+
+    private companion object {
+        /** Context values (03 §4.3) and event variables that are always defined. */
+        val CONTEXT_NAMES = setOf("device", "block", "user", "item", "index", "prev", "event", "value", "pi", "e")
+    }
 }
