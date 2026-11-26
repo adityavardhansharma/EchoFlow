@@ -98,7 +98,7 @@ lists diagnostic codes in order.
 | T-042 | `on change($x) -> !inc($a)\non change($x) -> !inc($b)` | one effect: `on change($x) -> [!inc($a), !inc($b)]` | `W403` (S12) |
 | T-042b | `on change($x) when $x > 10 -> !toast("high")\non change($x) when $x < 0 -> !toast("low")` | one effect: `on change($x) -> [!if($x > 10, !toast("high")), !if($x < 0, !toast("low"))]`; setting `$x` to 11 toasts "high" only, to -1 toasts "low" only | `W403` (S12) |
 | T-042c | `on change($x, debounce: 300ms) -> !a()\non change($x) -> !b()` | two effects (different trigger keys) | — |
-| T-042d | `$x = 0`, `$n = 0`, `on change($x) when $x > 10 -> !set($x, 0)`, `on change($x) when $x < 5 -> !inc($n)`; set `$x` to 11 | merged effect: first branch resets `$x` to 0, second branch sees 0 and runs → `$n == 1`; counts as **one** firing toward the 8-firing cap (plus one more for the `change` the reset causes); one history entry | `W403` (S12) |
+| T-042d | `$x = 0`, `$n = 0`, `on change($x) when $x > 10 -> !set($x, 0)`, `on change($x) when $x < 5 -> !inc($n)`; set `$x` to 11 | merged effect: first branch resets `$x` to 0, second branch sees 0 and runs (`$n` = 1); the reset is a change of `$x` (11 → 0), so the merged effect fires once more, the first branch is skipped (0 is not > 10) and the second runs again → **`$n == 2`**. The chain is the user's write plus **two** merged firings toward the 8-firing cap; each firing is its own transaction, so the chain adds **three** history entries (the write, then one per firing) | `W403` (S12) |
 | T-043a | No `root`; `card = Card [Text("x")]` | root = `card` | `W405` |
 | T-043b | Only `x = 1` | renders as code fence with chip | `W405` |
 | T-044 | `export emi, $nope` | exports `emi` only | `W407` |
@@ -195,6 +195,7 @@ lists diagnostic codes in order.
 | T-278 | streamed in order: `$rate = base(10)`, `root = Text($rate)`, `fn base(n) = n * 2`, fence close | — | `$rate == 20` (initialised when `base` arrives); before that `root` shows its placeholder, never `—` |
 | T-278b | streamed: `$rate = base(10)`, `emi = $rate * 3`, `root = Card [Title("Loan"), Metric("EMI", emi)]`, then `fn base(n) = n * 2` | — | before `base` arrives: `Card` and `Title` render, `Metric` shows its placeholder (its argument `emi` read the waiting `$rate`), never `—`; after: `Metric` shows `60` |
 | T-279 | streamed: `$rate = nope(10)`, `root = Text($rate)`, fence close | — | at fence close `$rate` is initialised to `null` with `E202`; it is **not** re-evaluated later |
+| T-279b | streamed so far: `$out = 0`, `root = Button("Copy", onTap: !set($out, $rate))`, then `$rate = base(10)` with `fn base` not yet arrived; tap the button | — | the tap is discarded: `$out` stays 0, no history entry, no diagnostic; after `fn base` arrives the same tap sets `$out` to `base(10)` |
 | T-280 | `$a = 0`, `$b = 0`, `on change($a) -> !inc($b)`, `on change($b) -> !inc($a)` | tap `!inc($a)` | `$a == 5`, `$b == 4`, one `E306` |
 | T-281 | `on change($q, debounce: 400ms) -> !inc($n)` | 5 writes to `$q` 100 ms apart | `$n` increments once, 400 ms after the last write |
 | T-282 | `on every(100ms) -> !inc($n)` | visible for 1 s | interval raised to 250 ms (`W402`); `$n` ∈ {3, 4} |
