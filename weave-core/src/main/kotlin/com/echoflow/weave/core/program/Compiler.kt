@@ -58,7 +58,7 @@ object Compiler {
     }
 
     /** Checks parsed lines as a fragment (a new block, or an edit when [edit]). */
-    fun fragment(lines: List<ParsedLine>, catalog: Catalog, edit: Boolean): Fragment {
+    fun fragment(lines: List<ParsedLine>, catalog: Catalog, edit: Boolean, streaming: Boolean = false): Fragment {
         val diags = ArrayList<Diagnostic>()
         var header: HeaderStmt? = null
         val kept = ArrayList<ParsedLine>()
@@ -104,7 +104,7 @@ object Compiler {
         val bindings = deduped.filterIsInstance<Binding>().map { it.name }.toSet()
         val functions = deduped.filterIsInstance<FnDecl>().map { it.name }.toSet()
         val states = deduped.filterIsInstance<StateDecl>().map { it.name }.toSet()
-        return checkFragment(header, deduped, catalog, bindings, functions, states, diags)
+        return checkFragment(header, deduped, catalog, bindings, functions, states, diags, streaming = streaming)
     }
 
     /** Runs the checker with an explicit name environment (edits check against the whole block). */
@@ -112,9 +112,10 @@ object Compiler {
         header: HeaderStmt?, stmts: List<Stmt>, catalog: Catalog,
         bindings: Set<String>, functions: Set<String>, states: Set<String>, diags0: List<Diagnostic> = emptyList(),
         deleted: Set<String> = emptySet(),
+        streaming: Boolean = false,
     ): Fragment {
         val diags = ArrayList(diags0)
-        val checker = Checker(catalog, bindings, functions, states, deleted)
+        val checker = Checker(catalog, bindings, functions, states, deleted, streaming)
         val checked = ArrayList<Stmt>()
         for (s in stmts) {
             val name = when (s) {
@@ -137,7 +138,7 @@ object Compiler {
     }
 
     fun build(lines: List<ParsedLine>, catalog: Catalog, complete: Boolean, frozenCount: Int): WeaveProgram {
-        val f = fragment(lines, catalog, edit = false)
+        val f = fragment(lines, catalog, edit = false, streaming = !complete)
         return assemble(f, catalog, complete, frozenCount)
     }
 

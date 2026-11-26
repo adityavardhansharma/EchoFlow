@@ -54,6 +54,11 @@ class Checker(
     private val states: Set<String>,
     /** Names an edit deleted: references to them are `E301` and evaluate to null (T-106). */
     private val deleted: Set<String> = emptySet(),
+    /**
+     * The block is still streaming: a call to a function nobody declared yet may be a `fn` that
+     * hasn't arrived (03 §7.1), so it is kept, not replaced by null. Fence close checks again.
+     */
+    private val streaming: Boolean = false,
 ) {
     private val full = BuiltinCatalog
     val diags = ArrayList<Diagnostic>()
@@ -220,6 +225,9 @@ class Checker(
         val argCtx = ctx.copy(tokenSlot = false, marksOf = null)
         if (local) return c.copy(leads = c.leads.map { expr(it, argCtx) }, named = c.named.map { (k, v) -> k to expr(v, argCtx) })
         val spec = catalog.function(c.callee)
+        if (spec == null && streaming && full.function(c.callee) == null) {
+            return c.copy(leads = c.leads.map { expr(it, argCtx) }, named = c.named.map { (k, v) -> k to expr(v, argCtx) })
+        }
         if (spec == null) {
             if (full.function(c.callee) != null) diags += Diag.tier(c.span, c.callee, stmtName)
             else diags += Diag.unknownFunction(c.span, c.callee, closest(c.callee, catalog.functions.map { it.name } + functions), stmtName)
