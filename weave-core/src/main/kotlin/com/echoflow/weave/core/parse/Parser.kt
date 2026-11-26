@@ -447,6 +447,8 @@ class Parser private constructor(private val toks: List<Token>) {
             TK.HEX -> { next(); return HexLit(t.text, span(t)) }
             TK.STATE -> { next(); return StateRef(t.text, span(t)) }
             TK.KEYWORD -> when (t.text) {
+                // `when(c, node)` is the built-in (03 §10.1, 06 §3.4), not the effect keyword
+                "when" -> if (isPunct("(", 1)) { next(); return Name("when", span(t)) } else unexpected(t)
                 "true" -> { next(); return Lit(WBool.TRUE, span(t)) }
                 "false" -> { next(); return Lit(WBool.FALSE, span(t)) }
                 "null" -> { next(); return Lit(WNull, span(t)) }

@@ -80,7 +80,7 @@ class Checker(
                 if (s.name in RESERVED) { diags += Diag.reserved(s.span, s.name, name); return null }
                 val seen = HashSet<String>()
                 for (p in s.params) {
-                    if (p in RESERVED) { diags += Diag.reserved(s.span, p, name); return null }
+                    if (p in RESERVED && p !in PARAM_OK) { diags += Diag.reserved(s.span, p, name); return null }
                     if (p != "_" && !seen.add(p)) { diags += Diag.badName(s.span, p, name); return null }
                 }
                 if (s.js != null && catalog.tier < 4) { diags += Diag.tier(s.span, "js fn", name) }
@@ -148,7 +148,7 @@ class Checker(
         is ListLit -> e.copy(items = e.items.map { expr(it, ctx, slot) })
         is RecLit -> e.copy(fields = e.fields.map { (k, v) -> k to expr(v, ctx.copy(tokenSlot = false, marksOf = null)) })
         is Lambda -> {
-            for (p in e.params) if (p in RESERVED) diags += Diag.reserved(e.span, p, stmtName)
+            for (p in e.params) if (p in RESERVED && p !in PARAM_OK) diags += Diag.reserved(e.span, p, stmtName)
             e.copy(body = expr(e.body, ctx.copy(locals = ctx.locals + e.params, tokenSlot = false, marksOf = null)))
         }
         is HexLit -> {
@@ -416,6 +416,14 @@ class Checker(
             diags += Diag.badType(e.span, callee, p.name, t.display, "a hex colour", stmtName)
             return null
         }
+        // S13: a format written as a call in a format slot (`format: dec(1)`) is that format's text
+        if (p.name in FORMAT_PARAMS && e is Call && e.kind == CallKind.FUNCTION && e.callee in Tokens.FORMATS &&
+            e.callee !in functions && e.named.isEmpty() && e.leads.all { it is Lit || it is Name || it is Str }
+        ) {
+            val text = com.echoflow.weave.core.program.WeaveProgram.printer().expr(e)
+            diags += Diag.autofix(e.span, "format $text written as \"$text\"", stmtName)
+            return Lit(WStr(text), e.span)
+        }
         val set = tokenSet(t)
         // S4: a number in a spacing/height/shape slot snaps to the nearest token
         if (e is Lit && e.value is WNum && set != null && Tokens.dpTable(set) != null && !(t is TypeSpec.Union && t.options.contains(TypeSpec.NUM))) {
@@ -478,6 +486,8 @@ class Checker(
         /** Reserved identifiers, 02 §2.3. */
         val RESERVED = setOf("dt", "device", "block", "user", "item", "index")
         val CONSTANTS = setOf("pi", "e", "device", "block", "user")
+        /** Reserved names a `fn` or lambda may still use as a parameter (02 §2.3, spec 1.3). */
+        val PARAM_OK = setOf("item", "index")
         val FORMAT_PARAMS = setOf("format", "deltaFormat")
         val TOKEN_HELPERS = setOf("col", "axis", "aspect", "weight", "spring", "tween", "loop", "fmt")
     }

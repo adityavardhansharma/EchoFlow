@@ -48,3 +48,27 @@ class AutoFixTest {
 
     @Test fun `T-087 elif is not fixed`() = assertEquals(listOf("E105"), W.codes("a = 2 elif\nroot = Text(\"x\")"))
 }
+
+/** Spec 1.3 fixes found by the eval harness (07 §10). */
+class EvalFindingsTest {
+    @Test fun `when as a function parses`() {
+        val p = W.prog("\$show = true\nroot = Column [when(\$show, Text(\"hi\"))]")
+        assertEquals(emptyList<String>(), W.codes(p))
+        assertEquals("hi", W.session("\$show = true\nroot = Column [when(\$show, Text(\"hi\"))]").let { it.plainText(it.root()!!) })
+        // the effect keyword still works
+        assertEquals(1, W.prog("\$x = 0\nroot = Text(\$x)\non change(\$x) when \$x > 1 -> !toast(\"a\")").effects.size)
+    }
+
+    @Test fun `S13 format calls in format slots`() {
+        val p = W.prog("root = Metric(\"BMI\", 22.857, format: dec(1))")
+        assertEquals("root = Metric(\"BMI\", 22.857, format: \"dec(1)\")", p.print())
+        assertEquals(listOf("W403"), W.codes(p))
+        val s = W.session("root = Metric(\"BMI\", 22.857, format: dec(1))")
+        assertEquals("BMI: 22.9", s.plainText(s.root()!!))
+    }
+
+    @Test fun `item and index are allowed as parameters`() {
+        assertEquals(emptyList<String>(), W.codes("xs = [1, 2]\nys = map(xs, (item, index) => item + index)\nroot = Text(ys)"))
+        assertEquals(listOf("E106"), W.codes("item = 1\nroot = Text(\"x\")"))
+    }
+}
