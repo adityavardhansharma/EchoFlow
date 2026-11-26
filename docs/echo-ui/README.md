@@ -24,8 +24,8 @@ changed. Don't guess.
 | 06 | [Prompts](06-prompts.md) | The exact text sent to models for each Intelligent UI level and tier, and for hidden requests | **Normative** |
 | 07 | [Conformance](07-conformance.md) | Numbered test cases with exact inputs and expected outputs. An implementation is correct when all pass | **Normative** |
 
-A separate [critique](critique.md) reviews this set against the app as it is today. It is not
-normative. Where it disagrees with 02–07, 02–07 win until the spec is changed.
+A separate [critique](critique.md) reviewed v1.0 against the app. It is not normative. Its §7 records
+what v1.1 accepted, changed or rejected.
 
 ## 2. Reading order by role
 
@@ -85,3 +85,4 @@ These words have exact meanings everywhere in this folder:
 | Spec version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-11-26 | First complete set: 01–07. |
+| 1.1 | 2026-11-26 | Resolves the critique (`critique.md` §7). Shape tokens resolve through `MaterialTheme.shapes`; spacing tokens through `Spacing` (Weave `l` = `Spacing.base`). States wait for the names their initialiser needs (03 §7.1). Same-trigger effects merge into `!if` branches (S12) instead of replacing. Over-limit edits and over-size state are rejected. One history encoding (`# state`). Weave section sits before `freshnessGate`. Narrower Off regex; pincode allowed. "Show as plain text". Live UI is cloud-only. Weave-JSON moves to phase 2; phase 1 ships in two steps (1a slice, 1b rest); the eval harness follows the build. Placeholder shrink eases; `Row` uses `Layout`. Reserved `E305`/`W406`. New and changed tests in 07. |

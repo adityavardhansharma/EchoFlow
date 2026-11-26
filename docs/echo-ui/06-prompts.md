@@ -1,6 +1,6 @@
 # 06 — Prompts
 
-**Spec version:** 1.0 · **Status:** normative
+**Spec version:** 1.1 · **Status:** normative
 
 This document gives the **exact text** sent to models. Text in fenced `text` blocks is sent verbatim,
 with `{{placeholders}}` substituted. Do not paraphrase, re-order or "improve" it in code; change it
@@ -35,8 +35,18 @@ it ships.
 6. **Rules** (§3.7) for the tier and level.
 7. **Examples** (§3.8) for the tier.
 
-If the model supports tool use and `tier ≥ 3`, parts 4–5 are replaced by the **index** (§8) and the
-`weave_docs` tool is offered.
+**Phase 3 only.** `weave_docs` ships in phase 3 (01 §29). Until then every prompt, at every tier,
+carries the full component lines for everything it advertises; there is no index. A prompt MUST
+never name a component without giving the model a way to get its signature in the same request.
+
+From phase 3, if the model supports tool use and `tier ≥ 3`, parts 4–5 are **trimmed**, not
+replaced: the
+**common set** keeps its full component lines (§3.3) and all functions, actions and effects stay
+inline; only the long tail moves to the **index** (§8) behind the `weave_docs` tool. The common set
+is the phase 1a slice (01 §29): `Column Row Card Title Text Metric Stat Callout Button Slider
+Segmented TextField Select Chart LineChart AreaChart BarChart Table Tabs List Item`. This way the first interactive
+answer never waits on a tool round-trip; `weave_docs` is only needed for things like `Sort`,
+`Canvas`, `Shader` or `Quiz`.
 
 ### 2.2 Intro text
 
@@ -143,6 +153,10 @@ formats: int num(2) dec(1) compact percent pct currency(USD) inr money inrCompac
 (The tokens line is identical for all tiers; `screen` and expressive shapes are removed below the
 tier that allows their components.)
 
+The expressive shapes listed here are a deliberate **subset** of 04 §1.5: the ten that read well at
+avatar and icon sizes. The prompt advertises only these; the checker accepts all 26 names in 04
+§1.5, so a model that writes `cookie12` still gets it. 01 §11.5 is informative and points here.
+
 ### 3.3 Component lines
 
 Grouped under these headings, in this order, only groups with at least one allowed component:
@@ -225,7 +239,7 @@ Tier 4 adds `on frame -> action (uses dt)`, `on tilt -> action (uses x, y)`, `on
 
 ```text
 ### Rules
-- Write statements in this order so the block appears quickly: the header, state, `root`, then root's children from top to bottom, then helpers and functions, then effects.
+- Write statements in this order so the block appears quickly: the header, any `fn` that a state's starting value uses, state, `root`, then root's children from top to bottom, then other helpers and functions, then effects.
 - Start with a header: `@weave 1 id: short_id title: "Title"`. The id is lowercase letters, digits and underscores.
 - The screen is a phone in portrait, about 400dp wide. Prefer Column layouts; use Row only for 2-3 small items; never rely on horizontal scrolling except Carousel and Table.
 - Use tokens for every size, space and colour. Never write numbers for spacing or colours.
@@ -463,18 +477,16 @@ except examples are converted to JSON by the canonical JSON printer (05 §3; the
 
 ---
 
-## 8. Index and `weave_docs` tool (tier ≥ 3, tool-capable models)
+## 8. Index and `weave_docs` tool (phase 3; tier ≥ 3, tool-capable models)
 
-### 8.1 Index (replaces §3.3–3.6)
+### 8.1 Index (the long tail only; §2.1)
 
 ```text
 ### Reference index
-Call the weave_docs tool with the names you plan to use to get their exact signatures before writing a block.
-Layout: Column Row Box Grid Flow Carousel Spacer Divider Card Surface Section Split Sticky
-Text: Text Title Rich Markdown Icon Avatar Badge Chip Link Quote Callout Code Kbd Empty
-…one line per group, names only…
-Functions: math lists records text dates finance units helpers (ask weave_docs for "functions")
-Actions: (ask weave_docs for "actions")  Effects: (ask weave_docs for "effects")
+The components above are all you need for most blocks. These others also exist; call the weave_docs tool with their names to get exact signatures before using any of them.
+Layout: Box Grid Flow Carousel Spacer Divider Surface Section Split Sticky
+Text: Rich Markdown Icon Avatar Badge Chip Link Quote Code Kbd Empty
+…one line per group, names only, excluding the common set (§2.1)…
 ```
 
 ### 8.2 Tool definition

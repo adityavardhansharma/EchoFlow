@@ -1,6 +1,6 @@
 # 05 — Runtime, storage, model loop and settings
 
-**Spec version:** 1.0 · **Status:** normative
+**Spec version:** 1.1 · **Status:** normative
 
 This document says how Echo UI is built inside EchoFlow: modules, classes, threading, streaming
 integration, rendering, the hidden model requests, storage, tiers, the **Intelligent UI** setting,
@@ -42,7 +42,18 @@ on the Kotlin standard library and `kotlinx-coroutines-core` (already in the pro
 live in `weave-runtime` but are registered in the app's `AppDatabase` (§9).
 
 JSON in `weave-core` uses the module's own `TolerantJson` (needed for streaming anyway); no new JSON
-library is added.
+library is added. The app itself uses Moshi (`gradle/libs.versions.toml`); `weave-runtime` and `app`
+use Moshi for anything they serialise (Room JSON columns), not kotlinx.serialization. (01 §26.7 is
+informative and defers to this paragraph.)
+
+**Why separate modules, when EchoFlow is a single `:app` module today.** `weave-core` is a plain
+Kotlin/JVM module so the language core — parser, checker, evaluator, prompt generator — runs and is
+tested on the JVM with no emulator, Robolectric or Android SDK. That is what makes 07 §1–4 and §7–9
+fast enough to run on every build and lets the model eval harness (07 §10) drive the core directly.
+The module boundary is the enforcement: an Android import in `weave-core` fails the build. Phase 1
+MUST create `weave-core`. `weave-compose` and `weave-runtime` MAY start as packages inside `:app`
+(`com.echoflow.weave.compose`, `com.echoflow.weave.runtime`) and be split out later; the package
+names above are normative either way.
 
 ---
 
@@ -124,6 +135,7 @@ data class ComponentSpec(
     val positionalOrder: List<String>, val aliases: Map<String, String>,
     val children: ChildrenSpec, val tier: Int, val phase: Int, val doc: String,
     val placeholder: PlaceholderKind, val blockLevel: Boolean,
+    val intrinsics: Boolean,   // false if it can't answer intrinsic queries (04 §3.3)
 )
 data class MarkSpec(val name: String, val container: Set<String> /* "Chart", "Canvas" */,
                     val leads: List<ParamSpec>, val params: List<ParamSpec>,
@@ -145,6 +157,12 @@ interface Catalog {
 
 `BuiltinCatalog` contains every entry in 03 §7, 03 §10, 04 §4–§15. A unit test asserts that every
 heading in 04 has a spec and vice versa (07 §9).
+
+The catalog the checker and prompt generator actually use is
+`BuiltinCatalog.restrictedTo(tier, buildPhase)` **further restricted to components the renderer
+registry (`weave-compose` `Registry.kt`) has an entry for**. A component the build can't draw is
+never advertised and is checked as `E209`, whatever its phase tag says. This is what lets phase 1
+ship in steps (01 §29) without retagging 04.
 
 ### 3.4 Program
 
@@ -180,9 +198,11 @@ or when the screen is disposed.
 ### 4.2 StateStore
 
 - Holds `SnapshotStateMap<String, WValue>`.
-- `sync(program)`: for each declared state not present → initialise (03 §7.1, from storage if a
-  stored value exists); for states no longer declared after fence close → remove. During streaming,
-  states are only added, never removed.
+- `sync(program)`: for each declared state not present → initialise it **when it is ready** under
+  03 §7.1 (from storage if a stored value exists; otherwise only once every name its initial
+  expression reaches has arrived, or at fence close). A state that is not ready yet stays absent
+  and is retried on every later `sync`. For states no longer declared after fence close → remove.
+  During streaming, states are only added, never removed.
 - All reads happen through the map, so Compose tracks them.
 
 ### 4.3 BindingCache
@@ -207,6 +227,13 @@ or when the screen is disposed.
 | Chart downsampling and Audio waveform decode | `Dispatchers.Default` |
 
 Evaluation MUST NOT block: budgets (03 §5.3) guarantee bounded work.
+
+**Bindings are main-thread only.** `BindingCache`, `StateStore` and `ContextValues` MUST be read only
+on the main thread (they are Compose snapshot state, and binding evaluation is the snapshot graph).
+Work on `Dispatchers.Default` — chart downsampling, waveform decode — receives already-evaluated,
+immutable `WValue`s captured on the main thread and MUST NOT call the evaluator or read a binding.
+Debug builds assert this (`check(Looper.myLooper() == Looper.getMainLooper())` in
+`BindingCache.read`). `[T-465]`
 
 ### 4.5 ActionBus
 
@@ -244,12 +271,13 @@ In the app, the chat screen provides:
 CompositionLocalProvider(
     LocalMarkdownBlockExtensions provides mapOf(
         "weave" to WeaveBlockExtension(runtime),
-        "weave-json" to WeaveBlockExtension(runtime),
+        // "weave-json" to WeaveBlockExtension(runtime),   // phase 2 (02 §12)
     )
 ) { … MarkdownText(…) … }
 ```
 
-`MarkdownStreamPlanner` must be constructed with `extensionKinds = setOf("weave", "weave-json")`.
+`MarkdownStreamPlanner` must be constructed with `extensionKinds = setOf("weave")` in phase 1, and
+`setOf("weave", "weave-json")` from phase 2. An unregistered kind renders as an ordinary code fence.
 Edit fences (`weave edit <id>`) use kind `weave` and are dispatched by the info string.
 
 When the effective tier for the chat is 0 **and** the message has no blocks, nothing changes. Blocks
@@ -334,8 +362,15 @@ missing-ref placeholders removed, layout height settles (04 §2.9).
 
 Items, in order: **Undo** (enabled when history has entries) · **Versions** (when > 1 version) ·
 **Change this block…** (remix, tier 3) · **Keep in Library** · **Share** (as image / as `.weave` /
-data) · **View source** (canonical print, monospace, copyable) · **Reset** (`!resetAll` with a
-confirm dialog) · **Diagnostics** (debug builds only).
+data) · **View source** (canonical print, monospace, copyable) · **Show as plain text** · **Reset**
+(`!resetAll` with a confirm dialog) · **Diagnostics** (debug builds only).
+
+**Show as plain text** is the inverse of "Make interactive" (§11.6), for a block the user didn't
+want. It replaces the block in place with its plain-text rendering (04 §2.4) as ordinary Markdown,
+and shows a one-line "Show interactive" text button under it to switch back. The choice is stored
+per block in `uiStateJson` (`"plain": true`) and survives restarts. Nothing is sent to the model and
+the block's state is kept. When a message's blocks are shown as plain text, history (§9.4) sends
+that plain text instead of the source. `[T-466]`
 
 ### 7.3 Expand and collapse
 
@@ -410,7 +445,7 @@ version with cause `remix`.
 
 ### 8.6 Serialising values for the model
 
-Used in `<weave-state>`, `!ask`, `lazy`, `!say(attach:)`:
+Used in the history state line (06 §2.4, the only history encoding), `!ask`, `lazy`, `!say(attach:)`:
 
 | Value | JSON |
 |---|---|
@@ -422,9 +457,18 @@ Used in `<weave-state>`, `!ask`, `lazy`, `!say(attach:)`:
 | image | `"[image]"` (the image itself is attached as an image part only for `!say(attach:)` and only if the model supports images) |
 | node / action / fn | `"[node]"`, `"[action]"`, `"[function]"` |
 
-Truncation for history context (not for `!ask`): any JSON string value over 200 characters is cut to
-200 + `…`; any list over 20 items becomes `"list(<n>)"`; total state JSON over 2,000 characters →
-only the first-level keys with `"…"` values.
+Truncation for history context (not for `!ask`), applied in this order until the **complete
+serialised line** (keys, values, punctuation) is at most 2,000 characters:
+
+1. Any JSON string value over 200 characters is cut to 200 + `…`; any list over 20 items becomes
+   `"list(<n>)"`.
+2. If still over: every first-level value becomes `"…"`, keys kept.
+3. If still over: keep first-level keys in source order of their state declarations while the line,
+   including a final `"…":"+<n> more"` entry, fits; drop the rest and set `<n>` to the number
+   dropped.
+
+Step 3 always terminates: an object holding only the `"…"` entry is under 2,000 characters.
+`[T-464b]`
 
 ### 8.7 Tools and consent
 
@@ -456,7 +500,7 @@ if the number of errors decreases; else discard. At most one repair per block ve
 
 ## 9. Storage
 
-### 9.1 Room entities (database version 33)
+### 9.1 Room entities (database version N + 1)
 
 ```kotlin
 @Entity(
@@ -517,7 +561,7 @@ data class WeaveLibraryRow(
 
 `chat_threads` gains one column: `intelligentUi TEXT` (nullable; §11.2).
 
-### 9.2 Migration 32 → 33
+### 9.2 Migration N → N + 1
 
 ```sql
 CREATE TABLE IF NOT EXISTS `weave_blocks` (
@@ -545,7 +589,8 @@ ALTER TABLE `chat_threads` ADD COLUMN `intelligentUi` TEXT DEFAULT NULL;
 
 The exact SQL MUST match what Room generates for the entities (verify with the exported schema
 JSON and a `MigrationTestHelper` test, as the existing `*MigrationTest`s do). If the database
-version has moved past 32 when this is implemented, use the next free version.
+`N` is `AppDatabase.version` at the time this ships (32 when this spec was written). Never hard-code
+33: take whatever the next free version is, and name the migration after it.
 
 ### 9.3 When rows are written
 
@@ -592,6 +637,15 @@ wins, updated each release from the eval harness (07 §10). Initial rules until 
 | Small cloud models (< 20B parameters where known) | 1 |
 | On-device (local) models | 0 |
 
+**Live UI is cloud-only in this version. This is a product decision, not a side effect.** On-device
+models get tier 0, so they receive no Weave prompt section (§11.3), never stream blocks, and the
+"Make interactive" action (§11.6) is hidden for them. Blocks already in a chat still render and run
+when the user switches that chat to a local model — rendering and local actions need no model —
+but hidden requests (`!ask`, `lazy`, remix, repair) are disabled with the tooltip "Live updates need
+a cloud model". The Intelligent UI settings page says this in one line under the level cards:
+"Live UI works with cloud models." The user override (§10.3) is not offered for local models.
+Revisit only with a measured eval (07 §10) of a local model.
+
 Tier 4 is never a default in Phase 1–2. In Phase 3, curated flagship models may be raised to 4 after
 passing the tier-4 eval suite.
 
@@ -623,8 +677,10 @@ chip). If the average exceeds 2.0, the automatic tier is lowered by one for 7 da
 - Stored in the app's settings SharedPreferences (the one `SettingsRepository` uses) under key
   **`intelligent_ui_level`**; absent or unknown value → `BALANCED`. Exposed by `SettingsRepository`
   as `intelligentUiLevel: StateFlow<IntelligentUiLevel>` and `setIntelligentUiLevel(level)`.
-- UI: Settings → new row **Intelligent UI** (icon `auto_awesome`, summary = the level's short
-  description, 01 §20.5) placed in the chat section of `SettingsScreen`. It opens a page with:
+- UI: Settings → new top-level row **Intelligent UI** (icon `auto_awesome`, summary = the level's
+  short description, 01 §20.5) in the main list of `SettingsScreen`, directly after **Web search**
+  (the main list is a flat list of category rows; there is no "chat" section). It opens a
+  `SettingsPageScaffold` page with:
   - three selectable cards (radio semantics), in order **Off**, **Balanced** (with a "Default"
     badge), **Immersive**; each card shows its name (`titleMedium`), short description
     (`bodyMedium`) and a static preview image of the same answer at that level (phase 2; phase 1
@@ -637,8 +693,10 @@ chip). If the average exceeds 2.0, the automatic tier is lowered by one for 7 da
 
 - `chat_threads.intelligentUi`: `NULL` (follow the global setting), `"off"`, `"balanced"` or
   `"immersive"`.
-- UI: the chat's `+` menu has an **Intelligent UI** row with the current level; tapping opens a small
-  menu: "Use default (<global level>)", "Off", "Balanced", "Immersive".
+- UI: the chat's `+` menu (`ChatPlusMenu.kt`, today a list of feature toggles) gains one row,
+  **Intelligent UI**, whose trailing text is the current level. Unlike the toggles, tapping it opens
+  a small submenu: "Use default (<global level>)", "Off", "Balanced", "Immersive". It is hidden when
+  the chat's model is local (§10.1). Verify on the emulator (it is a popup; 07 `T-410`).
 
 ### 11.3 Effective tier
 
@@ -694,14 +752,18 @@ The latest user message is an explicit UI request if, lower-cased, it matches th
 expression:
 
 ```
-\b(calculator|chart|graph|plot|table|quiz|flashcards?|slider|dashboard|tracker|timer|countdown|
-planner|checklist|kanban|interactive|visuali[sz]e|widget|form|wizard|game|simulat\w*)\b
-|show (it|this|that|me) (as|in) (a |an )?(card|chart|graph|table|ui)
-|make (it|this) interactive
+\b(make|build|create|draw|show|give|generate|turn|put|lay)\b[^.?!\n]{0,40}\b(calculator|chart|graph|plot|table|quiz|flashcards?|slider|dashboard|tracker|timer|countdown|planner|checklist|kanban|widget|form|wizard|game|simulat\w*|ui)s?\b
+|\b(plot|chart|graph|visuali[sz]e|tabulate|simulate)\s+(it|this|that|these|those|my|the|our|how)\b
+|\b(as|in|into)\s+(a |an )?(card|chart|graph|table|ui|calculator|checklist)\b
+|\bmake\s+(it|this|that)\s+interactive\b
 ```
 
-(whitespace and newlines in the pattern above are not part of it). This list is deliberately simple
-and deterministic; it is tested in 07 §11.
+(whitespace and newlines between the alternatives above are not part of it). The rule is an
+**action plus an object**: a bare noun (`plot`, `table`, `game`, `form`) is never enough, because the
+cost of a false positive is a Balanced-sized prompt on a turn the user asked to keep plain. It is
+deterministic and tested in 07 §11, including the false positives it must not produce ("the plot of
+the novel", "any good tabletop games?", "explain the periodic table"). Known accepted false
+positive: "show me how the table of contents works". `[T-608]` `[T-608b]`
 
 ### 11.6 "Make this interactive"
 
@@ -715,13 +777,21 @@ new assistant message containing a block, rendered below, with the user turn sho
 
 ## 12. Prompt assembly
 
-- `SystemPrompts.build(...)` (and the custom-provider variant) gains a final section produced by
-  `EchoUiPrompt.section(effectiveTier, promptLevel, form, catalog)` (06 §2). It is appended after all
-  existing sections. When `effectiveTier == 0` it is the empty string.
+- `SystemPrompts.build(...)` (and the custom-provider variant) gains a section produced by
+  `EchoUiPrompt.section(effectiveTier, promptLevel, form, catalog)` (06 §2). It is inserted
+  **immediately before `freshnessGate`**, which stays the last section: `SystemPrompts` documents
+  the freshness gate as the recency slot, the last thing the model reads before answering, and a
+  multi-thousand-token Weave section after it would bury it. Every builder that ends with
+  `freshnessGate` follows the same rule. When `effectiveTier == 0` the section is the empty string
+  and nothing is inserted. `[T-505]`
+- Token cost is accepted. Balanced adds roughly 1–4k tokens to each cloud turn (measure the real
+  number in the prompt snapshot test, 07 §9, and record it there). Cloud models EchoFlow supports
+  have context windows of hundreds of thousands of tokens, so this is not a reason to change the
+  default; it is a number to watch.
 - The section is cached by `(effectiveTier, promptLevel, form, catalogVersion)`.
-- `form` (§12.1) is `json` when the model's tier ≤ 2 **and** the model is known to support
-  schema-constrained output (a flag in the tier table), else `source`. The user can't change it in
-  Phase 1.
+- `form` is always `source` in phase 1 (Weave-JSON is phase 2, 02 §12). From phase 2, `form` is
+  `json` when the model's tier ≤ 2 **and** the tier table marks that model as measured to do better
+  with schema-constrained output (07 §10), else `source`. The user can't change it.
 - The JSON Schema (02 §12.4) is passed to providers that support `response_format` only for hidden
   requests (§8), never for normal replies (a normal reply is prose with an embedded fence).
 
@@ -781,8 +851,27 @@ object Limits {
 ```
 
 Exceeding `SOURCE_BYTES` or `STATEMENTS` while streaming: stop parsing further statements and show
-"This block is too large" at the bottom (`E304`). Exceeding `NODES_VISIBLE_TOTAL`: blocks furthest
-from the viewport render their placeholder-sized snapshot instead of live UI.
+"This block is too large" at the bottom (`E304`). An **edit** whose result would exceed either is
+rejected whole and the block stays at its current version (02 §11.2).
+
+`STATE_BYTES` caps the persisted size of one block's `stateJson` (§8.6 encoding, UTF-8, before any
+history truncation). A write (03 §7.2) whose committed result would exceed it is **rejected**: the
+whole transaction rolls back, the state keeps its previous value, the block shows a 4 s inline
+chip "This block is full", and `E304` is logged.
+
+The cap also applies to **initialisation** (03 §7.1), which is not an action write. States are
+initialised in the order 03 §7.1 gives; after each one, the encoded size of all states initialised
+so far is checked. A state whose initial value would take the total past `STATE_BYTES` is
+initialised to `null` instead, `E304` (`This block is too large (state).`) is logged, and the block
+shows the same "This block is full" chip once. Later states are still tried in order, so small
+states after a huge one still initialise. The same check applies to values restored from storage
+and to new states added by an edit (02 §11.3).
+
+`historyJson` keeps at most `HISTORY_ENTRIES` entries (03 §7.5) and is dropped oldest-first until it
+is also under `STATE_BYTES`. Together these bound a block's Room row at roughly
+`SOURCE_BYTES + 2 × STATE_BYTES` plus the small JSON columns. `[T-467]`
+
+Exceeding `NODES_VISIBLE_TOTAL`: blocks furthest from the viewport render their placeholder-sized snapshot instead of live UI.
 
 ---
 

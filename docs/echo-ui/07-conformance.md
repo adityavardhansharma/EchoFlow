@@ -1,11 +1,22 @@
 # 07 — Conformance tests
 
-**Spec version:** 1.0 · **Status:** normative
+**Spec version:** 1.1 · **Status:** normative
 
 An implementation conforms when **every test in this document passes**. Each test has an id
 (`T-xxx`) that the other documents cite. Tests in §1–§4 and §11 are JVM unit tests in `weave-core`
 or `weave-runtime`; §5–§6 are Compose/Robolectric tests; §8 is a streaming corpus test; §9 checks the
 catalog and prompts; §10 is the model eval harness (run per release, not in CI).
+
+**Status of this document.** Nothing here runs yet: this is the test *specification*. The tests are
+written alongside the code they cover, in the same PR. The streaming corpus (§8) does not exist
+until it is collected; the eval harness (§10) does not exist until it is built. A test
+**applies to a build only when everything it exercises ships in that build**: every component, mark
+and action it names has a renderer or handler in the build's registry (05 §3.3), and every feature
+it relies on (`!ask`, `lazy`, `query`, `frame`, Weave-JSON, the per-chat override, …) is in a phase
+the build includes (01 §29). For example, `T-454`–`T-458` apply from phase 2 and `T-452` from phase
+3. "Every component" in `T-401`, `T-408` and `T-500`–`T-504` means every component the build
+registers. A build is conformant when every test that applies to it passes; skipping an applicable
+test is a failure. §4.1 is marked **(phase 2)** as a reminder; the rule above is what decides.
 
 Notation: `⇒` means "produces". Unless stated, locale is `en-IN`, time zone `Asia/Kolkata`, light
 theme, font scale 1.0. "Tokens" lists token kinds; "AST" shows a canonical print (02 §13). "Diag"
@@ -23,13 +34,14 @@ lists diagnostic codes in order.
 | T-001b | Fence info `weave edit loan extra` | Edit of block `loan` |
 | T-002 | Body `a = 1\n```\nb = 2` | Statements `a = 1`, `b = 2` (the ``` line is removed) |
 | T-003 | Body with `\r\n` line endings and a BOM | Same result as with `\n` and no BOM |
+| T-004 | A top-level `~~~weave` … `~~~` fence | A block, same as the backtick form; `~~~weave` closed by ```` ``` ```` is not closed |
 
 ### 1.2 Numbers, percent, durations, units
 
 | Id | Input expression | Expected |
 |---|---|---|
 | T-010 | `1_000_000` | 1000000 |
-| T-010b | `1__0` | `E104` |
+| T-010b | `1__0`, `1_` | one `E104` each (one malformed number token, not a cascade) |
 | T-011 | `1..3` | `[1, 2, 3]` |
 | T-012a | `45%` | 0.45 |
 | T-012b | `10%3` | 1 |
@@ -53,7 +65,7 @@ lists diagnostic codes in order.
 | T-015e | `"{a \|> f()}"` | the `\|>` is a pipe, not a format separator |
 | T-015f | `'single'` | `"single"` with `W403` (A1) |
 | T-015g | `“curly”` | `"curly"` with `W403` |
-| T-016 | `"""\n    line1\n      line2\n    """` | `"line1\n  line2\n"` (first newline removed, common indent removed) — trailing newline before the closing quotes is kept |
+| T-016 | `"""\n    line1\n      line2\n    """` | `"line1\n  line2\n"` (first newline removed, common indent removed) — trailing newline before the closing quotes is kept. Kotlin's `trimIndent()` returns `"line1\n  line2"` and MUST NOT be used (02 §2.9) |
 | T-017a | `Text("x", color: #FF0000)` | `color: error` with `W403` (S5) |
 | T-017b | `a = 1 # #FF0000 is red` | `a = 1` (comment: previous token is `NUMBER`, not `:`/`(`/`,`/`=`/`[`) |
 
@@ -83,7 +95,9 @@ lists diagnostic codes in order.
 | T-040a | `Header = Title("x")`; `root = Column [Header]` | renamed `header`, reference rewritten | `W403` |
 | T-040b | `Header = Title("x")` where `header` also exists | statement dropped | `E107` |
 | T-041 | `a = 1\na = 2` | `a = 2` | `W404` |
-| T-042 | `on change($x) -> !inc($a)\non change($x) -> !inc($b)` | one effect: `!inc($b)` | `W404` |
+| T-042 | `on change($x) -> !inc($a)\non change($x) -> !inc($b)` | one effect: `on change($x) -> [!inc($a), !inc($b)]` | `W403` (S12) |
+| T-042b | `on change($x) when $x > 10 -> !toast("high")\non change($x) when $x < 0 -> !toast("low")` | one effect: `on change($x) -> [!if($x > 10, !toast("high")), !if($x < 0, !toast("low"))]`; setting `$x` to 11 toasts "high" only, to -1 toasts "low" only | `W403` (S12) |
+| T-042c | `on change($x, debounce: 300ms) -> !a()\non change($x) -> !b()` | two effects (different trigger keys) | — |
 | T-043a | No `root`; `card = Card [Text("x")]` | root = `card` | `W405` |
 | T-043b | Only `x = 1` | renders as code fence with chip | `W405` |
 | T-044 | `export emi, $nope` | exports `emi` only | `W407` |
@@ -115,6 +129,7 @@ lists diagnostic codes in order.
 | T-076 | `a = 1;` | `a = 1` |
 | T-077 | `Card(gap: 14)` | `Card(gap: m)` (12 and 16 tie → smaller) |
 | T-078 | `Card(gap: 20)` | `Card(gap: l)` (16 and 24 tie → smaller) |
+| T-078b | `Card(shape: 24)` | `Card(shape: m)` (default `Shapes`: 20 and 28 tie → smaller) |
 | T-079 | `Card(gap: 21)` | `Card(gap: xl)` |
 | T-080 | `Card(gap: "m")` | `Card(gap: m)` (S8) |
 | T-081 | `a = if($x > 1, "big", "small")` | `a = $x > 1 ? "big" : "small"` |
@@ -176,6 +191,8 @@ lists diagnostic codes in order.
 | T-275 | `on appear -> [!url("https://example.com"), !toast("hi")]` | block appears | URL not opened (logged), toast shown |
 | T-276 | `$a = 1`, no history | `[!inc($a), !undo]` in one tap | `$a == 2` and one history entry: `!undo` runs inside the same transaction, before the `!inc` entry is committed, so there is nothing to undo yet |
 | T-277 | slider drag over 10 values | — | one history entry; `!undo` restores the value before the drag |
+| T-278 | streamed in order: `$rate = base(10)`, `root = Text($rate)`, `fn base(n) = n * 2`, fence close | — | `$rate == 20` (initialised when `base` arrives); before that `root` shows its placeholder, never `—` |
+| T-279 | streamed: `$rate = nope(10)`, `root = Text($rate)`, fence close | — | at fence close `$rate` is initialised to `null` with `E202`; it is **not** re-evaluated later |
 | T-280 | `$a = 0`, `$b = 0`, `on change($a) -> !inc($b)`, `on change($b) -> !inc($a)` | tap `!inc($a)` | `$a == 5`, `$b == 4`, one `E306` |
 | T-281 | `on change($q, debounce: 400ms) -> !inc($n)` | 5 writes to `$q` 100 ms apart | `$n` increments once, 400 ms after the last write |
 | T-282 | `on every(100ms) -> !inc($n)` | visible for 1 s | interval raised to 250 ms (`W402`); `$n` ∈ {3, 4} |
@@ -230,13 +247,15 @@ lists diagnostic codes in order.
 | T-102 | `$r = 5` (user moved it to 9) | `$r = 1` | `$r == 9` |
 | T-103 | `$r = 5` (user moved it to 9) | `$r = 1 reset` | `$r == 1` |
 | T-104 | `on change($r) -> !haptic(tick)` | `-on change($r)` | no effect |
+| T-104b | `on change($r) -> !haptic(tick)` | `on change($r) -> !a()`, `-on change($r)`, `on change($r) -> !b()` | one effect: `on change($r) -> !b()` |
 | T-105 | `root = Text("x")` | `-root` | `E107`, ignored |
 | T-106 | `root = Text(a)`, `a = "x"` | `-a` | `root` shows `—` (a is `null`), `E301` |
 | T-106b | `root = Text("x")` | `root = Nope()` | edit applies, but `root` has no renderable node → **edit rejected**, block stays at version 1 |
 | T-107 | thread has no block `zz` | ```` ```weave edit zz```` with `root = Text("x")` | renders as a new block with id `zz` |
+| T-108 | a block at 399 statements | an `!ask` edit adding 2 new helpers | edit rejected, block stays at version n, handled as a failed `!ask` (Retry chip); same for a result over 48 KB |
 | T-110 | `root=Card(gap:m)[Text( "a" ),Text("b")]` | canonical print | `root = Card(gap: m) [Text("a"), Text("b")]`; `print(parse(print(p))) == print(p)` for every corpus program |
 
-### 4.1 Weave-JSON
+### 4.1 Weave-JSON (phase 2)
 
 | Id | Input | Expected |
 |---|---|---|
@@ -252,17 +271,21 @@ lists diagnostic codes in order.
 
 | Id | Test |
 |---|---|
-| T-400 | `TextField($p, label: "Password")`, `"Enter OTP"`, `"Card number"`, `"PIN"` → field disabled with "EchoFlow blocks can't ask for secrets". `"Pincode"` is **also** refused (matches `pin`): accepted false positive. |
+| T-400 | `TextField($p, label: …)` with `"Password"`, `"Enter OTP"`, `"Card number"`, `"PIN"`, `"ATM PIN"`, `"Aadhaar"` → field disabled with "EchoFlow blocks can't ask for secrets". |
+| T-400b | Labels `"Pincode"`, `"PIN code"`, `"Postal code"`, `"Spinner speed"`, `"Pinned notes"` → field enabled (not refused). |
+| T-400c | Labels `"ATM PIN code"`, `"UPI PIN"`, `"Card PIN"` → refused. |
 | T-401 | Every component in 04 renders without crashing for 200 random argument sets (fuzz: random types, nulls, huge strings, negative and huge numbers, empty lists). |
 | T-402 | Modifier order (04 §2.2): a `Card(bg: primary, shape: xl, border: true, pad: l, onTap: …)` produces a ripple clipped to the xl shape and padding inside the border (semantic and pixel assertions). |
-| T-403 | `Row` overflow: a `Row` with 4 `Button`s of 20-character labels at 360 dp width lays out as a column. |
+| T-403 | `Row` overflow: a `Row` with 4 `Button`s of 20-character labels at 360 dp width lays out as a column. The `Row` is implemented with `Layout`, not `SubcomposeLayout` (lint). |
+| T-403b | `Row [Text("a"), Carousel(items)]` renders without an exception and lays out as a column; with `wrap: never` the carousel gets the width left after `Text`. No intrinsic query reaches the carousel. |
 | T-404 | `Metric` animation: value 100 → 200 shows intermediate values during `motion: default` and ends exactly at `200`. |
 | T-405 | `Slider(step: 0.05)` writes values with no float noise (`8.55`, never `8.549999`). |
 | T-406 | `Tabs` composes only the selected page (a counter in an unselected page's binding is never evaluated). |
-| T-407 | Placeholders never shrink during streaming (§8). |
+| T-407 | Placeholders never shrink during streaming (§8). At fence close, a held extra height animates down with the `fast` spatial spec when the block is visible (intermediate heights observed), and changes in one step under reduced motion or when the block is off-screen. |
 | T-408 | Theme matrix: every non-popup component screenshot-tested (Roborazzi) in all 6 palettes + dynamic × light/dark × font scale 1.0 and 1.5. Golden images reviewed once, then frozen. |
 | T-409 | No hardcoded colours: a lint check fails the build on `Color(0x`, `Color.Red` etc. in `weave-compose` except in `tokens/Semantic.kt`. |
-| T-410 | Overlays (`Sheet`, `Dialog`, `Popover`, `Menu`) verified on the emulator; screenshots in the PR (CLAUDE.md). |
+| T-410 | Popups — `Sheet`, `Dialog`, `Popover`, `Menu`, `Select`'s dropdown, the date/time pickers, the confirm sheet (05 §13.1) and the per-chat Intelligent UI submenu (05 §11.2) — verified on the emulator; screenshots in the PR (CLAUDE.md). Roborazzi can't capture them. |
+| T-414 | Tokens resolve through the theme: with `Shape.kt` / `Spacing.kt` temporarily changed in a test theme, `Card(shape: m, pad: l)` uses the new `shapes.medium` and `Spacing.base`. |
 | T-411 | Charts: `LineChart` with data `[{x: 1, y: 10}, {x: 2, y: 30}]` at 300 × 168 dp has y ticks `0, 10, 20, 30` and the line's last point at the top of the plot area. |
 | T-412 | Chart select: tapping a bar writes its record to the `select` place and dims others to 40 %. |
 | T-413 | Accessibility: TalkBack labels for `Metric` (`"Monthly EMI: ₹43,391"`), `Slider`, `Chart` summary; every clickable ≥ 48 dp. |
@@ -286,8 +309,12 @@ lists diagnostic codes in order.
 | T-460 | Effects can't do outbound actions (T-275). |
 | T-461 | Max blocks: Balanced level, reply with 2 blocks → second renders as a code fence. |
 | T-462 | Existing blocks still render and work after switching the level to Off. |
-| T-463 | Room migration 32 → 33 passes `MigrationTestHelper` (like the existing migration tests). |
-| T-464 | History to model: a block whose `$rate` was moved to 9.1 is sent as its current canonical source followed by `# state {"rate":9.1}` inside the fence. |
+| T-463 | Room migration N → N + 1 (05 §9.2; N = `AppDatabase.version` when shipped) passes `MigrationTestHelper` (like the existing migration tests). |
+| T-464 | History to model: a block whose `$rate` was moved to 9.1 is sent as its current canonical source followed by `# state {"rate":9.1}` inside the fence. No `<weave-state>` tag appears anywhere. |
+| T-464b | 250 changed states named `s000`…`s249`: the state line is ≤ 2,000 characters, keeps a prefix of keys in declaration order with `"…"` values, and ends with `"…":"+<n> more"` where `<n>` is the number dropped. |
+| T-465 | Debug build: reading a binding from `Dispatchers.Default` throws; chart downsampling receives a `WValue` list and never calls the evaluator. |
+| T-466 | Block menu → "Show as plain text": the block is replaced by its plain text, "Show interactive" restores it with state intact, the choice survives a restart, and history sends the plain text. |
+| T-467 | A write that would push `stateJson` past `STATE_BYTES` rolls back the whole transaction, keeps the previous value and shows "This block is full"; `historyJson` is trimmed oldest-first. Initialisation too: `$big = map(range(1000), i => "x" * 1000)` then `$n = 1` → `$big` is `null` with `E304`, `$n == 1`, the chip shows once, and the stored `stateJson` is under `STATE_BYTES`. |
 
 ---
 
@@ -328,13 +355,18 @@ For each program `p`:
 |---|---|
 | T-500 | Every component, mark, action and function heading in 03/04 has a catalog entry, and every catalog entry is documented (parses the Markdown headings and tables). |
 | T-501 | Every catalog parameter has a type and either a default or `required`. |
-| T-502 | Prompt snapshots: the output of `EchoUiPrompt.section` for every (tier 1–4) × (Balanced, Immersive) × (source, json) is snapshot-tested against `weave-core/src/test/resources/prompts/*.txt`. |
+| T-502 | Prompt snapshots: the output of `EchoUiPrompt.section` for every (tier 1–4) × (Balanced, Immersive) × (source; json from phase 2) is snapshot-tested against `weave-core/src/test/resources/prompts/*.txt`. The test also records each snapshot's token count (any tokenizer, stated in the file) so the prompt cost in 05 §12 is a measured number. |
 | T-503 | Every example block in 06 §3.8 parses with zero errors and zero warnings, and renders. |
 | T-504 | The prompt for tier n mentions no component, function or action whose tier > n or phase > the build's phase. |
+| T-505 | `SystemPrompts.build` (and every other builder that ends with `freshnessGate`) with a non-zero tier: the Weave section is immediately before the freshness gate, and the freshness gate is still the last section. Tier 0: the output is byte-identical to today's. |
 
 ---
 
 ## 10. Model eval harness (per release)
+
+**This harness is not a prerequisite for building phase 1.** It is built after the language core
+and renderer exist and runs before a phase leaves its settings flag (01 §29), then once per release.
+Until it has run, the tier table uses the defaults in 05 §10.1. It covers cloud models only (05 §10.1).
 
 ### 10.1 Tasks
 
@@ -374,6 +406,8 @@ render success ≥ 97 %, task completion ≥ 85 %, and (Balanced) over-use ≤ 1
 | T-605 | `effectiveTier(OFF, 3, explicitUiRequest = true, false, 4)` | 3, prompt level `BALANCED` |
 | T-606 | `effectiveTier(OFF, 3, false, makeInteractive = true, 4)` | 3 |
 | T-607 | `effectiveTier(IMMERSIVE, 4, false, false, shippedTier = 2)` | 2 |
-| T-608 | Explicit-request regex: "make a loan calculator" / "show it as a table" / "what's the capital of France" / "any good tabletop games?" / "the plot of the novel" | true / true / false / false / true (accepted false positive) |
+| T-608 | Explicit-request regex (05 §11.5), true: "make a loan calculator", "show it as a table", "plot my expenses for March", "draw a chart of rainfall", "turn this into a checklist", "make this interactive", "build me a budget tracker", "show me how the table of contents works" (accepted false positive) | all true |
+| T-608b | Explicit-request regex, false: "what's the capital of France", "any good tabletop games?", "the plot of the novel", "explain the periodic table", "how do I set a timer on my phone?", "is this form valid HTML?" | all false |
 | T-609 | Unknown model, tools + 128k context | tier 2; no tools, 16k → 1; 4k → 0 |
 | T-610 | Quality record averages 2.3 errors over 10 blocks | automatic tier lowered by 1 for 7 days; a user override is unaffected |
+| T-611 | Chat on a local model | effective tier 0; no Weave section; "Make interactive" and the per-chat Intelligent UI row hidden; existing blocks render, local actions work, `!ask` disabled with "Live updates need a cloud model" |
