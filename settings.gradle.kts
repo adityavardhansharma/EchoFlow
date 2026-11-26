@@ -25,3 +25,5 @@ dependencyResolutionManagement {
 rootProject.name = "EchoFlow"
 
 include(":app")
+
+include(":weave-core")
