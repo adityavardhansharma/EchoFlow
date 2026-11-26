@@ -157,6 +157,7 @@ internal const val PageAppearance = "appearance"
 internal const val PageModels = "models"
 internal const val PageCloudModels = "cloud_models"
 internal const val PageWebSearch = "web_search"
+internal const val PageIntelligentUi = "intelligent_ui"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
 internal const val PageImagine = "imagine"
@@ -198,7 +199,7 @@ internal val CustomProviderSectionGap = 28.dp
 internal fun settingsParentPage(page: String): String? = if (page.startsWith(PageSpendProvider)) PageSpend else when (page) {
     PageHome -> null
     PageMyMemories -> PageMemory
-    PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageLocalModels,
+    PageAppearance, PageModels, PageCloudModels, PageWebSearch, PageIntelligentUi, PageLocalModels,
     PageDeepResearch, PageImagine, PageSpeechToText, PageEchoLabs, PageCustomProviderCloud, PageSpend, PageVoiceMode,
     -> PageHome
     PageDataAgent, PageBrowserFlow, PageEchoAdviser, PageEchoFusion,
@@ -277,6 +278,7 @@ fun SettingsScreen(
             PageModels -> ModelsPage(viewModel, onBack = navigateBack)
             PageCloudModels -> CloudModelsPage(viewModel, onBack = navigateBack)
             PageWebSearch -> WebSearchPage(viewModel, onBack = navigateBack)
+            PageIntelligentUi -> IntelligentUiPage(viewModel, onBack = navigateBack)
             PageLocalModels -> LocalModelsPage(viewModel, onBack = navigateBack)
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = navigateBack)
             PageImagine -> ImaginePage(viewModel, onBack = navigateBack)
@@ -406,7 +408,8 @@ internal fun SettingsHomePage(
     val voiceModeReady = voiceKeys.anyReady
     val hubContext = androidx.compose.ui.platform.LocalContext.current
     val voiceConfig by remember(hubContext) { com.echoflow.data.voice.VoiceModeSettings.get(hubContext.applicationContext) }.config.collectAsState()
-    val navCount = if (voiceModeReady) 10 else 9
+    val navCount = if (voiceModeReady) 11 else 10
+    val uiLevel by viewModel.intelligentUiLevel.collectAsState()
     val afterVoice = if (voiceModeReady) 1 else 0
 
     val themeLabel = when (darkMode) {
@@ -511,13 +514,23 @@ internal fun SettingsHomePage(
                 onClick = { onOpen(PageWebSearch) },
             )
             SettingsNavRow(
+                icon = Icons.Default.AutoAwesome,
+                polygon = MaterialShapes.Sunny,
+                title = "Intelligent UI",
+                subtitle = uiLevel.summary(),
+                container = MaterialTheme.colorScheme.primaryContainer,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                index = 4, count = navCount,
+                onClick = { onOpen(PageIntelligentUi) },
+            )
+            SettingsNavRow(
                 icon = Icons.Default.Science,
                 polygon = MaterialShapes.Cookie4Sided,
                 title = "Deep Research",
                 subtitle = deepResearchSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 4, count = navCount,
+                index = 5, count = navCount,
                 onClick = { onOpen(PageDeepResearch) },
             )
             SettingsNavRow(
@@ -527,7 +540,7 @@ internal fun SettingsHomePage(
                 subtitle = imagineSubtitle,
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 5, count = navCount,
+                index = 6, count = navCount,
                 onClick = { onOpen(PageImagine) },
             )
             SettingsNavRow(
@@ -537,7 +550,7 @@ internal fun SettingsHomePage(
                 subtitle = sttSubtitle,
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
-                index = 6, count = navCount,
+                index = 7, count = navCount,
                 onClick = { onOpen(PageSpeechToText) },
             )
             if (voiceModeReady) {
@@ -548,7 +561,7 @@ internal fun SettingsHomePage(
                     subtitle = voiceModeHubSubtitle(voiceConfig, voiceKeys),
                     container = MaterialTheme.colorScheme.primaryContainer,
                     onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                    index = 7, count = navCount,
+                    index = 8, count = navCount,
                     onClick = { onOpen(PageVoiceMode) },
                 )
             }
@@ -559,7 +572,7 @@ internal fun SettingsHomePage(
                 subtitle = echoLabsSubtitle,
                 container = MaterialTheme.colorScheme.tertiaryContainer,
                 onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                index = 7 + afterVoice, count = navCount,
+                index = 8 + afterVoice, count = navCount,
                 onClick = { onOpen(PageEchoLabs) },
             )
             SettingsNavRow(
@@ -569,7 +582,7 @@ internal fun SettingsHomePage(
                 subtitle = spendThisMonth?.let { "${SpendFormat.usd(it)} this month" } ?: "What your API keys have spent",
                 container = MaterialTheme.colorScheme.primaryContainer,
                 onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-                index = 8 + afterVoice, count = navCount,
+                index = 9 + afterVoice, count = navCount,
                 onClick = { onOpen(PageSpend) },
             )
         }
