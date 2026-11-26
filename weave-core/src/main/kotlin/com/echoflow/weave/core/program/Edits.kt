@@ -104,10 +104,15 @@ object Edits {
         else EditResult(program, false, rejection, diags + allDiags, emptySet())
     }
 
-    /** The root binding exists and its expression is not a removed node (E201/E209 → null). */
+    /**
+     * The edited program's root actually evaluates to a node with initial state (02 §11.2): a
+     * literal, a cycle or anything else that yields no node is rejected and the block keeps its
+     * current version.
+     */
     private fun rootRenders(p: WeaveProgram): Boolean {
         val r = p.root?.let { p.bindings[it] } ?: return false
         val e = r.expr
-        return !(e is com.echoflow.weave.core.parse.Lit && e.value == com.echoflow.weave.core.eval.WNull)
+        if (e is com.echoflow.weave.core.parse.Lit && e.value == com.echoflow.weave.core.eval.WNull) return false
+        return runCatching { com.echoflow.weave.core.eval.Session(p).root() != null }.getOrDefault(false)
     }
 }
