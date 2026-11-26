@@ -411,8 +411,11 @@ class Parser private constructor(private val toks: List<Token>) {
                         expectPunct("]")
                         e = (e as Call).copy(children = items, span = spanFrom(start))
                     } else {
-                        val ix = expr()
-                        expectPunct("]")
+                        // `card [a, b]` (a lowercase component, fixed by S7 in the checker) parses
+                        // as an index with a list; a real index has exactly one expression.
+                        val items = exprList("]")
+                        val close = expectPunct("]")
+                        val ix = if (items.size == 1) items[0] else ListLit(items, Span(start.line, start.start, close.end))
                         e = Index(e, ix, spanFrom(start))
                     }
                 }

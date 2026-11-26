@@ -138,7 +138,7 @@ class Checker(
         }
         is Qualified -> e
         is Member -> e.copy(target = if (e.target is Name && (e.target.name in CONSTANTS)) e.target else expr(e.target, ctx.copy(tokenSlot = false)))
-        is Index -> e.copy(target = expr(e.target, ctx.copy(tokenSlot = false)), index = expr(e.index, ctx.copy(tokenSlot = false)))
+        is Index -> lowercaseComponent(e, ctx) ?: e.copy(target = expr(e.target, ctx.copy(tokenSlot = false)), index = expr(e.index, ctx.copy(tokenSlot = false)))
         is Unary -> e.copy(operand = expr(e.operand, ctx.copy(tokenSlot = false)))
         is BinaryOp -> if (e.op == "??") e.copy(left = expr(e.left, ctx, slot), right = expr(e.right, ctx, slot))
         else e.copy(left = expr(e.left, ctx.copy(tokenSlot = false)), right = expr(e.right, ctx.copy(tokenSlot = false)))
@@ -154,6 +154,16 @@ class Checker(
             Lit(WNull, e.span)
         }
         is Call -> call(e, ctx)
+    }
+
+    /** S7 for `card [a, b]`: an undeclared name whose capitalised form is a component. */
+    private fun lowercaseComponent(e: Index, ctx: Ctx): Expr? {
+        val n = (e.target as? Name)?.name ?: return null
+        if (n in ctx.locals || n in ctx.eventVars || n in bindings || n in functions || n in CONSTANTS) return null
+        val comp = full.components.firstOrNull { it.name.equals(n, ignoreCase = true) } ?: return null
+        diags += Diag.autofix(e.span, "\"$n\" written as \"${comp.name}\"", stmtName)
+        val kids = (e.index as? ListLit)?.items ?: listOf(e.index)
+        return call(Call(CallKind.COMPONENT, comp.name, emptyList(), emptyList(), kids, e.span), ctx)
     }
 
     private fun name(e: Name, ctx: Ctx): Expr {
