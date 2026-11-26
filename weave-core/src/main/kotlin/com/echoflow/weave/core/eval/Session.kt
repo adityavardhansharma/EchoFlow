@@ -287,8 +287,20 @@ class Session(
         runEvent(action, data, fromEffect = false, chain = chain)
     }
 
+    /** Writes during one continuous drag merge into a single history entry (03 §7.5). */
+    private var dragOpen = false
+    private var dragging = false
+
+    /** Ends a continuous drag: the next drag write starts a new history entry. */
+    fun endDrag() { dragOpen = false }
+
     /** An input writes its bound place (then its `onChange`), in one transaction (04 §7). */
-    fun input(place: Place, value: WValue, onChange: WValue? = null) {
+    fun input(place: Place, value: WValue, onChange: WValue? = null, drag: Boolean = false) {
+        dragging = drag
+        try { inputTx(place, value, onChange) } finally { dragging = false }
+    }
+
+    private fun inputTx(place: Place, value: WValue, onChange: WValue?) {
         val chain = intArrayOf(0)
         val tx = Tx(LinkedHashMap(state), ArrayList(), false)
         val before = LinkedHashMap(state)
@@ -429,7 +441,11 @@ class Session(
         }
         val changed = tx.work != state
         state.clear(); state.putAll(tx.work)
-        if (changed && !tx.undid) {
+        if (changed && !tx.undid && dragging && dragOpen && undo.isNotEmpty()) {
+            undo.addLast(undo.removeLast().first to LinkedHashMap(tx.work))
+            redo.clear()
+        } else if (changed && !tx.undid) {
+            dragOpen = dragging
             undo.addLast(LinkedHashMap(before) to LinkedHashMap(tx.work))
             while (undo.size > Limits.HISTORY_ENTRIES) undo.removeFirst()
             redo.clear()
