@@ -174,6 +174,10 @@ class Session(
             }
         }
         initStates(program.states.keys.toList())
+        // Callbacks belong to the version that scheduled them: an edit cancels pending
+        // debounce, `!after` and `every` timers, then installs the new version's `every` effects.
+        timers.clear()
+        if (appeared) startEvery()
     }
 
     // ---- events and transactions, 03 §7.2 -------------------------------------------------------
@@ -333,17 +337,19 @@ class Session(
             redo.clear()
         }
         // deferred queue, in order (03 §7.2 step 6)
-        for ((a, ev) in tx.deferred) deferred(a, ev)
+        for ((a, ev) in tx.deferred) deferred(a, ev, tx.fromEffect)
         if (changed) changeEffects(before, chain)
     }
 
-    private fun deferred(a: WAction, ev: Evaluator) {
+    private fun deferred(a: WAction, ev: Evaluator, fromEffect: Boolean) {
         val args = a.args.map { ev.topLevel(it, a.scope) }
         val named = a.named.associate { (k, v) -> k to ev.topLevel(v, a.scope) }
         if (a.kind == "after") {
             val delay = ((args.getOrNull(0) as? WDur)?.ms ?: 0L).coerceAtMost(600_000L)
             val act = args.getOrNull(1) ?: named["action"] ?: return
-            schedule(delay, "after@${a.origin.start}@$clock") { runEvent(act, null, fromEffect = false, chain = intArrayOf(0)) }
+            // The callback keeps the origin of the event that scheduled it, so an effect can't
+            // launder an outbound action through a timer (03 §7.4).
+            schedule(delay, "after@${a.origin.start}@$clock") { runEvent(act, null, fromEffect = fromEffect, chain = intArrayOf(0)) }
             return
         }
         outbox += HostEffect(a.kind, args, named)
@@ -403,6 +409,10 @@ class Session(
             appeared = true
             program.effects.values.filter { it.trigger.callee == "appear" }.forEach { runEffect(it, WNull, intArrayOf(0)) }
         }
+        startEvery()
+    }
+
+    private fun startEvery() {
         for (e in program.effects.values.filter { it.trigger.callee == "every" }) {
             val iv = (Evaluator(program, HashMap(state), ctx, catalog).topLevel(e.trigger.leads.firstOrNull() ?: continue) as? WDur)?.ms ?: continue
             val period = maxOf(iv, Limits.MIN_TIMER_MS)
