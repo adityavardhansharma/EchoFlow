@@ -201,6 +201,18 @@ class SettingsRepository(context: Context) {
     private val _artifactsOffline = MutableStateFlow(getArtifactsOfflineDirect())
     val artifactsOffline: StateFlow<Boolean> = _artifactsOffline.asStateFlow()
 
+    // Echo UI (05 §11.1): how much interactive UI the model may put in replies.
+    private val _intelligentUiLevel = MutableStateFlow(getIntelligentUiLevelDirect())
+    val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = _intelligentUiLevel.asStateFlow()
+
+    private val _echoUiAutoFix = MutableStateFlow(prefs.getBoolean("echoui_autofix", false))
+    /** "Auto-fix broken blocks" (05 §8.4, §8.9): one hidden repair request per broken block. */
+    val echoUiAutoFix: StateFlow<Boolean> = _echoUiAutoFix.asStateFlow()
+
+    private val _echoUiModel = MutableStateFlow(prefs.getString("echoui_model", null))
+    /** "Model for live updates" (05 §8.8); null = the chat's own model. */
+    val echoUiModel: StateFlow<String?> = _echoUiModel.asStateFlow()
+
     // Speech to text (composer dictation). Cloud only for now; on-device is "coming soon".
     // Runs on OpenRouter with the same key as Cloud models — see [SttCatalog].
     private val _sttMode = MutableStateFlow(getSttModeDirect())
@@ -685,6 +697,41 @@ class SettingsRepository(context: Context) {
     fun saveArtifactsOffline(enabled: Boolean) {
         prefs.edit().putBoolean("artifacts_offline", enabled).apply()
         _artifactsOffline.value = enabled
+    }
+
+    // ── Echo UI ──────────────────────────────────────────────────────────────────────────
+
+    /** Absent or unknown → Balanced (05 §11.1). */
+    fun getIntelligentUiLevelDirect(): com.echoflow.weave.core.prompt.IntelligentUiLevel =
+        com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(prefs.getString("intelligent_ui_level", null))
+
+    fun setIntelligentUiLevel(level: com.echoflow.weave.core.prompt.IntelligentUiLevel) {
+        prefs.edit().putString("intelligent_ui_level", level.storageKey).apply()
+        _intelligentUiLevel.value = level
+    }
+
+    fun setEchoUiAutoFix(enabled: Boolean) {
+        prefs.edit().putBoolean("echoui_autofix", enabled).apply()
+        _echoUiAutoFix.value = enabled
+    }
+
+    fun setEchoUiModel(modelId: String?) {
+        prefs.edit().apply { if (modelId == null) remove("echoui_model") else putString("echoui_model", modelId) }.apply()
+        _echoUiModel.value = modelId
+    }
+
+    /** "Live UI capability" override for one model (05 §10.3); null = automatic. */
+    fun getEchoUiTierOverride(modelId: String): Int? =
+        prefs.getInt("echoui_tier_override_$modelId", -1).takeIf { it in 0..4 }
+
+    fun setEchoUiTierOverride(modelId: String, tier: Int?) {
+        prefs.edit().apply { if (tier == null) remove("echoui_tier_override_$modelId") else putInt("echoui_tier_override_$modelId", tier) }.apply()
+    }
+
+    /** Raw SharedPreferences access for the Echo UI quality record (05 §10.4). */
+    fun getEchoUiString(key: String): String? = prefs.getString(key, null)
+    fun putEchoUiString(key: String, value: String?) {
+        prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
     }
 
     // ── Speech to text ───────────────────────────────────────────────────────────────────
