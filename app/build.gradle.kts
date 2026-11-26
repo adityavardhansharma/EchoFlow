@@ -76,6 +76,10 @@ android {
     compose = true
     buildConfig = true
   }
+  defaultConfig {
+    // Echo UI phase (05 §15): 1 → tier 2, 2 → tier 3, 3 → tier 4.
+    buildConfigField("int", "ECHO_UI_PHASE", "3")
+  }
   packaging {
     jniLibs {
       // The markdown parser, math engine, and code highlighter each ship these.
@@ -95,6 +99,7 @@ secrets {
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation(project(":weave-core"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
