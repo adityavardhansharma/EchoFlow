@@ -130,6 +130,10 @@ class Evaluator(
             report(Diag.limit(b.span, e.what, name)); v = WNull
         } catch (e: StackOverflowError) {
             report(Diag.budget(b.span, name, name)); v = WNull
+        } catch (e: RuntimeException) {
+            // Golden rule 1 (03): nothing a block does may throw out of the evaluator. A JDK
+            // failure on an extreme argument (date overflow, arithmetic) is just a null value.
+            v = WNull
         }
         inProgress.remove(name)
         steps = savedSteps
@@ -155,6 +159,8 @@ class Evaluator(
             WNull
         } catch (x: StackOverflowError) {
             report(Diag.budget(e.span, name, name)); WNull
+        } catch (x: RuntimeException) {
+            WNull
         } finally {
             steps = saved
         }
