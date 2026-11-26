@@ -36,7 +36,10 @@ class Parser private constructor(private val toks: List<Token>) {
     private val diags = ArrayList<Diagnostic>()
 
     private fun peek(o: Int = 0): Token? = toks.getOrNull(p + o)
-    private fun next(): Token = toks[p++]
+    private fun next(): Token {
+        if (p >= toks.size) fail(null)
+        return toks[p++]
+    }
     private fun atEnd() = p >= toks.size
     private fun isPunct(s: String, o: Int = 0) = peek(o)?.isPunct(s) == true
     private fun isKw(s: String, o: Int = 0) = peek(o)?.isKeyword(s) == true
@@ -722,6 +725,11 @@ class Parser private constructor(private val toks: List<Token>) {
                 ParsedLine(stmt, ds + parser.diags, line.start, line.end, cap)
             } catch (e: ParseError) {
                 ParsedLine(null, ds + parser.diags.filter { it.severity == com.echoflow.weave.core.check.Severity.WARNING } + e.diag, line.start, line.end)
+            } catch (e: RuntimeException) {
+                // golden rule 1: never throw for any input
+                ParsedLine(null, ds + Diag.syntax(sp, first.text), line.start, line.end)
+            } catch (e: StackOverflowError) {
+                ParsedLine(null, ds + Diag.syntax(sp, first.text), line.start, line.end)
             }
         }
 
