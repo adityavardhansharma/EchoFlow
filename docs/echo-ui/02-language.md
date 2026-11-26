@@ -1,6 +1,6 @@
 # 02 — The Weave language
 
-**Spec version:** 1.2 · **Status:** normative · **Language version:** 1
+**Spec version:** 1.3 · **Status:** normative · **Language version:** 1
 
 This document defines exactly how Weave text becomes a parsed program: characters → tokens →
 logical lines → statements → syntax tree. Semantics (what the tree *means*) are in
@@ -96,10 +96,15 @@ fn  js  on  when  export  and  or  not  in  true  false  null  transient  reset
 Keywords cannot be used as binding, state, function or parameter names (`E106 reserved-name`).
 `$in` and `$on` are allowed: the `$` makes them state names, not keywords.
 
+`when` immediately followed by `(` in expression position is the built-in function `when(cond,
+value)` (03 §10.1), which 06 §3.4 teaches. Only the effect form `on trigger when cond -> …` uses
+`when` as a keyword. (Found by the eval harness: without this rule every `when(…)` call is `E105`.)
+
 **Reserved identifiers** (not keywords, but cannot be declared as bindings, functions or
 parameters): `root` is allowed and special (§5.6). These cannot be declared:
 `dt`, `device`, `block`, `user`, `item`, `index`. Declaring one is `E106 reserved-name`. (They are
-provided by the runtime in some contexts; see 03 §4.6.)
+provided by the runtime in some contexts; see 03 §4.6.) Exception: `item` and `index` may be used as
+`fn` and lambda **parameters** (`items |> map(item => item.name)`), where they shadow nothing.
 
 ### 2.4 Numbers
 
@@ -645,6 +650,7 @@ checking. Each rule is applied once per statement. `[T-070]`–`[T-089]`
 | S10 | `Column(children: [a, b])` — `children` passed as a named argument | A children list |
 | S11 | A record field or named argument written as `key = value` inside `{ }` or `( )` | `key: value` |
 | S12 | Two or more effects in one fragment with the same trigger key (§5.5) | One effect whose action is the source-ordered list of `!if(cond, action)` (or `action` where there was no `when`) |
+| S13 | In a `format` or `deltaFormat` slot, a call whose name is a format (03 §11) with only literal or bare-word arguments: `format: dec(1)` | The format text as a string: `format: "dec(1)"` |
 
 ### 8.3 Hex to colour role (S5)
 
