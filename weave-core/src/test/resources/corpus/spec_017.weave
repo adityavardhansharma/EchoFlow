@@ -1,0 +1,13 @@
+@weave 1 id: spend title: "October spending"
+$picked = null
+tx = [
+  {cat: "Food", amt: 8200}, {cat: "Rent", amt: 22000}, {cat: "Travel", amt: 5400},
+  {cat: "Bills", amt: 3100}, {cat: "Fun", amt: 2600}
+]
+total = sum(map(tx, t => t.amt))
+root = Card(gap: m) [
+  Metric("Total", total, format: inr, size: l),
+  Chart(tx, polar: true, h: l, select: $picked) [arc(value: "amt", label: "cat")],
+  when($picked != null, Callout("{$picked.cat}: {$picked.amt | inr} — {round($picked.amt / total * 100)}% of the month", kind: info)),
+  Button("How do I cut this?", variant: tonal, onTap: !say("Help me reduce my {$picked.cat ?? \"top\"} spending", attach: [tx]))
+]

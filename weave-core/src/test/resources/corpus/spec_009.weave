@@ -1,0 +1,3 @@
+fx = query("web.search", {q: "USD to INR rate today"}, every: 30m)
+rate = fx.value.rate ?? 83.2
+status = loading(fx) ? Text("Updating…", style: labelSmall) : Text("as of {fx.at | relative}", style: labelSmall)

@@ -1,0 +1,1 @@
+root = Card [Title("Hello"), Text("I'm a live block.")]

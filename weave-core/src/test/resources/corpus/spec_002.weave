@@ -1,0 +1,25 @@
+@weave 1 id: loan title: "Home loan" size: card
+
+$rate = 8.5
+$years = 20
+$principal = 5000000
+
+emi = monthly($principal, $rate, $years)
+fn monthly(p, r, y) = p * (r/1200) * pow(1 + r/1200, y*12) / (pow(1 + r/1200, y*12) - 1)
+
+root = Card(pad: l, gap: m) [head, rate, years, kpis, chart, cta]
+head = Title("Home loan", style: titleLarge)
+rate = Slider($rate, min: 6, max: 14, step: 0.05, label: "Interest rate", suffix: "%")
+years = Segmented($years, options: [10, 15, 20, 30], suffix: " yrs")
+kpis = Row(gap: s) [
+  Metric("Monthly EMI", emi, format: inr, tone: primary),
+  Metric("Total interest", emi * $years * 12 - $principal, format: inrCompact, tone: tertiary)
+]
+chart = Chart(amortize($principal, $rate / 100, $years), h: m) [
+  area(x: "year", y: "principal", tone: primary),
+  area(x: "year", y: "interest", tone: tertiary, stack: true)
+]
+cta = Row(gap: s) [
+  Button("Compare 3 banks", onTap: !say("Compare 3 banks for a {$principal | inr} loan at {$rate}%")),
+  Button("Share", variant: tonal, icon: "share", onTap: !share(root))
+]

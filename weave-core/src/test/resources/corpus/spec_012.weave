@@ -1,0 +1,7 @@
+$angle = 0.6
+$vel = 0
+$len = 1.5
+on frame -> [
+  !set($vel, $vel - 9.81 / $len * sin($angle) * dt),
+  !set($angle, $angle + $vel * dt)
+]

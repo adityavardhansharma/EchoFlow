@@ -1,0 +1,3 @@
+fn tip(bill, pct) = round(bill * pct / 100, 2)
+fn grade(score) = score >= 90 ? "A" : score >= 75 ? "B" : "C"
+fn card(p) = Card(pad: m) [Title(p.name), Text(p.blurb, style: bodyMedium)]

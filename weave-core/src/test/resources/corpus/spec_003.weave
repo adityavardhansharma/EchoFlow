@@ -1,0 +1,1 @@
+cheap = $items |> filter(i => i.price <= $max) |> sortBy(i => i.rating, desc: true) |> take(5)

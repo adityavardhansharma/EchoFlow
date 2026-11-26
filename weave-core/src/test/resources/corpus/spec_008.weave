@@ -1,0 +1,6 @@
+tabs = Tabs($tab, labels: ["Overview", "Day 1", "Day 2", "Day 3"]) [
+  overview,
+  lazy("Hour-by-hour plan for day 1 in Jaipur, with a map and costs", budget: $budget),
+  lazy("Hour-by-hour plan for day 2", budget: $budget),
+  lazy("Hour-by-hour plan for day 3", budget: $budget)
+]

@@ -1,0 +1,7 @@
+@weave 1 id: quiz title: "Photosynthesis check"
+$answers = []
+root = Quiz($answers, questions: [
+  {q: "Where does photosynthesis happen?", options: ["Mitochondria", "Chloroplast", "Nucleus"], answer: 1, why: "Chlorophyll lives in chloroplasts."},
+  {q: "Which gas is released?", options: ["CO₂", "O₂", "N₂"], answer: 1},
+  {q: "The main sugar produced is…", options: ["Glucose", "Sucrose", "Lactose"], answer: 0}
+], onDone: s => [!confetti, !say("I scored {s}/3 — explain what I missed")])
