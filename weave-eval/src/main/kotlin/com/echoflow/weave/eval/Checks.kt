@@ -109,15 +109,15 @@ class CheckRunner(private val s: Session) {
     /** All the text a user would read: plain text plus labels, data rows and option values. */
     private fun allText(): String {
         val sb = StringBuilder()
-        for (n in s.nodes()) {
+        for (n in s.nodes(allPages = true)) {
             sb.append(s.plainText(n)).append('\n')
-            for ((k, v) in n.args) if (k in setOf("label", "title", "subtitle", "content", "options", "labels", "rows", "items", "data")) sb.append(s.ctx.formatter.auto(v)).append('\n')
+            for ((k, v) in n.args) if (k in TEXT_ARGS) sb.append(s.ctx.formatter.auto(v)).append('\n')
         }
         return sb.toString()
     }
 
     private fun candidateTexts(label: String?): List<String> {
-        val nodes = s.nodes()
+        val nodes = s.nodes(allPages = true)
         if (label == null) return listOf(allText())
         val r = rx(label)
         val out = ArrayList<String>()
@@ -131,6 +131,7 @@ class CheckRunner(private val s: Session) {
     }
 
     companion object {
+        private val TEXT_ARGS = setOf("label", "title", "subtitle", "overline", "content", "options", "labels", "rows", "items", "data", "prefix", "suffix")
         private val NUM = Regex("""[-−]?\d[\d,]*(?:\.\d+)?(?:\s*(Cr|L|K|M|B|lakh|crore)(?![A-Za-z]))?""")
 
         /**

@@ -153,8 +153,9 @@ object Tasks {
         // FD 7%: 196715.14; equity 12%: 310584.82 for ₹1,00,000 over 10 years
         t("cmp_fd_equity", "comparison", "Compare ₹1,00,000 in a fixed deposit at 7% vs equity at 12% a year (both compounded yearly), with a slider for years.",
             Input("year|period|time|duration", 10.0), Number(196715.14, tol = 1.0), Number(310584.82, tol = 1.0)),
+        // 650 / 2000 = 0.325 (0.317 with 2048 GB); 130 / 100 = 1.3
         t("cmp_storage", "comparison", "Compare cloud storage plans by price per GB per month: 100 GB for ₹130, 200 GB for ₹210, 2 TB for ₹650 a month.",
-            Number(1.3, tol = 0.005, relTol = 0.0), Number(0.32, tol = 0.01, relTol = 0.0)),
+            Number(1.3, tol = 0.005, relTol = 0.0), Number(0.325, tol = 0.011, relTol = 0.0)),
         t("cmp_cities", "comparison", "Compare monthly costs in Bengaluru, Pune and Hyderabad: rent ₹28,000 / ₹20,000 / ₹18,000, food ₹12,000 / ₹10,000 / ₹10,000, transport ₹4,000 / ₹3,000 / ₹3,500. Show the totals.",
             Number(44000.0, tol = 0.5), Number(33000.0, tol = 0.5), Number(31500.0, tol = 0.5)),
         // card C 1.5% of 40000 = 600; card B 2% capped at 500
