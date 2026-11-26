@@ -225,14 +225,14 @@ class Checker(
             else diags += Diag.unknownFunction(c.span, c.callee, closest(c.callee, catalog.functions.map { it.name } + functions), stmtName)
             return Lit(WNull, c.span)
         }
+        // token-producing helpers keep bare words as tokens (`col(..., align: end, format: inr)`)
+        val tokenArgs = c.callee in TOKEN_HELPERS
         val named = ArrayList<Pair<String, Expr>>()
         for ((k, v) in c.named) {
             if (spec.params.none { it.name == k }) { diags += Diag.unknownArg(v.span, c.callee, k, stmtName); continue }
-            named += k to expr(v, argCtx)
+            named += k to expr(v, argCtx.copy(tokenSlot = tokenArgs))
         }
-        // token-producing helpers keep bare words as tokens (`col(..., align: end)`)
-        val tokenArgs = c.callee in setOf("col", "axis", "aspect", "weight", "spring", "tween", "loop")
-        return c.copy(leads = c.leads.map { expr(it, argCtx.copy(tokenSlot = tokenArgs)) }, named = if (tokenArgs) c.named.map { (k, v) -> k to expr(v, argCtx.copy(tokenSlot = true)) } else named)
+        return c.copy(leads = c.leads.map { expr(it, argCtx.copy(tokenSlot = tokenArgs)) }, named = named)
     }
 
     private fun action(c: Call, ctx: Ctx): Expr {
@@ -404,7 +404,8 @@ class Checker(
     private fun slotValue(e: Expr, p: ParamSpec?, callee: String, ctx: Ctx): Expr? {
         if (p == null) return expr(e, ctx.copy(tokenSlot = false))
         val t = p.type
-        val tokenSlot = t.isTokenSlot()
+        // format slots take format names as bare words (`format: inr`, 06 §3.8)
+        val tokenSlot = t.isTokenSlot() || p.name in FORMAT_PARAMS
         // S5: hex colour in a colour slot
         if (e is HexLit) {
             if (t.isColorSlot()) {
@@ -435,7 +436,7 @@ class Checker(
             return Name((e.value as WStr).v, e.span)
         }
         // E206: a bare word that is not a member of the token set
-        if (tokenSlot && e is Name && e.name !in bindings && e.name !in ctx.locals && e.name !in ctx.eventVars && e.name !in CONSTANTS && !isMember(t, e.name)) {
+        if (t.isTokenSlot() && e is Name && e.name !in bindings && e.name !in ctx.locals && e.name !in ctx.eventVars && e.name !in CONSTANTS && !isMember(t, e.name)) {
             if (!(t is TypeSpec.Union && t.options.any { !it.isTokenSlot() && it != TypeSpec.NUM && it != TypeSpec.BOOL })) {
                 diags += Diag.badToken(e.span, callee, p.name, e.name, allowedText(t), stmtName)
                 return null
@@ -477,6 +478,8 @@ class Checker(
         /** Reserved identifiers, 02 §2.3. */
         val RESERVED = setOf("dt", "device", "block", "user", "item", "index")
         val CONSTANTS = setOf("pi", "e", "device", "block", "user")
+        val FORMAT_PARAMS = setOf("format", "deltaFormat")
+        val TOKEN_HELPERS = setOf("col", "axis", "aspect", "weight", "spring", "tween", "loop", "fmt")
     }
 }
 
