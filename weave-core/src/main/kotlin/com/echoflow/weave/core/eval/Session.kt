@@ -430,18 +430,44 @@ class Session(
 
     // ---- queries for tests and the harness ------------------------------------------------------
 
-    /** Every node in the rendered tree (only the selected page of `Tabs`). */
-    fun nodes(): List<WNode> {
+    /**
+     * Every node in the rendered tree: nodes with a falsy `show` are skipped, `List` rows are
+     * produced through `render` (or the default `Item`, 04 §8), and only the selected page of
+     * `Tabs` is included unless [allPages] (pages the user can reach with a tap).
+     */
+    fun nodes(allPages: Boolean = false): List<WNode> {
         val out = ArrayList<WNode>()
+        val ev = evaluator()
         fun walk(n: WNode) {
+            if (n.args.containsKey("show") && !(n.args["show"] ?: WBool.TRUE).truthy()) return
             out += n
-            if (n.type == "Tabs") {
-                val i = ((n.args["index"] as? WNum)?.v ?: 0.0).toInt()
-                n.children.getOrNull(i.coerceIn(0, maxOf(0, n.children.size - 1)))?.let { walk(it) }
-            } else n.children.forEach { walk(it) }
+            when (n.type) {
+                "Tabs" -> if (allPages) n.children.forEach { walk(it) } else {
+                    val i = ((n.args["index"] as? WNum)?.v ?: 0.0).toInt()
+                    n.children.getOrNull(i.coerceIn(0, maxOf(0, n.children.size - 1)))?.let { walk(it) }
+                }
+                "List" -> listRows(n, ev).forEach { walk(it) }
+                else -> n.children.forEach { walk(it) }
+            }
         }
         root()?.let { walk(it) }
+        ev.diagnostics.forEach { report(it) }
         return out
+    }
+
+    /** The rows a `List` shows (04 §8): `render(item, index)` or an `Item` titled by the item. */
+    private fun listRows(n: WNode, ev: Evaluator): List<WNode> {
+        val items = (n.args["items"] as? WList)?.items ?: return n.children
+        val render = n.args["render"] as? WFn
+        return items.mapIndexed { i, item ->
+            val v = if (render != null) runCatching { ev.callItem(render, item, i) }.getOrDefault(WNull) else WNull
+            v as? WNode ?: WNode("Item", mapOf("title" to WStr(defaultTitle(item))), emptyList(), "${n.key}/$i", n.sourceStmt)
+        }
+    }
+
+    private fun defaultTitle(item: WValue): String = when (item) {
+        is WRec -> item.fields.values.firstOrNull { it is WStr }?.let { (it as WStr).v } ?: ctx.formatter.auto(item)
+        else -> ctx.formatter.auto(item)
     }
 
     fun plainText(n: WNode) = PlainText.of(n, ctx.formatter)
