@@ -29,7 +29,8 @@ class HarnessTest {
     @Test fun `number reading handles Indian grouping and compact suffixes`() {
         assertEquals(listOf(43391.0), CheckRunner.numbersIn("₹43,391"))
         assertEquals(listOf(1234568.0), CheckRunner.numbersIn("12,34,568"))
-        assertEquals(listOf(2.5e7, 5600.0), CheckRunner.numbersIn("2.5 Cr and 5.6K"))
+        assertEquals(listOf(2.5e7, 2.5, 5600.0, 5.6), CheckRunner.numbersIn("2.5 Cr and 5.6K"))
+        assertEquals(listOf(1400.0), CheckRunner.numbersIn("1,400 Last month"))
     }
 
     @Test fun `reference EMI calculator completes the task`() {

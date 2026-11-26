@@ -131,14 +131,18 @@ class CheckRunner(private val s: Session) {
     }
 
     companion object {
-        private val NUM = Regex("""[-−]?\d[\d,]*(?:\.\d+)?\s*(Cr|L|K|M|B|lakh|crore)?""")
+        private val NUM = Regex("""[-−]?\d[\d,]*(?:\.\d+)?(?:\s*(Cr|L|K|M|B|lakh|crore)(?![A-Za-z]))?""")
 
-        /** Numbers in display text: `₹43,391`, `12,34,568`, `2.5 Cr`, `5.6K`, `1.2M`, `-3`. */
-        fun numbersIn(text: String): List<Double> = NUM.findAll(text).mapNotNull { m ->
-            val raw = m.value.replace("−", "-").replace(",", "")
+        /**
+         * Numbers in display text: `₹43,391`, `12,34,568`, `2.5 Cr`, `5.6K`, `1.2M`, `-3`. A number
+         * with a unit yields both readings (`560 lakh` is 560 in a lakh-denominated task).
+         */
+        fun numbersIn(text: String): List<Double> = NUM.findAll(text).flatMap { m ->
             val unit = m.groupValues[1]
-            val n = raw.removeSuffix(unit).trim().toDoubleOrNull() ?: return@mapNotNull null
-            n * when (unit) { "Cr", "crore" -> 1e7; "L", "lakh" -> 1e5; "K" -> 1e3; "M" -> 1e6; "B" -> 1e9; else -> 1.0 }
+            val raw = m.value.replace("−", "-").replace(",", "").removeSuffix(unit).trim()
+            val n = raw.toDoubleOrNull() ?: return@flatMap emptySequence()
+            val k = when (unit) { "Cr", "crore" -> 1e7; "L", "lakh" -> 1e5; "K" -> 1e3; "M" -> 1e6; "B" -> 1e9; else -> 1.0 }
+            if (k == 1.0) sequenceOf(n) else sequenceOf(n * k, n)
         }.toList()
 
         fun fmtPlain(d: Double) = if (d == Math.floor(d)) d.toLong().toString() else d.toString()
