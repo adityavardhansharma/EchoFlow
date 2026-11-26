@@ -16,9 +16,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ImageModel::class, GeneratedImage::class,
         VideoModel::class, GeneratedVideo::class,
         Project::class, ProjectDocument::class, com.echoflow.data.memory.MemorySync::class,
-        ScheduleTask::class, ScheduleRun::class, com.echoflow.data.usage.UsageRecord::class
+        ScheduleTask::class, ScheduleRun::class, com.echoflow.data.usage.UsageRecord::class,
+        com.echoflow.weave.runtime.storage.WeaveBlockRow::class,
+        com.echoflow.weave.runtime.storage.WeaveVersionRow::class,
+        com.echoflow.weave.runtime.storage.WeaveLibraryRow::class,
     ],
-    version = 32, // v32: quote & reply on user messages
+    version = 33, // v33: Echo UI (Weave) blocks, versions, library; per-chat Intelligent UI
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +47,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun projectDocumentDao(): ProjectDocumentDao
     abstract fun scheduleDao(): ScheduleDao
     abstract fun usageDao(): com.echoflow.data.usage.UsageDao
+    abstract fun weaveBlockDao(): com.echoflow.weave.runtime.storage.WeaveBlockDao
+    abstract fun weaveVersionDao(): com.echoflow.weave.runtime.storage.WeaveVersionDao
+    abstract fun weaveLibraryDao(): com.echoflow.weave.runtime.storage.WeaveLibraryDao
+    abstract fun weaveStorageDao(): com.echoflow.weave.runtime.storage.WeaveStorageDao
 
     companion object {
         @Volatile
@@ -533,6 +540,43 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v33: Echo UI (05 §9.2). Weave blocks keep their own state and versions next to the
+         * message they came from (cascading with it), the Library holds kept blocks, and each chat
+         * can override the global Intelligent UI level (`NULL` = follow the setting).
+         */
+        internal val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `weave_blocks` (`id` TEXT NOT NULL, `chatId` TEXT NOT NULL, " +
+                        "`messageId` TEXT NOT NULL, `blockKey` INTEGER NOT NULL, `blockId` TEXT NOT NULL, " +
+                        "`version` INTEGER NOT NULL, `form` TEXT NOT NULL, `source` TEXT NOT NULL, " +
+                        "`stateJson` TEXT NOT NULL, `historyJson` TEXT NOT NULL, `lazyJson` TEXT NOT NULL, " +
+                        "`queryJson` TEXT NOT NULL, `consentJson` TEXT NOT NULL, `firedJson` TEXT NOT NULL, " +
+                        "`askLogJson` TEXT NOT NULL, `uiStateJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`messageId`) " +
+                        "REFERENCES `chat_messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weave_blocks_messageId_blockKey` ON `weave_blocks` (`messageId`, `blockKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_weave_blocks_chatId` ON `weave_blocks` (`chatId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_weave_blocks_blockId` ON `weave_blocks` (`blockId`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `weave_versions` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`blockRowId` TEXT NOT NULL, `version` INTEGER NOT NULL, `source` TEXT NOT NULL, " +
+                        "`cause` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, FOREIGN KEY(`blockRowId`) " +
+                        "REFERENCES `weave_blocks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weave_versions_blockRowId_version` ON `weave_versions` (`blockRowId`, `version`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `weave_library` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`icon` TEXT NOT NULL, `source` TEXT NOT NULL, `stateJson` TEXT NOT NULL, " +
+                        "`lazyJson` TEXT NOT NULL, `pinnedWidgetId` INTEGER, `createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL("ALTER TABLE chat_threads ADD COLUMN intelligentUi TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -572,6 +616,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_29_30,
                     MIGRATION_30_31,
                     MIGRATION_31_32,
+                    MIGRATION_32_33,
                 )
                 .build()
                 INSTANCE = instance
