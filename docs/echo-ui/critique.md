@@ -61,7 +61,7 @@ implement the core the same way.
   instincts even where the regex is wrong (§2.7).
 - **Prompt text is normative.** `06` says wording changes in the spec, then the snapshot, not in
   code. `05` §9.4 / `06` §2.4 collapse blocks older than ten turns to a header plus a state line,
-  which is the right shape for history if the encoding is settled (§2.2).
+  which is the right shape for history if the encoding is settled (§2.3).
 - **`07` is a real conformance doc.** About 212 numbered cases with inputs and expected
   diagnostics, plus a streaming-equivalence *requirement*. It is not a test suite (§2.8).
 - **The README is honest about precedence.** `01` is informative; `02`–`07` win. `01` line 6 says
@@ -223,7 +223,7 @@ Rules with no row, or a row that does not match the rule:
 - `E106` reserved names (`dt`, `device`, `block`, `user`, `item`, `index`).
 - `js fn` below tier 4 → `E209` (`02` §5.4).
 - Effect chains past the single `T-280` scenario. The cap is 8 (`03` §8.5).
-- An edit that pushes a block past 48 KB or 400 statements (§3.5).
+- An edit that pushes a block past 48 KB or 400 statements (§3.7).
 - `query` consent beyond the action-level tests.
 - `T-010b` says `1__0` is `E104`. `02` §2.4 only says it is not a number.
 - `02` §2.9 says raw strings strip indent "like Kotlin `trimIndent()`." `T-016` keeps the trailing
@@ -340,9 +340,10 @@ The HTML audit called this "zero custom reactive engine" and scored it excellent
   jump happens exactly when the user reaches for the block (`T-407` encodes the snap). Animate
   the shrink with `motion: fast` when the block is visible, or the chat list jumps.
 - Roborazzi cannot see `Popup`, `DropdownMenu`, or bottom sheets (`CLAUDE.md`; `01` §13.8 repeats
-  it). `Sheet`, `Dialog`, `Menu`, `Select`, and the confirm sheet have no conformance test that
-  can run in this environment. `07` should say that plainly instead of listing them beside the
-  Roborazzi matrix.
+  it). `07` already splits the work: `T-408` screenshot-tests non-popup components, and `T-410`
+  requires `Sheet`, `Dialog`, `Popover`, and `Menu` on an emulator with screenshots in the PR.
+  That split is right. What this environment still cannot do is run `T-410`. `Select` and the
+  confirm sheet are popups too, and `T-410` does not name them.
 
 ### 3.7 Edits can grow a block without a stop
 
@@ -373,8 +374,11 @@ two guards on one trigger are illegal and that the model must write `!if`.
 
 Users can lift a prose answer into a block ("Make this interactive", `05` §11.6). When Balanced
 emits a block nobody asked for, nothing in `05` §7.2's block menu collapses it back to text. The
-HTML audit's "Show as plain text" action is a product gap, not a spec contradiction. The ~10%
-over-use figure in that audit is not in `07`; do not treat it as measured.
+HTML audit's "Show as plain text" action is a product gap, not a spec contradiction. `07` §10.2
+defines over-use (Balanced blocks on 20 plain-text control prompts) and §10.3 requires it to stay
+at or below 10% before a model earns its tier. That is a required bar, not a result: nothing has
+been measured, so the HTML audit's "~10% over-use" is the limit restated as if it had already
+happened.
 
 The other direction is specified, and it is jumpy. `05` §11.5's explicit-request regex, used when
 the level is Off, matches bare `\bplot\b`, `\bform\b`, `\btable\b`, `\bgame\b`. `T-608` accepts
@@ -422,7 +426,8 @@ Doc fixes. None of these change runtime behaviour, because there is no runtime y
 12. **Number the holes.** Either define `E305` and `W406` or stop skipping them. Swap `03`
     §10.10 and §10.11.
 13. **`07` honesty.** Say which tests are the suite and which are a harness that does not exist
-    yet. Say popups are out of Roborazzi's reach. Do not describe the streaming corpus as present.
+    yet. `T-408` / `T-410` already keep popups out of Roborazzi; extend `T-410` to `Select` and
+    the confirm sheet, which it does not name. Do not describe the streaming corpus as present.
 
 ### Code, discussion only
 
