@@ -1,7 +1,8 @@
 # Echo UI — critique
 
-**Status:** discussion only. Not normative. Where this file disagrees with
-[02](02-language.md)–[07](07-conformance.md), those documents still win until they are changed.
+**Status:** discussion only. Not normative. This reviews spec **v1.0**. Spec v1.1 acts on it; §7
+records what was accepted, changed or rejected. Where §1–§6 disagree with the current
+[02](02-language.md)–[07](07-conformance.md), those documents win.
 
 Two reviews of the v1.0 spec (`README` plus `01`–`07`), checked against the EchoFlow tree at the
 time of writing. Nothing in `com.echoflow` implements Weave. `01` line 6 says so, and a search for
@@ -484,3 +485,67 @@ The HTML audit's real catches, all kept above: streaming state init (§3.1), the
 `display*` clamp (§2.1), one-effect-per-key (§3.8), the Off regex (§3.9), edit limits (§3.7),
 placeholder snap and `SubcomposeLayout` (§3.6), prompt tax and `weave_docs` latency (§3.4), and
 v1 scope (§3.2).
+
+---
+
+## 7. Resolution in spec v1.1
+
+The spec author's response. Product decisions from the owner: live UI is **cloud-only** for now;
+Balanced's ~1–4k-token prompt is **accepted** (cloud context windows are large and cheap); the
+model eval harness **follows** the build rather than gating it.
+
+### 7.1 Accepted as written, or close to it
+
+| Critique | v1.1 change |
+|---|---|
+| §3.1 state init vs prompted order | 03 §7.1: a state initialises once every name its starting value reaches has arrived, or at fence close; until then it's absent and its input shows a placeholder. 06 §3.7: `fn`s used by state come first. `T-278`, `T-279`. Chosen over "init now, re-evaluate at close" so a block never visibly jumps from `—` to a value. |
+| §2.7 pincode | 04 §7: whole-word `pin`, not before `code`. `T-400`, `T-400b`. |
+| §2.3 two history encodings | `<weave-state>` removed from 01 §22 and 05 §8.6. `# state` (06 §2.4) is the only form. `T-464`. |
+| §3.7 edits without a stop | 02 §11.2: an edit over `SOURCE_BYTES` / `STATEMENTS` is rejected whole. Also fixed: `STATE_BYTES` existed in `Limits` with no rule; 05 §13.3 now rejects an over-size write and trims history. `T-108`, `T-467`. |
+| §2.5 / Q4 prompt position | 05 §12: the Weave section goes immediately **before** `freshnessGate`. `T-505`. |
+| §2.1 shapes | 04 §1.5: `xs`…`xl` resolve to `MaterialTheme.shapes` (8/14/20/28/36 dp today). `Card` defaults to `m` = 20 dp, like every app card. `T-078b`, `T-414`. |
+| §2.1 display clamp, §2.6 palette and shapes | 01 §11.3–11.5 now match 04; 06 §3.2 states that its ten shapes are a curated subset. |
+| §2.4 schema and version | 01 §23.1 is a summary that points at 05 §9. The migration is "N → N + 1". Settings row placed after Web search; `+` menu row specified. `T-463`. |
+| §3.3 Weave-JSON | Phase 2 (02 §12, 05 §5.1, §12). `T-120`–`T-124` marked phase 2. |
+| §3.4 `weave_docs` latency | 06 §2.1, §8: common components stay inline; only the long tail is behind the tool. |
+| §3.6 `SubcomposeLayout`, placeholder snap | 04 §3.3: one custom `Layout`. 04 §2.9: shrink eases with `fast` at fence close. `T-403`, `T-407`. |
+| §3.6 `T-410` | Now names `Select`, pickers, the confirm sheet and the per-chat submenu. |
+| §3.9 Off regex | 05 §11.5: action + object, no bare nouns. Checked against the cases in `T-608` / `T-608b`. |
+| §3.9 escape hatch | 05 §7.2: "Show as plain text". `T-466`. |
+| §2.8 holes | `1__0` → `E104` defined in 02 §2.4; raw strings say what to strip and warn off `trimIndent()`; `E305` / `W406` reserved; 03 §10.10 / §10.11 in order; 07 preamble says what exists and what is phase-gated. |
+| §2.9 drift | 02 §1.1: registered kinds and `~~~` fences (`T-004`). 01 §26.7 → Moshi / `TolerantJson`. 04 §1.9: icons dependency exists, registry is new surface. |
+| §3.2 phase 1 too large | 01 §29: phase 1 ships as **1a** (core + the common component set) then **1b**. 05 §3.3: the prompt only advertises components the renderer registry has, so 1a works end to end without retagging 04. |
+
+### 7.2 Changed: a different fix than proposed
+
+- **§3.8 one effect per trigger key.** Not "put `when` in the key": that makes edits fragile (an
+  edit must reproduce a guard byte-for-byte to replace it). Instead auto-fix **S12** merges
+  same-trigger effects into one effect whose action is a list of `!if(cond, action)` branches
+  (02 §5.5). Nothing is dropped, the one-effect-per-key model stays simple, and `!if` already runs
+  inline in the same transaction. `T-042`, `T-042b`, `T-042c`.
+- **§2.1 / §2.2 spacing.** Not "name the app's values." Every Weave spacing value except `xxs` is
+  already an app value; only the names differ. Weave keeps its short even scale for the model and
+  resolves through `Spacing` (`l` → `Spacing.base`, 04 §1.1). `T-014`, `T-077`, `T-078` are
+  unchanged and still correct, so the "knot" in §2.2 never forms.
+
+### 7.3 Rejected
+
+- **§2.1 "Type does not match."** It does: 04 §1.6 names `MaterialTheme.typography` roles, so blocks
+  already use Space Grotesk / Hanken Grotesk. Only the display clamp was wrong (fixed above).
+- **§3.5 "never states bindings are main-thread only."** 05 §4.4 already says evaluation runs on the
+  main thread. v1.1 adds the one missing sentence (off-main work receives `WValue`s and never reads a
+  binding) and a debug assertion (`T-465`), but this was a clarification, not a design flaw.
+- **§3.2 "MUST for components nobody will ship for a year."** Every component carries a `tier` and
+  `phase`, and `restrictedTo` keeps unbuilt ones out. MUST means "if you build it, build it this
+  way."
+- **§3.2 three modules vs a single `:app`.** `weave-core` stays a pure-JVM module; it's what makes the
+  core testable without an emulator and lets the harness drive it. 05 §1 now says why, and lets
+  `weave-compose` / `weave-runtime` start as packages inside `:app`.
+- **§3.3 / §4 "run the 60-task harness before the renderer."** Owner decision: build first. The
+  harness runs before phase 1 leaves its developer flag (07 §10).
+- **§3.6 "budgets cannot be budgeted."** They stay as release gates, measured by hand on a device
+  until CI can.
+- **§3.4 / Q2 / Q3 prompt cost and local models.** Decided, not left open: Balanced stays the
+  default and its cost is accepted (now measured by `T-502`); live UI is explicitly cloud-only
+  (05 §10.1, `T-611`).
+

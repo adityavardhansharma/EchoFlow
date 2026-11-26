@@ -1,6 +1,6 @@
 # 02 — The Weave language
 
-**Spec version:** 1.0 · **Status:** normative · **Language version:** 1
+**Spec version:** 1.1 · **Status:** normative · **Language version:** 1
 
 This document defines exactly how Weave text becomes a parsed program: characters → tokens →
 logical lines → statements → syntax tree. Semantics (what the tree *means*) are in
@@ -30,6 +30,10 @@ A block is a **top-level fenced code block** in an assistant message whose info 
 - The fence is found by the existing `MarkdownStreamPlanner`; Echo UI receives a
   `MarkdownExtensionBlock(kind, info, body, complete)`. `kind` is the first word. The block's
   identity within the message is `MarkdownExtensionBlock.key` (the fence's source offset).
+- The planner promotes a fence only when its kind is registered (05 §5.1 registers `weave`, and
+  `weave-json` from phase 2). Both backtick (```` ``` ````) and tilde (`~~~`) fences are accepted, exactly as
+  `openingFence` in `MarkdownSourceScan.kt` already does; the closing fence must use the same
+  character. `[T-004]`
 - Fences nested inside lists, quotes or other fences are **not** blocks. Only top-level fences are.
 
 ### 1.2 Text normalisation
@@ -104,7 +108,10 @@ NUMBER  = DIGITS [ "." DIGITS ] [ ("e" | "E") [ "+" | "-" ] DIGITS ]
 DIGITS  = DIGIT { DIGIT | "_" }      (an underscore must be between two digits)
 ```
 
-- `1_000_000` = 1000000. `1__0`, `1_`, `_1` are not numbers (`_1` is an identifier). `[T-010]`
+- `1_000_000` = 1000000. `1_`, `_1` are not numbers (`_1` is an identifier). `[T-010]`
+- A digit run that contains `__` or ends in `_` (`1__0`, `1_`) is lexed as one malformed number
+  token and reported as `E104 bad-number`, so the model gets one clear message instead of a
+  cascade of parse errors. `[T-010b]`
 - The lexer MUST NOT consume a `.` that is followed by another `.`: `1..10` is `NUMBER(1) .. NUMBER(10)`. `[T-011]`
 - The lexer MUST NOT consume a `.` that is followed by a letter: `2.max` is not valid; it lexes as
   `NUMBER(2) . IDENT(max)` and fails in the parser.
@@ -188,8 +195,11 @@ An empty interpolation `{}` is literal text `{}` with `W403`.
 
 `"""` starts a raw string that ends at the next `"""`. Raw strings may span lines, have **no**
 escapes and **no** interpolation. If the first character after the opening `"""` is a newline, it
-is removed. Common leading indentation of all non-blank lines is removed (like Kotlin
-`trimIndent()`). Raw strings are used for `js fn` bodies and long text. `[T-016]`
+is removed. Then the common leading indentation (spaces and tabs, compared character by
+character) of all non-blank lines is removed from every line. Nothing else is stripped: a final
+newline before the closing `"""` is **kept**, and lines containing only whitespace become empty.
+Do not implement this with Kotlin's `trimIndent()`, which also drops a trailing blank line and
+would fail `T-016`. Raw strings are used for `js fn` bodies and long text. `[T-016]`
 
 ### 2.10 Hex colours and comments
 
@@ -447,11 +457,31 @@ $name [: type] = initial [transient] [reset]
 ### 5.5 Effects and trigger keys
 
 An effect's **trigger key** is the canonical print (§13) of its trigger, for example
-`change($rate,debounce:600ms)` or `every(1s)`. A block has at most one effect per trigger key. A
-second effect with the same key replaces the first (`W404`). To run several actions on one
-trigger, use a list: `on appear -> [!a(...), !b(...)]`. `[T-042]`
+`change($rate,debounce:600ms)` or `every(1s)`. The `when` condition is **not** part of the key.
+After checking, a block has at most one effect per trigger key.
 
-The `when` condition is **not** part of the key.
+Models often write several effects on the same trigger, usually with different guards:
+
+```weave
+on change($x) when $x > 10 -> !toast("high")
+on change($x) when $x < 0 -> !toast("low")
+```
+
+Nothing is dropped. Auto-fix S12 (§8.2) **merges** all effects in one fragment (a new block, or
+one edit) that share a trigger key into a single effect, in source order. Each effect `i`
+contributes `!if(cond_i, action_i)` if it had a `when`, or `action_i` if it did not; the merged
+effect has no `when` and its action is the list of those contributions. The example above becomes:
+
+```weave
+on change($x) -> [!if($x > 10, !toast("high")), !if($x < 0, !toast("low"))]
+```
+
+The merge emits `W403`, not `W404`: it is a rewrite, not a loss. Because `!if` evaluates its
+condition at execution time inside the same transaction (03 §7.2), the merged effect behaves exactly
+like the separate guarded effects would have, in source order. `[T-042]` `[T-042b]`
+
+In an edit (§11.2), the edit's own effects are merged first; the merged effect then **replaces** the
+block's effect with the same key. To keep an existing guarded branch, the edit must restate it.
 
 ### 5.6 The root
 
@@ -595,7 +625,7 @@ checking. Each rule is applied once per statement. `[T-070]`–`[T-089]`
 | S1 | `=` in expression position (§4.5) | `==` |
 | S2 | Extra positional argument on a component or action (§6.2) | Named argument using the catalog's positional order |
 | S3 | Named argument that is an alias (§6.3) | The canonical parameter name |
-| S4 | A `NUMBER` in a token-typed slot (spacing, height, shape, elevation) | The nearest token by dp value. Ties go to the **smaller** token. E.g. `gap: 13` → `m` (12); `gap: 14` → `m` (12 and 16 tie, smaller wins) |
+| S4 | A `NUMBER` in a token-typed slot (spacing, height, shape, elevation) | The nearest token by dp value, using the dp values in the tables of 04 §1 (for shapes, the EchoFlow default `Shapes` values in 04 §1.5, never the runtime theme, so the result is deterministic). Ties go to the **smaller** token. E.g. `gap: 13` → `m` (12); `gap: 14` → `m` (12 and 16 tie, smaller wins); `shape: 24` → `m` (20 and 28 tie) |
 | S5 | A `HEX` token in a colour slot | A role, by the algorithm in §8.3 |
 | S6 | `if(c, a, b)` function call (not defined by the block) | `c ? a : b` |
 | S7 | `IDENT(...)` that is not a function, mark or parameter, but whose capitalised form is a catalog component (`card(...)`); or a `CAP_IDENT` that matches a component case-insensitively (`LINECHART`) | The exact component name |
@@ -603,6 +633,7 @@ checking. Each rule is applied once per statement. `[T-070]`–`[T-089]`
 | S9 | A binding declared with a `CAP_IDENT` name that is not a component (§5.1) | Lowercase-first name, all references rewritten |
 | S10 | `Column(children: [a, b])` — `children` passed as a named argument | A children list |
 | S11 | A record field or named argument written as `key = value` inside `{ }` or `( )` | `key: value` |
+| S12 | Two or more effects in one fragment with the same trigger key (§5.5) | One effect whose action is the source-ordered list of `!if(cond, action)` (or `action` where there was no `when`) |
 
 ### 8.3 Hex to colour role (S5)
 
@@ -652,6 +683,7 @@ exactly. `{x}` marks a substitution.
 | E302 | cycle | all statements in cycle → `null` | `{names} depend on each other in a loop.` |
 | E303 | budget | expression → `null` | `"{name}" took too long to compute.` |
 | E304 | limit | nodes past the limit | `This block is too large ({what}).` |
+| E305 | — | — | Reserved. Not used in language version 1; never emitted. |
 | E306 | effect-loop | effect chain stopped | `Effects triggered each other too many times.` |
 
 `{suggestion}` is ` Did you mean "{closest}"?` when a catalog name is within Damerau–Levenshtein
@@ -666,6 +698,7 @@ distance 2 (ties: alphabetical first), otherwise empty.
 | W403 | autofix | `Fixed: {description}.` |
 | W404 | duplicate-name | `"{name}" was defined twice; using the later one.` |
 | W405 | no-root | `No "root"; using "{name}".` |
+| W406 | — | Reserved. Not used in language version 1; never emitted. |
 | W407 | unresolved | `"{name}" isn't defined; treated as a plain word.` |
 | W408 | deprecated | `{callee}.{param} is deprecated; use {replacement}.` |
 
@@ -747,9 +780,15 @@ Given the block's current statements `S` and the edit's statements `E`, in `E`'s
 | `export …` | Add the names to the export set. |
 | `-name` / `-$name` / `-on trigger` | Remove it. Removing something that doesn't exist is `W407`. Removing `root` is `E107` (ignored). |
 
-The result is checked as a whole new program (version `n+1`). If the result has **no renderable
-root**, the edit is rejected entirely and the block stays at version `n`; the rejection is logged.
-`[T-100]`–`[T-106]`
+The result is checked as a whole new program (version `n+1`). The edit is **rejected entirely**,
+the block stays at version `n`, and the rejection is logged, if the result:
+
+- has **no renderable root**; or
+- exceeds `Limits.SOURCE_BYTES` (canonical print, §13) or `Limits.STATEMENTS` (05 §13.3).
+
+There is no partial application and no truncation. A rejected `!ask` response is handled as a
+failed `!ask` (03 §9.2: previous content kept, inline "Retry" chip).
+`[T-100]`–`[T-106b]`, `[T-108]`
 
 ### 11.3 State during edits
 
@@ -768,6 +807,12 @@ block with that id (as if it were a `weave` fence); otherwise it renders as a co
 ---
 
 ## 12. Weave-JSON
+
+> **Phase 2.** Weave-JSON is specified here so the IR does not paint itself into a corner, but it
+> is **not** part of phase 1 (01 §29). A phase 1 implementation MUST reject `weave-json` fences
+> (they render as an ordinary code fence) and need not pass `T-120`–`T-124`. It ships only when a
+> model in the tier table is measured (07 §10) to do clearly better with constrained JSON than with
+> source Weave.
 
 ### 12.1 Shape
 

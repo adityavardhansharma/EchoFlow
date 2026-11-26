@@ -1,6 +1,6 @@
 # 03 — Semantics
 
-**Spec version:** 1.0 · **Status:** normative
+**Spec version:** 1.1 · **Status:** normative
 
 This document defines what a parsed Weave program **means**: the values it computes, how state
 changes, what actions do, when effects run, and the exact behaviour of every built-in function and
@@ -286,11 +286,24 @@ as the first argument of state actions (§7.2).
 
 ### 7.1 State lifecycle
 
-1. **Creation.** When a block's program is first available (the state statement is frozen while
-   streaming, or on load), each state without a stored value is initialised by evaluating its
-   initial expression. Initial expressions may read other states; they are evaluated in
-   dependency order (a topological sort; ties in source order). Initial expressions may **not**
-   read bindings that depend on state that isn't initialised yet: such reads see `null`.
+1. **Creation.** Each state without a stored value is initialised by evaluating its initial
+   expression **once**, at the first moment both of these hold:
+   - its declaration is frozen (02 §10.1), or the program is complete (fence closed, or loaded);
+   - every name its initial expression references — states, bindings, `fn`s — is declared by a
+     frozen statement. Names reached only through those references count too (if `$a = f(1)` and
+     `fn f(x) = x * rate`, then `rate` must also have arrived).
+
+   At fence close, every state still waiting is initialised regardless; a name that is still
+   missing then evaluates to `null` with its usual diagnostic (`E301` / `E202`). States that become
+   ready together are evaluated in dependency order (a topological sort; ties in source order).
+   Initial expressions may **not** read bindings that depend on a state that isn't initialised yet:
+   such reads see `null`.
+
+   Until a state is initialised it is **absent** from the `StateStore` (05 §4.2): reads see
+   `null`, and an input bound to it shows its streaming placeholder (04 §2.9), not a `null`
+   value. This rule exists because the prompt cannot guarantee order: a model that writes
+   `$rate = defaultRate(10)` before `fn defaultRate` MUST still get the computed value, never a
+   permanent `null`. `[T-278]` `[T-279]`
 2. **Restoration.** If the block has a stored state (05 §9), stored values are used for every state
    whose name exists, coerced to the declared type; failed coercion → re-initialise.
 3. **Transient** states are always initialised fresh when the block is shown again (a new
@@ -703,11 +716,6 @@ Conversion factors MUST be the exact SI definitions (e.g. `in` = 0.0254 m, `lb` 
 | `col(header, value, format?, align?, w?)` | rec | a `Table` column description (04 §8) |
 | `axis(title?, format?, min?, max?, ticks?, grid = true, log = false, hidden = false)` | rec | a `Chart` axis description (04 §12) |
 
-### 10.11 Motion helpers
-
-`spring`, `tween`, `loop` and `stagger` are built-in functions defined in 04 §13.1. Outside a
-rendering slot they return their target value, so they never change the result of a calculation.
-
 ### 10.10 Deterministic randomness
 
 ```
@@ -722,6 +730,11 @@ randInt(seed,i,lo,hi)= lo + floor(rand(seed, i) * (hi - lo + 1))
 ```
 
 All arithmetic is unsigned 64-bit wrapping. `i` is rounded to an integer. `[T-290]`
+
+### 10.11 Motion helpers
+
+`spring`, `tween`, `loop` and `stagger` are built-in functions defined in 04 §13.1. Outside a
+rendering slot they return their target value, so they never change the result of a calculation.
 
 ---
 

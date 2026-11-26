@@ -2,9 +2,11 @@
 
 **Name:** **Echo UI** (the engine) · language codename **Weave** (the fenced `weave` syntax)
 **User-facing setting:** **Intelligent UI**: Off · Balanced (default) · Immersive (§20.5)
-**Version:** 1.0 draft spec · November 2026
+**Version:** 1.1 draft spec · November 2026
 **Status:** design — nothing here is built yet. This is the **overview**; the exact rules are in
 [02–07](README.md), which win wherever they differ from this document.
+**Scope:** cloud models only. On-device models get tier 0 and no live UI in this version
+(05 §10.1).
 
 ---
 
@@ -661,6 +663,9 @@ The model never writes dp, sp, hex or ms (except `dur` literals for timers). It 
 | `xl` | 24 |
 | `xxl` | 32 |
 
+Every value except `xxs` is already a step of the app's `Spacing` scale, and the renderer reads
+them through `Spacing` (Weave `l` is `Spacing.base`). See 04 §1.1.
+
 ### 11.2 Heights (`h`) and widths (`w`)
 
 | Token | Height dp | Typical use |
@@ -692,22 +697,25 @@ are accepted where a single colour is needed.
 scheme), so they never clash with Lavender or Sunset.
 
 **Chart series** get colours in this order when not specified: `primary, tertiary, secondary,
-error, primary(low), tertiary(low), secondary(low), neutral` — all scheme-derived.
+error`, then the same four at 60 % alpha, then `onSurfaceVariant` — all scheme-derived (04 §1.4.1).
 
 ### 11.4 Typography (`style`)
 
 The 15 M3 roles: `displayLarge … labelSmall` (display/headline/title/body/label × large/medium/
 small). Shortcuts: `hero` = displaySmall, `h1` = headlineSmall, `h2` = titleLarge, `h3` =
 titleMedium, `body` = bodyLarge, `caption` = bodySmall, `overline` = labelSmall + caps, `mono` =
-the code font at bodyMedium. Weight: `weight: regular | medium | bold`. `display*` is capped to
-`headlineLarge` when the block is `inline` (it would overflow a bubble).
+the code font at bodyMedium. Weight: `weight: regular | medium | bold`. In `inline` and `card` blocks, `displayLarge` and
+`displayMedium` become `displaySmall` (EchoFlow's `displayLarge` is a 44 sp black face and would
+overflow a bubble); they are allowed in expanded and full-screen mode (04 §1.6). Styles come from
+`MaterialTheme.typography`, so blocks use the app's own fonts.
 
 ### 11.5 Shape (`shape`)
 
-`none` 0, `xs` 4, `s` 8, `m` 12, `l` 16, `xl` 28, `full` (pill/circle), plus Material 3 Expressive
-shapes for decorative containers and icons: `cookie`, `clover`, `sunny`, `pill`, `gem`, `arch`,
-`burst`, `flower`, `puffy`, `slanted` (the `MaterialShapes` set). Expressive shapes morph when
-their value changes.
+`none`, `xs`, `s`, `m`, `l`, `xl` resolve to `MaterialTheme.shapes` (`extraSmall` … `extraLarge`:
+8, 14, 20, 28, 36 dp in EchoFlow today), so a block's `Card` has the same 20 dp corners as every
+other card in the app; `full` is pill/circle. Plus Material 3 Expressive shapes for decorative
+containers and icons (`MaterialShapes`; 26 are accepted, 04 §1.5; the prompt advertises a curated
+ten, 06 §3.2). Expressive shapes morph when their value changes.
 
 ### 11.6 Elevation (`elevation`)
 
@@ -1114,8 +1122,10 @@ sized to the eventual default), which prevents jumps.
 
 ### 17.3 Prompted order
 
-The prompt asks for: header → state → `root` → top-level children in visual order → helpers and
-functions → effects. This makes the block's outline appear immediately and fill top-down.
+The prompt asks for: header → any `fn` a state's starting value uses → state → `root` → top-level
+children in visual order → other helpers and functions → effects. This makes the block's outline
+appear immediately and fill top-down. A model that ignores the order still gets correct state: a
+state waits to initialise until the names its starting value needs have arrived (03 §7.1).
 
 ### 17.4 Interactivity during streaming
 
@@ -1170,9 +1180,10 @@ reduces errors. Off by default for metered providers; on for flat-rate ones; use
 
 ## 19. Weave-JSON
 
-For models that are better at JSON, and for providers that support schema-constrained decoding
-(OpenAI-compatible `response_format: json_schema`, Mistral, others), Weave has an exact JSON
-equivalent. The catalog generates the JSON Schema.
+**Phase 2.** For models that are better at JSON, and for providers that support schema-constrained
+decoding (OpenAI-compatible `response_format: json_schema`, Mistral, others), Weave has an exact JSON
+equivalent. The catalog generates the JSON Schema. It ships only once the eval harness shows a model
+that does clearly better with it (02 §12).
 
 ````
 ```weave-json
@@ -1229,8 +1240,9 @@ plain markdown, so each model gets a tier.
 
 ### 20.2 Form selection
 
-Per model: `source` (default), or `json` when the model is tier ≤ 2 and the provider supports
-schema-constrained output, or when the user picks it.
+Phase 1: always `source`. From phase 2, per model: `json` when the model is tier ≤ 2 and the tier
+table marks it as measured to do better with schema-constrained output; otherwise `source`. The
+user doesn't pick it (05 §12).
 
 ### 20.3 When to make UI at all
 
@@ -1298,9 +1310,10 @@ The prompt is generated from the Kotlin catalog, per tier and form, and cached.
 
 ### 21.2 On-demand docs (tool-capable models)
 
-Instead of all signatures, tier 3–4 models with tool use may get a compact **index** (names + one
-line) and a `weave_docs(names: list)` tool returning full signatures and an example for each.
-This keeps the base prompt small while giving access to the whole catalog.
+Tier 3–4 models with tool use keep the full signatures of the common components inline and get a
+compact **index** of the long tail (`Sort`, `Canvas`, `Shader`, `Quiz`, …) plus a
+`weave_docs(names: list)` tool returning full signatures and an example for each. The first
+interactive answer never waits on a tool call; only unusual components do (06 §2.1, §8).
 
 ### 21.3 Prompt tests
 
@@ -1314,11 +1327,11 @@ deliberately.
 The model must know what the user did, without blowing the context.
 
 - Each assistant message containing blocks is sent back in history with its **source** (latest
-  version) and a compact **state line**:
-  `<weave-state id="loan" v="3">{"rate":9.1,"years":15,"principal":5000000}</weave-state>`
-  Only state that differs from the declared initial value is included. Large values (> 400 chars)
-  are summarised (`"cart": "list(12)"`).
-- `!say(attach: […])` adds the named values to that user turn in the same format.
+  version) and a compact **state line** as a comment inside the fence (06 §2.4):
+  `# state {"rate":9.1,"years":15,"principal":5000000}`
+  Only state that differs from the declared initial value is included, truncated per 05 §8.6
+  (strings at 200 characters, lists over 20 items as `"list(12)"`, whole line at 2,000 characters).
+- `!say(attach: […])` adds the named values to that user turn, encoded the same way (05 §8.6).
 - `!ask` calls include the full current state of the block and a log of the last 5 `!ask`s.
 - Lazy fragments are included only if they were opened.
 - Older history: blocks more than 10 turns back are reduced to header + state line.
@@ -1329,19 +1342,10 @@ The model must know what the user did, without blowing the context.
 
 ### 23.1 Storage (Room)
 
-```
-weave_block(
-  message_id, block_key,             -- block_key = fence offset from MarkdownStreamPlanner
-  block_id,                          -- from header, unique per thread
-  version, source, form,             -- form = source|json
-  state_json, history_json,          -- §6.4, capped
-  lazy_json,                         -- generated fragments by name + cache key
-  consent_json,                      -- per-tool "always" grants
-  created_at, updated_at
-)
-weave_version(block_row_id, version, source, cause, created_at)   -- cause = stream|edit|ask|remix|repair
-weave_library(id, title, icon, source, state_json, pinned_widget, created_at)
-```
+The normative schema is 05 §9: a `weave_blocks` table (UUID key, foreign key to the chat message,
+plus state, history, lazy, consent, fired-flag, ask-log and UI-state JSON columns), a versions table,
+a library table, and an `intelligentUi` column on chat threads, added in one migration from the
+database version current when this ships. This section only summarises it; do not build from it.
 
 State saves are debounced (500 ms) and flushed on background.
 
@@ -1464,9 +1468,13 @@ should produce an EchoFlow artifact instead. Weave does not embed WebViews.
 :weave-runtime     Android. StateStore on Compose snapshots, ActionBus, ModelLoop (!ask, lazy,
                    repair), ToolBridge, Room entities/DAOs, persistence, Glance widget profile.
 :weave-js          Optional. QuickJS binding for tier 4 `js fn`.
-app                Registers WeaveBlockExtension under "weave"/"weave-json" in
+app                Registers WeaveBlockExtension under "weave" (and "weave-json" from phase 2) in
                    LocalMarkdownBlockExtensions; wires ModelLoop to ChatRepository; settings UI.
 ```
+
+EchoFlow is a single `:app` module today. `:weave-core` is the one new module phase 1 needs: being
+pure JVM is what lets the language core and its tests run without an emulator. The other two may
+start as packages inside `app` (05 §1).
 
 ### 26.2 Core types (sketch)
 
@@ -1546,7 +1554,9 @@ appear as chat turns or affect conversation titles.
 ### 26.7 Dependencies
 
 - Already present: Compose BOM, Material 3, Media3.
-- New: kotlinx.serialization (if not already used), Maps Compose (tier 3+, behind the existing
+- JSON: no new library. The app uses Moshi; `weave-core` ships its own `TolerantJson` for
+  streaming (05 §1).
+- New: Maps Compose (tier 3+, behind the existing
   secrets plugin key), SceneView (tier 4, optional, dynamic feature or skipped), Lottie Compose,
   QuickJS binding (optional `:weave-js`).
 - AGSL shaders need API 33; `minSdk` is 24, so `Shader` falls back to `Gradient` below 33.
@@ -1591,17 +1601,26 @@ appear as chat turns or affect conversation titles.
 
 ## 29. Phasing
 
-**Phase 1 — the engine (tier 1–2).**
-`:weave-core` complete (parser, auto-fix, checker, evaluator, IR, JSON form, prompt generator).
-Renderer with layout, text, numbers, all §13.4 inputs except `Sketch`/`Swipe`/`Rank`/`Sort`,
-`Chart` with line/area/bar/point/rule/arc, `Table`, `List`, `Tabs`, `Wizard`, `Sheet`. Local
-actions, `!say`, effects (`change`, `appear`, `every`). Persistence and versions. Tiers 1–2,
-curated table for the top models. The **Intelligent UI** setting (§20.5) with all three levels, the
-per-chat chip and "Make this interactive". Every level is capped at the highest tier shipped so far.
+**Phase 1 — the engine (tier 1–2).** Built in two steps, both behind a developer flag.
+
+- **1a — the slice.** `:weave-core` complete except Weave-JSON: normaliser, lexer, incremental
+  parser, auto-fix, checker, evaluator, IR, canonical printer, prompt generator, with the JVM tests
+  in 07 §1–4, §7 and §9. Fence registration (`weave` only). Renderer for the common set:
+  `Column`, `Row`, `Card`, `Title`, `Text`, `Metric`, `Callout`, `Button`, `Slider`, `Segmented`,
+  `TextField`, `Select`, `Table`, `List`, `Item`, `Tabs`, and `Chart` with line/area/bar/point/rule
+  marks. Local actions, `!say`, effects (`change`, `appear`, `every`). State persistence. The global
+  Intelligent UI setting. Because the prompt only advertises components the renderer has
+  (05 §3.3), 1a is usable end to end in real chats.
+- **1b — the rest of phase 1.** Every other component tagged phase 1 in 04, `Wizard`, `Sheet`, the
+  remaining chart marks, versions, the per-chat override, "Make interactive", "Show as plain text".
+
+The model eval harness (07 §10) is **not** a prerequisite: it is built once 1a works and runs before
+phase 1 leaves the developer flag. Until then the tier table uses the defaults in 05 §10.1.
 
 **Phase 2 — the model loop (tier 3).**
 `!ask`, `lazy`, edits from later replies, remix, repair round, `query` + consent, device actions,
-cross-block exports, full-screen and co-pilot mode, share as image / `.weave`, Library.
+cross-block exports, full-screen and co-pilot mode, share as image / `.weave`, Library, Weave-JSON
+(if the eval harness shows a model that needs it).
 
 **Phase 3 — extreme (tier 4).**
 `frame`, `tilt`, Canvas gestures, simulation, `Shader`, `Model3D`, `Map`, `Sketch`, `Swipe`,
@@ -1728,6 +1747,12 @@ export $board
 ---
 
 ## 31. Open questions
+
+Settled in spec 1.1 (see `critique.md` §7): live UI is cloud-only for now; Balanced stays the
+default and its prompt cost (~1–4k tokens) is accepted; Weave-JSON moves to phase 2; the eval
+harness follows the build instead of gating it; Weave keeps its own token names, resolved through
+the app's `Spacing` and `Shapes`.
+
 
 1. **Names.** Settled: the engine is **Echo UI**, the setting is **Intelligent UI**, and the levels
    are Off / Balanced / Immersive. Open: should the `weave` fence and language name stay as an

@@ -1,6 +1,6 @@
 # 04 — Components, marks and tokens
 
-**Spec version:** 1.0 · **Status:** normative
+**Spec version:** 1.1 · **Status:** normative
 
 This is the reference for everything a block can draw. For each component it gives: the signature,
 every parameter with type and default, positional order and aliases (for auto-fix), children,
@@ -20,16 +20,23 @@ style from `MaterialTheme.typography`, every shape from §1.5 (CLAUDE.md rule).
 
 ### 1.1 Spacing — `token<space>`
 
-| Token | dp |
-|---|---|
-| `none` | 0 |
-| `xxs` | 2 |
-| `xs` | 4 |
-| `s` | 8 |
-| `m` | 12 |
-| `l` | 16 |
-| `xl` | 24 |
-| `xxl` | 32 |
+| Token | dp | Resolves to (`ui/theme/Spacing.kt`) |
+|---|---|---|
+| `none` | 0 | `0.dp` |
+| `xxs` | 2 | `2.dp` (hairline; no app equivalent) |
+| `xs` | 4 | `Spacing.xs` |
+| `s` | 8 | `Spacing.s` |
+| `m` | 12 | `Spacing.m` |
+| `l` | 16 | `Spacing.base` |
+| `xl` | 24 | `Spacing.xl` |
+| `xxl` | 32 | `Spacing.xxl` |
+
+Weave's names are its own on purpose: the model needs a short, evenly stepped scale, and the app's
+scale has an extra step (`Spacing.l` = 20 dp, `Spacing.huge` = 48 dp) that Weave does not expose.
+Every Weave value except `xxs` is an existing app value, so a block's spacing is indistinguishable
+from hand-built EchoFlow UI. Note the one naming trap for implementers: **Weave `l` is
+`Spacing.base`, not `Spacing.l`**. The renderer MUST read these through `Spacing`, not literals, so
+a change to the app scale reaches blocks.
 
 `pad` also accepts a list of 2 tokens `[vertical, horizontal]` or 4 tokens
 `[top, end, bottom, start]`.
@@ -116,15 +123,21 @@ for the rest.
 
 ### 1.5 Shapes — `token<shape>`
 
-| Token | Shape |
-|---|---|
-| `none` | `RectangleShape` |
-| `xs` | `RoundedCornerShape(4.dp)` |
-| `s` | 8 dp |
-| `m` | 12 dp |
-| `l` | 16 dp |
-| `xl` | 28 dp |
-| `full` | `CircleShape` / pill (`RoundedCornerShape(50%)`) |
+Corner tokens resolve through the app theme, never to fixed dp, so a block's cards and images
+match the cards EchoFlow already draws (principle 10, 01 §2):
+
+| Token | Resolves to | EchoFlow default (`ui/theme/Shape.kt`) |
+|---|---|---|
+| `none` | `RectangleShape` | 0 dp |
+| `xs` | `MaterialTheme.shapes.extraSmall` | 8 dp |
+| `s` | `MaterialTheme.shapes.small` | 14 dp |
+| `m` | `MaterialTheme.shapes.medium` | 20 dp — the M3 `Card` default |
+| `l` | `MaterialTheme.shapes.large` | 28 dp |
+| `xl` | `MaterialTheme.shapes.extraLarge` | 36 dp |
+| `full` | `CircleShape` / pill (`RoundedCornerShape(50%)`) | — |
+
+The dp column is informative, except that auto-fix S4 (02 §8.2) snaps raw numbers using it. If
+`Shape.kt` changes, update this column and the S4 tests together.
 
 Expressive shapes (`MaterialShapes`, converted with `.toShape()`), allowed only on `Shape`,
 `Avatar`, `Icon(container: …)`, `Image`, `Surface`, `Card` (with `style: filled|tonal`), and
@@ -203,7 +216,10 @@ The app uses `MaterialExpressiveTheme`'s expressive motion scheme. With reduced 
 - Names are Material Icons in `snake_case`: `"flight_takeoff"`, `"savings"`, `"share"`.
 - They resolve to `Icons.Rounded.<PascalCase>` from `material-icons-extended`, through a **generated
   registry** (`WeaveIcons.kt`, built by a Gradle task from `weave/icons.txt`: one name per line,
-  ~600 curated names). **No reflection.**
+  ~600 curated names). **No reflection.** `material-icons-extended` is already an `:app`
+  dependency, but most app screens draw their own vector drawables, so the registry is new surface:
+  it is what keeps R8 from stripping the icons a block may name, and it is the only list the prompt
+  may advertise.
 - A name not in the registry renders a 6 dp dot in `onSurfaceVariant` and reports `W401`.
 - Icon sizes: `s` 18 dp, `m` 24 dp, `l` 32 dp, `xl` 48 dp.
 
@@ -350,7 +366,12 @@ statement has started but not finished:
 
 Placeholders never shrink while streaming: when content arrives, the container height animates
 from the placeholder height to the content height only if the content is **taller**; if it is
-shorter, the height snaps at fence close. This prevents the chat from jumping while text streams.
+shorter, the extra height is kept until fence close. This prevents the chat from jumping while text
+streams. At fence close, any held extra height **animates** down to the content height with the
+`fast` spatial spec of the motion scheme (04 §1.8) — never a snap, because fence close is when the
+user's eye and thumb arrive at the block. Under reduced motion it changes in one step. If the block
+is entirely off-screen at fence close, it changes in one step and the list keeps the user's scroll
+anchor. `[T-407]`
 
 ---
 
@@ -383,7 +404,10 @@ shorter, the height snaps at fence close. This prevents the chat from jumping wh
 - Text never overflows horizontally: it wraps (unless `maxLines` is set, then ellipsis).
 - A `Row` whose children don't fit in its width (measured with intrinsic widths) and whose `wrap`
   is `auto` (default) is laid out as a `Column` with the same `gap` instead. This is decided per
-  layout pass using `SubcomposeLayout`.
+  layout pass by a single custom `Layout`: it reads each child's `maxIntrinsicWidth` once, compares
+  the sum plus gaps with the incoming max width, then measures and places the children as a row or
+  a column. It MUST NOT use `SubcomposeLayout`, which recomposes per pass and janks inside the chat
+  `LazyColumn` on mid-range devices.
 - Horizontal scrolling exists only in `Carousel`, `Tabs(scrollable: true)`, `Table` and `Chips`
   with `scroll: true`. No other component scrolls horizontally.
 - Vertical scrolling inside a block exists only where a fixed `h` is set on `Column(scroll: true)`,
@@ -458,7 +482,7 @@ Compose `FlowRow` with `horizontalArrangement = spacedBy(gap, justify alignment)
 
 M3 `HorizontalMultiBrowseCarousel` when `peek: true` (`preferredItemWidth = itemW × width`,
 `itemSpacing = gap`), else `HorizontalUncontainedCarousel` with `itemWidth = itemW × width`. Item
-height = `h` or the tallest child's height measured once. Items are clipped with `shape: xl` via
+height = `h` or the tallest child's height measured once. Items are clipped with `shape: l` via
 `maskClip`. Semantics: each item is a list item; the carousel announces "Carousel, n items".
 
 ### Spacer
@@ -482,7 +506,7 @@ in a `Row`. `weight(n)` in a `Row`/`Column` = `Modifier.weight(n)`.
 | `elevated` | M3 `ElevatedCard` |
 | `tonal` | M3 `Card` with `containerColor` = tone's medium container (default tone `secondary`) |
 
-Shape default `l` (16 dp). Content is a `Column(gap)` with `pad`. With `onTap`, uses the clickable
+Shape default `m` (`shapes.medium`, the same as every other card in the app). Content is a `Column(gap)` with `pad`. With `onTap`, uses the clickable
 `Card(onClick)` overload. Aliases: `variant`→`style`, `kind`→`style`.
 
 ### Surface
@@ -846,8 +870,17 @@ Row: optional `label` (start, `bodyLarge`), then `FilledTonalIconButton(remove)`
   shows the error state) — the place's type becomes num.
 - `maxLen` shows a counter in supporting text.
 - **Secret-shaped fields are refused:** if `label` or `placeholder` matches (case-insensitive)
-  `password|passcode|pin|otp|one[- ]time|cvv|cvc|card number|account number|routing|ifsc|ssn|aadhaar|pan number`,
-  the field renders disabled with supporting text "EchoFlow blocks can't ask for secrets". `[T-400]`
+
+  ```
+  \b(password|passcode|otp|one[- ]time|cvv|cvc|card number|account number|routing|ifsc|ssn|aadhaar|pan number)\b
+  |\bpin\b(?!\s*code)
+  ```
+
+  (newline not part of the pattern), the field renders disabled with supporting text "EchoFlow
+  blocks can't ask for secrets". `pin` is matched as a whole word and not when followed by
+  `code`, so `PIN`, `ATM PIN` and `PIN number` are refused while `Pincode`, `PIN code`, `Postal
+  code`, `Spinner` and `Pinned notes` are allowed. India is the default locale (07 preamble); an
+  address form MUST work. `[T-400]` `[T-400b]`
 - Aliases: `hint`→`placeholder`, `type`→`kind`, `bind`→`value`.
 
 ### Select
@@ -879,7 +912,7 @@ targets, 32 dp icons), drag across to set. Haptic `tick` per change.
 ### Pad2D
 
 `Pad2D(value: place, x: {min, max, label?}, y: {min, max, label?}, h = l)` · tier 2 · phase 3 —
-a rounded (`shape: l`) `surfaceContainerHigh` area with 4×4 grid lines in `outlineVariant`, axis
+a rounded (`shape: m`) `surfaceContainerHigh` area with 4×4 grid lines in `outlineVariant`, axis
 labels at the edges, and a 24 dp `primary` puck at the value. Drag or tap to move. Writes `{x, y}` in
 the given ranges (y increases **upwards**). One history entry per drag.
 
@@ -1047,7 +1080,7 @@ toggles "Show more"/"Show less".
 
 ### Image
 
-`Image(src: str | image, alt: str, fit: cover|contain = cover, h?: token<height> = aspect(16/9), shape = l, zoom = false)` · tier 1 · phase 1 —
+`Image(src: str | image, alt: str, fit: cover|contain = cover, h?: token<height> = aspect(16/9), shape = m, zoom = false)` · tier 1 · phase 1 —
 Coil `AsyncImage` (https only, max 4 MB, redirects to non-https refused). While loading: §2.9
 placeholder. Failure: `surfaceContainerHigh` box with `broken_image` icon and `alt` text. `zoom`
 opens a full-screen viewer (pinch, double-tap 2×). `alt` is required; missing → `"Image"` with
@@ -1254,8 +1287,8 @@ are safe anywhere. Colour animation interpolates in sRGB.
 
 | Component | Signature | Renders · tier · phase |
 |---|---|---|
-| `Gradient` | `(tones: list<color> = [primaryContainer, tertiaryContainer], angle = 135, h?, shape = l) [children]` | `Brush.linearGradient` at `angle` degrees through the colours; content colour `onPrimaryContainer`. · 1 · 2 |
-| `Shader` | `(kind: aurora\|mesh\|grain\|ripple\|liquid, tones?: list<color>, speed = 1, h = m, shape = l) [children]` | AGSL `RuntimeShader` (API 33+; source files in `weave-compose/src/main/assets/shaders/<kind>.agsl`), uniforms `time` (s × speed, paused off-screen), `resolution`, `c0..c3` (tones, default primary/tertiary/secondary/surface). Below API 33 or reduced motion → `Gradient` with the same tones. · 4 · 3 |
+| `Gradient` | `(tones: list<color> = [primaryContainer, tertiaryContainer], angle = 135, h?, shape = m) [children]` | `Brush.linearGradient` at `angle` degrees through the colours; content colour `onPrimaryContainer`. · 1 · 2 |
+| `Shader` | `(kind: aurora\|mesh\|grain\|ripple\|liquid, tones?: list<color>, speed = 1, h = m, shape = m) [children]` | AGSL `RuntimeShader` (API 33+; source files in `weave-compose/src/main/assets/shaders/<kind>.agsl`), uniforms `time` (s × speed, paused off-screen), `resolution`, `c0..c3` (tones, default primary/tertiary/secondary/surface). Below API 33 or reduced motion → `Gradient` with the same tones. · 4 · 3 |
 | `Shape` | `(kind: token<shape>, size: s\|m\|l\|xl = m, tone = primary, emphasis = medium, morphTo?: token<shape>, rotate?: num, icon?: icon)` | The shape filled with the tone (sizes 32/48/72/112 dp); `morphTo` morphs on tap (and back); `rotate` in degrees; optional centred icon. · 1 · 2 |
 | `Blob` | `(seed, tone = primary, h = m)` | An organic closed path from 8 points at radius `0.7 + 0.3 × rand(seed, i)`, smooth-cubic, filled with the tone container. · 1 · 3 |
 | `Skeleton` | `(kind: text\|card\|chart\|list = card)` | The §2.9 placeholder for that kind, with shimmer. · 1 · 1 |
