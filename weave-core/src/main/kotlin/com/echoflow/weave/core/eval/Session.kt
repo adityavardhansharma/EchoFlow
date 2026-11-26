@@ -88,6 +88,26 @@ class Session(
         }
     }
 
+    /**
+     * Restores stored values (03 §7.1 step 2): each must name a declared state and is already
+     * coerced to its type (see `StateCodec.decodeState`). Restored writes make no history.
+     */
+    fun restore(values: Map<String, WValue>) {
+        for ((k, v) in values) if (k in program.states) state[k] = v
+    }
+
+    /** Whether any timer (debounce, `!after`, `every`) is pending; the host ticks [advance] only then. */
+    val hasTimers: Boolean get() = timers.isNotEmpty()
+
+    /** Ms until the next timer is due, or null when none is pending. */
+    fun nextTimerIn(): Long? = timers.minOfOrNull { it.at }?.let { maxOf(0L, it - clock) }
+
+    /** True once `appear` has fired for this block (persisted in `firedJson`). */
+    val hasAppeared: Boolean get() = appeared
+
+    /** A block whose `appear` already fired in an earlier session: don't fire it again (03 §8.2). */
+    fun markAppeared() { appeared = true }
+
     /** States declared but not initialised yet (03 §7.1). */
     val waitingStates: Set<String> get() = program.states.keys - state.keys
 
