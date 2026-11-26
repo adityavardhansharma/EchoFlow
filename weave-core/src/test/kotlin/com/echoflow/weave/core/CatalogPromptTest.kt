@@ -24,8 +24,20 @@ class CatalogPromptTest {
     @Test fun `T-501 every parameter has a type and a default or is required`() {
         val all = BuiltinCatalog.components.flatMap { it.allParams } + BuiltinCatalog.marks.flatMap { it.allParams } +
             BuiltinCatalog.actions.flatMap { it.allParams }
-        for (p in all) assertTrue(p.name, p.required || p.default != null || !p.required)
+        // Required, optional (`x?: t`) and defaulted (`x: t = v`) are mutually exclusive, and a
+        // written default always parses to a value.
+        fun problem(p: com.echoflow.weave.core.catalog.ParamSpec): String? = when {
+            p.required && p.default != null -> "required and defaulted"
+            p.defaultText != null && p.default == null -> "default ${p.defaultText} did not parse"
+            else -> null
+        }
+        for (p in all) assertEquals(p.name, null, problem(p))
         for (c in BuiltinCatalog.components) for (p in c.leads) assertNotNull(p.type)
+        assertTrue(all.any { it.required } && all.any { !it.required && it.default != null } && all.any { !it.required && it.default == null })
+        // The rule catches a bad entry.
+        val ok = all.first { it.required }
+        assertNotNull(problem(ok.copy(default = com.echoflow.weave.core.eval.WNum(1.0))))
+        assertNotNull(problem(ok.copy(required = false, defaultText = "zz")))
     }
 
     @Test fun `T-502 prompt snapshots`() {
