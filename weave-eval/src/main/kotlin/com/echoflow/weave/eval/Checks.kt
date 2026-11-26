@@ -112,11 +112,16 @@ class CheckRunner(private val s: Session) {
         }
     }
 
-    /** All the text a user would read: plain text plus labels, data rows and option values. */
+    /**
+     * All the text a user can read: each visible node's own text plus labels and option values.
+     * [Session.nodes] already skips hidden nodes and walks children, so containers add nothing
+     * themselves (their plain text would include hidden children), and raw `rows`/`items`/`data`
+     * are not read: only the columns a `Table` shows and the rows a `List` renders count.
+     */
     private fun allText(): String {
         val sb = StringBuilder()
         for (n in s.nodes(allPages = true)) {
-            sb.append(s.plainText(n)).append('\n')
+            if (n.type in OWN_TEXT) sb.append(s.plainText(n)).append('\n')
             for ((k, v) in n.args) if (k in TEXT_ARGS) sb.append(s.ctx.formatter.auto(v)).append('\n')
         }
         return sb.toString()
@@ -137,7 +142,13 @@ class CheckRunner(private val s: Session) {
     }
 
     companion object {
-        private val TEXT_ARGS = setOf("label", "title", "subtitle", "overline", "content", "options", "labels", "rows", "items", "data", "prefix", "suffix")
+        private val TEXT_ARGS = setOf("label", "title", "subtitle", "overline", "content", "options", "labels", "prefix", "suffix")
+
+        /** Nodes whose plain text is their own, not their children's (04 §2.4). */
+        private val OWN_TEXT = setOf(
+            "Text", "Markdown", "Quote", "Code", "Title", "Callout", "Metric", "Table", "Item", "Image", "Button",
+            "Slider", "Segmented", "TextField", "Select", "Toggle", "Check", "Radio", "Chips", "Stepper",
+        )
         private val NUM = Regex("""[-−]?\d[\d,]*(?:\.\d+)?(?:\s*(Cr|L|K|M|B|lakh|crore)(?![A-Za-z]))?""")
 
         /**

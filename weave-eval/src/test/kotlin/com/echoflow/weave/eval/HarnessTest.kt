@@ -88,4 +88,19 @@ class RevealTextTest {
         val body = "\$show = false\nroot = Column [Text(\"Which pigment?\"), Button(\"Reveal\", onTap: !toggle(\$show)), when(\$show, Text(\"Chlorophyll\"))]"
         org.junit.Assert.assertTrue(Scoring.score(t, "```weave\n$body\n```", 2).completed)
     }
+
+    private fun session(body: String) = com.echoflow.weave.core.eval.Session(com.echoflow.weave.core.program.Compiler.compile(body))
+
+    @Test fun `hidden text does not pass a text check`() {
+        val hidden = session("root = Column [Text(\"Answer below\"), Text(\"81\", show: false)]")
+        assertFalse(CheckRunner(hidden).run(listOf(Check.Text("81"))).pass)
+        val shown = session("root = Column [Text(\"Answer below\"), Text(\"81\")]")
+        assertTrue(CheckRunner(shown).run(listOf(Check.Text("81"))).pass)
+    }
+
+    @Test fun `fields a table does not show are not read`() {
+        val body = "rows = [{name: \"A\", secret: 81}]\nroot = Table(rows, cols: [{header: \"Name\", value: \"name\"}])"
+        assertFalse(CheckRunner(session(body)).run(listOf(Check.Text("81"))).pass)
+        assertTrue(CheckRunner(session("rows = [{name: \"A\", score: 81}]\nroot = Table(rows)")).run(listOf(Check.Text("81"))).pass)
+    }
 }
