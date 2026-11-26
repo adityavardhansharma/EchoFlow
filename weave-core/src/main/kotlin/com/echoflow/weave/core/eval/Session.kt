@@ -471,8 +471,16 @@ class Session(
         val render = n.args["render"] as? WFn
         return items.mapIndexed { i, item ->
             val v = if (render != null) runCatching { ev.callItem(render, item, i) }.getOrDefault(WNull) else WNull
-            v as? WNode ?: WNode("Item", mapOf("title" to WStr(defaultTitle(item))), emptyList(), "${n.key}/$i", n.sourceStmt)
+            v as? WNode ?: defaultItem(item, "${n.key}/$i", n.sourceStmt)
         }
+    }
+
+    /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
+    fun defaultItem(item: WValue, key: String, stmt: String): WNode {
+        val args = LinkedHashMap<String, WValue>()
+        args["title"] = WStr(defaultTitle(item))
+        if (item is WRec) item.fields.values.filterIsInstance<WStr>().getOrNull(1)?.let { args["subtitle"] = it }
+        return WNode("Item", args, emptyList(), key, stmt)
     }
 
     private fun defaultTitle(item: WValue): String = when (item) {

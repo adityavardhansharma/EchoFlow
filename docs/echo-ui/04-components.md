@@ -975,7 +975,8 @@ shown; if any field is invalid, focus the first invalid field and `!haptic(rejec
 
 `List(items: list, render: fn(item, index) → node = auto, divider = true, empty?: node, lazy: bool | auto = auto, h?)` · tier 1 · phase 1
 
-- Default `render`: an `Item` with `title = auto(item)` (for records: the first string field).
+- Default `render`: an `Item` with `title = auto(item)` (for records: the first string field) and, for
+  records, `subtitle` = the second string field when there is one, so a record's text is never hidden.
 - `lazy: auto` → lazy when `len(items) > 30`. Lazy requires `h`; without `h`, `h` defaults to `l`.
   Lazy uses `LazyColumn` with keys from §2.5 and `animateItem()`.
 - Non-lazy: a `Column` with `HorizontalDivider` between items when `divider`.
