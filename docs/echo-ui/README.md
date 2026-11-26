@@ -24,6 +24,9 @@ changed. Don't guess.
 | 06 | [Prompts](06-prompts.md) | The exact text sent to models for each Intelligent UI level and tier, and for hidden requests | **Normative** |
 | 07 | [Conformance](07-conformance.md) | Numbered test cases with exact inputs and expected outputs. An implementation is correct when all pass | **Normative** |
 
+A separate [critique](critique.md) reviews this set against the app as it is today. It is not
+normative. Where it disagrees with 02–07, 02–07 win until the spec is changed.
+
 ## 2. Reading order by role
 
 - **New to the project (junior):** README → 01 → 02 §1–5 → 03 §1–6 → 04 §1–3 → the component you
