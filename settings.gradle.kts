@@ -27,3 +27,5 @@ rootProject.name = "EchoFlow"
 include(":app")
 
 include(":weave-core")
+
+include(":weave-eval")
