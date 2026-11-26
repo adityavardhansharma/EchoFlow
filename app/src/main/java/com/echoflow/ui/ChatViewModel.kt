@@ -1583,6 +1583,12 @@ class ChatViewModel(
         return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
     }
 
+    /** "Make interactive" (05 §11.6): asks for one block at the model's full tier, even on Off. */
+    fun makeInteractive(assistantText: String) {
+        if (settingsRepository.getSelectedModelDirect().startsWith("local/")) return
+        sendMessage(com.echoflow.weave.core.prompt.EchoUiPrompt.makeInteractive(assistantText))
+    }
+
     fun sendMessage(content: String, forceMemory: Boolean = false) {
         val prompt = content.trim()
         val editingUserId = _editingUserMessageId.value
@@ -1864,7 +1870,7 @@ class ChatViewModel(
             // Echo UI (05 §11.3, §12): the Weave section for ordinary chat turns on cloud models.
             val echoUiSection = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
                 val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi } ?: _pendingIntelligentUi.value
-                echoUiSection(prompt, requestModel, isLocal, chatLevel)
+                echoUiSection(prompt, requestModel, isLocal, chatLevel, makeInteractive = prompt.startsWith(com.echoflow.weave.compose.MAKE_INTERACTIVE_PREFIX))
             } else ""
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
                 // Tool-calling custom providers behave like cloud models: they call web_search
@@ -2041,7 +2047,11 @@ class ChatViewModel(
 
             // Load updated dialog history
             // Quoted passages reach every provider as blockquotes ahead of the typed text.
-            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }
+            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }.let { h ->
+                // Echo UI blocks go back to the model as their current source + state (05 §9.4).
+                val rows = runCatching { com.echoflow.data.AppDatabase.getDatabase(getApplication()).weaveBlockDao().forChat(chatId) }.getOrDefault(emptyList())
+                com.echoflow.weave.runtime.WeaveHistory.rewrite(h, rows)
+            }
             // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
             // provider as extra image parts, on every user turn so earlier photos stay in context.
             fullHistory.forEach { it.extraAttachments = it.extraPhotos() }
