@@ -160,11 +160,13 @@ object Builtins {
             "take", "drop" -> {
                 val l = list(arg(0)) ?: return WNull
                 val k = n(arg(1))?.toInt() ?: return WNull
+                // Clamp before negating: -Int.MIN_VALUE overflows.
+                val m = if (k < 0) minOf(l.size.toLong(), -k.toLong()).toInt() else minOf(k, l.size)
                 WList(when {
-                    name == "take" && k >= 0 -> l.take(k)
-                    name == "take" -> l.takeLast(-k)
-                    k >= 0 -> l.drop(k)
-                    else -> l.dropLast(-k)
+                    name == "take" && k >= 0 -> l.take(m)
+                    name == "take" -> l.takeLast(m)
+                    k >= 0 -> l.drop(m)
+                    else -> l.dropLast(m)
                 })
             }
             "first" -> list(arg(0))?.firstOrNull() ?: WNull
@@ -249,8 +251,10 @@ object Builtins {
                 val x = s(0) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull
                 val ch = (s(2) ?: " ").ifEmpty { " " }
                 val need = k - x.codePointCount(0, x.length)
-                if (need <= 0) WStr(x) else {
-                    val pad = ch.repeat(need).take(need)
+                // Bounded like repeat(): a source-controlled width must not drive a huge allocation.
+                if (need > MAX_PAD) WNull else if (need <= 0) WStr(x) else {
+                    chargeItems(need / 64)
+                    val pad = ch.repeat((need + ch.length - 1) / ch.length).take(need)
                     WStr(if (name == "padStart") pad + x else x + pad)
                 }
             }
@@ -273,10 +277,13 @@ object Builtins {
             }
             "addDays", "addMonths", "addYears" -> {
                 val k = n(arg(1))?.toLong() ?: return WNull
-                fun adj(d: LocalDate) = when (name) { "addDays" -> d.plusDays(k); "addMonths" -> d.plusMonths(k); else -> d.plusYears(k) }
+                fun adj(d: LocalDate): LocalDate? = runCatching { when (name) { "addDays" -> d.plusDays(k); "addMonths" -> d.plusMonths(k); else -> d.plusYears(k) } }.getOrNull()
                 when (val d = arg(0)) {
-                    is WDate -> WDate(adj(d.v))
-                    is WDateTime -> { val l = LocalDateTime.ofInstant(d.v, f.zone); WDateTime(l.toLocalTime().atDate(adj(l.toLocalDate())).atZone(f.zone).toInstant()) }
+                    is WDate -> adj(d.v)?.let { WDate(it) } ?: WNull
+                    is WDateTime -> {
+                        val l = LocalDateTime.ofInstant(d.v, f.zone)
+                        adj(l.toLocalDate())?.let { WDateTime(l.toLocalTime().atDate(it).atZone(f.zone).toInstant()) } ?: WNull
+                    }
                     else -> WNull
                 }
             }
@@ -401,6 +408,8 @@ object Builtins {
         else -> null
     }
 
+    /** Widest `padStart`/`padEnd` result, in code points. */
+    private const val MAX_PAD = 10_000
     private val EMAIL = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")
     private val PHONE = Regex("^\\+?[0-9]{7,15}$")
     private val URL = Regex("^https?://[^/\\s]+\\.[^/\\s]+.*$")
