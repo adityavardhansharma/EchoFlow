@@ -2,7 +2,14 @@ package com.echoflow.weave.compose.render
 
 import androidx.compose.foundation.layout.height
 
+import com.echoflow.weave.compose.canvas.WeaveCanvas
 import com.echoflow.weave.compose.chart.Charts
+import com.echoflow.weave.compose.chart.ChartsMore
+import com.echoflow.weave.compose.components.DataMore
+import com.echoflow.weave.compose.components.InputsMore
+import com.echoflow.weave.compose.components.Media
+import com.echoflow.weave.compose.components.Play
+import com.echoflow.weave.compose.components.Visual
 import com.echoflow.weave.compose.components.Collections
 import com.echoflow.weave.compose.components.Inputs
 import com.echoflow.weave.compose.components.Layout
@@ -89,6 +96,64 @@ object Registry {
         "ScatterChart" to { n, c, m -> Charts.ChartR(n, c, m) },
         "Histogram" to { n, c, m -> Charts.ChartR(n, c, m) },
         "Waterfall" to { n, c, m -> Charts.ChartR(n, c, m) },
+        "Radar" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "Funnel" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "Treemap" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "Sankey" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "Candles" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "BoxPlot" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        "Heatmap" to { n, c, m -> ChartsMore.Render(n, c, m) },
+        // inputs added in phase 2–3
+        "Fab" to { n, c, m -> InputsMore.FabR(n, c, m) },
+        "SplitButton" to { n, c, m -> InputsMore.SplitButtonR(n, c, m) },
+        "ButtonGroup" to { n, c, m -> InputsMore.ButtonGroupR(n, c, m) },
+        "RangeSlider" to { n, c, m -> InputsMore.RangeSliderR(n, c, m) },
+        "DatePicker" to { n, c, m -> InputsMore.DatePickerR(n, c, m) },
+        "DateRange" to { n, c, m -> InputsMore.DateRangeR(n, c, m) },
+        "TimePicker" to { n, c, m -> InputsMore.TimePickerR(n, c, m) },
+        "ColorPick" to { n, c, m -> InputsMore.ColorPickR(n, c, m) },
+        "RatingInput" to { n, c, m -> InputsMore.RatingInputR(n, c, m) },
+        "Pad2D" to { n, c, m -> InputsMore.Pad2DR(n, c, m) },
+        "Sketch" to { n, c, m -> InputsMore.SketchR(n, c, m) },
+        "Swipe" to { n, c, m -> InputsMore.SwipeR(n, c, m) },
+        "Rank" to { n, c, m -> InputsMore.RankR(n, c, m) },
+        "Sort" to { n, c, m -> InputsMore.SortR(n, c, m) },
+        // data
+        "Timeline" to { n, c, m -> DataMore.TimelineR(n, c, m) },
+        "Calendar" to { n, c, m -> DataMore.CalendarR(n, c, m) },
+        "Heatcal" to { n, c, m -> DataMore.HeatcalR(n, c, m) },
+        "Diff" to { n, c, m -> DataMore.DiffR(n, c, m) },
+        "Json" to { n, c, m -> DataMore.JsonR(n, c, m) },
+        // media
+        "Image" to { n, c, m -> Media.ImageR(n, c, m) },
+        "Gallery" to { n, c, m -> Media.GalleryR(n, c, m) },
+        "Video" to { n, c, m -> Media.VideoR(n, c, m) },
+        "Audio" to { n, c, m -> Media.AudioR(n, c, m) },
+        "Map" to { n, c, m -> Media.MapR(n, c, m) },
+        "Model3D" to { n, c, m -> Media.Model3DR(n, c, m) },
+        "Lottie" to { n, c, m -> Media.LottieR(n, c, m) },
+        "Qr" to { n, c, m -> Media.QrR(n, c, m) },
+        // overlays render nothing in the flow; the block draws open ones (04 §11)
+        "Sheet" to { _, _, _ -> },
+        "Dialog" to { _, _, _ -> },
+        "Popover" to { _, _, _ -> },
+        "Menu" to { _, _, _ -> },
+        // canvas and visual
+        "Canvas" to { n, c, m -> WeaveCanvas.CanvasR(n, c, m) },
+        "Gradient" to { n, c, m -> Visual.GradientR(n, c, m) },
+        "Shader" to { n, c, m -> Visual.ShaderR(n, c, m) },
+        "Shape" to { n, c, m -> Visual.ShapeR(n, c, m) },
+        "Blob" to { n, c, m -> Visual.BlobR(n, c, m) },
+        "Skeleton" to { n, c, m -> Visual.SkeletonR(n, c, m) },
+        // learning and play
+        "Quiz" to { n, c, m -> Play.QuizR(n, c, m) },
+        "Flashcards" to { n, c, m -> Play.FlashcardsR(n, c, m) },
+        "Blanks" to { n, c, m -> Play.BlanksR(n, c, m) },
+        "Match" to { n, c, m -> Play.MatchR(n, c, m) },
+        "Board" to { n, c, m -> Play.BoardR(n, c, m) },
+        "Dice" to { n, c, m -> Play.DiceR(n, c, m) },
+        "Spinner" to { n, c, m -> Play.SpinnerR(n, c, m) },
+        "Scratch" to { n, c, m -> Play.ScratchR(n, c, m) },
         "Sparkline" to { n, c, m ->
             val values = (n.args["values"] as? com.echoflow.weave.core.eval.WList)?.items?.mapNotNull { (it as? com.echoflow.weave.core.eval.WNum)?.v } ?: emptyList()
             val color = com.echoflow.weave.compose.tokens.TokenResolver.tone(n.word("tone") ?: "primary", "high", androidx.compose.material3.MaterialTheme.colorScheme, c.dark)?.container

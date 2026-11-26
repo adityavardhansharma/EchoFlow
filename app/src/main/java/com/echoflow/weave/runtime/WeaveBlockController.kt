@@ -109,7 +109,15 @@ class WeaveBlockController internal constructor(
     private fun publish(next: WeaveProgram) {
         val s = session
         if (s == null) {
-            val created = Session(next, ctx ?: EvalContext(), runtime.catalog)
+            val base = ctx ?: EvalContext()
+            val withExtras = EvalContext(
+                formatter = base.formatter, deviceWidth = base.deviceWidth, landscape = base.landscape, dark = base.dark,
+                reducedMotion = base.reducedMotion, fontScale = base.fontScale, blockExpanded = base.blockExpanded,
+                blockVisible = base.blockVisible, userFirstName = base.userFirstName,
+                exports = { block, name -> runtime.exportOf(chatId, block, name) },
+                animationTimeMs = { if (base.reducedMotion) null else animationMs },
+            )
+            val created = Session(next, withExtras, runtime.catalog)
             row?.let { r ->
                 created.restore(StateCodec.decodeState(next, r.stateJson, created.ctx.formatter))
                 if (WeaveRuntime.hasFlag(r.firedJson, "appear")) created.markAppeared()
@@ -177,6 +185,29 @@ class WeaveBlockController internal constructor(
         }
         afterEvent()
     }
+
+    /** Animation time for `loop` (04 §13.1), advanced by [frame]. */
+    @Volatile private var animationMs = 0L
+    private var frameEpoch = 0L
+
+    /** Whether the block needs per-frame work: `frame` effects or `loop(...)` values. */
+    val animated: Boolean get() = session?.hasFrameEffects == true || (lastBody?.contains("loop(") == true)
+
+    val hasMotionEffects: Boolean get() = session?.hasMotionEffects == true
+
+    /** One display frame: advance `loop` time, run `frame` effects, re-render. */
+    fun frame(dtMs: Long) {
+        val s = session ?: return
+        animationMs += dtMs
+        if (s.hasFrameEffects) runCatching { s.frame(dtMs) }
+        if (++frameEpoch % 1L == 0L) version++
+        if (s.outbox.isNotEmpty()) afterEvent()
+    }
+
+    fun animationTime(): Long = animationMs
+
+    fun tilt(x: Double, y: Double) { session?.let { runCatching { it.tilt(x, y) }; version++ } }
+    fun shake() { session?.let { runCatching { it.shake() }; afterEvent() } }
 
     /** Advances the block clock by real elapsed time; only called while timers are pending. */
     fun tick(ms: Long) {

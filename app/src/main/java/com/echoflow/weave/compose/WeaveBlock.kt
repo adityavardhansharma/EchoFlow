@@ -171,6 +171,16 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
             try { kotlinx.coroutines.awaitCancellation() } finally { controller.flush() }
         }
     }
+    // `frame` effects and `loop()` run per display frame while the app is in the foreground (03 §8, 04 §13.1)
+    val reducedMotion = remember { com.echoflow.weave.compose.motion.Motion.reducedMotion() }
+    LaunchedEffect(controller, program, reducedMotion) {
+        if (!program.complete || reducedMotion || !controller.animated) return@LaunchedEffect
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var last = androidx.compose.runtime.withFrameNanos { it }
+            while (true) androidx.compose.runtime.withFrameNanos { now -> controller.frame((now - last) / 1_000_000); last = now }
+        }
+    }
+    com.echoflow.weave.compose.motion.MotionSensors(controller)
     val screenH = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp }
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val firstStreaming = remember { !block.complete }
@@ -187,6 +197,7 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
             if (!program.complete && root == null) Placeholders.Of(PlaceholderKind.TEXT)
         }
         com.echoflow.weave.compose.motion.ConfettiOverlay(controller.confetti, Modifier.matchParentSize())
+        com.echoflow.weave.compose.components.Overlays.Host(ctx)
         }
     }
     BlockChrome(controller, program.header.size, program.header.title, program.header.icon, modifier, onExpand = { expanded = true }, content = content)

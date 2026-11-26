@@ -39,3 +39,44 @@ fun ConfettiOverlay(trigger: Int, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Reduced motion (animator duration scale 0) and device-motion effects. */
+object Motion {
+    fun reducedMotion(): Boolean = runCatching { android.animation.ValueAnimator.areAnimatorsEnabled().not() }.getOrDefault(false)
+}
+
+/**
+ * `tilt` and `shake` effects (03 §8.2, tier 4): an accelerometer listener registered only while
+ * the block is composed and the app is in the foreground.
+ */
+@Composable
+fun MotionSensors(controller: com.echoflow.weave.runtime.WeaveBlockController) {
+    if (!controller.hasMotionEffects) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(controller, lifecycle) {
+        val sm = context.getSystemService(android.content.Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        val sensor = sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        var lastShake = 0L
+        var lastTilt = 0L
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                val (x, y, z) = Triple(e.values[0], e.values[1], e.values[2])
+                val now = System.currentTimeMillis()
+                if (now - lastTilt > 50) { lastTilt = now; controller.tilt((-x / 9.81).toDouble(), (y / 9.81).toDouble()) }
+                val g = kotlin.math.sqrt(x * x + y * y + z * z) / 9.81f
+                if (g > 2.5f && now - lastShake > 800) { lastShake = now; controller.shake() }
+            }
+            override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, ev ->
+            when (ev) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> sensor?.let { sm.registerListener(listener, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> sm?.unregisterListener(listener)
+                else -> {}
+            }
+        }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer); sm?.unregisterListener(listener) }
+    }
+}
