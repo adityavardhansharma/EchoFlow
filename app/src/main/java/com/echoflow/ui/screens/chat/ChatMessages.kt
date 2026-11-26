@@ -376,6 +376,7 @@ private fun StableAssistantMessage(
         version = replyVersionIndex.takeIf { it != latestVersion },
         enabled = !streamActive && persistedMessage != null,
     ) {
+        com.echoflow.weave.compose.ProvideWeave(messageId = messageId, chatId = persistedMessage?.chatId) {
         Column(modifier.fillMaxWidth()) {
             if (keepMountedLiveTree) {
                 StreamingAssistantBubble(
@@ -414,6 +415,7 @@ private fun StableAssistantMessage(
                     onReplyVersionChange = onReplyVersionChange,
                 )
             }
+        }
         }
     }
 }

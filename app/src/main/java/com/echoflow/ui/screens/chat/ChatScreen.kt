@@ -70,6 +70,11 @@ fun ChatScreen(
     // The schedule pill under the bar pushes the first message down so it never hides its text.
     val messagesTopInset = if (scheduleThread != null) topBarInset + StatusPillHeight + Spacing.s else topBarInset
 
+    val uiLevel by chatViewModel.intelligentUiLevel.collectAsState()
+    com.echoflow.weave.compose.WeaveHostLayer(
+        onSay = { text -> chatViewModel.sendMessage(text) },
+        maxBlocks = if (uiLevel == com.echoflow.weave.core.prompt.IntelligentUiLevel.IMMERSIVE) 3 else 1,
+    ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         // Everything floats; each surface fills behind it. Insets are handled per element.
@@ -147,6 +152,7 @@ fun ChatScreen(
                 errorMessage?.let { ErrorBanner(it) { chatViewModel.clearError() } }
             }
         }
+    }
     }
 }
 
