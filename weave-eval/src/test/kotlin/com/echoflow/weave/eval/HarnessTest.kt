@@ -81,3 +81,11 @@ class HarnessTest {
         assertFalse(s.responded); assertFalse(s.completed)
     }
 }
+
+class RevealTextTest {
+    @Test fun `text behind a reveal button counts`() {
+        val t = Tasks.all.first { it.id == "learn_photo" }
+        val body = "\$show = false\nroot = Column [Text(\"Which pigment?\"), Button(\"Reveal\", onTap: !toggle(\$show)), when(\$show, Text(\"Chlorophyll\"))]"
+        org.junit.Assert.assertTrue(Scoring.score(t, "```weave\n$body\n```", 2).completed)
+    }
+}

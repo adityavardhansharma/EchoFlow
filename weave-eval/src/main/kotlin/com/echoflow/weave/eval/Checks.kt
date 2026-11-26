@@ -89,8 +89,14 @@ class CheckRunner(private val s: Session) {
             else CheckResult(false, "expected ${c.value} ± $tol${c.label?.let { " near /$it/" } ?: ""}; saw ${nums.take(12)}")
         }
         is Check.Text -> {
-            val all = s.root()?.let { allText() } ?: ""
-            if (rx(c.pattern).containsMatchIn(all)) CheckResult(true, "text ok") else CheckResult(false, "text /${c.pattern}/ not found")
+            val r = rx(c.pattern)
+            // text the user can reach: as shown, or after one tap on any button ("Reveal answers")
+            var found = r.containsMatchIn(s.root()?.let { allText() } ?: "")
+            if (!found) for (b in s.nodes(allPages = true).filter { it.type == "Button" }) {
+                b.args["onTap"]?.let { s.fire(it) }
+                if (r.containsMatchIn(allText())) { found = true; break }
+            }
+            if (found) CheckResult(true, "text ok") else CheckResult(false, "text /${c.pattern}/ not found")
         }
         is Check.Has -> {
             val n = s.nodes().count { it.type in c.types }
