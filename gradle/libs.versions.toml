@@ -8,14 +8,12 @@ lifecycleRuntimeKtx = "2.8.7"
 lifecycleViewmodelCompose = "2.8.7"
 lifecycleRuntimeCompose = "2.8.7"
 activityCompose = "1.10.1"
-kotlin = "2.2.10"
-composeBom = "2026.05.00"
+kotlin = "2.3.21"
+composeBom = "2026.06.00"
 material3 = "1.5.0-alpha20"
 graphicsShapes = "1.0.1"
-markdownRenderer = "0.41.0"
-highlights = "1.1.0"
-latexRenderer = "1.4.7"
-googleDevtoolsKsp = "2.3.5"
+enrichedMarkdown = "0.3.0"
+googleDevtoolsKsp = "2.3.13"
 navigationCompose = "2.8.9"
 roomRuntime = "2.7.0"
 roomKtx = "2.7.0"
@@ -45,8 +43,9 @@ okhttp = "4.10.0"
 mediapipeTasksGenai = "0.10.35"
 # Standalone LiteRT-LM engine — what AI Edge Gallery runs .litertlm bundles on
 # (gemma-4 crashes under the MediaPipe wrapper even at 0.10.35).
-# LFM2.5 needs at least 0.15, and 0.16 for GPU. 0.17+ is built with Kotlin 2.4,
-# which this app's 2.2 compiler cannot read, so stay on 0.16.1.
+# LFM2.5 needs at least 0.15, and 0.16 for GPU. 0.17+ is built with Kotlin 2.4.
+# The 2.3 compiler can read that metadata, but stay on 0.16.1 until a runtime
+# bump is intentional.
 litertlm = "0.16.1"
 # llama.cpp-backed GGUF runtime (prebuilt arm64-v8a + x86_64 .so via the published AAR).
 # Used only for .gguf models; .task/.litertlm keep their existing runtimes.
@@ -89,11 +88,9 @@ androidx-core = { group = "androidx.test", name = "core", version.ref = "core" }
 androidx-runner = { group = "androidx.test", name = "runner", version.ref = "runner" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
-markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
-markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
-markdown-renderer-code = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
-highlights = { group = "dev.snipme", name = "highlights", version.ref = "highlights" }
-latex-renderer = { group = "io.github.huarangmeng", name = "latex-renderer", version.ref = "latexRenderer" }
+enriched-markdown-compose = { group = "com.swmansion.enriched.markdown", name = "compose", version.ref = "enrichedMarkdown" }
+enriched-markdown-math = { group = "com.swmansion.enriched.markdown", name = "math", version.ref = "enrichedMarkdown" }
+enriched-markdown-code-highlight = { group = "com.swmansion.enriched.markdown", name = "code-highlight", version.ref = "enrichedMarkdown" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coilCompose" }

@@ -94,7 +94,7 @@ class ResearchMigrationTest {
                 createdAt, updatedAt
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
-            arrayOf(
+            arrayOf<Any?>(
                 id, "chat-1", "How do heat pumps work?", "exa-deep", "provider", "Exa Deep",
                 5, 20, 2500, status, "Completed",
                 3, 3, """["sub question one","sub question two"]""",

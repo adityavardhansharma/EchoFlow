@@ -2,151 +2,14 @@ package com.echoflow
 
 import com.echoflow.ui.components.MarkdownBlock
 import com.echoflow.ui.components.markdownToPlainText
+import com.echoflow.ui.components.neutralizeUnsupportedVideo
 import com.echoflow.ui.components.parseMarkdownBlocks
-import com.echoflow.ui.components.prepareGfmLatex
-import com.echoflow.ui.components.prepareInlineLatex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownTextTest {
-
-    @Test
-    fun gfmAndLatexRemainInOneMarkdownSegment() {
-        val segments = prepareGfmLatex(
-            "1. _Blade Runner 2049_ — **Problem:** evaluate ${'$'}\\frac{8}{2}${'$'} ([IMDb](https://imdb.com))."
-        )
-
-        val markdown = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-        assertTrue(markdown.source.contains("_Blade Runner 2049_"))
-        assertTrue(markdown.source.contains("**Problem:**"))
-        assertTrue(markdown.source.contains("[IMDb](https://imdb.com)"))
-        assertEquals("\\frac{8}{2}", markdown.math.single().latex)
-        assertFalse(markdown.source.contains("${'$'}\\frac{8}{2}${'$'}"))
-    }
-
-    @Test
-    fun displayLatexSplitsWithoutChangingSurroundingGfm() {
-        val segments = prepareGfmLatex(
-            "## Result\n\n_Lead_\n\n${'$'}${'$'}\n\\int_0^1 x dx\n${'$'}${'$'}\n\n- **Done**"
-        )
-
-        assertEquals(3, segments.size)
-        assertTrue((segments[0] as com.echoflow.ui.components.GfmLatexSegment.Markdown).source.contains("_Lead_"))
-        assertEquals("\\int_0^1 x dx", (segments[1] as com.echoflow.ui.components.GfmLatexSegment.DisplayMath).latex)
-        assertTrue((segments[2] as com.echoflow.ui.components.GfmLatexSegment.Markdown).source.contains("- **Done**"))
-    }
-
-    @Test
-    fun latexMarkersInsideCodeAreNotExtracted() {
-        val (source, math) = prepareInlineLatex("Use `price = ${'$'}5` and ```sh\necho ${'$'}HOME\n```")
-        assertTrue(math.isEmpty())
-        assertEquals("Use `price = ${'$'}5` and ```sh\necho ${'$'}HOME\n```", source)
-    }
-
-    @Test
-    fun mismatchedAndShorterFencesDoNotExposeLatex() {
-        val markdown = """
-            ````markdown
-            ~~~
-            ```
-            ${'$'}x${'$'}
-            ${'$'}${'$'}
-            y
-            ${'$'}${'$'}
-            ````
-
-            ~~~~markdown
-            ```
-            ${'$'}z${'$'}
-            ~~~~
-        """.trimIndent()
-
-        val segments = prepareGfmLatex(markdown)
-        assertEquals(1, segments.size)
-        val segment = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-        assertEquals(markdown, segment.source)
-        assertTrue(segment.math.isEmpty())
-    }
-
-    @Test
-    fun indentedAndEmptyDisplayMathStayWithGfm() {
-        val markdown = "    ${'$'}${'$'}\n    x + y\n    ${'$'}${'$'}\n\n${'$'}${'$'}${'$'}${'$'}\n\n${'$'}${'$'}\n${'$'}${'$'}"
-        val segments = prepareGfmLatex(markdown)
-
-        assertEquals(1, segments.size)
-        val segment = segments.single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-        assertEquals(markdown, segment.source)
-        assertTrue(segment.math.isEmpty())
-    }
-
-    @Test
-    fun sameLineDisplayDelimiterWithTrailingProseCannotConsumeLaterParagraphs() {
-        val markdown = """
-            ${'$'}${'$'}E=mc^2${'$'}${'$'} is famous.
-
-            Some explanation paragraph.
-
-            ${'$'}${'$'}
-            \int_0^1 x\,dx
-            ${'$'}${'$'}
-        """.trimIndent()
-        val segments = prepareGfmLatex(markdown)
-
-        assertEquals(2, segments.size)
-        val prose = segments[0] as com.echoflow.ui.components.GfmLatexSegment.Markdown
-        assertTrue(prose.source.contains("${'$'}${'$'}E=mc^2${'$'}${'$'} is famous."))
-        assertTrue(prose.source.contains("Some explanation paragraph."))
-        assertEquals("\\int_0^1 x\\,dx", (segments[1] as com.echoflow.ui.components.GfmLatexSegment.DisplayMath).latex)
-    }
-
-    @Test
-    fun nestedListMathIsNotMisclassifiedAsIndentedCode() {
-        val markdown = "1. Item one\n    - Sub item with ${'$'}x^2${'$'}"
-        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-
-        assertEquals(listOf("x^2"), segment.math.map { it.latex })
-    }
-
-    @Test
-    fun indentedCodeBelongingToAListKeepsLatexLiteral() {
-        val markdown = "1. Item one\n\n       val formula = ${'$'}x${'$'}"
-        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-
-        assertEquals(markdown, segment.source)
-        assertTrue(segment.math.isEmpty())
-    }
-
-    @Test
-    fun topLevelIndentedListMarkerRemainsCode() {
-        val markdown = "    - literal ${'$'}x${'$'}"
-        val segment = prepareGfmLatex(markdown).single() as com.echoflow.ui.components.GfmLatexSegment.Markdown
-
-        assertEquals(markdown, segment.source)
-        assertTrue(segment.math.isEmpty())
-    }
-
-    @Test
-    fun ordinaryAngleBracketsDoNotSuppressMathButTagsAndAutolinksDo() {
-        val markdown = "a < ${'$'}x${'$'} > b <https://example.test/${'$'}y${'$'}> <u data-v='${'$'}z${'$'}'>under</u>"
-        val (prepared, math) = prepareInlineLatex(markdown)
-
-        assertEquals(listOf("x"), math.map { it.latex })
-        assertTrue(prepared.contains("<https://example.test/${'$'}y${'$'}>"))
-        assertTrue(prepared.contains("<u data-v='${'$'}z${'$'}'>"))
-    }
-
-    @Test
-    fun inlineLatexDoesNotRewriteLinkDestinationsOrLiteralTokens() {
-        val literal = "ECHOFLOWLATEXPLACEHOLDER0TOKEN"
-        val markdown = "$literal [details](https://example.test/${'$'}x${'$'}) then ${'$'}y${'$'}"
-        val (prepared, math) = prepareInlineLatex(markdown)
-
-        assertTrue(prepared.startsWith(literal))
-        assertTrue(prepared.contains("[details](https://example.test/${'$'}x${'$'})"))
-        assertEquals(listOf("y"), math.map { it.latex })
-    }
 
     @Test
     fun parsesDollarDisplayMathBlock() {
@@ -305,5 +168,48 @@ class MarkdownTextTest {
             "See the docs for more.",
             markdownToPlainText("See [the docs](https://example.com/guide) for more."),
         )
+    }
+
+    @Test
+    fun videoBlockKeepsTheSurroundingReply() {
+        val source = """
+            Before
+
+            <video src="https://example.com/clip.mp4"></video>
+
+            After **bold**
+        """.trimIndent()
+
+        val rendered = neutralizeUnsupportedVideo(source)
+        assertTrue(rendered.contains("Before"))
+        assertTrue(rendered.contains("After **bold**"))
+        assertTrue(rendered.contains("Video: https://example.com/clip.mp4"))
+        assertFalse(rendered.contains("<video"))
+    }
+
+    @Test
+    fun videoInsideCodeIsLeftAlone() {
+        val fenced = "See\n\n```html\n<video src=\"https://example.com/a.mp4\"></video>\n```\n\nDone"
+        assertEquals(fenced, neutralizeUnsupportedVideo(fenced))
+        val inline = "Use `<video src=\"https://example.com/a.mp4\">` here."
+        assertEquals(inline, neutralizeUnsupportedVideo(inline))
+    }
+
+    @Test
+    fun multilineVideoTagDoesNotSwallowTheNextParagraph() {
+        val source = """
+            Intro
+            <video
+              src='https://example.com/a.mp4'>
+            </video>
+            Still here
+        """.trimIndent()
+
+        val rendered = neutralizeUnsupportedVideo(source)
+        assertTrue(rendered.contains("Intro"))
+        assertTrue(rendered.contains("Video: https://example.com/a.mp4"))
+        assertTrue(rendered.contains("Still here"))
+        assertFalse(rendered.contains("<video"))
+        assertFalse(rendered.contains("</video"))
     }
 }

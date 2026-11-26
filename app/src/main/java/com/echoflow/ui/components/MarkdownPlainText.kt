@@ -1,68 +1,8 @@
-
 package com.echoflow.ui.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.BaselineShift
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withLink
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.TextUnit
-import dev.snipme.highlights.Highlights
-import dev.snipme.highlights.model.BoldHighlight
-import dev.snipme.highlights.model.ColorHighlight
-import dev.snipme.highlights.model.SyntaxLanguage
-import dev.snipme.highlights.model.SyntaxThemes
-import com.hrm.latex.renderer.Latex
-import com.hrm.latex.renderer.LatexAutoWrap
-import com.hrm.latex.renderer.measure.rememberLatexMeasurer
-import com.hrm.latex.renderer.model.LatexConfig
-import com.hrm.latex.renderer.model.LatexTheme
-
 /**
- * One markdown renderer for the whole app — used identically while a message streams and once it is
- * finished, so the layout never "jumps" or re-styles when streaming completes. It is a lightweight,
- * block-incremental CommonMark/GFM renderer: parsing is memoized on the text and every block is a
- * child composable taking only stable params, so during streaming only the final, still-growing
- * block re-renders each frame. Supports headers, ordered/bulleted (nested) lists, blockquotes,
- * horizontal rules, GFM tables (wrapping cells — never truncated), fenced code blocks with real
- * syntax highlighting, LaTeX math (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`), and inline
- * bold/italic/strikethrough/code/links.
+ * Plain-text view of a reply, used when a message is copied. The on-screen renderer is
+ * [MarkdownText]. This parser only has to keep the words a reader would see.
  */
 
 sealed class MarkdownBlock {
@@ -73,7 +13,7 @@ sealed class MarkdownBlock {
     data class BulletItem(val text: String, val indent: Int, val ordinal: Int?) : MarkdownBlock()
     data class Quote(val text: String) : MarkdownBlock()
     object Divider : MarkdownBlock()
-    data class Table(val headers: List<String>, val aligns: List<TextAlign>, val rows: List<List<String>>) : MarkdownBlock()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MarkdownBlock()
     data class Paragraph(val text: String) : MarkdownBlock()
 }
 
@@ -139,14 +79,13 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
         if (line.contains('|') && i + 1 < lines.size && TABLE_SEPARATOR.matches(lines[i + 1])) {
             flushParagraph()
             val headers = splitTableRow(line)
-            val aligns = parseTableAligns(lines[i + 1])
             val rows = mutableListOf<List<String>>()
             var j = i + 2
             while (j < lines.size && lines[j].contains('|') && lines[j].isNotBlank()) {
                 rows.add(splitTableRow(lines[j]))
                 j++
             }
-            blocks.add(MarkdownBlock.Table(headers, aligns, rows))
+            blocks.add(MarkdownBlock.Table(headers, rows))
             i = j
             continue
         }
@@ -330,18 +269,6 @@ internal fun indentOf(line: String): Int = (line.takeWhile { it == ' ' }.length 
 internal fun splitTableRow(line: String): List<String> =
     line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
 
-internal fun parseTableAligns(separator: String): List<TextAlign> =
-    separator.trim().removePrefix("|").removeSuffix("|").split("|").map {
-        val s = it.trim()
-        val left = s.startsWith(":")
-        val right = s.endsWith(":")
-        when {
-            left && right -> TextAlign.Center
-            right -> TextAlign.End
-            else -> TextAlign.Start
-        }
-    }
-
 internal data class ParsedDisplayMath(val block: MarkdownBlock.MathBlock, val nextIndex: Int)
 
 internal fun parseDisplayMathBlock(lines: List<String>, index: Int): ParsedDisplayMath? {
@@ -459,7 +386,7 @@ internal fun looksLikeMath(content: String, before: Char?, after: Char?): Boolea
 internal sealed class InlineNode {
     data class Text(val text: String) : InlineNode()
     data class Math(val id: Int, val latex: String, val raw: String) : InlineNode()
-    data class Span(val style: SpanStyle, val children: List<InlineNode>) : InlineNode()
+    data class Span(val children: List<InlineNode>) : InlineNode()
     data class Code(val text: String) : InlineNode()
     data class Link(val label: List<InlineNode>, val url: String) : InlineNode()
     data class Citation(val label: String, val url: String) : InlineNode()
@@ -549,7 +476,7 @@ internal class InlineParser(private val source: String) {
                 "bold" -> {
                     val close = source.indexOf("**", nextIdx + 2).takeIf { it in 0 until end }
                     if (close != null) {
-                        nodes.add(InlineNode.Span(SpanStyle(fontWeight = FontWeight.Bold), parseRange(nextIdx + 2, close)))
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 2, close)))
                         cursor = close + 2
                     } else {
                         nodes.add(InlineNode.Text("**"))
@@ -559,7 +486,7 @@ internal class InlineParser(private val source: String) {
                 "underscoreBold" -> {
                     val close = findUnderscoreDelimiter(source, nextIdx + 2, end, 2, opening = false)
                     if (close >= 0) {
-                        nodes.add(InlineNode.Span(SpanStyle(fontWeight = FontWeight.Bold), parseRange(nextIdx + 2, close)))
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 2, close)))
                         cursor = close + 2
                     } else {
                         nodes.add(InlineNode.Text("__"))
@@ -569,12 +496,7 @@ internal class InlineParser(private val source: String) {
                 "underscoreBoldItalic" -> {
                     val close = findUnderscoreDelimiter(source, nextIdx + 3, end, 3, opening = false)
                     if (close >= 0) {
-                        nodes.add(
-                            InlineNode.Span(
-                                SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic),
-                                parseRange(nextIdx + 3, close),
-                            )
-                        )
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 3, close)))
                         cursor = close + 3
                     } else {
                         nodes.add(InlineNode.Text("___"))
@@ -584,7 +506,7 @@ internal class InlineParser(private val source: String) {
                 "strike" -> {
                     val close = source.indexOf("~~", nextIdx + 2).takeIf { it in 0 until end }
                     if (close != null) {
-                        nodes.add(InlineNode.Span(SpanStyle(textDecoration = TextDecoration.LineThrough), parseRange(nextIdx + 2, close)))
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 2, close)))
                         cursor = close + 2
                     } else {
                         nodes.add(InlineNode.Text("~~"))
@@ -594,7 +516,7 @@ internal class InlineParser(private val source: String) {
                 "italic" -> {
                     val close = source.indexOf("*", nextIdx + 1).takeIf { it in 0 until end }
                     if (close != null && close > nextIdx + 1) {
-                        nodes.add(InlineNode.Span(SpanStyle(fontStyle = FontStyle.Italic), parseRange(nextIdx + 1, close)))
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 1, close)))
                         cursor = close + 1
                     } else {
                         nodes.add(InlineNode.Text("*"))
@@ -604,7 +526,7 @@ internal class InlineParser(private val source: String) {
                 "underscoreItalic" -> {
                     val close = findUnderscoreDelimiter(source, nextIdx + 1, end, 1, opening = false)
                     if (close >= 0) {
-                        nodes.add(InlineNode.Span(SpanStyle(fontStyle = FontStyle.Italic), parseRange(nextIdx + 1, close)))
+                        nodes.add(InlineNode.Span(parseRange(nextIdx + 1, close)))
                         cursor = close + 1
                     } else {
                         nodes.add(InlineNode.Text("_"))
@@ -716,3 +638,19 @@ internal fun findUnderscoreDelimiter(
 }
 
 private fun isMarkdownPunctuation(char: Char): Boolean = !char.isLetterOrDigit() && !char.isWhitespace()
+
+/** A link label that is just a small number — the `[1](url)` citation convention. */
+internal fun isCitationLabel(label: String): Boolean =
+    label.length in 1..3 && label.all { it.isDigit() }
+
+/** Index of a standalone `*` italic marker (not part of `**`, and opening a non-space run). */
+internal fun indexOfItalic(text: String, from: Int): Int {
+    var p = text.indexOf("*", from)
+    while (p != -1) {
+        val isDouble = text.getOrNull(p + 1) == '*' || (p > 0 && text[p - 1] == '*')
+        val opensWord = text.getOrNull(p + 1)?.isWhitespace() == false
+        if (!isDouble && opensWord) return p
+        p = text.indexOf("*", p + 1)
+    }
+    return -1
+}
