@@ -60,7 +60,8 @@ class Formatter(
 
     /** [decimals] fixed (or up to, with [trim]), grouped, half-up. */
     fun number(x: Double, decimals: Int, trim: Boolean, indianGrouping: Boolean = indian): String {
-        var bd = BigDecimal(x.toString()).setScale(maxOf(0, decimals), RoundingMode.HALF_UP)
+        // a format like num(1000000000) must not drive a huge allocation
+        var bd = BigDecimal(x.toString()).setScale(decimals.coerceIn(0, MAX_DECIMALS), RoundingMode.HALF_UP)
         if (trim) bd = bd.stripTrailingZeros().let { if (it.scale() < 0) it.setScale(0) else it }
         val neg = bd.signum() < 0
         val plain = bd.abs().toPlainString()
@@ -297,6 +298,9 @@ class Formatter(
     fun titleCase(s: String) = s.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.titlecase(locale) } }
 
     companion object {
+        /** Most decimals any format shows. */
+        const val MAX_DECIMALS = 20
+
         fun currencyOf(l: Locale): String = runCatching { Currency.getInstance(l).currencyCode }.getOrNull() ?: "USD"
 
         fun jsonString(s: String): String {
