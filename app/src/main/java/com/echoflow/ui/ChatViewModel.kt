@@ -2670,6 +2670,67 @@ class ChatViewModel(
         search: suspend (String) -> List<SearchSource>,
     ): Flow<StreamChunk> = customProviderFlowRouter.streamWithTools(provider, config, model, history, systemPrompt, params, search)
 
+    /**
+     * One hidden Echo UI request (05 §8): the live-update model (or the chat's), temperature 0.4,
+     * 4,096 tokens, 60 s timeout ([timeoutMs] for regen). Never creates chat messages or touches
+     * the thread. Returns the streamed text, or null on failure. [onPartial] sees the text so far
+     * (used by `lazy`, which renders as it streams).
+     */
+    suspend fun echoUiHidden(
+        systemPrompt: String,
+        userText: String,
+        timeoutMs: Long = 60_000,
+        onPartial: (String) -> Unit = {},
+    ): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val model = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
+        if (model.startsWith("local/")) return@withContext null
+        val config = settingsRepository.getCustomProviderConfigDirect()
+        val provider = CustomProviderRouting.providerFor(model)
+        if (provider != null && CustomProviderRouting.disabledMessage(provider, config) != null) return@withContext null
+        val requestModel = CustomProviderRouting.requestModel(provider, model)
+        val params = settingsRepository.getInferenceParamsDirect(local = false).copy(temperature = 0.4f, maxTokens = 4096)
+        val history = listOf(ChatMessage(id = java.util.UUID.randomUUID().toString(), chatId = "echo-ui", role = "user", content = userText, createdAt = System.currentTimeMillis()))
+        val flow = if (provider != null) customProviderFlow(provider, config, requestModel, history, systemPrompt, params)
+        else {
+            val key = settingsRepository.getApiKeyDirect()
+            if (key.isBlank()) return@withContext null
+            openRouterGateway.stream(LlmStreamRequest(apiKey = key, model = model, chatId = "echo-ui", history = history, systemPrompt = systemPrompt, params = params))
+        }
+        val sb = StringBuilder()
+        val ok = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                flow.collect { chunk -> if (chunk is StreamChunk.Content) { sb.append(chunk.text); onPartial(sb.toString()) } }
+                true
+            }
+        }.getOrNull() == true
+        if (ok && sb.isNotBlank()) sb.toString() else null
+    }
+
+    /** The model loop's view of hidden requests (05 §8). */
+    fun echoUiHiddenModel(): com.echoflow.weave.runtime.HiddenModel = object : com.echoflow.weave.runtime.HiddenModel {
+        override suspend fun complete(systemPrompt: String, userText: String, timeoutMs: Long, onPartial: (String) -> Unit) =
+            echoUiHidden(systemPrompt, userText, timeoutMs, onPartial)
+        override val available: Boolean get() = !echoUiCurrentModel().startsWith("local/")
+    }
+
+    fun echoUiCurrentModel(): String = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
+    fun echoUiAutoFix(): Boolean = settingsRepository.echoUiAutoFix.value
+    fun echoUiModelTier(): Int {
+        val id = echoUiCurrentModel()
+        return com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(id, id.startsWith("local/"), settingsRepository.getEchoUiTierOverride(id))
+            .coerceAtMost(com.echoflow.weave.runtime.tiers.EchoUiModelTiers.shippedTier)
+    }
+    fun echoUiPref(key: String): String? = settingsRepository.getEchoUiString(key)
+    fun setEchoUiPref(key: String, value: String?) = settingsRepository.putEchoUiString(key, value)
+
+    /** `web.search` for Echo UI tools (05 §8.7): the user's configured client search provider. */
+    suspend fun echoUiSearch(query: String): List<SearchSource>? {
+        val provider = settingsRepository.getWebSearchProviderDirect()
+        val key = settingsRepository.getSearchApiKeyDirect(provider)
+        if (!ClientSearchProviders.isReady(provider, key)) return null
+        return runCatching { webSearchService.search(provider, key, query) }.getOrNull()
+    }
+
     private fun customProviderFlow(
         provider: String?,
         config: CustomProviderConfig,
