@@ -73,7 +73,15 @@ class ReviewTwoTest {
     @Test fun `list rows take their key prop and scope their children`() {
         val s = W.session("btn = Button(\"Go\", key: \"go\")\nrows = [{k: \"a\"}, {k: \"b\"}]\nroot = List(rows, render: item => Column(key: item.k) [btn])")
         val keys = s.nodes().filter { it.type == "Button" }.map { it.key }
-        assertEquals(listOf("root/a/go", "root/b/go"), keys)
+        assertEquals(listOf("root/s:a/s:go", "root/s:b/s:go"), keys)
+    }
+
+    @Test fun `a node used as a key is not expanded`() {
+        val defs = (1..20).joinToString("\n") { "a$it = [a${it - 1}, a${it - 1}]" }
+        val start = System.nanoTime()
+        val s = W.session("a0 = [{x: 1}]\n$defs\nroot = Column [Text(\"ok\", key: a20)]")
+        assertEquals("ok", s.nodes().first { it.type == "Text" }.let { s.plainText(it) })
+        assertTrue(System.nanoTime() - start < 2_000_000_000)
     }
 
     @Test fun `ranges that overflow a long are rejected before any list is built`() {

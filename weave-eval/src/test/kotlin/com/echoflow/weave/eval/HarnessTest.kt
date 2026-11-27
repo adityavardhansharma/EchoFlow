@@ -133,6 +133,14 @@ class RevealTextTest {
         assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
     }
 
+    @Test fun `a number and the same text are different buttons`() {
+        val body = "\$n = 0\nroot = Column [\n" +
+            "Button(\"Go\", key: 1.231, onTap: !set(\$n, 1)),\n" +
+            "Button(\"Go\", key: \"1.231\", onTap: !set(\$n, 2)),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
+
     @Test fun `buttons rendered by a list are all tried`() {
         val body = "\$n = 0\nrows = [1, 2]\nroot = Column [\n" +
             "List(rows, render: (item, index) => Button(\"Reveal\", onTap: !set(\$n, index + 1))),\n" +

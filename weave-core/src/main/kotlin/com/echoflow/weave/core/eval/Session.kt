@@ -621,13 +621,17 @@ class Session(
 }
 
 /**
- * A key segment (04 §2.5). Display formatting rounds numbers to two decimals, so `1.231` and
- * `1.234` would share a node key; this keeps every distinct value distinct.
+ * A key segment (04 §2.5). Only simple values are encoded, with their type, so a number and the
+ * same text stay different and a node or list is never walked. Anything else is no key.
  */
-internal fun keyText(v: WValue): String = when (v) {
-    is WStr -> v.v
-    is WSym -> v.name
-    is WNum -> com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
-    is WBool -> v.v.toString()
-    else -> v.toString()
+internal fun keyText(v: WValue): String {
+    val raw = when (v) {
+        is WStr -> "s:" + v.v
+        is WSym -> "y:" + v.name
+        is WNum -> "n:" + com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
+        is WBool -> "b:" + v.v
+        else -> return ""
+    }
+    if (raw.length <= 200) return raw
+    return raw.take(180) + "#" + raw.hashCode().toUInt().toString(16)
 }
