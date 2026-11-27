@@ -59,4 +59,13 @@ class EchoUiPolicyTest {
         assertEquals("@weave 1 id: b3 title: \"T\"\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 title: \"T\"\nroot = Text(\"x\")", "b3"))
         assertEquals("@weave 1 id: loan\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 id: loan\nroot = Text(\"x\")", "b1"))
     }
+
+    @Test fun `tier 3 and 4 prompts offer the later phases this build renders`() {
+        val t3 = EchoUiPromptCache.section(3, IntelligentUiLevel.BALANCED)
+        val t4 = EchoUiPromptCache.section(4, IntelligentUiLevel.IMMERSIVE)
+        assertTrue(t3.contains("!ask") && t3.contains("lazy"))
+        assertTrue(t4.contains("Canvas") && t4.contains("Quiz"))
+        assertTrue("tier 4 prompt is ${t4.length} chars", t4.length < 60_000)
+        println("Echo UI prompt sizes: tier 3 ${t3.length / 4} tokens, tier 4 ${t4.length / 4} tokens (approx.)")
+    }
 }
