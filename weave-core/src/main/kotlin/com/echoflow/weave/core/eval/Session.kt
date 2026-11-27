@@ -594,7 +594,7 @@ class Session(
     }
 
     private fun explicitKey(n: WNode): String? =
-        n.args["key"]?.takeIf { it != WNull }?.let { ctx.formatter.auto(it) }?.takeIf { it.isNotEmpty() }
+        n.args["key"]?.takeIf { it != WNull }?.let { keyText(it) }?.takeIf { it.isNotEmpty() }
 
     /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
     fun defaultItem(item: WValue, key: String, stmt: String): WNode {
@@ -618,4 +618,16 @@ class Session(
         /** Context values (03 §4.3) and event variables that are always defined. */
         val CONTEXT_NAMES = setOf("device", "block", "user", "item", "index", "prev", "event", "value", "pi", "e")
     }
+}
+
+/**
+ * A key segment (04 §2.5). Display formatting rounds numbers to two decimals, so `1.231` and
+ * `1.234` would share a node key; this keeps every distinct value distinct.
+ */
+internal fun keyText(v: WValue): String = when (v) {
+    is WStr -> v.v
+    is WSym -> v.name
+    is WNum -> com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
+    is WBool -> v.v.toString()
+    else -> v.toString()
 }

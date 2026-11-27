@@ -139,4 +139,11 @@ class RevealTextTest {
             "Text(\"answer {\$n}\")\n]"
         assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
     }
+
+    @Test fun `numeric keys that display the same are still different buttons`() {
+        val body = "\$n = 0\nrows = [1.231, 1.234]\nroot = Column [\n" +
+            "List(rows, render: (item, index) => Button(\"Go\", key: item, onTap: !set(\$n, index + 1))),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
 }
