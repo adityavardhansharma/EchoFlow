@@ -44,6 +44,18 @@ interface WeaveBlockDao {
     @Query("UPDATE weave_blocks SET version = :version, source = :source, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateSource(id: String, version: Int, source: String, updatedAt: Long)
 
+    @Query("UPDATE weave_blocks SET askLogJson = :json, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateAskLog(id: String, json: String, updatedAt: Long)
+
+    @Query("UPDATE weave_blocks SET lazyJson = :json, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateLazy(id: String, json: String, updatedAt: Long)
+
+    @Query("UPDATE weave_blocks SET queryJson = :json, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateQueries(id: String, json: String, updatedAt: Long)
+
+    @Query("UPDATE weave_blocks SET consentJson = :json, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateConsent(id: String, json: String, updatedAt: Long)
+
     @Query("DELETE FROM weave_blocks WHERE messageId = :messageId")
     suspend fun deleteForMessage(messageId: String)
 }

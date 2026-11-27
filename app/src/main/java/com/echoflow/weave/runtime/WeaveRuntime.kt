@@ -137,6 +137,11 @@ class WeaveRuntime(
         scope.launch(io) { dao.updateUiState(rowId, uiJson, System.currentTimeMillis()) }
     }
 
+    fun saveAskLog(rowId: String, json: String) { scope.launch(io) { dao.updateAskLog(rowId, json, System.currentTimeMillis()) } }
+    fun saveLazy(rowId: String, json: String) { scope.launch(io) { dao.updateLazy(rowId, json, System.currentTimeMillis()) } }
+    fun saveQueries(rowId: String, json: String) { scope.launch(io) { dao.updateQueries(rowId, json, System.currentTimeMillis()) } }
+    fun saveConsent(rowId: String, json: String) { scope.launch(io) { dao.updateConsent(rowId, json, System.currentTimeMillis()) } }
+
     fun saveVersion(rowId: String, version: Int, source: String, cause: String) {
         scope.launch(io) { storage.newVersion(rowId, version, source, cause, System.currentTimeMillis()) }
     }
@@ -172,7 +177,9 @@ class WeaveRuntime(
     }
 
     fun dispatch(controller: WeaveBlockController, effect: HostEffect) {
-        host?.perform(controller, effect)
+        // hidden model requests go to the model loop; everything else to the UI host
+        if (effect.kind in MODEL_ACTIONS) modelLoop?.handle(controller, effect) ?: host?.perform(controller, effect)
+        else host?.perform(controller, effect)
     }
 
     fun close() {
@@ -182,6 +189,7 @@ class WeaveRuntime(
     }
 
     companion object {
+        private val MODEL_ACTIONS = setOf("ask", "refresh", "regen", "tool")
         private val HEADER = Regex("""^@weave\s+(\d+)([^\n]*)""")
 
         /** Ensures the stored source's header carries the thread id, so later edits can target it. */
