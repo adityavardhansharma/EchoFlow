@@ -75,6 +75,18 @@ fun ChatScreen(
         onSay = { text -> chatViewModel.sendMessage(text) },
         maxBlocks = if (uiLevel == com.echoflow.weave.core.prompt.IntelligentUiLevel.IMMERSIVE) 3 else 1,
         onMakeInteractive = { text -> chatViewModel.makeInteractive(text) },
+        hiddenModel = androidx.compose.runtime.remember(chatViewModel) { chatViewModel.echoUiHiddenModel() },
+        tools = androidx.compose.runtime.remember(chatViewModel) {
+            mapOf(
+                "web.search" to com.echoflow.weave.runtime.WeaveTools.webSearch { q -> chatViewModel.echoUiSearch(q)?.map { Triple(it.title, it.url, it.snippet) } },
+                "web.read" to com.echoflow.weave.runtime.WeaveTools.webRead,
+            )
+        },
+        autoFix = { chatViewModel.echoUiAutoFix() },
+        modelTier = { chatViewModel.echoUiModelTier() },
+        modelId = { chatViewModel.echoUiCurrentModel() },
+        qualityRead = { chatViewModel.echoUiPref(it) },
+        qualityWrite = { k, v -> chatViewModel.setEchoUiPref(k, v) },
     ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,

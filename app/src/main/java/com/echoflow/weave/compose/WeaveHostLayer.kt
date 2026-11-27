@@ -89,7 +89,19 @@ data class ConfirmRequest(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WeaveHostLayer(onSay: (String) -> Unit, maxBlocks: Int = 1, onMakeInteractive: ((String) -> Unit)? = null, content: @Composable () -> Unit) {
+fun WeaveHostLayer(
+    onSay: (String) -> Unit,
+    maxBlocks: Int = 1,
+    onMakeInteractive: ((String) -> Unit)? = null,
+    hiddenModel: com.echoflow.weave.runtime.HiddenModel? = null,
+    tools: Map<String, com.echoflow.weave.runtime.WeaveTool> = emptyMap(),
+    autoFix: () -> Boolean = { false },
+    modelTier: () -> Int = { 3 },
+    modelId: () -> String = { "" },
+    qualityRead: (String) -> String? = { null },
+    qualityWrite: (String, String?) -> Unit = { _, _ -> },
+    content: @Composable () -> Unit,
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val say by rememberUpdatedState(onSay)
@@ -102,6 +114,14 @@ fun WeaveHostLayer(onSay: (String) -> Unit, maxBlocks: Int = 1, onMakeInteractiv
             }
             override fun rejectHaptic() { view.performHapticFeedback(HapticFeedbackConstants.REJECT) }
         }
+    }
+    DisposableEffect(runtime, hiddenModel) {
+        runtime.modelLoop = hiddenModel?.let { m ->
+            com.echoflow.weave.runtime.ModelLoop(runtime, m, tools, autoFix, modelTier).also { loop ->
+                loop.qualityStore = qualityRead; loop.qualityWrite = qualityWrite; loop.currentModelId = modelId
+            }
+        }
+        onDispose { }
     }
     DisposableEffect(runtime) {
         runtime.host = host
