@@ -100,8 +100,10 @@ class RendererFuzzTest {
         compose.onNodeWithTextSafe("Each pays")
     }
 
+    /** Parsing runs off the main thread, so wait (bounded) for the block to appear. */
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onNodeWithTextSafe(t: String) {
-        val nodes = onAllNodes(androidx.compose.ui.test.hasText(t, substring = true), useUnmergedTree = true).fetchSemanticsNodes()
-        assertTrue("'$t' not on screen", nodes.isNotEmpty())
+        val present = { onAllNodes(androidx.compose.ui.test.hasText(t, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        runCatching { waitUntil(15_000) { mainClock.advanceTimeBy(100); present() } }
+        assertTrue("'$t' not on screen", present())
     }
 }
