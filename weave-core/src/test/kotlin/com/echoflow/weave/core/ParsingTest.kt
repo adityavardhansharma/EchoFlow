@@ -65,7 +65,7 @@ class ParsingTest {
         val p = W.prog("card = Card [Text(\"x\")]")
         assertEquals("card", p.root); assertEquals(listOf("W405"), W.codes(p))
         val q = W.prog("x = 1")
-        assertNull(q.root); assertFalse(q.renderable); assertEquals(listOf("W405"), W.codes(q))
+        assertNull(q.root); assertFalse(q.renderable()); assertEquals(listOf("W405"), W.codes(q))
     }
 
     @Test fun `T-044 exports`() {
@@ -115,7 +115,7 @@ class ParsingTest {
 
     @Test fun `T-060 header`() {
         val p = W.prog("@weave 2\nroot = Text(\"x\")")
-        assertTrue(p.needsNewerApp); assertFalse(p.renderable)
+        assertTrue(p.needsNewerApp); assertFalse(p.renderable())
         val q = W.prog("@weave 1 id: Loan-1\nroot = Text(\"x\")")
         assertNull(q.header.id); assertEquals(listOf("W403"), W.codes(q))
     }

@@ -55,7 +55,12 @@ object Splitter {
                     if (t.isOpenBracket()) openers.addLast(t.text)
                     if (t.isCloseBracket()) {
                         val want = when (t.text) { ")" -> "("; "]" -> "["; else -> "{" }
-                        if (openers.lastOrNull() == want) openers.removeLast() else unbalanced = true
+                        if (openers.lastOrNull() == want) openers.removeLast() else {
+                            // 02 §3.2: a bracket with no match drops this statement only, and the
+                            // splitter continues with depth clamped at zero.
+                            unbalanced = true
+                            openers.clear()
+                        }
                     }
                     cur += t
                 }

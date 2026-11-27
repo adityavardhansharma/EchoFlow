@@ -10,13 +10,14 @@ object Places {
         return v
     }
 
-    fun access(v: WValue, seg: WValue): WValue = when {
+    fun access(v: WValue, seg: WValue, charge: (() -> Unit)? = null): WValue = when {
         v == WNull -> WNull
         v is WRec && (seg is WStr || seg is WSym) -> v[key(seg)]
         v is WList && seg is WNum -> listIndex(v.items.size, seg.v)?.let { v.items[it] } ?: WNull
         // Pluck and length, the same as Evaluator.member: `items.name` and `items.len`.
         v is WList && (seg is WStr || seg is WSym) && key(seg) == "len" -> Builtins.len(v)
-        v is WList && (seg is WStr || seg is WSym) -> WList(v.items.map { access(it, seg) })
+        // Each visited item costs a step, so shared nested lists can't expand without bound.
+        v is WList && (seg is WStr || seg is WSym) -> WList(v.items.map { charge?.invoke(); access(it, seg, charge) })
         v is WStr && seg is WNum -> {
             val cps = v.v.codePoints().toArray()
             listIndex(cps.size, seg.v)?.let { WStr(String(Character.toChars(cps[it]))) } ?: WNull

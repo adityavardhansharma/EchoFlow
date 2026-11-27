@@ -97,14 +97,12 @@ class CheckRunner(private val s: Session) {
             // text the user can reach: as shown, or after one tap on any button ("Reveal answers")
             var found = r.containsMatchIn(s.root()?.let { allText() } ?: "")
             if (!found) {
-                // Labels, not the node list: a tap can disable a later button, and that button
-                // must be skipped even though it was usable when the check started.
-                val labels = s.nodes(allPages = true).filter { it.type == "Button" && usable(it) }
-                    .map { (it.args["label"] as? WStr)?.v ?: "" }
-                for (lab in labels) {
-                    val live = s.nodes(allPages = true).firstOrNull {
-                        it.type == "Button" && ((it.args["label"] as? WStr)?.v ?: "") == lab
-                    } ?: continue
+                // Keys, not the node list: a tap can disable a later button, and that button must
+                // be skipped even though it was usable when the check started. Two buttons can
+                // share a label, so the key is what tells them apart.
+                val keys = s.nodes(allPages = true).filter { it.type == "Button" && usable(it) }.map { it.key }
+                for (key in keys) {
+                    val live = s.nodes(allPages = true).firstOrNull { it.type == "Button" && it.key == key } ?: continue
                     if (!usable(live)) continue
                     live.args["onTap"]?.let { s.fire(it) }
                     if (r.containsMatchIn(allText())) { found = true; break }

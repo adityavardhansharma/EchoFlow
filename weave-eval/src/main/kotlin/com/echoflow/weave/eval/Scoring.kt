@@ -99,7 +99,7 @@ object Scoring {
         val parseOk = diags.none { it.code.startsWith("E1") }
         val dropped = diags.count { it.code in STATEMENT_DROPS }
         val session = Session(program, EvalContext(formatter()))
-        val root = if (program.renderable) session.root() else null
+        val root = if (program.renderable(session)) session.root() else null
         val renders = root != null && root.error == null
         var completed = false
         var detail = if (renders) "renders" else if (program.needsNewerApp) "needs a newer app" else "no renderable root"

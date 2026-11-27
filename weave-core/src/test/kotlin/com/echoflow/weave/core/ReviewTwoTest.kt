@@ -94,6 +94,8 @@ class ReviewTwoTest {
     @Test fun `a mismatched bracket is unbalanced, not a syntax error`() {
         assertTrue("E103" in W.codes("a = (1]\nroot = Text(\"x\")"))
         assertTrue("E101" !in W.codes("a = (1]\nroot = Text(\"x\")"))
+        // Only the bad statement is dropped: the root still renders (02 §3.2).
+        assertEquals("ok", W.session("a = (1]\nroot = Text(\"ok\")").let { it.plainText(it.root()!!) })
     }
 
     @Test fun `a hex colour after a colon is not a comment`() {
@@ -109,7 +111,14 @@ class ReviewTwoTest {
     @Test fun `a root that is not a node is not renderable`() {
         val p = W.prog("root = Nope()")
         assertEquals("root", p.root)
-        assertTrue(!p.renderable)
+        assertTrue(!p.renderable())
+    }
+
+    @Test fun `plucking a shared nested list stops at the step budget`() {
+        val defs = (1..30).joinToString("\n") { "a$it = [a${it - 1}, a${it - 1}]" }
+        val s = W.session("a0 = [{x: 1}]\n$defs\nn = a30.x\nroot = Text(\"ok\")")
+        assertEquals(WNull, s.binding("n"))
+        assertTrue("E303" in s.diagnostics.map { it.code })
     }
 
     @Test fun `a deferred action that reads a waiting value discards the transaction`() {
@@ -133,6 +142,6 @@ class ReviewTwoTest {
         val src = "x = " + (1..5000).joinToString("+") { "1" } + "\nroot = Text(\"{x}\")"
         val p = W.prog(src)
         assertTrue("E304" in W.codes(p))
-        assertTrue(p.renderable)
+        assertTrue(p.renderable())
     }
 }

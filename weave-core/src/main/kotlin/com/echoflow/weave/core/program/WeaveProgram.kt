@@ -50,12 +50,15 @@ class WeaveProgram(
     val effects: Map<String, Effect> = java.util.Collections.unmodifiableMap(LinkedHashMap(effectsIn))
 
     /**
-     * False when the block must render as a code fence with the "Couldn't render" chip.
-     * A binding named `root` is not enough: it has to evaluate to a node (02 §5.6).
+     * False when the block must render as a code fence with the "Couldn't render" chip (02 §5.6).
+     * A binding named `root` is not enough: it has to evaluate to a node. The caller passes its own
+     * session, because a fresh one would use a different clock and reject a root that renders there.
      */
-    val renderable: Boolean
-        get() = !needsNewerApp && root != null &&
-            runCatching { com.echoflow.weave.core.eval.Session(this).root() != null }.getOrDefault(false)
+    fun renderable(session: com.echoflow.weave.core.eval.Session? = null): Boolean {
+        if (needsNewerApp || root == null) return false
+        val s = session ?: com.echoflow.weave.core.eval.Session(this)
+        return runCatching { s.root() != null }.getOrDefault(false)
+    }
 
     val errors get() = diagnostics.filter { it.severity == Severity.ERROR }
     val warnings get() = diagnostics.filter { it.severity == Severity.WARNING }

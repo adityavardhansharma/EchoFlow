@@ -207,7 +207,7 @@ class Evaluator(
             is StateRef -> state(e.name)
             is Qualified -> ctx.exports(e.block, e.name) ?: WNull
             is Member -> member(eval(e.target, scope), e.name)
-            is Index -> Places.access(eval(e.target, scope), eval(e.index, scope))
+            is Index -> Places.access(eval(e.target, scope), eval(e.index, scope)) { charge() }
             is Unary -> unary(e.op, eval(e.operand, scope))
             is BinaryOp -> binary(e, scope)
             is Ternary -> if (eval(e.cond, scope).truthy()) eval(e.then, scope) else eval(e.otherwise, scope)

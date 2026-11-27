@@ -124,4 +124,12 @@ class RevealTextTest {
         assertFalse(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
         assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 1"))).pass)
     }
+
+    @Test fun `two buttons with the same label are both tried`() {
+        val body = "\$n = 0\nroot = Column [\n" +
+            "Button(\"Reveal\", onTap: !set(\$n, 1)),\n" +
+            "Button(\"Reveal\", onTap: !set(\$n, 2)),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
 }
