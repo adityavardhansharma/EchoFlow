@@ -9,6 +9,7 @@ import com.echoflow.weave.core.eval.EvalContext
 import com.echoflow.weave.core.eval.Place
 import com.echoflow.weave.core.eval.Session
 import com.echoflow.weave.core.eval.WNode
+import com.echoflow.weave.core.eval.WNull
 import com.echoflow.weave.core.eval.WValue
 import com.echoflow.weave.core.parse.IncrementalParser
 import com.echoflow.weave.core.program.EditResult
@@ -68,6 +69,30 @@ class WeaveBlockController internal constructor(
     /** Bumped by `!confetti`. */
     var confetti by mutableIntStateOf(0)
 
+    // ---- model loop state (05 §8) --------------------------------------------------------------
+    /** Names with a hidden request in flight; `pending(name)` reads them (03 §9.2). */
+    var pendingNames by mutableStateOf(emptySet<String>())
+        private set
+    /** "Stop" on the hourly budget banner: no more hidden requests until restart (05 §8.4). */
+    var modelStopped = false
+    var extraBudget = 0
+    var budgetBanner by mutableStateOf(false)
+    var repairedVersion = 0
+    /** The last 5 `!ask` exchanges: prompt → names updated. */
+    var askLog: List<Pair<String, List<String>>> = emptyList()
+        private set
+    /** Lazy parts: binding → (cache key, fragment source) (05 §8.5). */
+    private var lazyParts = mutableMapOf<String, Pair<String, String>>()
+    var lazyInFlight: Set<String> = emptySet()
+    /** Query values by statement (03 §13.1) and the args they ran with. */
+    private val queries = mutableMapOf<String, Pair<WValue, WValue>>()
+    private val queryStarted = mutableSetOf<String>()
+    /** A tool waiting for consent (05 §8.7): the consent strip shows it. */
+    var consentRequest by mutableStateOf<ConsentRequest?>(null)
+    private var consentJson = "{}"
+
+    class ConsentRequest(val tool: String, val text: String, val answer: (granted: Boolean, always: Boolean) -> Unit)
+
     private var row: WeaveBlockRow? = null
     private var rowLoaded = false
     private var lastBody: String? = null
@@ -89,7 +114,18 @@ class WeaveBlockController internal constructor(
             row = runCatching { runtime.loadRow(mid, blockKey) }.getOrNull()
             rowLoaded = true
             row?.let { r ->
-                firedJson = r.firedJson; uiJson = r.uiStateJson; blockVersion = r.version
+                firedJson = r.firedJson; uiJson = r.uiStateJson; blockVersion = r.version; consentJson = r.consentJson
+                askLog = (StateCodec.decode(r.askLogJson) as? com.echoflow.weave.core.eval.WList)?.items?.mapNotNull { e ->
+                    val rec = e as? com.echoflow.weave.core.eval.WRec ?: return@mapNotNull null
+                    (rec["p"] as? com.echoflow.weave.core.eval.WStr)?.v?.let { p -> p to ((rec["n"] as? com.echoflow.weave.core.eval.WList)?.items?.mapNotNull { (it as? com.echoflow.weave.core.eval.WStr)?.v } ?: emptyList()) }
+                } ?: emptyList()
+                (StateCodec.decode(r.lazyJson) as? com.echoflow.weave.core.eval.WRec)?.fields?.forEach { (k, v) ->
+                    val rec = v as? com.echoflow.weave.core.eval.WRec ?: return@forEach
+                    val key = (rec["key"] as? com.echoflow.weave.core.eval.WStr)?.v ?: return@forEach
+                    val src = (rec["source"] as? com.echoflow.weave.core.eval.WStr)?.v ?: return@forEach
+                    lazyParts[k] = key to src
+                }
+                (StateCodec.decode(r.queryJson) as? com.echoflow.weave.core.eval.WRec)?.fields?.forEach { (k, v) -> queries[k] = v to WNull }
                 plain = WeaveRuntime.hasFlag(r.uiStateJson, "plain")
             }
         }
@@ -103,6 +139,8 @@ class WeaveBlockController internal constructor(
         if (done && row == null && messageId != null) {
             row = runtime.createRow(this, next, src)
             row?.let { blockVersion = it.version }
+            // a block that arrived with errors may get one repair round (05 §8.9)
+            (runtime.modelLoop as? ModelLoop)?.maybeRepair(this)
         }
     }
 
@@ -116,6 +154,8 @@ class WeaveBlockController internal constructor(
                 blockVisible = base.blockVisible, userFirstName = base.userFirstName,
                 exports = { block, name -> runtime.exportOf(chatId, block, name) },
                 animationTimeMs = { if (base.reducedMotion) null else animationMs },
+                pendingNames = { pendingNames },
+                queryValue = { stmt, tool, args, every -> queryFor(stmt, tool, args, every) },
             )
             val created = Session(next, withExtras, runtime.catalog)
             row?.let { r ->
@@ -123,6 +163,8 @@ class WeaveBlockController internal constructor(
                 if (WeaveRuntime.hasFlag(r.firedJson, "appear")) created.markAppeared()
             }
             session = created
+            // stored lazy parts come back as bindings (03 §9.3)
+            if (next.complete) lazyParts.forEach { (name, part) -> applyLazySource(name, part.second) }
         } else {
             s.sync(next)
         }
@@ -301,6 +343,140 @@ class WeaveBlockController internal constructor(
         version++
         scheduleSave()
     }
+
+    fun setPending(names: Set<String>) { pendingNames = names; version++ }
+
+    fun flashChip(text: String) {
+        chip = text
+        runtime.scope.launch { delay(6_000); if (chip == text) chip = null }
+    }
+
+    fun askFailed(name: String) = flashChip("Couldn't update $name")
+
+    fun recordAsk(prompt: String, names: List<String>) {
+        askLog = (askLog + (prompt to names)).takeLast(5)
+        row?.let { r ->
+            val json = StateCodec.encode(com.echoflow.weave.core.eval.WList(askLog.map { (p, n) ->
+                com.echoflow.weave.core.eval.WRec.of("p" to com.echoflow.weave.core.eval.WStr(p), "n" to com.echoflow.weave.core.eval.WList(n.map { com.echoflow.weave.core.eval.WStr(it) }))
+            }))
+            runtime.saveAskLog(r.id, json)
+        }
+    }
+
+    /** An accepted `!ask`, remix or repair edit: applied live and saved as a new version (05 §9.3). */
+    fun acceptModelEdit(r: EditResult, cause: String) {
+        val s = session ?: return
+        runCatching { s.applyEdit(r) }
+        program = s.program
+        val next = blockVersion + 1
+        val src = WeaveRuntime.withHeaderId(r.program.print(runtime.catalog), blockId ?: "b1")
+        row?.let { runtime.saveVersion(it.id, next, src, cause); row = it.copy(source = src, version = next) }
+        blockVersion = next
+        lastBody = src
+        version++
+        scheduleSave()
+    }
+
+    /** `!regen`: a whole new block as version n+1; states follow edit rules (03 §9.4). */
+    suspend fun replaceProgram(source: String, cause: String) {
+        val p = parseLock.withLock { withContext(Dispatchers.Default) { com.echoflow.weave.core.program.Compiler.compile(source, runtime.catalog) } }
+        val s = session ?: return
+        val r = EditResult(p, true, null, emptyList(), emptySet())
+        runCatching { s.applyEdit(r) }
+        program = s.program
+        val next = blockVersion + 1
+        row?.let { runtime.saveVersion(it.id, next, source, cause); row = it.copy(source = source, version = next) }
+        blockVersion = next
+        lastBody = source
+        version++
+    }
+
+    // ---- lazy (03 §9.3) ----
+
+    /** The node to show for a lazy part, or null while it is generated. */
+    fun lazyNode(name: String, prompt: WValue, context: com.echoflow.weave.core.eval.WRec): WNode? {
+        val key = ModelLoop.lazyKey(prompt, context)
+        val part = lazyParts[name]
+        if (part == null && program?.complete == true) (runtime.modelLoop as? ModelLoop)?.lazy(this, name, (prompt as? com.echoflow.weave.core.eval.WStr)?.v ?: "", context, key)
+        if (part == null) return null
+        return binding(com.echoflow.weave.core.program.ModelResponses.lazyName(name)) as? WNode
+    }
+
+    /** True when the cached part was made for other context values: show the "Update" chip. */
+    fun lazyStale(name: String, prompt: WValue, context: com.echoflow.weave.core.eval.WRec): Boolean =
+        lazyParts[name]?.first?.let { it != ModelLoop.lazyKey(prompt, context) } == true
+
+    fun refreshLazy(name: String) {
+        val node = (program?.bindings?.get(name))?.let { binding(name) } as? WNode ?: return
+        val prompt = node.args["prompt"] ?: return
+        val ctx = node.args["context"] as? com.echoflow.weave.core.eval.WRec ?: com.echoflow.weave.core.eval.WRec(LinkedHashMap())
+        (runtime.modelLoop as? ModelLoop)?.lazy(this, name, (prompt as? com.echoflow.weave.core.eval.WStr)?.v ?: "", ctx, ModelLoop.lazyKey(prompt, ctx))
+    }
+
+    fun lazyPartial(name: String, key: String, body: String) {
+        if (applyLazySource(name, body, keep = false)) version++
+    }
+
+    fun lazyResult(name: String, key: String, body: String): Boolean {
+        if (!applyLazySource(name, body)) return false
+        lazyParts[name] = key to body
+        row?.let { r ->
+            val json = StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(lazyParts.mapValues { (_, v) ->
+                com.echoflow.weave.core.eval.WRec.of("key" to com.echoflow.weave.core.eval.WStr(v.first), "source" to com.echoflow.weave.core.eval.WStr(v.second))
+            })))
+            runtime.saveLazy(r.id, json)
+        }
+        version++
+        return true
+    }
+
+    fun lazyFailed(name: String) = flashChip("Couldn't load $name")
+
+    private fun applyLazySource(name: String, body: String, keep: Boolean = true): Boolean {
+        val s = session ?: return false
+        val edit = com.echoflow.weave.core.program.ModelResponses.lazyEdit(name, body, runtime.catalog) ?: return false
+        val r = com.echoflow.weave.core.program.Edits.apply(s.program, edit, runtime.catalog)
+        if (!r.accepted) return false
+        runCatching { s.applyEdit(r) }
+        if (keep) program = s.program
+        return true
+    }
+
+    // ---- queries and consent (03 §13, 05 §8.7) ----
+
+    private fun queryFor(stmt: String, tool: String, args: WValue, every: Long?): WValue {
+        val known = queries[stmt]
+        val argsChanged = known != null && known.second != WNull && !com.echoflow.weave.core.eval.weaveEquals(known.second, args)
+        if ((stmt !in queryStarted || argsChanged) && program?.complete == true && queryStarted.size < com.echoflow.weave.core.Limits.QUERIES_PER_BLOCK) {
+            queryStarted += stmt
+            queries[stmt] = (known?.first ?: ModelLoop.queryRecord(WNull, true, null)) to args
+            runtime.scope.launch { delay(if (argsChanged) 400 else 0); (runtime.modelLoop as? ModelLoop)?.runQuery(this@WeaveBlockController, stmt, tool, args, every) }
+        }
+        return queries[stmt]?.first ?: ModelLoop.queryRecord(WNull, true, null)
+    }
+
+    fun setQuery(stmt: String, value: WValue) {
+        queries[stmt] = value to (queries[stmt]?.second ?: WNull)
+        version++
+        row?.let { r -> runtime.saveQueries(r.id, StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(queries.mapValues { it.value.first })))) }
+    }
+
+    fun queryValueOf(stmt: String): WValue = ((queries[stmt]?.first as? com.echoflow.weave.core.eval.WRec)?.get("value")) ?: WNull
+    fun queryArgsStill(stmt: String, args: WValue) = queries[stmt]?.second?.let { com.echoflow.weave.core.eval.weaveEquals(it, args) } != false
+
+    fun requestConsent(tool: WeaveTool, args: WValue, then: (Boolean) -> Unit) {
+        if (WeaveRuntime.hasFlag(consentJson, tool.name)) { then(true); return }
+        consentRequest = ConsentRequest(tool.name, tool.consentText(args)) { granted, always ->
+            consentRequest = null
+            if (granted && always) {
+                consentJson = WeaveRuntime.addFlag(consentJson, tool.name)
+                row?.let { runtime.saveConsent(it.id, consentJson) }
+            }
+            then(granted)
+        }
+    }
+
+    fun revokeConsents() { consentJson = "{}"; row?.let { runtime.saveConsent(it.id, consentJson) } }
 
     /** Restores an earlier version from the Versions sheet (05 §7.2). */
     suspend fun restoreVersion(source: String) {
