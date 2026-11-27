@@ -88,7 +88,38 @@ class WeaveRuntime(
         }
     }
 
-    suspend fun loadRow(messageId: String, blockKey: Int): WeaveBlockRow? = withContext(io) { dao.get(messageId, blockKey) }
+    private val library = db.weaveLibraryDao()
+
+    /**
+     * The stored row for a block. A `library:<id>` key is a kept block (01 §23.5): it comes back
+     * as an in-memory row whose state saves go to `weave_library`.
+     */
+    suspend fun loadRow(messageId: String, blockKey: Int): WeaveBlockRow? = withContext(io) {
+        if (messageId.startsWith(LIBRARY)) {
+            val l = library.get(messageId.removePrefix(LIBRARY)) ?: return@withContext null
+            WeaveBlockRow(
+                id = messageId, chatId = "", messageId = messageId, blockKey = blockKey, blockId = "b1", version = 1, form = "source",
+                source = l.source, stateJson = l.stateJson, historyJson = "[]", lazyJson = l.lazyJson, queryJson = "{}", consentJson = "{}",
+                firedJson = "{}", askLogJson = "[]", uiStateJson = "{}", createdAt = l.createdAt, updatedAt = l.updatedAt,
+            )
+        } else dao.get(messageId, blockKey)
+    }
+
+    /** "Keep in Library" (01 §23.5): source and state of the current version. */
+    fun keep(controller: WeaveBlockController) {
+        val p = controller.program ?: return
+        val s = controller.session ?: return
+        val now = System.currentTimeMillis()
+        val row = com.echoflow.weave.runtime.storage.WeaveLibraryRow(
+            id = java.util.UUID.randomUUID().toString(), title = p.header.title ?: "Block", icon = p.header.icon ?: "widgets",
+            source = controller.source(), stateJson = StateCodec.encodeState(p, s.state), lazyJson = "{}", pinnedWidgetId = null,
+            createdAt = now, updatedAt = now,
+        )
+        scope.launch(io) { library.upsert(row) }
+    }
+
+    fun observeLibrary() = library.observeAll()
+    fun deleteFromLibrary(id: String) { scope.launch(io) { library.delete(id) } }
 
     /** Inserts the row for a block whose fence just closed (05 §9.3); returns the stored row. */
     suspend fun createRow(controller: WeaveBlockController, program: WeaveProgram, source: String): WeaveBlockRow? {
@@ -126,7 +157,10 @@ class WeaveRuntime(
     }
 
     fun saveState(rowId: String, stateJson: String) {
-        scope.launch(io) { dao.updateState(rowId, stateJson, "[]", System.currentTimeMillis()) }
+        scope.launch(io) {
+            if (rowId.startsWith(LIBRARY)) library.updateState(rowId.removePrefix(LIBRARY), stateJson, System.currentTimeMillis())
+            else dao.updateState(rowId, stateJson, "[]", System.currentTimeMillis())
+        }
     }
 
     fun saveFired(rowId: String, firedJson: String) {
@@ -143,6 +177,7 @@ class WeaveRuntime(
     fun saveConsent(rowId: String, json: String) { scope.launch(io) { dao.updateConsent(rowId, json, System.currentTimeMillis()) } }
 
     fun saveVersion(rowId: String, version: Int, source: String, cause: String) {
+        if (rowId.startsWith(LIBRARY)) { scope.launch(io) { library.updateSource(rowId.removePrefix(LIBRARY), source, System.currentTimeMillis()) }; return }
         scope.launch(io) { storage.newVersion(rowId, version, source, cause, System.currentTimeMillis()) }
     }
 
@@ -189,6 +224,7 @@ class WeaveRuntime(
     }
 
     companion object {
+        const val LIBRARY = "library:"
         private val MODEL_ACTIONS = setOf("ask", "refresh", "regen", "tool")
         private val HEADER = Regex("""^@weave\s+(\d+)([^\n]*)""")
 

@@ -77,6 +77,21 @@ interface WeaveLibraryDao {
     @Upsert
     suspend fun upsert(row: WeaveLibraryRow)
 
+    @Query("SELECT * FROM weave_library WHERE id = :id LIMIT 1")
+    suspend fun get(id: String): WeaveLibraryRow?
+
+    @Query("UPDATE weave_library SET stateJson = :stateJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateState(id: String, stateJson: String, updatedAt: Long)
+
+    @Query("UPDATE weave_library SET source = :source, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSource(id: String, source: String, updatedAt: Long)
+
+    @Query("UPDATE weave_library SET pinnedWidgetId = :widgetId WHERE id = :id")
+    suspend fun setWidget(id: String, widgetId: Int?)
+
+    @Query("SELECT * FROM weave_library WHERE pinnedWidgetId = :widgetId LIMIT 1")
+    suspend fun forWidget(widgetId: Int): WeaveLibraryRow?
+
     @Query("DELETE FROM weave_library WHERE id = :id")
     suspend fun delete(id: String)
 }
