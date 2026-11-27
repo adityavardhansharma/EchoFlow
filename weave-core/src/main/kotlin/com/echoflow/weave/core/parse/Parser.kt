@@ -711,7 +711,55 @@ class Parser private constructor(private val toks: List<Token>) {
         }
 
         /** Parse one logical line into a statement (or a dropped statement with its diagnostics). */
+        /** Deepest expression tree a statement may have; deeper ones are dropped (E304). */
+        const val MAX_EXPR_DEPTH = 200
+
         fun parseLine(line: LogicalLine, notes: List<LexNote>): ParsedLine {
+            val pl = parseLineRaw(line, notes)
+            val stmt = pl.stmt ?: return pl
+            // A long flat expression (1+1+…) parses in a loop but nests deeply; later passes
+            // recurse over the tree, so measure it here without recursion and drop it if too deep.
+            if (depthOf(stmt) <= MAX_EXPR_DEPTH) return pl
+            return pl.copy(stmt = null, diags = pl.diags + Diag.limit(stmt.span, "expression depth"))
+        }
+
+        private fun children(e: Expr): List<Expr> = when (e) {
+            is Member -> listOf(e.target)
+            is Index -> listOf(e.target, e.index)
+            is Unary -> listOf(e.operand)
+            is BinaryOp -> listOf(e.left, e.right)
+            is Ternary -> listOf(e.cond, e.then, e.otherwise)
+            is ListLit -> e.items
+            is RecLit -> e.fields.map { it.second }
+            is Lambda -> listOf(e.body)
+            is Call -> e.leads + e.named.map { it.second } + (e.children ?: emptyList())
+            is Str -> e.parts.mapNotNull { (it as? InterpPart)?.expr }
+            else -> emptyList()
+        }
+
+        private fun roots(s: Stmt): List<Expr> = when (s) {
+            is StateDecl -> listOf(s.init)
+            is Binding -> listOf(s.expr)
+            is FnDecl -> listOfNotNull(s.body)
+            is Effect -> listOfNotNull(s.trigger, s.condition, s.action)
+            is HeaderStmt -> s.attrs.values.toList()
+            else -> emptyList()
+        }
+
+        fun depthOf(s: Stmt): Int {
+            var max = 0
+            val stack = ArrayDeque<Pair<Expr, Int>>()
+            roots(s).forEach { stack.addLast(it to 1) }
+            while (stack.isNotEmpty()) {
+                val (e, d) = stack.removeLast()
+                if (d > max) max = d
+                if (max > MAX_EXPR_DEPTH) return max
+                children(e).forEach { stack.addLast(it to d + 1) }
+            }
+            return max
+        }
+
+        private fun parseLineRaw(line: LogicalLine, notes: List<LexNote>): ParsedLine {
             val ds = ArrayList<Diagnostic>()
             for (n in notes) ds += Diag.autofix(Span(n.line, n.offset, n.offset), n.description)
             for (n in line.notes) ds += Diag.autofix(Span(n.line, n.offset, n.offset), n.description)
