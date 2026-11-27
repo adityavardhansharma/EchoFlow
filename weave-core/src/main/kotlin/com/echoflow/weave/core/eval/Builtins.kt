@@ -258,7 +258,12 @@ object Builtins {
                     WStr(if (name == "padStart") pad + x else x + pad)
                 }
             }
-            "repeat" -> { val x = s(0) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull; if (k !in 0..1000) WNull else WStr(x.repeat(k)) }
+            "repeat" -> {
+                val x = s(0) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull
+                // bound the result, not just the count: nested repeats multiply
+                if (k !in 0..1000 || x.length.toLong() * k > com.echoflow.weave.core.Limits.STRING_CHARS) WNull
+                else { chargeItems(x.length * k / 64); WStr(x.repeat(k)) }
+            }
             "words" -> s(0)?.let { WList(it.trim().split(Regex("\\s+")).filter { w -> w.isNotEmpty() }.map { w -> WStr(w) }) } ?: WNull
             "isEmail" -> WBool.of(s(0)?.let { EMAIL.matches(it) } == true)
             "isPhone" -> WBool.of(s(0)?.let { PHONE.matches(it.replace(Regex("[\\s()-]"), "")) } == true)
