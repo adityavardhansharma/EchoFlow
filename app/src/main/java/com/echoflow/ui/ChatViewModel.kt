@@ -1583,6 +1583,32 @@ class ChatViewModel(
         return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
     }
 
+    /** Opens a `.weave` file as a block in a new chat, with its stored state (01 §23.4). */
+    fun importWeave(text: String) {
+        viewModelScope.launch {
+            val (source, state) = com.echoflow.weave.compose.WeaveShare.parseWeaveFile(text)
+            if (source.isBlank()) return@launch
+            val now = System.currentTimeMillis()
+            val program = com.echoflow.weave.core.program.Compiler.compile(source, com.echoflow.weave.core.catalog.BuiltinCatalog)
+            val title = program.header.title ?: "Shared block"
+            val chatId = chatRepository.createThread(mode = AppMode.Chat, title = title).id
+            val intro = "Opened from a .weave file.\n\n"
+            val messageId = java.util.UUID.randomUUID().toString()
+            messageDao.insertMessage(ChatMessage(id = messageId, chatId = chatId, role = "assistant", content = intro + "```weave\n" + source + "\n```", createdAt = now))
+            val db = com.echoflow.data.AppDatabase.getDatabase(getApplication())
+            db.weaveStorageDao().createBlock(
+                com.echoflow.weave.runtime.storage.WeaveBlockRow(
+                    id = java.util.UUID.randomUUID().toString(), chatId = chatId, messageId = messageId, blockKey = intro.length,
+                    blockId = program.header.id ?: "b1", version = 1, form = "source",
+                    source = com.echoflow.weave.runtime.WeaveRuntime.withHeaderId(source, program.header.id ?: "b1"),
+                    stateJson = state, historyJson = "[]", lazyJson = "{}", queryJson = "{}", consentJson = "{}",
+                    firedJson = "{}", askLogJson = "[]", uiStateJson = "{}", createdAt = now, updatedAt = now,
+                ),
+            )
+            selectThread(chatId)
+        }
+    }
+
     /** "Make interactive" (05 §11.6): asks for one block at the model's full tier, even on Off. */
     fun makeInteractive(assistantText: String) {
         if (settingsRepository.getSelectedModelDirect().startsWith("local/")) return

@@ -71,6 +71,10 @@ fun ChatScreen(
     val messagesTopInset = if (scheduleThread != null) topBarInset + StatusPillHeight + Spacing.s else topBarInset
 
     val uiLevel by chatViewModel.intelligentUiLevel.collectAsState()
+    val weaveImport by com.echoflow.weave.compose.WeaveImport.pending.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(weaveImport) {
+        weaveImport?.let { chatViewModel.importWeave(it); com.echoflow.weave.compose.WeaveImport.pending.value = null }
+    }
     com.echoflow.weave.compose.WeaveHostLayer(
         onSay = { text -> chatViewModel.sendMessage(text) },
         maxBlocks = if (uiLevel == com.echoflow.weave.core.prompt.IntelligentUiLevel.IMMERSIVE) 3 else 1,

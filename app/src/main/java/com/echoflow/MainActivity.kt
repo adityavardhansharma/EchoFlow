@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readShare(intent: Intent?) {
+        if (com.echoflow.weave.compose.WeaveImport.read(this, intent)) return
         IncomingShare.from(intent)?.let { shareRequest.value = it }
     }
 
