@@ -158,6 +158,7 @@ internal const val PageModels = "models"
 internal const val PageCloudModels = "cloud_models"
 internal const val PageWebSearch = "web_search"
 internal const val PageIntelligentUi = "intelligent_ui"
+internal const val PageWeaveLibrary = "weave_library"
 internal const val PageLocalModels = "local_models"
 internal const val PageDeepResearch = "deep_research"
 internal const val PageImagine = "imagine"
@@ -206,6 +207,7 @@ internal fun settingsParentPage(page: String): String? = if (page.startsWith(Pag
     PageEchoAgent, PageCustomProvider, PageLicenses, PageJev,
     -> PageEchoLabs
     PageCustomProviderOllama, PageCustomProviderCompatible -> PageCustomProvider
+    PageWeaveLibrary -> PageIntelligentUi
     PageCustomProviderOpenAi, PageCustomProviderClaude, PageCustomProviderGemini,
     PageCustomProviderCerebras, PageCustomProviderSarvam, PageCustomProviderXAi, PageCustomProviderVercel,
     PageCustomProviderGroq, PageCustomProviderTogether, PageCustomProviderEnclave, PageCustomProviderExperiential, PageCustomProviderMistral, PageCustomProviderCloudflare,
@@ -278,7 +280,8 @@ fun SettingsScreen(
             PageModels -> ModelsPage(viewModel, onBack = navigateBack)
             PageCloudModels -> CloudModelsPage(viewModel, onBack = navigateBack)
             PageWebSearch -> WebSearchPage(viewModel, onBack = navigateBack)
-            PageIntelligentUi -> IntelligentUiPage(viewModel, onBack = navigateBack)
+            PageIntelligentUi -> IntelligentUiPage(viewModel, onOpenLibrary = { page = PageWeaveLibrary }, onBack = navigateBack)
+            PageWeaveLibrary -> WeaveLibraryPage(onBack = navigateBack)
             PageLocalModels -> LocalModelsPage(viewModel, onBack = navigateBack)
             PageDeepResearch -> DeepResearchPage(viewModel, onBack = navigateBack)
             PageImagine -> ImaginePage(viewModel, onBack = navigateBack)

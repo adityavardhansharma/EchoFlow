@@ -52,7 +52,7 @@ internal fun IntelligentUiLevel.title(): String = when (this) {
 /** Settings → Intelligent UI (05 §11.1). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun IntelligentUiPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
+internal fun IntelligentUiPage(viewModel: SettingsViewModel, onOpenLibrary: () -> Unit = {}, onBack: () -> Unit) {
     val level by viewModel.intelligentUiLevel.collectAsState()
     val autoFix by viewModel.echoUiAutoFix.collectAsState()
     val uiModel by viewModel.echoUiModel.collectAsState()
@@ -112,6 +112,9 @@ internal fun IntelligentUiPage(viewModel: SettingsViewModel, onBack: () -> Unit)
                 Text("Sends one hidden request to repair a block the model got wrong.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(autoFix, { viewModel.setEchoUiAutoFix(it) })
+        }
+        TextButton(onOpenLibrary) {
+            Icon(TokenResolver.icon("bookmarks"), null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Made for you")
         }
         TextButton({ explainer = true }) {
             Icon(TokenResolver.icon("help"), null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("What is Intelligent UI?")
