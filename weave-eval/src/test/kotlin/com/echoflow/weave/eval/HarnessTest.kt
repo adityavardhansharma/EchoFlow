@@ -132,4 +132,11 @@ class RevealTextTest {
             "Text(\"answer {\$n}\")\n]"
         assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
     }
+
+    @Test fun `buttons rendered by a list are all tried`() {
+        val body = "\$n = 0\nrows = [1, 2]\nroot = Column [\n" +
+            "List(rows, render: (item, index) => Button(\"Reveal\", onTap: !set(\$n, index + 1))),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
 }

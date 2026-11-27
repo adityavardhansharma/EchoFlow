@@ -579,8 +579,14 @@ class Session(
         val render = n.args["render"] as? WFn
         return items.mapIndexed { i, item ->
             val v = if (render != null) runCatching { ev.callItem(render, item, i) }.getOrDefault(WNull) else WNull
-            v as? WNode ?: defaultItem(item, "${n.key}/$i", n.sourceStmt)
+            (v as? WNode)?.let { withKey(it, "${n.key}/$i") } ?: defaultItem(item, "${n.key}/$i", n.sourceStmt)
         }
+    }
+
+    /** Rows from `render` arrive without keys, so each row and its children get one from the list. */
+    private fun withKey(n: WNode, key: String): WNode {
+        val kids = n.children.mapIndexed { i, ch -> if (ch.key.isEmpty()) withKey(ch, "$key/$i") else ch }
+        return WNode(n.type, n.args, kids, if (n.key.isEmpty()) key else n.key, n.sourceStmt, n.places, n.waiting, n.error)
     }
 
     /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
