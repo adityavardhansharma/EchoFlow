@@ -30,6 +30,17 @@ object EchoUiModelTiers {
         "google/gemma" to 1, "qwen/qwen3-4b" to 1, "qwen/qwen3-8b" to 1,
     )
 
+    /**
+     * Models measured (07 §10) to do clearly better with schema-constrained Weave-JSON than with
+     * source; their tier-≤ 2 prompts use the JSON form (05 §12). None yet: both measured models
+     * write source Weave at 100 % parse success.
+     */
+    private val JSON_FORM: Set<String> = emptySet()
+
+    fun form(modelId: String, tier: Int): com.echoflow.weave.core.prompt.PromptForm =
+        if (tier <= 2 && JSON_FORM.any { modelId.lowercase().startsWith(it) }) com.echoflow.weave.core.prompt.PromptForm.JSON
+        else com.echoflow.weave.core.prompt.PromptForm.SOURCE
+
     /** Shipped tier for this build (05 §15). */
     val shippedTier: Int get() = EchoUiTiers.shippedTier(BuildConfig.ECHO_UI_PHASE)
 

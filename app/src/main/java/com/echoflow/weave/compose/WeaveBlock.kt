@@ -92,7 +92,16 @@ class WeaveBlockExtension(
     private val maxBlocks: Int,
 ) : MarkdownBlockExtension {
     @Composable
-    override fun Render(block: MarkdownExtensionBlock, modifier: Modifier) {
+    override fun Render(block0: MarkdownExtensionBlock, modifier: Modifier) {
+        // Weave-JSON (02 §12) lowers to source and then takes the same path
+        var block = block0
+        if (block0.kind == "weave-json") {
+            val lowered = remember(block0.body) { com.echoflow.weave.core.json.JsonLowering.lower(block0.body, runtime.catalog) }
+            if (lowered == null) { CodeFence(block0.body, modifier); return }
+            block = block0.copy(
+                kind = "weave", info = lowered.editTarget?.let { "weave edit $it" } ?: "weave", body = lowered.source,
+            )
+        }
         val words = block.info.trim().split(Regex("\\s+"))
         if (words.getOrNull(1) == "edit") {
             EditChip(runtime, chatId, messageId, words.getOrNull(2) ?: "", block, modifier)

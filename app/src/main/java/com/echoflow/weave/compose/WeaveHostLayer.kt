@@ -161,7 +161,7 @@ fun ProvideWeave(messageId: String?, chatId: String?, content: @Composable () ->
     val maxBlocks = LocalWeaveMaxBlocks.current
     if (runtime == null) { content(); return }
     val ext = remember(runtime, messageId, chatId, maxBlocks) { WeaveBlockExtension(runtime, messageId, chatId, maxBlocks) }
-    CompositionLocalProvider(LocalMarkdownBlockExtensions provides mapOf("weave" to ext)) { content() }
+    CompositionLocalProvider(LocalMarkdownBlockExtensions provides mapOf("weave" to ext, "weave-json" to ext)) { content() }
 }
 
 /** Deferred and outbound actions (03 §7.4, 04 §13). Outbound ones always go through the confirm sheet. */
