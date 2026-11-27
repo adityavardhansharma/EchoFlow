@@ -128,7 +128,7 @@ formats: int num(2) dec(1) compact percent pct currency(USD) inr money inrCompac
     fun componentLine(s: ComponentSpec): String {
         val args = ArrayList<String>()
         for (p in s.leads) args += if (p.type == TypeSpec.STATE) "\$value" else p.name + if (p.required) "" else "?"
-        for (p in s.params) if (p.deprecated == null) args += param(p)
+        for (p in s.params) if (p.deprecated == null && !p.promptHidden) args += param(p)
         val children = when (s.children) {
             ChildrenSpec.None -> ""
             is ChildrenSpec.Marks -> " [marks]"

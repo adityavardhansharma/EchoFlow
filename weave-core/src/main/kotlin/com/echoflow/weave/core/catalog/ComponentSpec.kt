@@ -27,6 +27,8 @@ data class ParamSpec(
     val doc: String = "",
     val deprecated: String? = null,
     val defaultText: String? = null,
+    /** Accepted by the checker but not printed in the prompt (shared input args, 04 §7). */
+    val promptHidden: Boolean = false,
 )
 
 sealed interface ChildrenSpec {

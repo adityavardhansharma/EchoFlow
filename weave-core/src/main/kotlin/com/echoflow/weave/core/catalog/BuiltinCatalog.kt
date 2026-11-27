@@ -49,7 +49,18 @@ object BuiltinCatalog : Catalog {
 
     private val INPUT_ALIASES = mapOf("bind" to "value")
 
-    override val components: List<ComponentSpec> = listOf(
+    /** 04 §7 shared input arguments: every input takes `help`, `rule` and `onChange`. */
+    private val INPUT_SHARED = Sig.params("help?: str, rule?: any, onChange?: any").map { it.copy(promptHidden = true) }
+
+    internal fun withInputArgs(c: ComponentSpec): ComponentSpec {
+        if (c.leads.firstOrNull()?.type != com.echoflow.weave.core.check.TypeSpec.STATE) return c
+        val extra = INPUT_SHARED.filter { p -> c.param(p.name) == null }
+        return if (extra.isEmpty()) c else c.copy(params = c.params + extra)
+    }
+
+    override val components: List<ComponentSpec> get() = allComponents
+
+    private val baseComponents: List<ComponentSpec> = listOf(
         // ---- Layout (04 §4)
         comp("Column", "gap: space = s, align: align = stretch, scroll: bool = false", 0, 1, 1,
             "vertical stack of children", "Layout", ChildrenSpec.Any, positional = listOf("gap", "align"),
@@ -155,6 +166,8 @@ object BuiltinCatalog : Catalog {
         comp("BarChart", "data: list<rec>, x: field, y: field | list, stack: bool = false, horizontal: bool = false, h: height = m", 1, 1, 1,
             "bar chart", "Charts", placeholder = PlaceholderKind.CHART),
     )
+
+    private val allComponents: List<ComponentSpec> by lazy { baseComponents.map { withInputArgs(it) } }
 
     // ---- Chart marks, 04 §12.3 (leads = every parameter before the first optional one) ----------
 
