@@ -56,6 +56,26 @@ class ReviewTwoTest {
         assertTrue(System.nanoTime() - start < 2_000_000_000)
     }
 
+    @Test fun `a size limit during removal is E304, and a waiting read discards the tap`() {
+        val over = W.session("\$xs = [1, 2, 3]\nroot = Button(\"Go\", onTap: !removeWhere(\$xs, i => len(range(30000)) > 0))")
+        over.fire(over.root()!!.args["onTap"]!!)
+        assertTrue("E304" in over.diagnostics.map { it.code })
+        assertTrue("E303" !in over.diagnostics.map { it.code })
+        assertEquals(3, (over.state["xs"] as com.echoflow.weave.core.eval.WList).items.size)
+
+        val parser = com.echoflow.weave.core.parse.IncrementalParser()
+        val head = "\$out = 0\n\$rate = base(10)\n\$xs = [1, 2]\nroot = Button(\"Go\", onTap: [!inc(\$out), !removeWhere(\$xs, i => (\$rate ?? len(range(30000))) > 0)])\n"
+        val s = com.echoflow.weave.core.eval.Session(parser.update(head, false), W.ctx())
+        s.fire(s.root()!!.args["onTap"]!!)
+        assertEquals(WNum(0.0), s.state["out"])
+    }
+
+    @Test fun `list rows take their key prop and scope their children`() {
+        val s = W.session("btn = Button(\"Go\", key: \"go\")\nrows = [{k: \"a\"}, {k: \"b\"}]\nroot = List(rows, render: item => Column(key: item.k) [btn])")
+        val keys = s.nodes().filter { it.type == "Button" }.map { it.key }
+        assertEquals(listOf("root/a/go", "root/b/go"), keys)
+    }
+
     @Test fun `ranges that overflow a long are rejected before any list is built`() {
         val start = System.nanoTime()
         assertEquals(WNull, W.eval("-1e308 .. 1e308"))

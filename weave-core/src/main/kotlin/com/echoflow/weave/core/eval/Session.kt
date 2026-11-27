@@ -352,9 +352,8 @@ class Session(
                 val l = (cur(p) as? WList)?.items ?: return@let
                 val pred = named("pred") ?: arg(1)
                 val kept = ArrayList<WValue>(l.size)
-                var ranOut = false
-                // Its own evaluator, not the one that read the arguments: a budget report on that
-                // one would mark the gesture as having read a waiting value and discard the write.
+                var stop: Diagnostic? = null
+                // Its own evaluator, so the step budget is one running total for the whole removal.
                 val predEv = txEvaluator(tx)
                 for ((i, it) in l.withIndex()) {
                     try {
@@ -362,17 +361,17 @@ class Session(
                     } catch (x: BudgetExceeded) {
                         // The rest of the list is untouched once the shared budget runs out.
                         kept += l.subList(i, l.size)
-                        ranOut = true
+                        stop = Diag.budget(Span.NONE, "removeWhere")
                         break
                     } catch (x: LimitExceeded) {
                         kept += l.subList(i, l.size)
-                        ranOut = true
+                        stop = Diag.limit(Span.NONE, x.what)
                         break
                     }
                 }
-                // The budget report reads like a waiting read to the commit, which would discard
-                // the removal. Drop this evaluator's record of it and report the budget directly.
-                if (ranOut) { tx.evaluators.remove(predEv); report(Diag.budget(Span.NONE, "removeWhere")) }
+                // Keep predEv recorded: a waiting read before the stop must still discard the
+                // whole gesture (03 §7.1). The diagnostic itself does not set that flag.
+                stop?.let { report(it) }
                 writePlace(tx, p, WList(kept))
             }
             "move" -> place(0)?.let { p ->
@@ -579,15 +578,23 @@ class Session(
         val render = n.args["render"] as? WFn
         return items.mapIndexed { i, item ->
             val v = if (render != null) runCatching { ev.callItem(render, item, i) }.getOrDefault(WNull) else WNull
-            (v as? WNode)?.let { withKey(it, "${n.key}/$i") } ?: defaultItem(item, "${n.key}/$i", n.sourceStmt)
+            val row = v as? WNode
+            if (row == null) defaultItem(item, "${n.key}/$i", n.sourceStmt)
+            else withKey(row, "${n.key}/${explicitKey(row) ?: i.toString()}")
         }
     }
 
-    /** Rows from `render` arrive without keys, so each row and its children get one from the list. */
+    /**
+     * A row's identity is its `key` prop, or its index (04 §2.5). Descendants are scoped under
+     * that key even when they already have one, so two rows never share a key.
+     */
     private fun withKey(n: WNode, key: String): WNode {
-        val kids = n.children.mapIndexed { i, ch -> if (ch.key.isEmpty()) withKey(ch, "$key/$i") else ch }
-        return WNode(n.type, n.args, kids, if (n.key.isEmpty()) key else n.key, n.sourceStmt, n.places, n.waiting, n.error)
+        val kids = n.children.mapIndexed { i, ch -> withKey(ch, "$key/${explicitKey(ch) ?: i.toString()}") }
+        return WNode(n.type, n.args, kids, key, n.sourceStmt, n.places, n.waiting, n.error)
     }
+
+    private fun explicitKey(n: WNode): String? =
+        n.args["key"]?.takeIf { it != WNull }?.let { ctx.formatter.auto(it) }?.takeIf { it.isNotEmpty() }
 
     /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
     fun defaultItem(item: WValue, key: String, stmt: String): WNode {
