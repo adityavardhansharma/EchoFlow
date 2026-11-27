@@ -13,7 +13,7 @@ object Ops {
             a is WNum && b is WNum -> WNum.of(a.v * b.v)
             a is WDur && b is WNum -> WDur(Math.floor(a.ms * b.v + 0.5).toLong())
             a is WNum && b is WDur -> WDur(Math.floor(b.ms * a.v + 0.5).toLong())
-            a is WStr && b is WNum -> if (b.v in 0.0..1000.0) WStr(a.v.repeat(b.v.toInt())) else WNull
+            a is WStr && b is WNum -> if (b.v in 0.0..1000.0 && a.v.length.toLong() * b.v.toLong() <= com.echoflow.weave.core.Limits.STRING_CHARS) WStr(a.v.repeat(b.v.toInt())) else WNull
             else -> WNull
         }
         "/" -> when {
@@ -48,8 +48,8 @@ object Ops {
 
     private fun plus(a: WValue, b: WValue, f: Formatter): WValue = when {
         a is WNum && b is WNum -> WNum.of(a.v + b.v)
-        a is WStr || b is WStr -> WStr(f.auto(a) + f.auto(b))
-        a is WList && b is WList -> WList(a.items + b.items)
+        a is WStr || b is WStr -> (f.auto(a) + f.auto(b)).let { if (it.length > com.echoflow.weave.core.Limits.STRING_CHARS) WNull else WStr(it) }
+        a is WList && b is WList -> if (a.items.size + b.items.size > com.echoflow.weave.core.Limits.LIST_ITEMS) WNull else WList(a.items + b.items)
         a is WRec && b is WRec -> WRec(LinkedHashMap(a.fields).apply { putAll(b.fields) })
         a is WDate && b is WDur -> WDate(a.v.plusDays(b.ms / 86_400_000L))
         a is WDateTime && b is WDur -> WDateTime(a.v.plusMillis(b.ms))

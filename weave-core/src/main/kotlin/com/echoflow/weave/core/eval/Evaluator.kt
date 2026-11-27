@@ -157,6 +157,28 @@ class Evaluator(
         return v
     }
 
+    /**
+     * Calls a handler or predicate from outside an evaluation (event handlers, `onChange`,
+     * `removeWhere`): budget, limit, recursion and runtime failures become null (03 golden rule 1).
+     */
+    fun safeCall(fn: WFn, args: List<WValue>): WValue {
+        val saved = steps
+        steps = 0
+        return try { callFn(fn, args) }
+        catch (x: BudgetExceeded) { report(Diag.budget(fn.origin ?: Span.NONE, fn.name ?: "fn", fn.name ?: "fn")); WNull }
+        catch (x: LimitExceeded) { report(Diag.limit(fn.origin ?: Span.NONE, x.what, fn.name ?: "fn")); WNull }
+        catch (x: CycleSignal) { WNull }
+        catch (x: StackOverflowError) { report(Diag.budget(fn.origin ?: Span.NONE, fn.name ?: "fn", fn.name ?: "fn")); WNull }
+        catch (x: RuntimeException) { WNull }
+        finally { steps = saved }
+    }
+
+    fun safeCallItem(fn: WValue, item: WValue, index: Int): WValue {
+        val saved = steps
+        steps = 0
+        return try { callItem(fn, item, index) } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull } finally { steps = saved }
+    }
+
     /** Evaluates one top-level expression (action argument, effect condition, state initial value). */
     fun topLevel(e: Expr, scope: Scope = Scope.EMPTY, name: String = "value"): WValue {
         val saved = steps
@@ -233,7 +255,8 @@ class Evaluator(
     fun member(v: WValue, k: String): WValue = when {
         k == "len" && (v is WStr || v is WList || v is WRec) -> Builtins.len(v)
         v is WRec -> v[k]
-        v is WList -> WList(v.items.map { member(it, k) })
+        // each visited item costs a step, so shared nested lists can't expand without bound
+        v is WList -> WList(v.items.map { charge(); member(it, k) })
         v is WNode -> v.args[k] ?: WNull
         else -> WNull
     }

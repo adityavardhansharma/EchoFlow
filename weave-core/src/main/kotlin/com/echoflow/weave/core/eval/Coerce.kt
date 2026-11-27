@@ -123,10 +123,12 @@ class Coercion(private val f: Formatter) {
     }
 
     companion object {
-        private val NUM = Regex("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?%?")
+        // no overlapping digit runs, so a long non-number fails in linear time
+        private val NUM = Regex("[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?%?")
 
         /** 03 §2.4. */
         fun parseNumber(s0: String): Double? {
+            if (s0.length > 400) return null
             val s = s0.trim().replace(",", "").replace("_", "")
             if (!NUM.matches(s)) return null
             val pct = s.endsWith("%")

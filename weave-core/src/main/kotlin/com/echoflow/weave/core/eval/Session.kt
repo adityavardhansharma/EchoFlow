@@ -272,7 +272,10 @@ class Session(
 
     // ---- events and transactions, 03 §7.2 -------------------------------------------------------
 
-    private class Tx(val work: LinkedHashMap<String, WValue>, val deferred: ArrayList<Pair<WAction, Evaluator>>, val fromEffect: Boolean) {
+    /** A deferred action with its arguments already evaluated inside the transaction (03 §7.2). */
+    private class Deferred(val a: WAction, val args: List<WValue>, val named: Map<String, WValue>)
+
+    private class Tx(val work: LinkedHashMap<String, WValue>, val deferred: ArrayList<Deferred>, val fromEffect: Boolean) {
         var undid = false
         val evaluators = ArrayList<Evaluator>()
         /** True when anything this transaction evaluated read a waiting state (03 §7.1). */
@@ -307,7 +310,7 @@ class Session(
         writePlace(tx, place, value)
         if (onChange != null) {
             val ev = txEvaluator(tx)
-            val a = if (onChange is WFn) ev.callFn(onChange, listOf(Places.read(tx.work[place.state] ?: WNull, place.path))) else onChange
+            val a = if (onChange is WFn) ev.safeCall(onChange, listOf(Places.read(tx.work[place.state] ?: WNull, place.path))) else onChange
             runIn(tx, a)
         }
         commit(tx, before, chain)
@@ -319,7 +322,7 @@ class Session(
         var a = action
         if (a is WFn) {
             val ev = txEvaluator(tx)
-            a = ev.callFn(a, listOfNotNull(data))
+            a = ev.safeCall(a, listOfNotNull(data))
         }
         runIn(tx, a)
         commit(tx, before, chain)
@@ -380,7 +383,7 @@ class Session(
             "removeWhere" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items ?: return@let
                 val pred = named("pred") ?: arg(1)
-                writePlace(tx, p, WList(l.withIndex().filterNot { (i, it) -> ev.callItem(pred, it, i).truthy() }.map { it.value }))
+                writePlace(tx, p, WList(l.withIndex().filterNot { (i, it) -> ev.safeCallItem(pred, it, i).truthy() }.map { it.value }))
             }
             "move" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items?.toMutableList() ?: return@let
@@ -403,7 +406,8 @@ class Session(
                 branch?.let { runIn(tx, ev.topLevel(it, a.scope)) }
             }
             "open", "close", "go", "focus", "scrollTo", "refresh" -> outbox += HostEffect(a.kind, a.args.map { (it as? Name)?.let { n -> WStr(n.name) } ?: ev.topLevel(it, a.scope) }, emptyMap())
-            else -> tx.deferred += a to ev
+            // arguments are evaluated now, so a waiting read discards the whole transaction (T-279b)
+            else -> tx.deferred += deferredArgs(a, ev)
         }
     }
 
@@ -451,11 +455,11 @@ class Session(
             redo.clear()
         }
         // deferred queue, in order (03 §7.2 step 6)
-        for ((a, ev) in tx.deferred) deferred(a, ev, tx.fromEffect)
+        for (d in tx.deferred) deferred(d, tx.fromEffect)
         if (changed) changeEffects(before, chain)
     }
 
-    private fun deferred(a: WAction, ev: Evaluator, fromEffect: Boolean) {
+    private fun deferredArgs(a: WAction, ev: Evaluator): Deferred {
         // Names and places the host needs as names, not values: `!ask(update: [a, b])`,
         // `!tool(into: $x)` (03 §9.2, §13.2).
         fun asNames(e: Expr): WValue = when (e) {
@@ -478,6 +482,13 @@ class Session(
                 else -> ev.topLevel(v, a.scope)
             }
         }
+        return Deferred(a, args, named)
+    }
+
+    private fun deferred(d: Deferred, fromEffect: Boolean) {
+        val a = d.a
+        val args = d.args
+        val named = d.named
         if (a.kind == "after") {
             val delay = ((args.getOrNull(0) as? WDur)?.ms ?: 0L).coerceAtMost(600_000L)
             val act = args.getOrNull(1) ?: named["action"] ?: return
