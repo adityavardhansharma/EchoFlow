@@ -103,4 +103,12 @@ class RevealTextTest {
         assertFalse(CheckRunner(session(body)).run(listOf(Check.Text("81"))).pass)
         assertTrue(CheckRunner(session("rows = [{name: \"A\", score: 81}]\nroot = Table(rows)")).run(listOf(Check.Text("81"))).pass)
     }
+
+    @Test fun `disabled controls don't count`() {
+        val off = session("\$n = 1\nroot = Column [Slider(\$n, 0, 10, label: \"Amount\", disabled: true), Text(\"{\$n * 2}\")]")
+        assertFalse(CheckRunner(off).run(listOf(Check.Interactive)).pass)
+        assertFalse(CheckRunner(off).run(listOf(Check.Input("Amount", 4.0))).pass)
+        val on = session("\$n = 1\nroot = Column [Slider(\$n, 0, 10, label: \"Amount\"), Text(\"{\$n * 2}\")]")
+        assertTrue(CheckRunner(on).run(listOf(Check.Input("Amount", 4.0), Check.Number(8.0))).pass)
+    }
 }

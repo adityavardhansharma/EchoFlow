@@ -7,6 +7,7 @@ import com.echoflow.weave.core.eval.WNum
 import com.echoflow.weave.core.eval.WStr
 import com.echoflow.weave.core.eval.WSym
 import com.echoflow.weave.core.eval.WValue
+import com.echoflow.weave.core.eval.truthy
 
 /**
  * Programmatic checks for eval tasks (07 §10.1). Models choose their own labels and layout, so
@@ -63,9 +64,12 @@ class CheckRunner(private val s: Session) {
         (n.args["prefix"] as? WStr)?.v,
     ).joinToString(" ")
 
+    /** A user can't operate a disabled control, so the harness doesn't either. */
+    private fun usable(n: com.echoflow.weave.core.eval.WNode): Boolean = !(n.args["disabled"]?.truthy() ?: false)
+
     private fun runOne(c: Check): CheckResult = when (c) {
         is Check.Input -> {
-            val inputs = s.nodes().filter { it.places.isNotEmpty() && it.type in INPUTS }
+            val inputs = s.nodes().filter { it.places.isNotEmpty() && it.type in INPUTS && usable(it) }
             val hit = inputs.firstOrNull { rx(c.label).containsMatchIn(label(it)) }
                 ?: inputs.firstOrNull { rx(c.label).containsMatchIn(it.places.values.first().state) }
             if (hit == null) CheckResult(false, "no input matching /${c.label}/ among ${inputs.map { label(it).ifEmpty { it.places.values.first().state } }}")
@@ -77,7 +81,7 @@ class CheckRunner(private val s: Session) {
             }
         }
         is Check.Tap -> {
-            val b = s.nodes().firstOrNull { it.type == "Button" && rx(c.label).containsMatchIn((it.args["label"] as? WStr)?.v ?: "") }
+            val b = s.nodes().firstOrNull { it.type == "Button" && usable(it) && rx(c.label).containsMatchIn((it.args["label"] as? WStr)?.v ?: "") }
             val a = b?.args?.get("onTap")
             if (a == null) CheckResult(false, "no button /${c.label}/") else { s.fire(a); CheckResult(true, "tapped") }
         }
@@ -92,7 +96,7 @@ class CheckRunner(private val s: Session) {
             val r = rx(c.pattern)
             // text the user can reach: as shown, or after one tap on any button ("Reveal answers")
             var found = r.containsMatchIn(s.root()?.let { allText() } ?: "")
-            if (!found) for (b in s.nodes(allPages = true).filter { it.type == "Button" }) {
+            if (!found) for (b in s.nodes(allPages = true).filter { it.type == "Button" && usable(it) }) {
                 b.args["onTap"]?.let { s.fire(it) }
                 if (r.containsMatchIn(allText())) { found = true; break }
             }
@@ -103,7 +107,7 @@ class CheckRunner(private val s: Session) {
             if (n >= c.min) CheckResult(true, "has") else CheckResult(false, "needs ${c.min} of ${c.types}, found $n")
         }
         Check.Interactive -> {
-            val ok = s.nodes().any { (it.places.isNotEmpty() && it.type in INPUTS) || it.args["onTap"] != null || it.args["onRow"] != null }
+            val ok = s.nodes().any { usable(it) && ((it.places.isNotEmpty() && it.type in INPUTS) || it.args["onTap"] != null || it.args["onRow"] != null) }
             if (ok) CheckResult(true, "interactive") else CheckResult(false, "nothing to interact with")
         }
         is Check.AnyOf -> {
