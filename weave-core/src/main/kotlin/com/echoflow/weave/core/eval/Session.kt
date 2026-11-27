@@ -456,8 +456,28 @@ class Session(
     }
 
     private fun deferred(a: WAction, ev: Evaluator, fromEffect: Boolean) {
-        val args = a.args.map { ev.topLevel(it, a.scope) }
-        val named = a.named.associate { (k, v) -> k to ev.topLevel(v, a.scope) }
+        // Names and places the host needs as names, not values: `!ask(update: [a, b])`,
+        // `!tool(into: $x)` (03 §9.2, §13.2).
+        fun asNames(e: Expr): WValue = when (e) {
+            is ListLit -> WList(e.items.map { (it as? Name)?.let { n -> WStr(n.name) } ?: ev.topLevel(it, a.scope) })
+            is Name -> WList(listOf(WStr(e.name)))
+            else -> ev.topLevel(e, a.scope)
+        }
+        fun asPlace(e: Expr): WValue = (e as? StateRef)?.let { WStr("$" + it.name) } ?: ev.topLevel(e, a.scope)
+        val args = a.args.mapIndexed { i, e ->
+            when {
+                a.kind == "ask" && i == 1 -> asNames(e)
+                a.kind == "tool" && i == 2 -> asPlace(e)
+                else -> ev.topLevel(e, a.scope)
+            }
+        }
+        val named = a.named.associate { (k, v) ->
+            k to when {
+                a.kind == "ask" && k == "update" -> asNames(v)
+                a.kind == "tool" && k == "into" -> asPlace(v)
+                else -> ev.topLevel(v, a.scope)
+            }
+        }
         if (a.kind == "after") {
             val delay = ((args.getOrNull(0) as? WDur)?.ms ?: 0L).coerceAtMost(600_000L)
             val act = args.getOrNull(1) ?: named["action"] ?: return

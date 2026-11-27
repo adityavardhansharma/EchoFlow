@@ -48,6 +48,13 @@ class EvalContext(
      * reads it (04 §13.1); with null (tests, reduced motion, off-screen) `loop` returns `from`.
      */
     val animationTimeMs: () -> Long? = { null },
+    /** Binding names with a hidden request in flight (`pending(name)`, 03 §9.2). */
+    val pendingNames: () -> Set<String> = { emptySet() },
+    /**
+     * The current value of `query(tool, args, every)` declared in statement [stmt] (03 §13.1), as
+     * the record `{value, loading, error, at}`; null when the host runs no queries.
+     */
+    val queryValue: (stmt: String, tool: String, args: WValue, everyMs: Long?) -> WValue? = { _, _, _, _ -> null },
 ) {
     fun device() = WRec.of(
         "width" to WSym(deviceWidth), "landscape" to WBool.of(landscape), "dark" to WBool.of(dark),
@@ -291,6 +298,21 @@ class Evaluator(
             "if" -> if (c.leads.isNotEmpty() && eval(c.leads[0], scope).truthy()) c.leads.getOrNull(1)?.let { eval(it, scope) } ?: WNull
             else c.leads.getOrNull(2)?.let { eval(it, scope) } ?: WNull
             "when" -> if (c.leads.isNotEmpty() && eval(c.leads[0], scope).truthy()) c.leads.getOrNull(1)?.let { eval(it, scope) } ?: WNull else WNull
+            // `pending(name)` names a binding; it is not evaluated (03 §9.2)
+            "pending" -> WBool.of(((c.leads.getOrNull(0) as? Name)?.name ?: (c.leads.getOrNull(0)?.let { eval(it, scope) } as? WStr)?.v)?.let { it in ctx.pendingNames() } == true)
+            "lazy" -> {
+                val prompt = c.leads.getOrNull(0)?.let { eval(it, scope) } ?: WNull
+                val context = LinkedHashMap<String, WValue>()
+                c.named.forEach { (k, v) -> context[k] = eval(v, scope) }
+                WNode("Lazy", mapOf("prompt" to prompt, "context" to WRec(context), "name" to WStr(currentStmt())), emptyList(), "", currentStmt())
+            }
+            "query" -> {
+                val tool = (c.leads.getOrNull(0)?.let { eval(it, scope) } as? WStr)?.v ?: ""
+                val args = c.leads.getOrNull(1)?.let { eval(it, scope) } ?: c.named.firstOrNull { it.first == "args" }?.second?.let { eval(it, scope) } ?: WRec(LinkedHashMap())
+                val every = (c.named.firstOrNull { it.first == "every" }?.second?.let { eval(it, scope) } as? WDur)?.ms
+                ctx.queryValue(currentStmt(), tool, args, every)
+                    ?: WRec.of("value" to WNull, "loading" to WBool.FALSE, "error" to WStr("Unavailable"), "at" to WNull)
+            }
             "coalesce" -> { for (a in c.leads) { val v = eval(a, scope); if (v != WNull) return v }; WNull }
             "switch" -> {
                 val v = c.leads.getOrNull(0)?.let { eval(it, scope) } ?: WNull

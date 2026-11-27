@@ -371,7 +371,9 @@ object Builtins {
             "axis" -> WRec(LinkedHashMap<String, WValue>().apply {
                 listOf("title", "format", "min", "max", "ticks", "grid", "log", "hidden").forEachIndexed { i, k -> a.getOrNull(i)?.let { put(k, it) } }
             })
-            "pending", "loading", "failed" -> WBool.FALSE
+            "pending" -> WBool.FALSE
+            "loading" -> WBool.of((arg(0) as? WRec)?.get("loading")?.truthy() == true)
+            "failed" -> WBool.of(((arg(0) as? WRec)?.get("error") ?: WNull) != WNull)
             "spring", "tween" -> arg(0)
             "loop" -> {
                 val from = n(arg(0)) ?: return arg(0)
