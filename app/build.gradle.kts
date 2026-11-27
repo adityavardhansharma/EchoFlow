@@ -102,6 +102,8 @@ dependencies {
   implementation(project(":weave-core"))
   implementation(libs.zxing.core)
   implementation(libs.lottie.compose)
+  implementation(libs.glance.appwidget)
+  implementation(libs.glance.material3)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

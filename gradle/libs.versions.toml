@@ -29,6 +29,8 @@ media3 = "1.10.1"
 # Echo UI: QR codes (04 §10 Qr) and Lottie animations (04 §10 Lottie).
 zxing = "3.5.3"
 lottie = "6.6.2"
+# Echo UI home-screen widgets (01 §23.6).
+glance = "1.1.1"
 retrofit = "2.12.0"
 converterMoshi = "2.12.0"
 kotlinxCoroutinesAndroid = "1.10.2"
@@ -98,6 +100,8 @@ androidx-compose-material-icons-core = { group = "androidx.compose.material", na
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coilCompose" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui-compose = { group = "androidx.media3", name = "media3-ui-compose", version.ref = "media3" }
