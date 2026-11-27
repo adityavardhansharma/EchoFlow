@@ -594,7 +594,7 @@ class Session(
     }
 
     private fun explicitKey(n: WNode): String? =
-        n.args["key"]?.takeIf { it != WNull }?.let { keyText(it) }?.takeIf { it.isNotEmpty() }
+        n.args["key"]?.let { keyText(it) }
 
     /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
     fun defaultItem(item: WValue, key: String, stmt: String): WNode {
@@ -624,13 +624,13 @@ class Session(
  * A key segment (04 §2.5). Only simple values are encoded, with their type, so a number and the
  * same text stay different and a node or list is never walked. Anything else is no key.
  */
-internal fun keyText(v: WValue): String {
+internal fun keyText(v: WValue): String? {
     val raw = when (v) {
         is WStr -> "s:" + v.v
         is WSym -> "y:" + v.name
         is WNum -> "n:" + com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
         is WBool -> "b:" + v.v
-        else -> return ""
+        else -> return null
     }
     if (raw.length <= 200) return raw
     return raw.take(180) + "#" + raw.hashCode().toUInt().toString(16)

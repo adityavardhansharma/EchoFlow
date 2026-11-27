@@ -386,7 +386,7 @@ class Evaluator(
     private fun rekey(n: WNode, key: String, stmt: String): WNode {
         val kids = n.children.mapIndexed { i, ch ->
             if (ch.sourceStmt == stmt || ch.sourceStmt == "") {
-                val seg = (ch.args["key"]?.takeIf { it != WNull }?.let { keyText(it) }) ?: i.toString()
+                val seg = ch.args["key"]?.let { keyText(it) } ?: i.toString()
                 rekey(ch, "$key/$seg", stmt)
             } else ch
         }

@@ -175,4 +175,15 @@ class ReviewTwoTest {
         assertTrue("E304" in W.codes(p))
         assertTrue(p.renderable())
     }
+
+    @Test fun `unsupported child keys fall back to the child index`() {
+        val s = W.session(
+            """
+            root = Column [Button("First", key: [1]), Button("Second", key: [2])]
+            """.trimIndent(),
+        )
+        val kids = s.root()!!.children
+        assertEquals("root/0", kids[0].key)
+        assertEquals("root/1", kids[1].key)
+    }
 }
