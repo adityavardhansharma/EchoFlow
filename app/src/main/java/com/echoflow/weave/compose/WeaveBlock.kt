@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -205,7 +206,7 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
     BlockChrome(controller, program.header.size, program.header.title, program.header.icon, modifier, onExpand = { expanded = true }, content = content)
     val expandReq = controller.expandRequest
     LaunchedEffect(expandReq) { if (expandReq != null) { expanded = expandReq; controller.expandRequest = null } }
-    if (expanded) FullScreen(program.header.title, { expanded = false }, content)
+    if (expanded) FullScreen(controller, program.header.title, { expanded = false }, content)
 }
 
 /** 05 §7.1 chrome by `size`. */
@@ -357,18 +358,46 @@ private fun BlockMenu(controller: WeaveBlockController, open: Boolean, onDismiss
 /** 05 §7.3: the same session full screen, with the block title in the top app bar. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FullScreen(title: String?, onClose: () -> Unit, content: @Composable () -> Unit) {
+private fun FullScreen(controller: WeaveBlockController, title: String?, onClose: () -> Unit, content: @Composable () -> Unit) {
+    val loop = com.echoflow.weave.compose.LocalWeaveRuntime.current?.modelLoop as? com.echoflow.weave.runtime.ModelLoop
+    val say = com.echoflow.weave.compose.LocalWeaveSay.current
     Dialog(onClose, DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(topBar = {
             TopAppBar(
                 title = { Text(title ?: "Block") },
                 navigationIcon = { IconButton(onClose) { Icon(TokenResolver.icon("arrow_back"), "Back") } },
             )
+        }, bottomBar = {
+            // 05 §7.4 co-pilot: "Change this…" remixes the block; "Send to chat" sends a message instead
+            if (loop != null) {
+                var text by remember { mutableStateOf("") }
+                var toChat by remember { mutableStateOf(false) }
+                Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp).androidxImePadding()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.FilterChip(toChat, { toChat = !toChat }, { Text("Send to chat") })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.OutlinedTextField(text, { text = it }, Modifier.weight(1f), placeholder = { Text(if (toChat) "Message" else "Change this…") }, maxLines = 4)
+                            IconButton({
+                                val t = text.trim()
+                                if (t.isNotEmpty()) {
+                                    if (toChat) { say?.invoke(t + "\n\n" + com.echoflow.weave.core.program.StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(controller.session?.state ?: emptyMap())))); onClose() }
+                                    else loop.remix(controller, t)
+                                    text = ""
+                                }
+                            }) { Icon(TokenResolver.icon("send"), "Send") }
+                        }
+                    }
+                }
+            }
         }) { pad ->
             Box(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp)) { content() }
         }
     }
 }
+
+private fun Modifier.androidxImePadding() = this.imePadding()
 
 /** 05 §5.2: an edit fence renders as a chip and applies once when it closes. */
 @Composable
