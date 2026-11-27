@@ -13,7 +13,7 @@ object Finance {
 
     /** Newton–Raphson from 0.1 (50 iterations, 1e-7), then bisection on [−0.9999, 10]. */
     fun irr(flows: List<Double>): Double? {
-        if (flows.size < 2) return null
+        if (flows.size < 2 || flows.none { it != 0.0 }) return null
         var r = 0.1
         for (k in 0 until 50) {
             val v = npv(r, flows)
@@ -43,7 +43,9 @@ object Finance {
      * with `emi`; balances rounded to 2 decimals per month; the last payment clears the balance.
      */
     fun amortize(principal: Double, annualRate: Double, years: Double): WValue {
-        val months = Math.round(years * 12).toInt()
+        // Every accepted positive term produces at least one monthly period (terms under half a
+        // month would otherwise round to zero and return no rows).
+        val months = maxOf(1, Math.round(years * 12).toInt())
         val r = annualRate / 12
         val pay = pmt(r, months.toDouble(), principal)
         var bal = principal

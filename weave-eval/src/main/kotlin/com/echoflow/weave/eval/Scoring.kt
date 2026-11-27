@@ -32,7 +32,8 @@ data class TaskScore(
 data class ModelReport(val model: String, val tier: Int, val scores: List<TaskScore>) {
     private val withBlock = scores.filter { !it.task.control && it.blocks > 0 }
     private val tasks = scores.filter { !it.task.control }
-    private val controls = scores.filter { it.task.control && it.responded }
+    /** All 20 control prompts (07 §10.2), answered or not: an unanswered control is not a block. */
+    private val controls = scores.filter { it.task.control }
 
     val blockCount get() = withBlock.size
     val parseSuccess get() = ratio(withBlock.count { it.parseOk }, withBlock.size)

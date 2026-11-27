@@ -345,6 +345,10 @@ class Checker(
         for ((k, v) in named) {
             val p = spec.param(k) ?: BuiltinCatalog.COMMON.firstOrNull { it.name == k }
             if (p == null) { diags += Diag.unknownArg(v.span, c.callee, k, stmtName); continue }
+            if (p.type == TypeSpec.STATE && !isPlace(v)) {
+                diags += Diag.badType(v.span, c.callee, k, "a state place", typeWord(v), stmtName)
+                continue
+            }
             val value = slotValue(v, p, c.callee, ctx) ?: continue
             outNamed += k to value
         }

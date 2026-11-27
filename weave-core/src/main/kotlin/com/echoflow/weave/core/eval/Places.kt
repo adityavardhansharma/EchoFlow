@@ -14,6 +14,9 @@ object Places {
         v == WNull -> WNull
         v is WRec && (seg is WStr || seg is WSym) -> v[key(seg)]
         v is WList && seg is WNum -> listIndex(v.items.size, seg.v)?.let { v.items[it] } ?: WNull
+        // Pluck and length, the same as Evaluator.member: `items.name` and `items.len`.
+        v is WList && (seg is WStr || seg is WSym) && key(seg) == "len" -> Builtins.len(v)
+        v is WList && (seg is WStr || seg is WSym) -> WList(v.items.map { access(it, seg) })
         v is WStr && seg is WNum -> {
             val cps = v.v.codePoints().toArray()
             listIndex(cps.size, seg.v)?.let { WStr(String(Character.toChars(cps[it]))) } ?: WNull
@@ -23,9 +26,16 @@ object Places {
 
     private fun key(seg: WValue) = when (seg) { is WStr -> seg.v; is WSym -> seg.name; else -> seg.toString() }
 
+    /** Round half away from zero; null for NaN. */
+    private fun halfUp(i: Double): Int? {
+        if (i.isNaN()) return null
+        val r = if (i >= 0) Math.floor(i + 0.5) else Math.ceil(i - 0.5)
+        return r.toInt()
+    }
+
     /** `i` rounded half-up; negative from the end; out of range → null. */
     fun listIndex(size: Int, i: Double): Int? {
-        var k = Math.floor(i + 0.5).toInt()
+        var k = halfUp(i) ?: return null
         if (k < 0) k += size
         return if (k in 0 until size) k else null
     }
@@ -46,7 +56,7 @@ object Places {
             }
             root is WList && seg is WNum -> {
                 val n = root.items.size
-                var k = Math.floor(seg.v + 0.5).toInt()
+                var k = halfUp(seg.v) ?: return null
                 if (k < 0) k += n
                 when {
                     k in 0 until n -> {

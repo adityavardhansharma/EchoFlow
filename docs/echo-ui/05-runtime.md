@@ -847,6 +847,8 @@ object Limits {
     const val STATE_BYTES = 256 * 1024
     const val EAGER_LIST_ITEMS = 30
     const val RANGE_ITEMS = 10_000
+    const val STRING_CHARS = 100_000
+    const val LIST_ITEMS = 100_000
     const val TIMERS_PER_BLOCK = 4
     const val MIN_TIMER_MS = 250L
     const val IMAGES_PER_BLOCK = 24

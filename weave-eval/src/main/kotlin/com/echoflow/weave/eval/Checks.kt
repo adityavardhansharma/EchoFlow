@@ -96,9 +96,19 @@ class CheckRunner(private val s: Session) {
             val r = rx(c.pattern)
             // text the user can reach: as shown, or after one tap on any button ("Reveal answers")
             var found = r.containsMatchIn(s.root()?.let { allText() } ?: "")
-            if (!found) for (b in s.nodes(allPages = true).filter { it.type == "Button" && usable(it) }) {
-                b.args["onTap"]?.let { s.fire(it) }
-                if (r.containsMatchIn(allText())) { found = true; break }
+            if (!found) {
+                // Labels, not the node list: a tap can disable a later button, and that button
+                // must be skipped even though it was usable when the check started.
+                val labels = s.nodes(allPages = true).filter { it.type == "Button" && usable(it) }
+                    .map { (it.args["label"] as? WStr)?.v ?: "" }
+                for (lab in labels) {
+                    val live = s.nodes(allPages = true).firstOrNull {
+                        it.type == "Button" && ((it.args["label"] as? WStr)?.v ?: "") == lab
+                    } ?: continue
+                    if (!usable(live)) continue
+                    live.args["onTap"]?.let { s.fire(it) }
+                    if (r.containsMatchIn(allText())) { found = true; break }
+                }
             }
             if (found) CheckResult(true, "text ok") else CheckResult(false, "text /${c.pattern}/ not found")
         }

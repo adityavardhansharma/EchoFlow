@@ -21,8 +21,9 @@ object Splitter {
     /** 02 §3.2. [tokens] must end with EOF. */
     fun split(tokens: List<Token>): List<LogicalLine> {
         val out = ArrayList<LogicalLine>()
+        val nextOf = nextNonNewlineIndex(tokens)
         var cur = ArrayList<Token>()
-        var depth = 0
+        val openers = ArrayDeque<String>()
         var unbalanced = false
         fun flush() {
             if (cur.isEmpty()) return
@@ -32,9 +33,9 @@ object Splitter {
                 val t = cur.removeAt(cur.size - 1)
                 notes += LexNote(t.start, t.line, "removed \";\" at the end of a line")
             }
-            if (cur.isNotEmpty()) out += LogicalLine(cur, unbalanced || depth > 0, notes)
+            if (cur.isNotEmpty()) out += LogicalLine(cur, unbalanced || openers.isNotEmpty(), notes)
             cur = ArrayList()
-            depth = 0
+            openers.clear()
             unbalanced = false
         }
         var i = 0
@@ -43,18 +44,18 @@ object Splitter {
             when (t.kind) {
                 TK.NEWLINE -> {
                     val last = cur.lastOrNull { !it.isPunct(";") } ?: cur.lastOrNull()
-                    val next = nextNonNewline(tokens, i)
-                    val ends = depth == 0 &&
+                    val next = nextOf[i]?.let { tokens[it] }
+                    val ends = openers.isEmpty() &&
                         (last == null || !last.isContinuation()) &&
                         (next == null || !next.isLeadingContinuation())
                     if (ends) flush()
                 }
                 TK.EOF -> flush()
                 else -> {
-                    if (t.isOpenBracket()) depth++
+                    if (t.isOpenBracket()) openers.addLast(t.text)
                     if (t.isCloseBracket()) {
-                        if (depth == 0) unbalanced = true
-                        depth = maxOf(0, depth - 1)
+                        val want = when (t.text) { ")" -> "("; "]" -> "["; else -> "{" }
+                        if (openers.lastOrNull() == want) openers.removeLast() else unbalanced = true
                     }
                     cur += t
                 }
@@ -69,5 +70,17 @@ object Splitter {
         while (k < tokens.size && tokens[k].kind == TK.NEWLINE) k++
         val t = tokens.getOrNull(k) ?: return null
         return if (t.kind == TK.EOF) null else t
+    }
+
+    /** Index of the next non-newline token after each position, computed once. */
+    private fun nextNonNewlineIndex(tokens: List<Token>): Array<Int?> {
+        val next = arrayOfNulls<Int>(tokens.size)
+        var nxt: Int? = null
+        for (k in tokens.indices.reversed()) {
+            next[k] = nxt
+            if (tokens[k].kind != TK.NEWLINE && tokens[k].kind != TK.EOF) nxt = k
+            else if (tokens[k].kind == TK.EOF) nxt = null
+        }
+        return next
     }
 }

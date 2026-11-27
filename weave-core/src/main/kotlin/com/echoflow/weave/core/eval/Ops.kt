@@ -30,12 +30,7 @@ object Ops {
         ">" -> WBool.of((weaveCompare(a, b) ?: return WBool.FALSE) > 0)
         ">=" -> WBool.of((weaveCompare(a, b) ?: return WBool.FALSE) >= 0)
         "in" -> WBool.of(contains(b, a, f))
-        ".." -> if (a is WNum && b is WNum) {
-            val lo = Math.floor(a.v + 0.5).toLong()
-            val hi = Math.floor(b.v + 0.5).toLong()
-            if (Math.abs(hi - lo) + 1 > Limits.RANGE_ITEMS) limit("range")
-            WList(if (lo <= hi) (lo..hi).map { WNum(it.toDouble()) } else (lo downTo hi).map { WNum(it.toDouble()) })
-        } else WNull
+        ".." -> if (a is WNum && b is WNum) range(a.v, b.v, limit) else WNull
         else -> WNull
     }
 
@@ -48,7 +43,7 @@ object Ops {
 
     private fun plus(a: WValue, b: WValue, f: Formatter): WValue = when {
         a is WNum && b is WNum -> WNum.of(a.v + b.v)
-        a is WStr || b is WStr -> (f.auto(a) + f.auto(b)).let { if (it.length > com.echoflow.weave.core.Limits.STRING_CHARS) WNull else WStr(it) }
+        a is WStr || b is WStr -> concat(a, b, f)
         a is WList && b is WList -> if (a.items.size + b.items.size > com.echoflow.weave.core.Limits.LIST_ITEMS) WNull else WList(a.items + b.items)
         a is WRec && b is WRec -> WRec(LinkedHashMap(a.fields).apply { putAll(b.fields) })
         a is WDate && b is WDur -> WDate(a.v.plusDays(b.ms / 86_400_000L))
@@ -69,4 +64,56 @@ object Ops {
 
     @Suppress("unused")
     private fun localDate(i: java.time.Instant, f: Formatter) = LocalDateTime.ofInstant(i, f.zone).toLocalDate()
+
+    /** Count of integers from [a] to [b] without building them; too many is `E304`. */
+    private fun range(a: Double, b: Double, limit: (String) -> Nothing): WValue {
+        val lo = roundHalfUp(a) ?: return WNull
+        val hi = roundHalfUp(b) ?: return WNull
+        val span = if (hi >= lo) hi - lo else lo - hi
+        if (span < 0 || span >= Limits.RANGE_ITEMS) limit("range")
+        val from = lo
+        val items = ArrayList<WValue>(span.toInt() + 1)
+        var k = from
+        val step = if (hi >= lo) 1L else -1L
+        while (true) {
+            items += WNum(k.toDouble())
+            if (k == hi) break
+            k += step
+        }
+        return WList(items)
+    }
+
+    /** Half-up rounding that stays null instead of saturating at the long extremes. */
+    private fun roundHalfUp(d: Double): Long? {
+        if (!d.isFinite()) return null
+        val shifted = d + 0.5
+        if (shifted >= Long.MAX_VALUE.toDouble() || shifted <= Long.MIN_VALUE.toDouble()) return null
+        return Math.floor(shifted).toLong()
+    }
+
+    /**
+     * String concatenation that stops once the result would pass [Limits.STRING_CHARS], so a list
+     * of one huge string is never formatted in full before the cap is noticed.
+     */
+    private fun concat(a: WValue, b: WValue, f: Formatter): WValue {
+        val cap = Limits.STRING_CHARS
+        val sb = StringBuilder()
+        fun add(text: String): Boolean {
+            val room = cap - sb.length
+            if (text.length > room) return false
+            sb.append(text)
+            return true
+        }
+        fun append(v: WValue): Boolean = when (v) {
+            is WList -> {
+                for ((i, item) in v.items.withIndex()) {
+                    if (i > 0 && !add(", ")) return false
+                    if (!append(item)) return false
+                }
+                true
+            }
+            else -> add(f.auto(v))
+        }
+        return if (append(a) && append(b)) WStr(sb.toString()) else WNull
+    }
 }

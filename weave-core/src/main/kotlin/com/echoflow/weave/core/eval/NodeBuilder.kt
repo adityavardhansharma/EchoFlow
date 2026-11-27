@@ -50,7 +50,9 @@ internal class NodeBuilder(private val ev: Evaluator) {
             for ((k, e) in c.named) {
                 val p = param(k) ?: continue
                 if (p.type == TypeSpec.STATE) {
-                    place(e, scope)?.let { pl -> places[k] = pl; args[k] = Places.read(ev.state(pl.state), pl.path) }
+                    val pl = place(e, scope)
+                    if (pl != null) { places[k] = pl; args[k] = Places.read(ev.state(pl.state), pl.path) }
+                    else ev.report(Diag.badType(e.span, c.callee, k, "a state place", "a value"))
                     continue
                 }
                 val raw = ev.eval(e, scope)
@@ -72,6 +74,7 @@ internal class NodeBuilder(private val ev: Evaluator) {
     }
 
     private fun flatten(v: WValue, out: MutableList<WNode>) {
+        ev.charge()
         when (v) {
             is WNode -> out += v
             is WList -> v.items.forEach { flatten(it, out) }

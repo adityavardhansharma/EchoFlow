@@ -164,7 +164,7 @@ class Evaluator(
     fun safeCallItem(fn: WValue, item: WValue, index: Int): WValue {
         val saved = steps
         steps = 0
-        return try { callItem(fn, item, index) } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull } finally { steps = saved }
+        return try { callItem(fn, item, index) } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull } finally { steps += saved }
     }
 
     /** Evaluates one top-level expression (action argument, effect condition, state initial value). */
