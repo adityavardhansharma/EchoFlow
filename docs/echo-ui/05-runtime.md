@@ -1,6 +1,6 @@
 # 05 — Runtime, storage, model loop and settings
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.3 · **Status:** normative
 
 This document says how Echo UI is built inside EchoFlow: modules, classes, threading, streaming
 integration, rendering, the hidden model requests, storage, tiers, the **Intelligent UI** setting,

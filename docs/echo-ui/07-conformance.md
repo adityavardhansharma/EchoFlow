@@ -1,6 +1,6 @@
 # 07 — Conformance tests
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.3 · **Status:** normative
 
 An implementation conforms when **every test in this document passes**. Each test has an id
 (`T-xxx`) that the other documents cite. Tests in §1–§4 and §11 are JVM unit tests in `weave-core`

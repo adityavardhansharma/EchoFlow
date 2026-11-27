@@ -85,6 +85,8 @@ class Evaluator(
     private val cycleMembers = HashSet<String>()
 
     private var steps = 0
+    /** Steps already spent by earlier items of the same removal, added back after each one. */
+    private var carried = 0
     private var depth = 0
     /** Set while evaluating when a waiting state (or a binding that read one) was read. */
     var readWaiting = false
@@ -162,9 +164,10 @@ class Evaluator(
     }
 
     fun safeCallItem(fn: WValue, item: WValue, index: Int): WValue {
-        val saved = steps
-        steps = 0
-        return try { callItem(fn, item, index) } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull } finally { steps += saved }
+        // One budget for the whole removal: each item starts from what earlier items already spent.
+        steps = carried
+        return try { callItem(fn, item, index) } catch (x: BudgetExceeded) { throw x } catch (x: LimitExceeded) { throw x } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull }
+        finally { carried = steps }
     }
 
     /** Evaluates one top-level expression (action argument, effect condition, state initial value). */

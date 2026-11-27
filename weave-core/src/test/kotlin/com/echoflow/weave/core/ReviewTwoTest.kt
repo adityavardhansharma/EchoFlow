@@ -45,12 +45,15 @@ class ReviewTwoTest {
 
     @Test fun `removeWhere shares one step budget across every item`() {
         val items = (1..400).joinToString(", ")
-        val s = W.session("\$xs = [$items]\nroot = Text(len(\$xs))\non appear -> !removeWhere(\$xs, i => len(range(9000)) == 0)")
+        // Truthy once it finishes, so a full run clears the list and a budget stop leaves a tail.
+        val s = W.session("\$xs = [$items]\nroot = Button(\"Go\", onTap: !removeWhere(\$xs, i => len(range(1000)) > 0))")
         val start = System.nanoTime()
-        s.appear()
+        s.fire(s.root()!!.args["onTap"]!!)
+        val left = (s.state["xs"] as com.echoflow.weave.core.eval.WList).items.size
+        // The shared budget stops the removal well before every item is tested.
+        assertTrue("removed down to $left", left in 1..399)
+        assertTrue("E303" in s.diagnostics.map { it.code })
         assertTrue(System.nanoTime() - start < 2_000_000_000)
-        assertEquals(WNum(400.0), s.state["xs"]?.let { (it as com.echoflow.weave.core.eval.WList).items.size.toDouble() }?.let { WNum(it) })
-        assertTrue("E303" in s.diagnostics.map { it.code } || (s.state["xs"] as com.echoflow.weave.core.eval.WList).items.size == 400)
     }
 
     @Test fun `ranges that overflow a long are rejected before any list is built`() {

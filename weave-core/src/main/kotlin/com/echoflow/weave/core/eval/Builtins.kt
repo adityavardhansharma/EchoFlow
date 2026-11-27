@@ -93,7 +93,11 @@ object Builtins {
                 val count = Math.ceil((hi - lo) / step)
                 if (count > Limits.RANGE_ITEMS) throw LimitExceeded("range")
                 if (count <= 0) return WList.EMPTY
-                chargeItems(count.toInt())
+                // Charge before building, so an over-budget range stops the caller instead of
+                // returning null and letting the caller keep going.
+                val n0 = count.toInt()
+                var left = n0
+                while (left > 0) { val take = minOf(left, 1000); chargeItems(take); left -= take }
                 WList((0 until count.toInt()).map { WNum.of(lo + it * step) })
             }
             "map", "each" -> { val l = list(arg(0)) ?: return WNull; WList(l.mapIndexed { i, it -> ev.callItem(arg(1), it, i) }) }

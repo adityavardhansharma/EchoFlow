@@ -351,7 +351,29 @@ class Session(
             "removeWhere" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items ?: return@let
                 val pred = named("pred") ?: arg(1)
-                writePlace(tx, p, WList(l.withIndex().filterNot { (i, it) -> ev.safeCallItem(pred, it, i).truthy() }.map { it.value }))
+                val kept = ArrayList<WValue>(l.size)
+                var ranOut = false
+                // Its own evaluator, not the one that read the arguments: a budget report on that
+                // one would mark the gesture as having read a waiting value and discard the write.
+                val predEv = txEvaluator(tx)
+                for ((i, it) in l.withIndex()) {
+                    try {
+                        if (!predEv.safeCallItem(pred, it, i).truthy()) kept += it
+                    } catch (x: BudgetExceeded) {
+                        // The rest of the list is untouched once the shared budget runs out.
+                        kept += l.subList(i, l.size)
+                        ranOut = true
+                        break
+                    } catch (x: LimitExceeded) {
+                        kept += l.subList(i, l.size)
+                        ranOut = true
+                        break
+                    }
+                }
+                // The budget report reads like a waiting read to the commit, which would discard
+                // the removal. Drop this evaluator's record of it and report the budget directly.
+                if (ranOut) { tx.evaluators.remove(predEv); report(Diag.budget(Span.NONE, "removeWhere")) }
+                writePlace(tx, p, WList(kept))
             }
             "move" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items?.toMutableList() ?: return@let
