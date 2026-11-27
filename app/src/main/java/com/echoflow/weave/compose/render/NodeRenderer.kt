@@ -33,6 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -110,7 +113,9 @@ private fun RenderVisible(node: WNode, ctx: RenderCtx, modifier: Modifier) {
             val r = Registry.renderers[node.type]
             if (r == null) ErrorChip("Can't show ${node.type}", modifier)
             else {
-                val m = modifier.then(commonModifier(node, ctx))
+                // 04 §2.6: nodes whose statement is being rewritten by !ask show a pending shimmer
+                val pending = node.sourceStmt.isNotEmpty() && node.sourceStmt in ctx.controller.pendingNames
+                val m = modifier.then(commonModifier(node, ctx)).then(if (pending) Modifier.pendingOverlay() else Modifier)
                 val badge = node.args["badge"]
                 if (badge != null && badge != WNull && badge != WBool.FALSE) {
                     BadgedBox(badge = { BadgeFor(badge, ctx) }) { r(node, ctx, m) }
@@ -222,6 +227,18 @@ private val LABELLED = setOf("Button", "Slider", "TextField", "Select", "Segment
 private val OWN_HEIGHT = setOf("Chart", "LineChart", "AreaChart", "BarChart", "PieChart", "DonutChart", "ScatterChart", "Sparkline", "Histogram", "List", "Canvas", "Image", "Map", "Video", "Model3D", "Shader", "Sketch", "Pad2D", "Carousel", "Spacer")
 private val OWN_SHAPE = setOf("Button", "Card", "Surface", "Avatar", "IconButton", "Chip", "Fab", "Image")
 private val OWN_PADDING = setOf("Card", "Surface", "Section", "Callout", "Button", "Box")
+
+/** 04 §2.6: a moving highlight over a node whose definition is being regenerated. */
+@Composable
+fun Modifier.pendingOverlay(): Modifier {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "pending")
+    val x by t.animateFloat(-1f, 2f, androidx.compose.animation.core.infiniteRepeatable(tween(1200)), label = "pending-x")
+    val c = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+    return this.then(Modifier.drawWithContent {
+        drawContent()
+        drawRect(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, c, androidx.compose.ui.graphics.Color.Transparent), startX = size.width * x - size.width / 2, endX = size.width * x + size.width / 2))
+    })
+}
 
 /** 04 §2.8: a compact chip in place of a node that can't render. */
 @Composable

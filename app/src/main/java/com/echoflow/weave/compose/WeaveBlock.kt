@@ -192,6 +192,8 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
     val content: @Composable () -> Unit = {
         Box(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().clipToBounds().animateContentSize()) {
+            controller.consentRequest?.let { ConsentStrip(it) }
+            if (controller.budgetBanner) BudgetBanner(controller)
             if (root != null) RenderNode(root, ctx.child()) else Placeholders.Of(PlaceholderKind.BAR)
             controller.chip?.let { Spacer(Modifier.size(6.dp)); ErrorChip(it) }
             if (!program.complete && root == null) Placeholders.Of(PlaceholderKind.TEXT)
@@ -254,6 +256,38 @@ private fun BlockChrome(
     }
 }
 
+/** 05 §8.7: "This block wants to …" with Allow once / Always for this block / No. */
+@Composable
+private fun ConsentStrip(req: WeaveBlockController.ConsentRequest) {
+    Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(TokenResolver.icon("shield"), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Text("This block wants to ${req.text}", style = MaterialTheme.typography.bodyMedium)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton({ req.answer(false, false) }) { Text("No") }
+                TextButton({ req.answer(true, true) }) { Text("Always for this block") }
+                TextButton({ req.answer(true, false) }) { Text("Allow once") }
+            }
+        }
+    }
+}
+
+/** 05 §8.4: the hourly budget for hidden requests ran out. */
+@Composable
+private fun BudgetBanner(controller: WeaveBlockController) {
+    Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.padding(12.dp)) {
+            Text("This block has updated 20 times this hour. Keep updating?", style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton({ controller.modelStopped = true; controller.budgetBanner = false }) { Text("Stop") }
+                TextButton({ controller.extraBudget += 20; controller.budgetBanner = false }) { Text("Keep updating") }
+            }
+        }
+    }
+}
+
 /** 05 §7.2. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -261,10 +295,17 @@ private fun BlockMenu(controller: WeaveBlockController, open: Boolean, onDismiss
     var source by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
     var versions by remember { mutableStateOf<List<WeaveVersionRow>?>(null) }
+    var remix by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val loop = com.echoflow.weave.compose.LocalWeaveRuntime.current?.modelLoop as? com.echoflow.weave.runtime.ModelLoop
     DropdownMenu(open, onDismiss) {
         DropdownMenuItem({ Text("Undo") }, { controller.undo(); onDismiss() }, enabled = controller.canUndo, leadingIcon = { Icon(TokenResolver.icon("undo"), null) })
         if (controller.blockVersion > 1) DropdownMenuItem({ Text("Versions") }, { scope.launch { versions = controller.versions() }; onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("history"), null) })
+        if (loop != null) {
+            DropdownMenuItem({ Text("Change this block…") }, { remix = true; onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("auto_fix_high"), null) })
+            DropdownMenuItem({ Text("Regenerate") }, { loop.regen(controller); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("refresh"), null) })
+        }
+        DropdownMenuItem({ Text("Permissions") }, { controller.revokeConsents(); controller.flashChip("Permissions reset"); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("shield"), null) })
         DropdownMenuItem({ Text("View source") }, { source = true; onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("code"), null) })
         DropdownMenuItem({ Text("Copy as text") }, { controller.hostEffect("copy", listOf(com.echoflow.weave.core.eval.WStr(controller.plainText()))); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("content_copy"), null) })
         DropdownMenuItem({ Text("Show as plain text") }, { controller.showPlain(true); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("notes"), null) })
@@ -277,6 +318,16 @@ private fun BlockMenu(controller: WeaveBlockController, open: Boolean, onDismiss
             SelectionContainer { Text(controller.source(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
             TextButton({ controller.hostEffect("copy", listOf(com.echoflow.weave.core.eval.WStr(controller.source()))) }) { Text("Copy") }
         }
+    }
+    if (remix && loop != null) {
+        var text by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { remix = false },
+            title = { Text("Change this block") },
+            text = { androidx.compose.material3.OutlinedTextField(text, { text = it }, placeholder = { Text("Add a chart of the yearly totals…") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton({ if (text.isNotBlank()) loop.remix(controller, text.trim()); remix = false }) { Text("Change") } },
+            dismissButton = { TextButton({ remix = false }) { Text("Cancel") } },
+        )
     }
     if (confirmReset) AlertDialog(
         onDismissRequest = { confirmReset = false },

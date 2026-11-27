@@ -154,6 +154,8 @@ object Registry {
         "Dice" to { n, c, m -> Play.DiceR(n, c, m) },
         "Spinner" to { n, c, m -> Play.SpinnerR(n, c, m) },
         "Scratch" to { n, c, m -> Play.ScratchR(n, c, m) },
+        // lazy parts (03 §9.3)
+        "Lazy" to { n, c, m -> LazyPart.Render(n, c, m) },
         "Sparkline" to { n, c, m ->
             val values = (n.args["values"] as? com.echoflow.weave.core.eval.WList)?.items?.mapNotNull { (it as? com.echoflow.weave.core.eval.WNum)?.v } ?: emptyList()
             val color = com.echoflow.weave.compose.tokens.TokenResolver.tone(n.word("tone") ?: "primary", "high", androidx.compose.material3.MaterialTheme.colorScheme, c.dark)?.container
