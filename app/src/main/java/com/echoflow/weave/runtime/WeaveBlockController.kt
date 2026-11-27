@@ -66,6 +66,9 @@ class WeaveBlockController internal constructor(
     /** `!focus(name)` and `!scrollTo(name)` targets, consumed by the renderer. */
     var focusRequest by mutableStateOf<String?>(null)
     var scrollRequest by mutableStateOf<String?>(null)
+    /** The block's last drawn frame, for "Share as image" (05 §9.5). */
+    var captureLayer: androidx.compose.ui.graphics.layer.GraphicsLayer? = null
+
     /** Bumped by `!confetti`. */
     var confetti by mutableIntStateOf(0)
 

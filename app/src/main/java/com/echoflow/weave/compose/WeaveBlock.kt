@@ -46,6 +46,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
@@ -191,7 +194,9 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
     val root = remember(version, program) { controller.root() }
     var expanded by remember { mutableStateOf(false) }
     val content: @Composable () -> Unit = {
-        Box(Modifier.fillMaxWidth()) {
+        val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+        controller.captureLayer = layer
+        Box(Modifier.fillMaxWidth().drawWithContent { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) }) {
         Column(Modifier.fillMaxWidth().clipToBounds().animateContentSize()) {
             controller.consentRequest?.let { ConsentStrip(it) }
             if (controller.budgetBanner) BudgetBanner(controller)
@@ -308,6 +313,17 @@ private fun BlockMenu(controller: WeaveBlockController, open: Boolean, onDismiss
         }
         DropdownMenuItem({ Text("Permissions") }, { controller.revokeConsents(); controller.flashChip("Permissions reset"); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("shield"), null) })
         DropdownMenuItem({ Text("View source") }, { source = true; onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("code"), null) })
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val rt = com.echoflow.weave.compose.LocalWeaveRuntime.current
+        if (rt != null && controller.messageId?.startsWith(com.echoflow.weave.runtime.WeaveRuntime.LIBRARY) != true) {
+            DropdownMenuItem({ Text("Keep in Library") }, { rt.keep(controller); controller.flashChip("Kept in Library"); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("bookmark_add"), null) })
+        }
+        DropdownMenuItem({ Text("Share as image") }, {
+            onDismiss()
+            val layer = controller.captureLayer
+            if (layer != null) scope.launch { runCatching { WeaveShare.image(ctx, controller, layer.toImageBitmap().asAndroidBitmap()) } }
+        }, leadingIcon = { Icon(TokenResolver.icon("image"), null) })
+        DropdownMenuItem({ Text("Share as .weave") }, { onDismiss(); WeaveShare.weaveFile(ctx, controller) }, leadingIcon = { Icon(TokenResolver.icon("share"), null) })
         DropdownMenuItem({ Text("Copy as text") }, { controller.hostEffect("copy", listOf(com.echoflow.weave.core.eval.WStr(controller.plainText()))); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("content_copy"), null) })
         DropdownMenuItem({ Text("Show as plain text") }, { controller.showPlain(true); onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("notes"), null) })
         DropdownMenuItem({ Text("Reset") }, { confirmReset = true; onDismiss() }, leadingIcon = { Icon(TokenResolver.icon("restart_alt"), null) })
