@@ -40,8 +40,21 @@ class Formatter(
      */
     fun auto(v: WValue): String {
         val sb = StringBuilder()
-        if (!autoTo(sb, v, com.echoflow.weave.core.Limits.STRING_CHARS)) { sb.setLength(com.echoflow.weave.core.Limits.STRING_CHARS); sb.append('…') }
+        val cap = com.echoflow.weave.core.Limits.STRING_CHARS
+        if (!autoTo(sb, v, cap)) {
+            // never split a surrogate pair at the cut
+            val cut = if (Character.isHighSurrogate(sb[cap - 1])) cap - 1 else cap
+            sb.setLength(cut); sb.append('…')
+        }
         return sb.toString()
+    }
+
+    /** Appends [text] if it fits under [cap]; otherwise only enough to pass it, and false. */
+    private fun appendCapped(sb: StringBuilder, text: String, cap: Int): Boolean {
+        val room = cap - sb.length
+        if (text.length > room) { sb.append(text, 0, maxOf(0, room) + 1); return false }
+        sb.append(text)
+        return true
     }
 
     private fun autoTo(sb: StringBuilder, v: WValue, cap: Int): Boolean = when (v) {
@@ -54,7 +67,8 @@ class Formatter(
             ok && sb.length <= cap
         }
         is WRec -> jsonTo(sb, v, cap)
-        else -> { sb.append(autoLeaf(v)); sb.length <= cap }
+        is WStr -> appendCapped(sb, v.v, cap)
+        else -> appendCapped(sb, autoLeaf(v), cap)
     }
 
     private fun autoLeaf(v: WValue): String = when (v) {
@@ -235,7 +249,8 @@ class Formatter(
             WNull -> sb.append("null")
             is WBool -> sb.append(v.v)
             is WNum -> sb.append(com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v))
-            is WStr -> sb.append(jsonString(v.v))
+            // escaping only lengthens text: a string longer than the room left is already over
+            is WStr -> { if (v.v.length > cap - sb.length) { sb.append(v.v, 0, maxOf(0, cap - sb.length) + 1); return false }; sb.append(jsonString(v.v)) }
             is WSym -> sb.append(jsonString(v.name))
             is WList -> {
                 sb.append('[')

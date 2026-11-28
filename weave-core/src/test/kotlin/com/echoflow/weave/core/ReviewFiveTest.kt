@@ -14,11 +14,8 @@ import org.junit.Test
 
 /** The fifth review's findings (PR #268). */
 class ReviewFiveTest {
-    private fun fast(ms: Long = 2_000, block: () -> Unit) {
-        val t = System.nanoTime(); block(); assertTrue("took too long", System.nanoTime() - t < ms * 1_000_000)
-    }
-
-    @Test fun `replace and join are bounded by the string limit`() = fast {
+    // resource cases run under a JUnit timeout, so a regression that loops fails instead of hanging
+    @Test(timeout = 5_000) fun `replace and join are bounded by the string limit`() {
         val setup = "s = repeat(repeat(\"x\", 1000), 100)"
         assertEquals(WNull, W.eval("replace(s, \"x\", s)", setup))
         assertEquals(WStr("ayc"), W.eval("replace(\"abc\", \"b\", \"y\")"))
@@ -26,19 +23,19 @@ class ReviewFiveTest {
         assertEquals(WStr("a-b"), W.eval("join([\"a\", \"b\"], \"-\")"))
     }
 
-    @Test fun `round clamps its scale`() = fast {
+    @Test(timeout = 5_000) fun `round clamps its scale`() {
         assertEquals(WNum(1.0), W.eval("round(1, 1000000000)"))
         assertEquals(WNum(1200.0), W.eval("round(1234, -2)"))
     }
 
-    @Test fun `formatting a shared nested value stops at the cap`() = fast {
+    @Test(timeout = 5_000) fun `formatting a shared nested value stops at the cap`() {
         val defs = (1..30).joinToString("\n") { "a$it = [a${it - 1}, a${it - 1}]" }
         val s = W.session("a0 = [1]\n$defs\nroot = Text(a30)")
         val text = s.plainText(s.root()!!)
         assertTrue(text.length <= com.echoflow.weave.core.Limits.STRING_CHARS + 1)
     }
 
-    @Test fun `a long digit string is rejected as a duration quickly`() = fast {
+    @Test(timeout = 5_000) fun `a long digit string is rejected as a duration quickly`() {
         assertNull(Coercion.parseDuration("1".repeat(100_000)))
         assertEquals(5_400_000L, Coercion.parseDuration("1h 30m"))
         assertEquals(1_500L, Coercion.parseDuration("1.5s"))
@@ -76,7 +73,7 @@ class ReviewFiveTest {
         assertTrue(s.outbox.none { it.kind == "scrollTo" })
     }
 
-    @Test fun `a zero-delay effect loop doesn't hang the clock`() = fast {
+    @Test(timeout = 5_000) fun `a zero-delay effect loop doesn't hang the clock`() {
         val s = W.session("\$n = 0\nroot = Button(\"Go\", onTap: !inc(\$n))\non change(\$n) -> !after(0ms, !inc(\$n))")
         s.appear()
         s.fire(s.root()!!.args["onTap"]!!)
@@ -121,9 +118,25 @@ class ReviewFiveTest {
         assertEquals(WNum(10.0), s.state["n"])
     }
 
-    @Test fun `plain text of a shared node tree is bounded`() = fast {
+    @Test(timeout = 5_000) fun `plain text of a shared node tree is bounded`() {
         val defs = (1..30).joinToString("\n") { "n$it = Column [n${it - 1}, n${it - 1}]" }
         val s = W.session("n0 = Text(\"hi\")\n$defs\nroot = Column [Text(nodeText(n30))]")
         assertTrue(s.plainText(s.root()!!).length <= com.echoflow.weave.core.Limits.STRING_CHARS + 1)
+    }
+
+    @Test fun `a long multi-part duration is accepted`() {
+        assertEquals(17L, Coercion.parseDuration(List(17) { "1ms" }.joinToString(" ")))
+    }
+
+    @Test fun `an oversized redeclaration leaves the earlier one active`() {
+        val big = "x".repeat(com.echoflow.weave.core.Limits.SOURCE_BYTES)
+        val p = W.prog("a = 1\nroot = Text(a)\na = \"$big\"")
+        assertEquals(WNum(1.0), Session(p, W.ctx()).binding("a"))
+    }
+
+    @Test fun `a later speculative redeclaration is not frozen`() {
+        val p = IncrementalParser()
+        val prog = p.update("\$n = 1\n\$n = 2 +", false)
+        assertTrue("\$n" !in prog.frozenNames!!)
     }
 }

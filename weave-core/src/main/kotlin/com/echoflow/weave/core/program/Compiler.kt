@@ -63,8 +63,20 @@ object Compiler {
         var header: HeaderStmt? = null
         val kept = ArrayList<ParsedLine>()
         var count = 0
+        // 05 §13.3: a block's statements are accepted in source order while the source fits; the
+        // first one past the limit and everything after it are dropped. Measured here, before
+        // later-wins deduplication, so an oversized redeclaration leaves the earlier one active.
+        // (An edit is measured whole by Edits.apply and rejected instead, 02 §11.2.)
+        val printer = WeaveProgram.printer(catalog)
+        fun size(st: Stmt) = runCatching { printer.stmt(st) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1
+        var used = 0
         for ((i, pl) in lines.withIndex()) {
             val s = pl.stmt
+            if (!edit && s != null) {
+                val n = size(s)
+                if (used + n > Limits.SOURCE_BYTES) { diags += Diag.limit(s.span, "source"); break }
+                used += n
+            }
             if (s is HeaderStmt) {
                 if (i == 0 && !edit) { header = s; diags += pl.diags; continue }
                 diags += pl.diags + Diag.headerPosition(s.span)
@@ -152,33 +164,15 @@ object Compiler {
     }
 
     /** Builds the program maps, header, root and exports from a checked fragment. */
-    /**
-     * [truncate]: drop statements past the source limit (a streamed or compiled block). An edit
-     * passes false: an oversized edit is rejected whole by `Edits.apply` instead (02 §11.2).
-     */
-    fun assemble(
-        f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1, frozenNames: Set<String>? = null,
-        truncate: Boolean = true,
-    ): WeaveProgram {
+    fun assemble(f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1, frozenNames: Set<String>? = null): WeaveProgram {
         val diags = ArrayList(f.diagnostics)
-        // 05 §13.3: statements are accepted in source order while the source fits; the first one
-        // that would pass the limit, and everything after it, is dropped (not left active)
-        val printer = WeaveProgram.printer(catalog)
-        var used = f.header?.let { h -> runCatching { printer.stmt(h) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1 } ?: 0
-        val accepted = ArrayList<Stmt>()
-        for (st in f.stmts) {
-            val size = runCatching { printer.stmt(st) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1
-            if (truncate && used + size > Limits.SOURCE_BYTES) { diags += Diag.limit(st.span, "source"); break }
-            used += size
-            accepted += st
-        }
         val states = LinkedHashMap<String, StateDecl>()
         val bindings = LinkedHashMap<String, Binding>()
         val functions = LinkedHashMap<String, FnDecl>()
         val effects = LinkedHashMap<String, Effect>()
         val exports = LinkedHashSet<String>()
         val exportStmts = ArrayList<Export>()
-        for (s in accepted) when (s) {
+        for (s in f.stmts) when (s) {
             is StateDecl -> states[s.name] = s
             is Binding -> { functions.remove(s.name); bindings[s.name] = s }
             is FnDecl -> { bindings.remove(s.name); functions[s.name] = s }

@@ -253,12 +253,12 @@ object Builtins {
                 val cap = com.echoflow.weave.core.Limits.STRING_CHARS
                 val sb = StringBuilder()
                 for ((i, item) in l.withIndex()) {
-                    if (i > 0) sb.append(sep)
-                    if (sb.length > cap) return WNull
+                    chargeItems(1)
+                    if (i > 0) { if (sb.length + sep.length > cap) return WNull; sb.append(sep) }
                     sb.append(f.auto(item))
                     if (sb.length > cap) return WNull
                 }
-                chargeItems(l.size + sb.length / 64)
+                chargeItems(sb.length / 64)
                 WStr(sb.toString())
             }
             "replace" -> {
