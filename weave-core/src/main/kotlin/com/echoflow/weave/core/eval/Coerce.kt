@@ -142,18 +142,27 @@ class Coercion(private val f: Formatter) {
         /** 03 §2.5: `"1h 30m"` → 5,400,000. */
         fun parseDuration(s0: String): Long? {
             val s = s0.trim()
-            if (s.isEmpty()) return null
+            // a real duration is short; a long string is rejected before any matching
+            if (s.isEmpty() || s.length > MAX_DURATION_CHARS) return null
             var total = 0.0
             var pos = 0
-            for (m in DUR_PART.findAll(s)) {
-                if (s.substring(pos, m.range.first).isNotBlank()) return null
-                val n = m.groupValues[1].toDouble()
-                total += n * when (m.groupValues[2]) { "ms" -> 1.0; "s" -> 1e3; "m" -> 6e4; "h" -> 3.6e6; else -> 8.64e7 }
-                pos = m.range.last + 1
+            // each part must start exactly where the last one ended (after spaces), so a failed
+            // match is never retried at later positions
+            val m = DUR_PART.toPattern().matcher(s)
+            while (pos < s.length) {
+                while (pos < s.length && s[pos].isWhitespace()) pos++
+                if (pos == s.length) break
+                m.region(pos, s.length)
+                if (!m.lookingAt()) return null
+                val n = m.group(1).toDouble()
+                total += n * when (m.group(2)) { "ms" -> 1.0; "s" -> 1e3; "m" -> 6e4; "h" -> 3.6e6; else -> 8.64e7 }
+                pos = m.end()
             }
-            if (pos == 0 || s.substring(pos).isNotBlank()) return null
+            if (pos == 0 || total == 0.0 && !s.any { it.isDigit() }) return null
             return Math.floor(total + 0.5).toLong()
         }
+
+        private const val MAX_DURATION_CHARS = 64
 
         private val TIME24 = Regex("(\\d{1,2}):(\\d{2})")
         private val TIME12 = Regex("(\\d{1,2}):(\\d{2})\\s*([aApP][mM])")

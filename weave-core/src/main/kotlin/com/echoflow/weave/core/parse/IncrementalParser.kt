@@ -67,7 +67,13 @@ class IncrementalParser(private val catalog: Catalog = BuiltinCatalog.forBuild(2
         // Every line but the last was ended by a newline after which the next line's first
         // character has arrived (the next line exists), so it is confirmed.
         val nextFirst = lines.last().tokens.first()
-        val ambiguous = nextFirst.kind == TK.ERROR && nextFirst.text == "|" && nextFirst.end == text.length
+        // the next line's first word may still be growing into a continuation (`|` → `|>`,
+        // `a` → `and`, `o` → `or`): until it is complete, the previous statement isn't confirmed
+        val atEnd = nextFirst.end == text.length
+        val ambiguous = atEnd && (
+            (nextFirst.kind == TK.ERROR && nextFirst.text == "|") ||
+                (nextFirst.text.isNotEmpty() && CONTINUATION_WORDS.any { it.startsWith(nextFirst.text) })
+            )
         val confirmed = if (ambiguous) lines.dropLast(2) else lines.dropLast(1)
         if (confirmed.isEmpty()) return
         for (l in confirmed) {
@@ -118,5 +124,9 @@ class IncrementalParser(private val catalog: Catalog = BuiltinCatalog.forBuild(2
         return Splitter.split(toks)
             .map { Parser.parseLine(it, lexer.notes.filter { n -> n.offset >= it.start && n.offset < it.end }) }
             .filter { it.stmt != null }
+    }
+
+    private companion object {
+        val CONTINUATION_WORDS = listOf("and", "or")
     }
 }

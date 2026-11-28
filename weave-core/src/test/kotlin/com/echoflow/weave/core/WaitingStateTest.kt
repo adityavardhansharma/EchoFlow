@@ -17,7 +17,7 @@ class WaitingStateTest {
         val s = Session(parser.update(head, complete = false), W.ctx())
         assertTrue("rate" in s.waitingStates)
         assertEquals(WNum(0.0), s.state["out"])
-        s.sync(parser.update(head + "fn base(n) = n * 2\n", complete = false))
+        s.sync(parser.update(head + "fn base(n) = n * 2\nz = 1", complete = false))
         assertFalse("rate" in s.waitingStates)
         assertEquals(WNum(20.0), s.state["rate"])
     }
@@ -30,7 +30,7 @@ class WaitingStateTest {
         assertEquals(WNum(0.0), s.state["out"])
         assertEquals(0, s.historySize)
         assertEquals(1, s.rejectedTaps)
-        s.sync(parser.update(head + "fn base(n) = n * 2\n", complete = false))
+        s.sync(parser.update(head + "fn base(n) = n * 2\nz = 1", complete = false))
         s.fire(s.root()!!.args["onTap"]!!)
         assertEquals(WNum(20.0), s.state["out"])
     }
