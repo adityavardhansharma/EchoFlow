@@ -764,7 +764,7 @@ expression:
 \b(make|build|create|draw|show|generate|turn|put|give (me|us))\b[^.?!\n]{0,40}\b(calculator|chart|graph|plot|table|quiz|flashcards?|slider|dashboard|tracker|timer|countdown|planner|checklist|kanban|widget|form|wizard|game|simulat\w*|ui)s?\b
 |\b(plot|chart|graph|visuali[sz]e|tabulate|simulate)\s+(it|this|that|these|those|my|the|our|how)\b
 |\b(as|into)\s+(a |an )?(card|chart|graph|table|ui|calculator|checklist)\b
-|\bin\s+(a |an )?(chart|graph|table)\b
+|\b(put|show|display|list|compare|summari[sz]e|organi[sz]e|arrange|lay\s+out|present|format)\b[^.?!\n]{0,40}\bin\s+(a |an )?(chart|graph|table)\b
 |\bmake\s+(it|this|that)\s+interactive\b
 ```
 

@@ -333,7 +333,11 @@ Actions run **only** in response to:
 **Algorithm.** When an event fires with an action value `A` and event data `d`:
 
 1. If `A` is a `fn` (a handler lambda like `p => !set($x, p.x)`), call it with `d` to get the
-   action value. If the result is not an action or a list of actions, stop.
+   action value. If the result is not an action or a list of actions, stop. The call is part of the
+   event's transaction for the waiting rule (§7.1): if it read a waiting value — for example
+   `p => $rate == null ? !inc($b) : !inc($a)` while `$rate` is waiting — the event is discarded
+   here, before any action runs. Waiting marks from steps 1–4 are kept together, and any of them
+   discards the whole transaction at step 5.
 2. Flatten nested lists into a sequence `[a1, a2, …]`. `null` items are skipped.
 3. Open a **transaction** (a mutable Compose snapshot).
 4. For each `ai` in order: evaluate its arguments **now**, inside the transaction, so they see
