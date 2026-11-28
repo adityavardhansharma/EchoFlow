@@ -167,7 +167,20 @@ object BuiltinCatalog : Catalog {
             "bar chart", "Charts", placeholder = PlaceholderKind.CHART),
     ) + CatalogExtras.components
 
-    private val allComponents: List<ComponentSpec> by lazy { baseComponents.map { withInputArgs(it) } }
+    /**
+     * Components that can't answer intrinsic size queries (04 §3.3): the renderer builds them on
+     * SubcomposeLayout, a lazy layout, a pager or BoxWithConstraints. A `Row` never asks them and
+     * lays out as a column instead. 04 names Carousel, Pager, Tabs, Wizard, Gallery, Table, List
+     * and Calendar; the rest follow from EchoFlow's renderers.
+     */
+    val NO_INTRINSICS = setOf(
+        "Carousel", "Pager", "Tabs", "Wizard", "Gallery", "Table", "List", "Calendar",
+        "Grid", "Split", "Stat", "Image", "Select", "Sort", "Swipe",
+    )
+
+    private val allComponents: List<ComponentSpec> by lazy {
+        baseComponents.map { withInputArgs(it) }.map { if (it.name in NO_INTRINSICS) it.copy(intrinsics = false) else it }
+    }
 
     // ---- Chart marks, 04 §12.3 (leads = every parameter before the first optional one) ----------
 
