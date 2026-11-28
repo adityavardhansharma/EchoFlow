@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** A `.weave` file opened from another app (01 §23.4), waiting for the chat screen. */
 object WeaveImport {
@@ -25,27 +26,34 @@ object WeaveImport {
 
     /**
      * Takes a `.weave` file opened (ACTION_VIEW) or shared (ACTION_SEND with EXTRA_STREAM, which is
-     * how [WeaveShare.weaveFile] sends it); true when the intent was one. The file is read off the
-     * main thread with a bounded stream; one larger than [MAX_FILE_BYTES] is rejected, not cut.
+     * how [WeaveShare.weaveFile] sends it). Calls [onOther] on the main thread when it is not a
+     * `.weave` file. Filename lookup and file reading happen off the main thread, with a bounded
+     * stream; one larger than [MAX_FILE_BYTES] is rejected, not cut.
      */
-    fun read(context: Context, intent: Intent?): Boolean {
+    fun read(context: Context, intent: Intent?, onOther: () -> Unit) {
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> streamOf(intent)
             else -> null
-        } ?: return false
-        if (intent?.type != "application/x-weave" && !displayName(context, uri).endsWith(".weave", ignoreCase = true)) return false
-        val resolver = context.applicationContext.contentResolver
+        } ?: run {
+            onOther()
+            return
+        }
+        val declared = intent?.type == "application/x-weave" || uri.lastPathSegment.orEmpty().endsWith(".weave", ignoreCase = true)
+        val appContext = context.applicationContext
         scope.launch {
+            if (!declared && !displayName(appContext, uri).endsWith(".weave", ignoreCase = true)) {
+                withContext(Dispatchers.Main) { onOther() }
+                return@launch
+            }
             val text = runCatching {
-                resolver.openInputStream(uri)?.use { input ->
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
                     val bytes = input.readNBytesCompat(MAX_FILE_BYTES + 1)
                     if (bytes.size > MAX_FILE_BYTES) null else bytes.decodeToString()
                 }
             }.getOrNull() ?: return@launch
             pending.value = text
         }
-        return true
     }
 
     @Suppress("DEPRECATION")
