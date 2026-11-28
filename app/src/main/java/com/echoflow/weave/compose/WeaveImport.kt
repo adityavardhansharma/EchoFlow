@@ -3,12 +3,14 @@ package com.echoflow.weave.compose
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.echoflow.weave.core.Limits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** A `.weave` file opened from another app (01 §23.4), waiting for the chat screen. */
 object WeaveImport {
@@ -24,35 +26,50 @@ object WeaveImport {
 
     /**
      * Takes a `.weave` file opened (ACTION_VIEW) or shared (ACTION_SEND with EXTRA_STREAM, which is
-     * how [WeaveShare.weaveFile] sends it); true when the intent was one. The file is read off the
-     * main thread with a bounded stream; one larger than [MAX_FILE_BYTES] is rejected, not cut.
+     * how [WeaveShare.weaveFile] sends it). Calls [onOther] on the main thread when it is not a
+     * `.weave` file. Filename lookup and file reading happen off the main thread, with a bounded
+     * stream; one larger than [MAX_FILE_BYTES] is rejected, not cut.
      */
-    fun read(context: Context, intent: Intent?): Boolean {
+    fun read(context: Context, intent: Intent?, onOther: () -> Unit) {
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> streamOf(intent)
             else -> null
-        } ?: return false
-        // decided without asking the content provider (that could block the main thread): the
-        // type EchoFlow shares with, or a .weave name in the URI
-        if (intent?.type != "application/x-weave" && !uri.lastPathSegment.orEmpty().endsWith(".weave", ignoreCase = true)) return false
-        val resolver = context.applicationContext.contentResolver
+        } ?: run {
+            onOther()
+            return
+        }
+        val declared = intent?.type == "application/x-weave" || uri.lastPathSegment.orEmpty().endsWith(".weave", ignoreCase = true)
+        val appContext = context.applicationContext
         scope.launch {
+            if (!declared && !displayName(appContext, uri).endsWith(".weave", ignoreCase = true)) {
+                withContext(Dispatchers.Main) { onOther() }
+                return@launch
+            }
             val text = runCatching {
-                resolver.openInputStream(uri)?.use { input ->
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
                     val bytes = input.readNBytesCompat(MAX_FILE_BYTES + 1)
                     if (bytes.size > MAX_FILE_BYTES) null else bytes.decodeToString()
                 }
             }.getOrNull() ?: return@launch
             pending.value = text
         }
-        return true
     }
 
     @Suppress("DEPRECATION")
     private fun streamOf(intent: Intent): Uri? =
         if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         else intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+
+    private fun displayName(context: Context, uri: Uri): String {
+        val segment = uri.lastPathSegment.orEmpty()
+        if (segment.endsWith(".weave", ignoreCase = true)) return segment
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: segment
+    }
 
     /** Reads up to [limit] bytes (InputStream.readNBytes needs API 33). */
     private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {

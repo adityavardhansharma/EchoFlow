@@ -71,8 +71,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readShare(intent: Intent?) {
-        if (com.echoflow.weave.compose.WeaveImport.read(this, intent)) return
-        IncomingShare.from(intent)?.let { shareRequest.value = it }
+        com.echoflow.weave.compose.WeaveImport.read(this, intent) {
+            IncomingShare.from(intent)?.let { shareRequest.value = it }
+        }
     }
 
     // Launcher shortcuts arrive through ShortcutTrampolineActivity, which brings this task forward
