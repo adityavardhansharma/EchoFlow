@@ -4,7 +4,9 @@ import com.echoflow.data.SystemPrompts
 import com.echoflow.weave.compose.WeaveEffects
 import com.echoflow.weave.compose.components.Inputs
 import com.echoflow.weave.core.prompt.IntelligentUiLevel
+import com.echoflow.weave.core.prompt.WeaveDocs
 import com.echoflow.weave.runtime.EchoUiPromptCache
+import com.echoflow.weave.runtime.WeaveDocsTool
 import com.echoflow.weave.runtime.WeaveRuntime
 import com.echoflow.weave.runtime.tiers.EchoUiModelTiers
 import org.junit.Assert.assertEquals
@@ -71,5 +73,31 @@ class EchoUiPolicyTest {
         assertTrue(t4.contains("Canvas") && t4.contains("Quiz"))
         assertTrue("tier 4 prompt is ${t4.length} chars", t4.length < 60_000)
         println("Echo UI prompt sizes: tier 3 ${t3.length / 4} tokens, tier 4 ${t4.length / 4} tokens (approx.)")
+    }
+
+    @Test fun `every name in the trimmed prompt's index is answered by weave_docs`() {
+        for (tier in 3..4) {
+            if (!EchoUiPromptCache.usesDocsIndex(tier, toolUse = true)) continue
+            val trimmed = EchoUiPromptCache.section(tier, IntelligentUiLevel.BALANCED, docsIndex = true)
+            val index = trimmed.substringAfter("### Reference index\n").substringBefore("\n\n").lines().drop(1)
+            assertTrue(index.isNotEmpty())
+            val tool = WeaveDocsTool(tier)
+            val names = index.flatMap { it.substringAfter(": ").split(' ') }
+            for (chunk in names.chunked(WeaveDocs.MAX_NAMES)) {
+                val answer = WeaveDocs.answer(chunk, tier, EchoUiPromptCache.catalog(tier))
+                assertFalse("tier $tier: ${answer.lines().filter { it.startsWith("unknown:") }}", answer.contains("unknown:"))
+            }
+            assertTrue(tool.handles("weave_docs"))
+            assertTrue(tool.execute("{\"names\": [\"${names.first()}\"]}").startsWith(names.first()))
+        }
+    }
+
+    @Test fun `weave_docs stops after its per-reply limit and when disabled`() {
+        val tool = WeaveDocsTool(4)
+        repeat(WeaveDocsTool.MAX_CALLS) { assertFalse(tool.execute("{\"names\": [\"Text\"]}").contains("limit reached")) }
+        assertTrue(tool.execute("{\"names\": [\"Text\"]}").contains("limit reached"))
+        tool.enabled = false
+        assertFalse(tool.handles("weave_docs"))
+        assertTrue(tool.schemas().isEmpty())
     }
 }

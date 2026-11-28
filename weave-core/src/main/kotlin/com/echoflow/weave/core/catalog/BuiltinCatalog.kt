@@ -70,7 +70,7 @@ object BuiltinCatalog : Catalog {
             positional = listOf("gap", "justify"), aliases = mapOf("spacing" to "gap", "alignment" to "align"), placeholder = PlaceholderKind.NONE),
         comp("Box", "contentAlign: topStart|top|topEnd|start|center|end|bottomStart|bottom|bottomEnd = topStart", 0, 1, 1,
             "children stacked on top of each other", "Layout", ChildrenSpec.Any, placeholder = PlaceholderKind.NONE),
-        comp("Grid", "cols: num | auto = 2, gap: space = s, rowGap: space, minCell: height = s", 0, 1, 1,
+        comp("Grid", "cols: num | auto = 2, gap: space = s, rowGap?: space, minCell: height = s", 0, 1, 1,
             "grid of equal columns", "Layout", ChildrenSpec.Any, placeholder = PlaceholderKind.NONE),
         comp("Flow", "gap: space = s, rowGap: space = s, justify: justify = start", 0, 1, 1,
             "items that wrap onto new lines", "Layout", ChildrenSpec.Any, placeholder = PlaceholderKind.NONE),

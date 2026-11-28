@@ -144,9 +144,11 @@ object Layout {
         val cols = (node.num("cols") ?: 2.0).toInt().coerceIn(1, 6)
         val minW = node.num("minW")
         val gap = gap(node)
+        // 04 §4: rowGap defaults to gap.
+        val rowGap = TokenResolver.space(node.args["rowGap"], gap)
         BoxWithConstraints(modifier.fillMaxWidth()) {
             val n = if (minW != null && minW > 0) maxOf(1, (maxWidth.value / (minW.toFloat() * 8f)).toInt()).coerceAtMost(6) else cols
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
                 node.children.chunked(n).forEach { rowKids ->
                     Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                         rowKids.forEach { RenderNode(it, ctx.child(), Modifier.weight(1f)) }
