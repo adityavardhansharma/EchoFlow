@@ -2,7 +2,7 @@
 
 **Name:** **Echo UI** (the engine) · language codename **Weave** (the fenced `weave` syntax)
 **User-facing setting:** **Intelligent UI**: Off · Balanced (default) · Immersive (§20.5)
-**Version:** 1.1 draft spec · November 2026
+**Version:** 1.2 draft spec · November 2026
 **Status:** design — nothing here is built yet. This is the **overview**; the exact rules are in
 [02–07](README.md), which win wherever they differ from this document.
 **Scope:** cloud models only. On-device models get tier 0 and no live UI in this version
@@ -264,23 +264,13 @@ can be stored, passed to components (`render:`), and returned from functions.
 **coerced** where safe (`"12"` → `12` in a `num` slot, `12` → `"12"` in a `str` slot, a single node
 → a one-element list for children). Unsafe coercions are an error for that argument.
 
-### 5.2 Operators (lowest to highest precedence)
+### 5.2 Operators
 
-| Operator | Meaning |
-|---|---|
-| `c ? a : b` | Conditional |
-| `a ?? b` | `a` unless `null`, else `b` |
-| `or` | Logical or |
-| `and` | Logical and |
-| `not` | Logical not (prefix) |
-| `== != < <= > >=` | Comparison (deep equality for lists/records) |
-| `in` | Membership: `x in list`, `"k" in record`, `x in 1..10` |
-| `..` | Inclusive range of integers: `1..12` |
-| `+ -` | Add / subtract; `+` concatenates strings and lists, merges records |
-| `* / %` | Multiply, divide, remainder |
-| `-x` | Negation |
-| `a.b`, `a[i]`, `f(x)` | Member, index (negative from end), call |
-| `|>` | Pipe (§4.6) |
+The exact grammar and precedence are in 02 §4.2; this is a summary. From lowest to highest: lambda
+`=>`, pipe `|>`, conditional `c ? a : b`, `??`, `or`, `and`, `not`, comparison
+(`== != < <= > >= in`), range `..`, `+ -`, `* / %`, unary `-`, then member / index / call
+(`a.b`, `a[i]`, `f(x)`). Deep equality applies to lists and records; `+` concatenates strings and
+lists and merges records.
 
 Words (`and`, `or`, `not`) are used instead of `&&`/`||`/`!` because `!` marks actions.
 Division by zero yields `null` (displayed as "—"), never an exception.
@@ -1411,21 +1401,11 @@ Dec 06:40–08:15") and Cancel / Confirm. `!say` content is visible before and a
 
 ### 24.4 Limits
 
-| Limit | Value |
-|---|---|
-| Source size | 48 KB per block |
-| Statements | 400 |
-| Rendered nodes | 600 per block; 3,000 across visible blocks |
-| Nesting depth | 24 |
-| Expression evaluation | 20,000 steps per evaluation; recursion depth 64 |
-| State size | 256 KB per block |
-| List length rendered eagerly | 30 (then lazy, requires `h`) |
-| Timers | min 250 ms; max 4 per block |
-| `frame` effects | 1 per block; only 1 block simulating at a time (the most visible) |
-| Images | 24 per block, 4 MB each |
-| `!ask` | 1 in flight per block; 20/hour per block without confirmation |
-| `query` | 4 per block; min interval 1 min (`every:`); consent required |
-| JS | 50 ms / 16 MB per call |
+Every block is bounded: source size, statements, nodes, depth, evaluation steps, state size,
+timers, images, `!ask` and `query` rates, and script time and memory. The values are listed in
+05 §13.3 (`Limits.kt`); what happens when one is exceeded is defined with the rule that enforces it
+(for example 03 §5.3 for evaluation steps and recursion depth). They are not repeated here so they
+can't drift.
 
 ### 24.5 Prompt injection
 

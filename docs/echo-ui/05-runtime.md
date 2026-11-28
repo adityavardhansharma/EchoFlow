@@ -1,6 +1,6 @@
 # 05 — Runtime, storage, model loop and settings
 
-**Spec version:** 1.1 · **Status:** normative
+**Spec version:** 1.2 · **Status:** normative
 
 This document says how Echo UI is built inside EchoFlow: modules, classes, threading, streaming
 integration, rendering, the hidden model requests, storage, tiers, the **Intelligent UI** setting,
@@ -214,6 +214,11 @@ or when the screen is disposed.
   through a `ContextValues` object whose fields are `State`s updated from the Compose environment
   (`LocalConfiguration`, theme, visibility).
 - Cycle detection (03 §5.2) uses a thread-local in-progress set.
+- Each cached result is `Evaluated(value: WValue, waiting: Boolean)`. `waiting` is true when
+  evaluation read a state absent from `StateStore` (03 §7.1), directly or through another cached
+  binding. `NodeRenderer` draws the placeholder for a node whose arguments evaluated with
+  `waiting = true`. Because the read of the absent key is itself tracked by Compose, the node
+  recomposes when the state is added.
 
 ### 4.4 Threading
 
@@ -735,13 +740,17 @@ If `effectiveTier == 0`, no Echo UI text is added to the system prompt.
 |---|---|---|---|
 | Echo UI prompt sent | No (except §11.5 / Make interactive) | Yes, Balanced text (06 §2.2) | Yes, Immersive text (06 §2.2) |
 | Tier cap | 0 | 3 | 4 |
-| Max blocks rendered per reply | 0 new (existing still render) | 1 (extra blocks render as code) | 3 (extra render as code) |
+| Max blocks rendered per reply | 0 new (existing still render) — except §11.5 / Make interactive: 1 | 1 (extra blocks render as code) | 3 (extra render as code) |
 | `lazy`, `!ask` allowed | — | Yes (cost guards) | Yes (cost guards) |
 | Repair round | never | if enabled | if enabled |
 | Suggest full-screen | — | no | yes (prompt allows `size: full`) |
 
 "Max blocks per reply" counts `weave`/`weave-json` fences that are not edits, in order; the excess
-fences render as plain code blocks with no chip.
+fences render as plain code blocks with no chip. The limit comes from the **prompt level**
+(`promptLevel`, §11.3), not the raw level: a reply to an explicit UI request (§11.5) or to "Make
+interactive" (§11.6) is generated under Balanced rules, so it may render **1** new block even
+though the chat is Off. Every other reply in an Off chat renders 0 new blocks. `[T-605b]`
+`[T-606b]`
 
 Blocks already in a thread **always render and work** whatever the level (a level change applies to
 new replies only).
@@ -752,9 +761,10 @@ The latest user message is an explicit UI request if, lower-cased, it matches th
 expression:
 
 ```
-\b(make|build|create|draw|show|give|generate|turn|put|lay)\b[^.?!\n]{0,40}\b(calculator|chart|graph|plot|table|quiz|flashcards?|slider|dashboard|tracker|timer|countdown|planner|checklist|kanban|widget|form|wizard|game|simulat\w*|ui)s?\b
+\b(make|build|create|draw|show|generate|turn|put|give (me|us))\b[^.?!\n]{0,40}\b(calculator|chart|graph|plot|table|quiz|flashcards?|slider|dashboard|tracker|timer|countdown|planner|checklist|kanban|widget|form|wizard|game|simulat\w*|ui)s?\b
 |\b(plot|chart|graph|visuali[sz]e|tabulate|simulate)\s+(it|this|that|these|those|my|the|our|how)\b
-|\b(as|in|into)\s+(a |an )?(card|chart|graph|table|ui|calculator|checklist)\b
+|\b(as|into)\s+(a |an )?(card|chart|graph|table|ui|calculator|checklist)\b
+|\b(put|show|display|list|compare|summari[sz]e|organi[sz]e|arrange|lay\s+out|present|format)\b[^.?!\n]{0,40}\bin\s+(a |an )?(chart|graph|table)\b
 |\bmake\s+(it|this|that)\s+interactive\b
 ```
 
@@ -762,7 +772,9 @@ expression:
 **action plus an object**: a bare noun (`plot`, `table`, `game`, `form`) is never enough, because the
 cost of a false positive is a Balanced-sized prompt on a turn the user asked to keep plain. It is
 deterministic and tested in 07 §11, including the false positives it must not produce ("the plot of
-the novel", "any good tabletop games?", "explain the periodic table"). Known accepted false
+the novel", "any good tabletop games?", "explain the periodic table", "give up on this game", "lay
+the table for dinner", "my money is stuck in a card"). `give` counts only as `give me` / `give us`,
+and `in a …` only before `chart`, `graph` or `table`. Known accepted false
 positive: "show me how the table of contents works". `[T-608]` `[T-608b]`
 
 ### 11.6 "Make this interactive"

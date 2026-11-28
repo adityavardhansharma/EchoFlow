@@ -79,6 +79,12 @@ These words have exact meanings everywhere in this folder:
   version (`1.0` → `1.1`) and adds a line to §6.
 - Additions (new components, new functions, new optional parameters) are minor. Renames, removals or
   changed defaults are major and require a new language version.
+- **Pre-release exemption.** Until the first EchoFlow release that ships Echo UI to users, every
+  change is a minor bump, including renames, removals and changed defaults, and the language
+  version stays `1`. No block exists in the wild that a change could break. The major-version rule
+  above starts with that release; record it in §6 when it happens.
+- The overview (01) summarises and links; it does not copy tables from 02–07. When a summary in 01
+  disagrees with 02–07, fix 01.
 
 ## 6. Change log
 
@@ -86,3 +92,4 @@ These words have exact meanings everywhere in this folder:
 |---|---|---|
 | 1.0 | 2026-11-26 | First complete set: 01–07. |
 | 1.1 | 2026-11-26 | Resolves the critique (`critique.md` §7). Shape tokens resolve through `MaterialTheme.shapes`; spacing tokens through `Spacing` (Weave `l` = `Spacing.base`). States wait for the names their initialiser needs (03 §7.1). Same-trigger effects merge into `!if` branches (S12) instead of replacing. Over-limit edits and over-size state are rejected. One history encoding (`# state`). Weave section sits before `freshnessGate`. Narrower Off regex; pincode allowed. "Show as plain text". Live UI is cloud-only. Weave-JSON moves to phase 2; phase 1 ships in two steps (1a slice, 1b rest); the eval harness follows the build. Placeholder shrink eases; `Row` uses `Layout`. Reserved `E305`/`W406`. New and changed tests in 07. |
+| 1.2 | 2026-11-26 | Nodes whose arguments read a waiting state show placeholders (03 §7.1). Off + explicit request / Make interactive may render 1 block. Off regex drops `lay`, narrows `give` and `in a …`. Merged effects: honest semantics (one transaction, one firing). Remix and edit prompts warn that an effect replaces every effect on its trigger. 01 operator and limits tables replaced by summaries; pipe precedence fixed. Pre-release versioning exemption. |

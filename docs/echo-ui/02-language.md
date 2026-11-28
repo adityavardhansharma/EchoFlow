@@ -1,6 +1,6 @@
 # 02 — The Weave language
 
-**Spec version:** 1.1 · **Status:** normative · **Language version:** 1
+**Spec version:** 1.2 · **Status:** normative · **Language version:** 1
 
 This document defines exactly how Weave text becomes a parsed program: characters → tokens →
 logical lines → statements → syntax tree. Semantics (what the tree *means*) are in
@@ -476,9 +476,17 @@ effect has no `when` and its action is the list of those contributions. The exam
 on change($x) -> [!if($x > 10, !toast("high")), !if($x < 0, !toast("low"))]
 ```
 
-The merge emits `W403`, not `W404`: it is a rewrite, not a loss. Because `!if` evaluates its
-condition at execution time inside the same transaction (03 §7.2), the merged effect behaves exactly
-like the separate guarded effects would have, in source order. `[T-042]` `[T-042b]`
+The merge emits `W403`, not `W404`: it is a rewrite, not a loss. What the merged effect does, exactly:
+
+- The branches run **in source order inside one transaction** (03 §7.2). `!if` evaluates its
+  condition when its turn comes, so a later branch's guard **sees writes made by earlier
+  branches**. (`on change($x) when $x > 10 -> !set($x, 0)` followed by `… when $x < 5 -> !toast("low")`
+  toasts after the first branch resets `$x`.) A model that needs independent guards should write
+  conditions that don't depend on what the other branches write.
+- It is **one effect firing** for the effect-loop cap (03 §8.5), however many branches it has.
+- It commits **one** history entry.
+
+`[T-042]` `[T-042b]` `[T-042d]`
 
 In an edit (§11.2), statements apply in source order. S12 merges only a **run** of same-key effects
 that no `-on <trigger>` for that key separates; each deletion applies at its own position. So
