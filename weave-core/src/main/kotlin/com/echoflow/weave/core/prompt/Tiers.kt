@@ -31,6 +31,21 @@ object EchoUiTiers {
         IntelligentUiLevel.IMMERSIVE -> 3
     }
 
+    /** 05 §11.2: a chat's stored override wins over the global level; null follows the global one. */
+    fun chatLevel(global: IntelligentUiLevel, override: String?): IntelligentUiLevel =
+        override?.let { IntelligentUiLevel.fromStorage(it) } ?: global
+
+    /**
+     * 05 §10.4: adds one block's error count to a model's quality record (the last 10 blocks).
+     * Returns the record to store and whether the model drops a tier for 7 days: at least 5 blocks
+     * averaging more than 2 errors. A downgrade starts a fresh record.
+     */
+    fun recordQuality(record: List<Int>, errors: Int): Pair<List<Int>, Boolean> {
+        val next = (record + errors).takeLast(10)
+        val downgrade = next.size >= 5 && next.average() > 2.0
+        return (if (downgrade) emptyList() else next) to downgrade
+    }
+
     /** `BuildConfig.ECHO_UI_PHASE` → shipped tier (05 §15). */
     fun shippedTier(phase: Int) = when (phase) { 1 -> 2; 2 -> 3; else -> 4 }
 

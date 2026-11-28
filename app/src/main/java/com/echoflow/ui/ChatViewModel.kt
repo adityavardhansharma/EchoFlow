@@ -1593,7 +1593,7 @@ class ChatViewModel(
 
     /** The Echo UI prompt section for one turn (05 §11.3), or "" when the effective tier is 0. */
     private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false, docsToolPath: Boolean = false): EchoUiTurn {
-        val level = chatLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: settingsRepository.getIntelligentUiLevelDirect()
+        val level = com.echoflow.weave.core.prompt.EchoUiTiers.chatLevel(settingsRepository.getIntelligentUiLevelDirect(), chatLevel)
         val downgraded = (settingsRepository.getEchoUiString("echoui_downgrade_until_$modelId")?.toLongOrNull() ?: 0L) > System.currentTimeMillis()
         val (tools, context) = echoUiCapabilities(modelId)
         val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(
