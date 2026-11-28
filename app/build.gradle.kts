@@ -103,6 +103,7 @@ secrets {
 // This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(project(":weave-core"))
+  implementation(project(":weave-js"))
   implementation(libs.zxing.core)
   implementation(libs.lottie.compose)
   implementation(libs.glance.appwidget)

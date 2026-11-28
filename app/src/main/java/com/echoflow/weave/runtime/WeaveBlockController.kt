@@ -174,6 +174,8 @@ class WeaveBlockController internal constructor(
                 animationTimeMs = { if (base.reducedMotion) null else animationMs },
                 pendingNames = { pendingNames },
                 queryValue = { stmt, tool, args, every -> queryFor(stmt, tool, args, every) },
+                js = jsHost,
+                onJsError = { fn, message -> android.util.Log.w("WeaveJs", "js fn $fn: $message") },
             )
             val created = Session(next, withExtras, runtime.catalog)
             row?.let { r ->
@@ -618,7 +620,21 @@ class WeaveBlockController internal constructor(
 
     fun resetAll() { session?.let { fire(com.echoflow.weave.core.eval.WAction("resetAll", emptyList(), emptyList(), com.echoflow.weave.core.eval.Scope.EMPTY, com.echoflow.weave.core.parse.Span.NONE)) } }
 
+    /**
+     * The block's `js fn` runtime (03 §10.12). QuickJS starts on the first call, so blocks without
+     * script functions never pay for it, and the setting is checked on every call.
+     */
+    private var quickJs: com.echoflow.weave.js.QuickJsHost? = null
+    private val jsHost = object : com.echoflow.weave.core.eval.JsHost {
+        override fun call(name: String, params: List<String>, source: String, argsJson: String): com.echoflow.weave.core.eval.JsResult {
+            if (!runtime.scriptsEnabled()) return com.echoflow.weave.core.eval.JsResult.Error("script functions are off")
+            val host = synchronized(this) { quickJs ?: com.echoflow.weave.js.QuickJsHost().also { quickJs = it } }
+            return host.call(name, params, source, argsJson)
+        }
+    }
+
     fun close() {
+        synchronized(jsHost) { quickJs?.close(); quickJs = null }
         flush()
         queryJobs.values.forEach { it.cancel() }
         queryJobs.clear()

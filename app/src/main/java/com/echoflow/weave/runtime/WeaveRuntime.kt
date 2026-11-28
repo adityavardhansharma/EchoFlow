@@ -49,6 +49,9 @@ class WeaveRuntime(
 ) {
     var modelLoop: WeaveModelLoop? = null
 
+    /** "Script functions" (03 §10.12): read on every `js fn` call, so turning it off applies at once. */
+    @Volatile var scriptsEnabled: () -> Boolean = { true }
+
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val io = Dispatchers.IO
     /**

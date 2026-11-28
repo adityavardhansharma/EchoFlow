@@ -78,4 +78,15 @@ class CatalogPromptTest {
             if (tier == 1) { assertFalse(prompt.contains("!set")); assertFalse(prompt.contains("Slider(")) }
         }
     }
+
+    @Test fun `with script functions off the tier 4 prompt leaves js fn out, 03 section 10_12`() {
+        val c = BuiltinCatalog.restrictedTo(4, 3)
+        val on = EchoUiPrompt.section(4, IntelligentUiLevel.IMMERSIVE, catalog = c)
+        val off = EchoUiPrompt.section(4, IntelligentUiLevel.IMMERSIVE, catalog = c, scripts = false)
+        assertTrue(on.contains("js fn"))
+        assertFalse(off.contains("js fn"))
+        assertTrue(off.contains("on frame"))
+        assertEquals(on.replace(" `js fn name(a) = \"\"\"…\"\"\"` defines a pure JavaScript function (JSON in, JSON out) for heavy logic.", ""), off)
+        assertFalse(EchoUiPrompt.editorSection(4, c, scripts = false).contains("js fn"))
+    }
 }

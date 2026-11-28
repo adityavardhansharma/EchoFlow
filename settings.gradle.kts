@@ -29,3 +29,6 @@ include(":app")
 include(":weave-core")
 
 include(":weave-eval")
+
+// Optional QuickJS engine for tier 4 `js fn` (docs/echo-ui/05-runtime.md §1).
+include(":weave-js")

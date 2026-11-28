@@ -102,6 +102,8 @@ fun WeaveHostLayer(
     hiddenModel: com.echoflow.weave.runtime.HiddenModel? = null,
     tools: Map<String, com.echoflow.weave.runtime.WeaveTool> = emptyMap(),
     autoFix: () -> Boolean = { false },
+    /** "Script functions" (03 §10.12): whether `js fn` runs. */
+    scripts: () -> Boolean = { true },
     modelTier: () -> Int = { 3 },
     modelId: () -> String = { "" },
     qualityRead: (String) -> String? = { null },
@@ -116,6 +118,7 @@ fun WeaveHostLayer(
         val app = context.applicationContext
         WeaveRuntime(AppDatabase.getDatabase(app), Registry.names, libraryFired = app.getSharedPreferences("weave_library_fired", android.content.Context.MODE_PRIVATE))
     }
+    runtime.scriptsEnabled = scripts
     val host = remember(runtime) {
         object : WeaveHost {
             override fun perform(block: WeaveBlockController, effect: HostEffect) {
