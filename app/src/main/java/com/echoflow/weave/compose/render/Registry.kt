@@ -129,8 +129,8 @@ object Registry {
         "Gallery" to { n, c, m -> Media.GalleryR(n, c, m) },
         "Video" to { n, c, m -> Media.VideoR(n, c, m) },
         "Audio" to { n, c, m -> Media.AudioR(n, c, m) },
-        "Map" to { n, c, m -> Media.MapR(n, c, m) },
-        "Model3D" to { n, c, m -> Media.Model3DR(n, c, m) },
+        "Map" to { n, c, m -> com.echoflow.weave.compose.components.Spatial.MapR(n, c, m) },
+        "Model3D" to { n, c, m -> com.echoflow.weave.compose.components.Spatial.Model3DR(n, c, m) },
         "Lottie" to { n, c, m -> Media.LottieR(n, c, m) },
         "Qr" to { n, c, m -> Media.QrR(n, c, m) },
         // overlays render nothing in the flow; the block draws open ones (04 §11)
