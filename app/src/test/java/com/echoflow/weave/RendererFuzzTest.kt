@@ -60,14 +60,15 @@ class RendererFuzzTest {
         compose.waitForIdle()
     }
 
-    @Test fun `every registered component survives random arguments`() {
+    @Test fun `T-401 every registered component survives random arguments`() {
         val r = Random(7)
         val skip = setOf("Markdown", "Code")
         val parts = ArrayList<String>()
         for (name in Registry.names.sorted()) {
             if (name in skip) continue
             val spec = BuiltinCatalog.component(name) ?: continue
-            repeat(3) {
+            // 3 sets per component on every build, 200 on a release run (07 preamble)
+            repeat(System.getProperty("weave.fuzzSets")?.toIntOrNull() ?: 3) {
                 val args = spec.allParams.filter { r.nextBoolean() || it.required }.joinToString(", ") { p ->
                     "${p.name}: ${if (p.type == TypeSpec.STATE) listOf("\$s", "\$n", "\$l", "\$b").random(r) else values.random(r)}"
                 }

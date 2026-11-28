@@ -89,7 +89,15 @@ android {
       pickFirsts += listOf("**/libc++_shared.so", "**/libfbjni.so")
     }
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      // Echo UI release-run switches (docs/echo-ui/07 preamble): -Dweave.fuzzSets=200, -Dweave.themeMatrix=true
+      all { test ->
+        listOf("weave.fuzzSets", "weave.themeMatrix").forEach { k -> System.getProperty(k)?.let { test.systemProperty(k, it) } }
+      }
+    }
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

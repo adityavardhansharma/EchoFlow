@@ -18,7 +18,7 @@ class ModelLoopTest {
         assertEquals("a = 2", ModelResponses.firstFence("```weave\na = 2"))
     }
 
-    @Test fun `ask may only replace its names or add new ones`() {
+    @Test fun `T-455 ask may only replace its names or add new ones`() {
         val s = W.session("\$n = 1\ntip = 10\nnote = Text(\"a\")\nroot = Column [note, Text(\"{tip}\")]")
         val (edit, skipped) = ModelResponses.restrictAsk(s.program, "note = Text(\"b\")\ntip = 99\nhelper = 5\n\$n = 5\n\$m = 2\n-tip", setOf("note"))
         assertTrue(edit.contains("note = Text(\"b\")"))

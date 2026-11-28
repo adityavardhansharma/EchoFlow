@@ -55,7 +55,7 @@ class ModelLoopTest {
 
     private fun block(src: String) = runtime.controller(null, null, src.hashCode()).also { runBlocking { it.update(src, true, EvalContext()) }; idle() }
 
-    @Test fun `ask rewrites only the named parts`() {
+    @Test fun `T-455 ask rewrites only the named parts`() {
         reply = { "```weave edit b1\nnote = Text(\"shorter\")\ntip = 99\n```" }
         val c = block("tip = 10\nnote = Text(\"long text\")\nroot = Column [note, Button(\"Shorten\", onTap: !ask(\"shorter\", [note]))]")
         val button = c.root()!!.children[1]
@@ -69,7 +69,7 @@ class ModelLoopTest {
         assertEquals(listOf("shorter" to listOf("note")), c.askLog)
     }
 
-    @Test fun `lazy parts generate once and render`() {
+    @Test fun `T-457 lazy parts generate once and render`() {
         reply = { "```weave\nroot = Text(\"Day two: the fort\")\n```" }
         val c = block("root = Column [Text(\"Trip\"), day2]\nday2 = lazy(\"plan day two\", city: \"Jaipur\")")
         val lazyNode = c.root()!!.children[1]
@@ -82,7 +82,7 @@ class ModelLoopTest {
         assertEquals(1, requests.size)
     }
 
-    @Test fun `queries wait for consent, then run`() {
+    @Test fun `T-458 queries wait for consent, then run`() {
         val c = block("q = query(\"web.search\", {query: \"rate\"})\nroot = Text(\"{q.value}\")")
         c.root()
         idle()
@@ -93,7 +93,7 @@ class ModelLoopTest {
         assertEquals("result", ((c.binding("q") as WRec)["value"] as WStr).v)
     }
 
-    @Test fun `21st hidden request in an hour shows the budget banner`() {
+    @Test fun `T-456 21st hidden request in an hour shows the budget banner`() {
         reply = { "```weave edit b1\nnote = Text(\"x\")\n```" }
         val c = block("note = Text(\"a\")\nroot = Column [note, Button(\"Go\", onTap: !ask(\"again\", [note]))]")
         repeat(21) { c.fire(c.root()!!.children[1].args["onTap"]!!); idle() }

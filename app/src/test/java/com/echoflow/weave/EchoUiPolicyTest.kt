@@ -28,7 +28,9 @@ class EchoUiPolicyTest {
         assertEquals(SystemPrompts.build(false, "off", "Thursday, November 26, 2026"), SystemPrompts.build(false, "off", "Thursday, November 26, 2026", echoUi = ""))
     }
 
-    @Test fun `tiers come from the table, local models are 0, overrides win`() {
+    @Test fun `T-611 tiers come from the table, local models are 0, overrides win`() {
+        // a local model's effective tier is 0, so the turn gets no Weave section
+        assertEquals(0, EchoUiModelTiers.plan(IntelligentUiLevel.IMMERSIVE, EchoUiModelTiers.tierFor("local/gemma", isLocal = true, override = null), "make me a chart").tier)
         assertEquals(0, EchoUiModelTiers.tierFor("local/gemma", isLocal = true, override = 3))
         assertEquals(3, EchoUiModelTiers.tierFor("anthropic/claude-x", isLocal = false, override = null))
         assertEquals(1, EchoUiModelTiers.tierFor("openai/gpt-4o-mini", isLocal = false, override = null))
@@ -50,7 +52,7 @@ class EchoUiPolicyTest {
         for (l in listOf("Pincode", "PIN code", "Postal code", "Spinner", "Pinned notes", "Name")) assertFalse(l, Inputs.isSecretShaped(l, null))
     }
 
-    @Test fun `confirm sheet bolds the registrable domain`() {
+    @Test fun `T-459 confirm sheet bolds the registrable domain`() {
         assertEquals("example.com", WeaveEffects.registrableDomain("login.secure.example.com"))
         assertEquals("bank.co.in", WeaveEffects.registrableDomain("netbanking.bank.co.in"))
         assertEquals("localhost", WeaveEffects.registrableDomain("localhost"))
