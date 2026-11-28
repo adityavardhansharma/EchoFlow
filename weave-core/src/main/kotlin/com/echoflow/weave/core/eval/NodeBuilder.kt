@@ -31,7 +31,8 @@ internal class NodeBuilder(private val ev: Evaluator) {
     }
 
     private fun build(
-        c: Call, scope: Scope, leads: List<ParamSpec>, param: (String) -> ParamSpec?, all: List<ParamSpec>, marksOf: String? = null,
+        // a mark (a Canvas `group`) keeps its container for its own children; a component passes its own
+        c: Call, scope: Scope, leads: List<ParamSpec>, param: (String) -> ParamSpec?, all: List<ParamSpec>, marksOf: String? = ev.markContainer,
     ): WValue {
         val args = LinkedHashMap<String, WValue>()
         val places = HashMap<String, Place>()

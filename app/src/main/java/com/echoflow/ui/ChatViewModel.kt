@@ -1609,8 +1609,10 @@ class ChatViewModel(
             viewModelScope.launch { runCatching { com.echoflow.data.OpenRouterModelDirectory().allModels() } }
             return false to 16_000
         }
-        val id = modelId.substringAfter(":").removePrefix("openrouter/")
-        val info = models.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: return false to 16_000
+        // exact id first (OpenRouter variants such as `:free` are their own rows), then without
+        // an `openrouter/` prefix, then without a provider prefix before ':'
+        val candidates = listOf(modelId, modelId.removePrefix("openrouter/"), modelId.substringAfter(":")).distinct()
+        val info = candidates.firstNotNullOfOrNull { c -> models.firstOrNull { it.id.equals(c, ignoreCase = true) } } ?: return false to 16_000
         return (info.supportsTools == true) to (info.contextLength ?: 16_000)
     }
 

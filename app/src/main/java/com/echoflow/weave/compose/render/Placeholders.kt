@@ -37,7 +37,7 @@ object Placeholders {
         when (kind) {
             // a container keeps its own layout while an argument is pending (a waiting value reads
             // as null, so its default applies); only leaf components show a placeholder
-            PlaceholderKind.NONE -> Registry.renderers[node.type]?.invoke(node, ctx, modifier) ?: RenderChildren(node.children, ctx)
+            PlaceholderKind.NONE -> Registry.renderers[node.type]?.invoke(node, ctx, modifier.then(commonModifier(node, ctx))) ?: RenderChildren(node.children, ctx)
             PlaceholderKind.CHART -> Bar(modifier.fillMaxWidth(), TokenResolver.heightOr(node.args["h"], "m", ctx.screenHeight), RoundedCornerShape(20.dp))
             else -> Of(kind, modifier)
         }

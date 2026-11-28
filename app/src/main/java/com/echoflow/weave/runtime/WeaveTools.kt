@@ -35,7 +35,33 @@ object WeaveTools {
         }
     }
 
-    private val client by lazy { HttpClients.builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build() }
+    /**
+     * Resolves through the system DNS but refuses any name that resolves to a loopback, private,
+     * link-local or otherwise local address. OkHttp asks this for every connection, redirects
+     * included, so a public name (or a redirect) can't lead a block to a private host.
+     */
+    private object PublicOnlyDns : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            val all = okhttp3.Dns.SYSTEM.lookup(hostname)
+            if (all.any { isPrivateAddress(it) }) throw java.net.UnknownHostException("Only public pages")
+            return all
+        }
+    }
+
+    fun isPrivateAddress(a: java.net.InetAddress): Boolean {
+        if (a.isLoopbackAddress || a.isAnyLocalAddress || a.isLinkLocalAddress || a.isSiteLocalAddress || a.isMulticastAddress) return true
+        val b = a.address
+        return when (b.size) {
+            4 -> (b[0].toInt() and 0xff) == 100 && (b[1].toInt() and 0xc0) == 64 // 100.64/10 (CGNAT)
+            16 -> (b[0].toInt() and 0xfe) == 0xfc // fc00::/7 (unique local)
+            else -> false
+        }
+    }
+
+    private val client by lazy {
+        HttpClients.builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
+            .dns(PublicOnlyDns).followSslRedirects(false).build()
+    }
 
     /** `web.read`: an https page as plain text (first 20,000 characters). */
     val webRead: WeaveTool = object : WeaveTool {

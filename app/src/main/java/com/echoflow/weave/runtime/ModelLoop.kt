@@ -236,7 +236,7 @@ class ModelLoop(
         if (!provenanceOk(block, t, args)) { block.setQuery(stmt, queryRecord(WNull, false, LINK_NOT_IN_BLOCK), args); return }
         block.requestConsent(t, args) { granted ->
             if (!granted) { block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), false, "Not allowed"), args); return@requestConsent }
-            block.startQueryJob(stmt, runtime.scope.launch {
+            block.startQueryJob(stmt, runtime.scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 while (true) {
                     if (!block.queryArgsStill(stmt, args)) break
                     block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), true, null), args)

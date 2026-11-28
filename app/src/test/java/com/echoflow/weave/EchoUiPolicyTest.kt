@@ -58,6 +58,8 @@ class EchoUiPolicyTest {
         assertEquals("@weave 1 id: b2\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("root = Text(\"x\")", "b2"))
         assertEquals("@weave 1 id: b3 title: \"T\"\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 title: \"T\"\nroot = Text(\"x\")", "b3"))
         assertEquals("@weave 1 id: loan\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 id: loan\nroot = Text(\"x\")", "loan"))
+        // `id:` inside a quoted title is text, not the header id
+        assertEquals("@weave 1 id: b4 title: \"id: loan\"\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 title: \"id: loan\"\nroot = Text(\"x\")", "b4"))
         // a reused id the thread replaced: the stored header names the id the row is stored under
         assertEquals("@weave 1 id: b2 title: \"T\"\nroot = Text(\"x\")", WeaveRuntime.withHeaderId("@weave 1 id: loan title: \"T\"\nroot = Text(\"x\")", "b2"))
     }

@@ -362,7 +362,18 @@ class WeaveBlockController internal constructor(
 
     /** An accepted edit from a later reply (02 §11.3). */
     fun applyEdit(r: EditResult, newVersion: Int, fired: String) {
-        val s = session ?: return
+        val s = session ?: run {
+            // still loading: take the new version (with reset states cleared) for when it publishes
+            row = row?.let { cur ->
+                val stored = StateCodec.decode(cur.stateJson) as? com.echoflow.weave.core.eval.WRec
+                val kept = stored?.let { com.echoflow.weave.core.eval.WRec(LinkedHashMap(it.fields.filterKeys { k -> k !in r.resetStates })) }
+                cur.copy(source = r.program.print(runtime.catalog), version = newVersion, stateJson = kept?.let { StateCodec.encode(it) } ?: cur.stateJson)
+            }
+            firedJson = fired
+            blockVersion = newVersion
+            lastBody = null
+            return
+        }
         runCatching { s.applyEdit(r) }
         firedJson = fired
         program = s.program
@@ -495,12 +506,16 @@ class WeaveBlockController internal constructor(
         if ((stmt !in queryStarted || argsChanged) && program?.complete == true && room) {
             queryStarted += stmt
             queries[stmt] = (known?.first ?: ModelLoop.queryRecord(WNull, true, null)) to args
-            startQueryJob(stmt, runtime.scope.launch {
+            // registered before it starts: with Main.immediate the body can reach runQuery (which
+            // registers the request job) before launch returns, and registering afterwards would
+            // cancel that request
+            val job = runtime.scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 delay(if (argsChanged) 400 else 0)
                 val loop = runtime.modelLoop as? ModelLoop
                 if (loop == null) setQuery(stmt, ModelLoop.queryRecord(queryValueOf(stmt), false, "Not available here"), args)
                 else loop.runQuery(this@WeaveBlockController, stmt, tool, args, every)
-            })
+            }
+            startQueryJob(stmt, job)
         }
         return queries[stmt]?.first ?: ModelLoop.queryRecord(WNull, true, null)
     }
@@ -509,6 +524,8 @@ class WeaveBlockController internal constructor(
     fun startQueryJob(stmt: String, job: Job) {
         val old = queryJobs.put(stmt, job)
         if (old != null && old != job && old.isActive) old.cancel()
+        // jobs arrive unstarted (CoroutineStart.LAZY), so they are registered before they run
+        job.start()
     }
 
     /** A query result, accepted only while [args] are still the statement's current arguments. */
@@ -516,6 +533,8 @@ class WeaveBlockController internal constructor(
         if (!queryArgsStill(stmt, args)) return
         queries[stmt] = value to (queries[stmt]?.second ?: WNull)
         version++
+        // an exported binding may read this query
+        if (program?.exports?.isNotEmpty() == true) runtime.exportsChanged(chatId, this)
         row?.let { r -> runtime.saveQueries(r.id, StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(queries.mapValues { it.value.first })))) }
     }
 

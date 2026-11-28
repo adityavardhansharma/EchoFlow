@@ -102,7 +102,9 @@ class Session(
             val decl = program.states[k] ?: continue
             // JSON has no dates, times or durations: an untyped state whose initial value is one
             // takes that type back, so `$day = date("2026-12-01")` restores as a date, not text
-            val t = if (decl.type != null) null else when (state[k]) {
+            // only a stored string is revived; a stored number or list is the state's runtime value
+            // (an untyped state may have been written with another type) and is kept as it is
+            val t = if (decl.type != null || v !is WStr) null else when (state[k]) {
                 is WDate -> com.echoflow.weave.core.check.WType.DATE
                 is WTime -> com.echoflow.weave.core.check.WType.TIME
                 is WDateTime -> com.echoflow.weave.core.check.WType.DATETIME

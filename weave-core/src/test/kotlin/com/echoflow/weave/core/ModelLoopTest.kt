@@ -53,6 +53,12 @@ class ModelLoopTest {
         assertEquals(setOf("day__items_2"), e.helpers)
     }
 
+    @Test fun `lazy renaming leaves parameters that shadow a helper alone`() {
+        val e = ModelResponses.lazyEditFor("day", "items = [1]\nfn twice(items) = items * 2\nroot = Text(twice(3), key: map(items, items => items))", emptySet())!!
+        assertTrue(e.source, e.source.contains("fn day__twice(items) = items * 2"))
+        assertTrue(e.source, e.source.contains("map(day__items, items => items)"))
+    }
+
     @Test fun `templates carry the source, state and task`() {
         val t = HiddenPrompts.ask("b1", "Tip", "root = Text(\"x\")", "{}", "[]", listOf("shorter" to listOf("note")), "make it blue", listOf("note"))
         assertTrue(t.contains("```weave edit b1```"))

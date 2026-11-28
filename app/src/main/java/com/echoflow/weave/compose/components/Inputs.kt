@@ -469,11 +469,13 @@ object Inputs {
         CompositionLocalProvider(LocalShowRuleErrors provides submitted) {
             Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
                 RenderChildren(node.children, ctx)
+                // a form whose action hasn't arrived (still streaming) can't be submitted yet
+                val action = node.args["onSubmit"]
                 Button({
                     submitted = true
                     if (firstInvalid(node.children) != null) ctx.controller.hostEffect("haptic", listOf(WStr("reject")))
-                    else ctx.fire(node.args["onSubmit"])
-                }, Modifier.fillMaxWidth()) { Text(node.str("submitLabel") ?: "Submit") }
+                    else ctx.fire(action)
+                }, Modifier.fillMaxWidth(), enabled = action != null && action != com.echoflow.weave.core.eval.WNull) { Text(node.str("submitLabel") ?: "Submit") }
             }
         }
     }

@@ -67,13 +67,31 @@ object ModelResponses {
             used += candidate
             renames[h] = candidate
         }
-        fun rename(stmt: com.echoflow.weave.core.parse.Stmt) = com.echoflow.weave.core.parse.Rewrite.stmt(stmt) { e ->
-            when {
-                e is com.echoflow.weave.core.parse.Name && e.name in renames -> e.copy(name = renames.getValue(e.name))
-                e is com.echoflow.weave.core.parse.Call && e.kind == com.echoflow.weave.core.parse.CallKind.FUNCTION && e.callee in renames ->
-                    e.copy(callee = renames.getValue(e.callee))
-                else -> null
+        // scope-aware: a name bound by a fn or lambda parameter refers to that parameter, not the helper
+        fun ren(e: com.echoflow.weave.core.parse.Expr, bound: Set<String>): com.echoflow.weave.core.parse.Expr {
+            fun r(x: com.echoflow.weave.core.parse.Expr) = ren(x, bound)
+            return when (e) {
+                is com.echoflow.weave.core.parse.Name -> if (e.name in renames && e.name !in bound) e.copy(name = renames.getValue(e.name)) else e
+                is com.echoflow.weave.core.parse.Lambda -> e.copy(body = ren(e.body, bound + e.params))
+                is com.echoflow.weave.core.parse.Call -> e.copy(
+                    callee = if (e.kind == com.echoflow.weave.core.parse.CallKind.FUNCTION && e.callee in renames && e.callee !in bound) renames.getValue(e.callee) else e.callee,
+                    leads = e.leads.map(::r), named = e.named.map { (k, v) -> k to r(v) }, children = e.children?.map(::r),
+                )
+                is com.echoflow.weave.core.parse.Member -> e.copy(target = r(e.target))
+                is com.echoflow.weave.core.parse.Index -> e.copy(target = r(e.target), index = r(e.index))
+                is com.echoflow.weave.core.parse.Unary -> e.copy(operand = r(e.operand))
+                is com.echoflow.weave.core.parse.BinaryOp -> e.copy(left = r(e.left), right = r(e.right))
+                is com.echoflow.weave.core.parse.Ternary -> e.copy(cond = r(e.cond), then = r(e.then), otherwise = r(e.otherwise))
+                is com.echoflow.weave.core.parse.ListLit -> e.copy(items = e.items.map(::r))
+                is com.echoflow.weave.core.parse.RecLit -> e.copy(fields = e.fields.map { (k, v) -> k to r(v) })
+                is com.echoflow.weave.core.parse.Str -> e.copy(parts = e.parts.map { p -> if (p is com.echoflow.weave.core.parse.InterpPart) p.copy(expr = r(p.expr)) else p })
+                else -> e
             }
+        }
+        fun rename(stmt: com.echoflow.weave.core.parse.Stmt): com.echoflow.weave.core.parse.Stmt = when (stmt) {
+            is Binding -> stmt.copy(expr = ren(stmt.expr, emptySet()))
+            is FnDecl -> stmt.copy(body = stmt.body?.let { ren(it, stmt.params.toSet()) })
+            else -> stmt
         }
         val out = ArrayList<String>()
         out += printer.stmt(rename((root as Binding).copy(name = lazyName(bindingName))))

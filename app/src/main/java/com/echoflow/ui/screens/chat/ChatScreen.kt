@@ -77,7 +77,7 @@ fun ChatScreen(
     // the chat's effective level (its override, else the global one); the turn being generated
     // uses its own plan, which includes an Off chat's explicit-request exception (05 §11.4–11.5)
     val effectiveLevel = chatUiLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: uiLevel
-    val weaveMaxBlocks = turnCap ?: com.echoflow.weave.core.prompt.EchoUiTiers.maxBlocks(effectiveLevel)
+    val weaveMaxBlocks = com.echoflow.weave.core.prompt.EchoUiTiers.maxBlocks(effectiveLevel)
     val weaveImport by com.echoflow.weave.compose.WeaveImport.pending.collectAsState()
     androidx.compose.runtime.LaunchedEffect(weaveImport) {
         weaveImport?.let { chatViewModel.importWeave(it); com.echoflow.weave.compose.WeaveImport.pending.value = null }
@@ -85,6 +85,7 @@ fun ChatScreen(
     com.echoflow.weave.compose.WeaveHostLayer(
         onSay = { text -> chatViewModel.sendMessage(text) },
         maxBlocks = weaveMaxBlocks,
+        turnMaxBlocks = turnCap,
         // local models can't run Echo UI (05 §10.1): no button that would do nothing
         onMakeInteractive = if (selectedModelId.startsWith("local/")) null else { text -> chatViewModel.makeInteractive(text) },
         hiddenModel = androidx.compose.runtime.remember(chatViewModel) { chatViewModel.echoUiHiddenModel() },

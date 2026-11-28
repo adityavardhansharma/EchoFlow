@@ -3,7 +3,6 @@ package com.echoflow.weave.compose
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import com.echoflow.weave.core.Limits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +33,9 @@ object WeaveImport {
             Intent.ACTION_SEND -> streamOf(intent)
             else -> null
         } ?: return false
-        if (intent?.type != "application/x-weave" && !displayName(context, uri).endsWith(".weave", ignoreCase = true)) return false
+        // decided without asking the content provider (that could block the main thread): the
+        // type EchoFlow shares with, or a .weave name in the URI
+        if (intent?.type != "application/x-weave" && !uri.lastPathSegment.orEmpty().endsWith(".weave", ignoreCase = true)) return false
         val resolver = context.applicationContext.contentResolver
         scope.launch {
             val text = runCatching {
@@ -52,16 +53,6 @@ object WeaveImport {
     private fun streamOf(intent: Intent): Uri? =
         if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         else intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-
-    private fun displayName(context: Context, uri: Uri): String {
-        val segment = uri.lastPathSegment.orEmpty()
-        if (segment.endsWith(".weave", ignoreCase = true)) return segment
-        return runCatching {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
-            }
-        }.getOrNull() ?: segment
-    }
 
     /** Reads up to [limit] bytes (InputStream.readNBytes needs API 33). */
     private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {

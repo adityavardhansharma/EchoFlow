@@ -1151,8 +1151,8 @@ at a time: `!open` replaces the overlay that is open, so two modal surfaces neve
 |---|---|
 | `Sheet(title?: str, full = false) [content]` | M3 `ModalBottomSheet`, `skipPartiallyExpanded = full`. Title row in `titleLarge`. Content scrolls. |
 | `Dialog(title: str, confirm?: {label, onTap}, dismiss?: {label, onTap?}) [content]` | M3 `AlertDialog`. The block's title is always shown above `title` in `labelMedium` `onSurfaceVariant` (anti-spoofing, 05 §13). |
-| `Popover(anchor: name) [content]` | M3 `Popup` with a `surfaceContainer` card (shape `m`, elevation 2) positioned below the anchor node. |
-| `Menu(anchor: name, items: list<{label, icon?, onTap}>)` | An M3 menu (menu surface and `DropdownMenuItem`s) positioned below the anchor node. |
+| `Popover(anchor: name) [content]` | M3 `Popup` with a `surfaceContainer` card (shape `m`, elevation 2) positioned below the anchor node (above it when there is no room below, kept inside the window). |
+| `Menu(anchor: name, items: list<{label, icon?, onTap}>)` | An M3 menu (menu surface and `DropdownMenuItem`s) positioned below the anchor node (above it when there is no room below, kept inside the window). |
 
 Overlays live in their own window; Roborazzi can't capture them; verify them on the emulator
 (CLAUDE.md).

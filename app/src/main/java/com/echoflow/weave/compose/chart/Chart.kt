@@ -282,9 +282,13 @@ object Charts {
                         else -> (gap / (xHi - xLo) * plot.width).toFloat().coerceAtMost(plot.width / 4f)
                     }
                 }
+                // with bars on a numeric axis, inset it by half a bar so the end bars stay inside
+                val hasBars = marks.any { it.type == "bar" }
+                val inset = if (linearX && hasBars && cats.isEmpty()) bandW / 2f else 0f
                 fun px(v: WValue): Float = if (linearX) {
                     val n = numOf(v) ?: xLo
-                    if (xHi == xLo) plot.center.x else (plot.left + (n - xLo) / (xHi - xLo) * plot.width).toFloat()
+                    if (xHi == xLo) plot.center.x
+                    else (plot.left + inset + (n - xLo) / (xHi - xLo) * (plot.width - 2 * inset)).toFloat()
                 } else plot.left + bandW * (cats.indexOf(ctx.fmt(v)).coerceAtLeast(0) + 0.5f)
                 // grid + y labels
                 var t = yLo

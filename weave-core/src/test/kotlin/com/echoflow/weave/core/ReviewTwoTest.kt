@@ -106,8 +106,11 @@ class ReviewTwoTest {
         val p = Compiler.compile("root = Canvas [line(0, 0, 100, 60, stroke: primary)]", BuiltinCatalog)
         val s = com.echoflow.weave.core.eval.Session(p, W.ctx(), BuiltinCatalog)
         val line = s.root()!!.children.firstOrNull { it.type == "line" } ?: error("no line: ${p.diagnostics.map { it.code + " " + it.message }}")
-        assertEquals(listOf("x1", "y1", "x2", "y2"), listOf("x1", "y1", "x2", "y2").filter { it in line.args })
-        assertEquals(com.echoflow.weave.core.eval.WNum(100.0), line.args["x2"])
+        assertEquals(listOf(0.0, 0.0, 100.0, 60.0), listOf("x1", "y1", "x2", "y2").map { (line.args[it] as com.echoflow.weave.core.eval.WNum).v })
+        // a line inside a group keeps the Canvas signature too
+        val g = com.echoflow.weave.core.eval.Session(Compiler.compile("root = Canvas [group(opacity: 1) [line(1, 2, 3, 4)]]", BuiltinCatalog), W.ctx(), BuiltinCatalog)
+        val inner = g.root()!!.children.first().children.first()
+        assertEquals(listOf(1.0, 2.0, 3.0, 4.0), listOf("x1", "y1", "x2", "y2").map { (inner.args[it] as com.echoflow.weave.core.eval.WNum).v })
     }
 
     @Test fun `a nested list used as a key is not expanded`() {

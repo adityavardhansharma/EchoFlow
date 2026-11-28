@@ -19,6 +19,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import com.echoflow.weave.compose.render.RenderChildren
@@ -104,7 +105,7 @@ object Overlays {
                         Modifier.widthIn(min = 112.dp, max = 280.dp), shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.surfaceContainer, shadowElevation = 3.dp, tonalElevation = 3.dp,
                     ) {
-                        Column(Modifier.padding(vertical = 8.dp)) {
+                        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
                             node.list("items")?.filterIsInstance<WRec>()?.forEach { item ->
                                 DropdownMenuItem({ Text(ctx.fmt(item["label"])) }, { close(); ctx.fire(item["onTap"]) },
                                     leadingIcon = item["icon"].word()?.let { ic -> { Icon(TokenResolver.icon(ic), null) } })

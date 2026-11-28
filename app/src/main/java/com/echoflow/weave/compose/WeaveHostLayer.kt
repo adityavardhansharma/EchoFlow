@@ -76,6 +76,8 @@ val LocalWeaveSay = staticCompositionLocalOf<((String) -> Unit)?> { null }
 
 /** New blocks a reply may render, from the prompt level (05 §11.4). */
 val LocalWeaveMaxBlocks = androidx.compose.runtime.compositionLocalOf { 1 }
+/** The block cap of the reply being generated (its turn plan, 05 §11.4), or null to use [LocalWeaveMaxBlocks]. */
+val LocalWeaveTurnMaxBlocks = androidx.compose.runtime.compositionLocalOf<Int?> { null }
 
 /** An outbound action waiting for the user's confirmation (05 §13.1). */
 data class ConfirmRequest(
@@ -95,6 +97,7 @@ data class ConfirmRequest(
 fun WeaveHostLayer(
     onSay: (String) -> Unit,
     maxBlocks: Int = 1,
+    turnMaxBlocks: Int? = null,
     onMakeInteractive: ((String) -> Unit)? = null,
     hiddenModel: com.echoflow.weave.runtime.HiddenModel? = null,
     tools: Map<String, com.echoflow.weave.runtime.WeaveTool> = emptyMap(),
@@ -133,7 +136,7 @@ fun WeaveHostLayer(
         runtime.host = host
         onDispose { runtime.close() }
     }
-    CompositionLocalProvider(LocalWeaveRuntime provides runtime, LocalWeaveMaxBlocks provides maxBlocks, LocalMakeInteractive provides onMakeInteractive, LocalWeaveSay provides { t: String -> say(t) }) { content() }
+    CompositionLocalProvider(LocalWeaveRuntime provides runtime, LocalWeaveMaxBlocks provides maxBlocks, LocalWeaveTurnMaxBlocks provides turnMaxBlocks, LocalMakeInteractive provides onMakeInteractive, LocalWeaveSay provides { t: String -> say(t) }) { content() }
     confirm?.let { req ->
         ModalBottomSheet({ confirm = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -159,9 +162,11 @@ fun WeaveHostLayer(
  * [messageId] is null while the reply streams.
  */
 @Composable
-fun ProvideWeave(messageId: String?, chatId: String?, content: @Composable () -> Unit) {
+fun ProvideWeave(messageId: String?, chatId: String?, streaming: Boolean = false, content: @Composable () -> Unit) {
     val runtime = LocalWeaveRuntime.current
-    val maxBlocks = LocalWeaveMaxBlocks.current
+    // the cap is per reply: the one being generated uses its own turn plan; finished replies use
+    // the chat's level, and their stored blocks always render (WeaveBlockExtension)
+    val maxBlocks = (if (streaming) LocalWeaveTurnMaxBlocks.current else null) ?: LocalWeaveMaxBlocks.current
     if (runtime == null) { content(); return }
     val ext = remember(runtime, messageId, chatId, maxBlocks) { WeaveBlockExtension(runtime, messageId, chatId, maxBlocks) }
     CompositionLocalProvider(LocalMarkdownBlockExtensions provides mapOf("weave" to ext, "weave-json" to ext)) { content() }

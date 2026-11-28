@@ -382,6 +382,7 @@ private fun StableAssistantMessage(
         com.echoflow.weave.compose.ProvideWeave(
             messageId = if (archived) com.echoflow.weave.runtime.WeaveRuntime.archivedKey(messageId, replyVersionIndex) else messageId,
             chatId = if (archived) null else persistedMessage?.chatId,
+            streaming = streamActive,
         ) {
         Column(modifier.fillMaxWidth()) {
             if (keepMountedLiveTree) {

@@ -100,6 +100,14 @@ internal fun MessageBubble(
             Spacer(Modifier.height(Spacing.s))
 
             AnimatedAnswerVersion(versionIndex = replyVersionIndex) { versionIndex ->
+                // Each version (both sides of the cross-fade) gets its own Echo UI identity: only
+                // the latest answer attaches to stored block rows.
+                val latest = versionIndex == ReplyVersions.count(message) - 1
+                com.echoflow.weave.compose.ProvideWeave(
+                    messageId = if (latest) message.id else com.echoflow.weave.runtime.WeaveRuntime.archivedKey(message.id, versionIndex),
+                    chatId = if (latest) message.chatId else null,
+                    streaming = streaming && latest,
+                ) {
                 // AnimatedContent overlays multiple root children. Give every answer version one
                 // root layout so its timeline is measured vertically and reports its true height.
                 Column(Modifier.fillMaxWidth()) {
@@ -115,6 +123,7 @@ internal fun MessageBubble(
                         observeArtifactVersions = observeArtifactVersions,
                         onCopy = onCopy,
                     )
+                }
                 }
             }
 

@@ -106,8 +106,12 @@ class WeaveRuntime(
     /** Stored rows per chat, for exports of blocks that aren't composed. */
     private val storedRows = HashMap<String, List<WeaveBlockRow>>()
     private val loadingRows = HashSet<String>()
-    /** Sessions rebuilt from stored rows, by row id, with the row's `updatedAt`. */
-    private val storedSessions = HashMap<String, Pair<Long, com.echoflow.weave.core.eval.Session>>()
+    /** Sessions rebuilt from stored rows, by row id, with the row's `updatedAt`; least recently used go first. */
+    private val storedSessions = object : LinkedHashMap<String, Pair<Long, com.echoflow.weave.core.eval.Session>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, com.echoflow.weave.core.eval.Session>>) = size > 32
+    }
+    /** Exports being resolved from stored rows, so `a::x` ↔ `b::y` can't recurse forever. */
+    private val resolving = HashSet<String>()
 
     private fun storedSession(chatId: String, blockId: String): com.echoflow.weave.core.eval.Session? {
         val rows = storedRows[chatId]
@@ -123,11 +127,19 @@ class WeaveRuntime(
         val row = rows.lastOrNull { it.blockId == blockId } ?: return null
         storedSessions[row.id]?.let { (at, s) -> if (at == row.updatedAt) return s }
         val program = Compiler.compile(row.source, catalog)
+        // this block's own `id::name` reads resolve like a live block's, through the runtime
+        val ctx = com.echoflow.weave.core.eval.EvalContext(exports = { b, n -> exportGuarded(chatId, b, n) })
         val s = runCatching {
-            com.echoflow.weave.core.eval.Session(program, catalog = catalog).also { it.restore(StateCodec.decodeState(program, row.stateJson)) }
+            com.echoflow.weave.core.eval.Session(program, ctx, catalog).also { it.restore(StateCodec.decodeState(program, row.stateJson)) }
         }.getOrNull() ?: return null
         storedSessions[row.id] = row.updatedAt to s
         return s
+    }
+
+    private fun exportGuarded(chatId: String, blockId: String, name: String): WValue? {
+        val key = "$chatId/$blockId::$name"
+        if (!resolving.add(key)) return null
+        try { return exportOf(chatId, blockId, name) } finally { resolving.remove(key) }
     }
 
     /**
@@ -142,7 +154,7 @@ class WeaveRuntime(
     /** A controller left the cache: its stored row is now the latest copy, so reload rows. */
     private fun forgetStored(chatId: String?) {
         chatId ?: return
-        storedRows.remove(chatId)
+        storedRows.remove(chatId)?.forEach { storedSessions.remove(it.id) }
     }
 
     private val library = db.weaveLibraryDao()
@@ -268,7 +280,8 @@ class WeaveRuntime(
         withContext(io) { storage.newVersion(row.id, row.version + 1, source, "edit", System.currentTimeMillis()) }
         // `reset` applies once, when the edit is accepted (02 §11.3): clear the stored values now,
         // so a block that isn't on screen re-initialises them and later changes are kept
-        if (liveCtl == null && r.resetStates.isNotEmpty()) {
+        // (also when the block's controller exists but hasn't loaded its session yet)
+        if (liveCtl?.session == null && r.resetStates.isNotEmpty()) {
             val stored = StateCodec.decode(row.stateJson) as? com.echoflow.weave.core.eval.WRec
             if (stored != null && r.resetStates.any { it in stored.fields }) {
                 val kept = com.echoflow.weave.core.eval.WRec(LinkedHashMap(stored.fields.filterKeys { it !in r.resetStates }))
@@ -276,6 +289,10 @@ class WeaveRuntime(
             }
         }
         liveCtl?.applyEdit(r, row.version + 1, fired)
+        // stored copies of this chat's rows are now stale: reload them, and let readers of the
+        // edited block's exports re-evaluate
+        forgetStored(chatId)
+        exportsChanged(chatId, null)
         return EditOutcome.Applied(title)
     }
 
@@ -316,19 +333,43 @@ class WeaveRuntime(
             val m = HEADER.find(source)
             if (m == null) return "@weave 1 id: $id\n$source"
             val attrs = m.groupValues[2]
-            val existing = HEADER_ID.find(attrs)
+            val existing = headerIdRange(attrs)
             // the thread may have given this block a different id than the model wrote (a reused
             // id); the stored header must name the id the row is stored under, or later edits
             // would target the other block
             if (existing != null) {
-                if (existing.groupValues[1] == id) return source
-                val fixed = attrs.replaceRange(existing.groups[1]!!.range, id)
+                if (attrs.substring(existing) == id) return source
+                val fixed = attrs.replaceRange(existing, id)
                 return source.replaceRange(m.range, "@weave ${m.groupValues[1]}$fixed")
             }
             return source.replaceRange(m.range, "@weave ${m.groupValues[1]} id: $id$attrs")
         }
 
-        private val HEADER_ID = Regex("""\bid\s*:\s*([A-Za-z0-9_-]+)""")
+        /** The range of the `id:` value in header attributes, skipping quoted text (a title saying "id: x"). */
+        private fun headerIdRange(attrs: String): IntRange? {
+            var i = 0
+            var quote: Char? = null
+            while (i < attrs.length) {
+                val c = attrs[i]
+                when {
+                    quote != null -> { if (c == '\\') i++ else if (c == quote) quote = null }
+                    c == '"' || c == '\'' -> quote = c
+                    attrs.startsWith("id", i) && (i == 0 || !attrs[i - 1].isLetterOrDigit() && attrs[i - 1] != '_') -> {
+                        var k = i + 2
+                        while (k < attrs.length && attrs[k] == ' ') k++
+                        if (k < attrs.length && attrs[k] == ':') {
+                            k++
+                            while (k < attrs.length && attrs[k] == ' ') k++
+                            val start = k
+                            while (k < attrs.length && (attrs[k].isLetterOrDigit() || attrs[k] == '_' || attrs[k] == '-')) k++
+                            if (k > start) return start until k
+                        }
+                    }
+                }
+                i++
+            }
+            return null
+        }
 
         fun addFlag(json: String, flag: String): String {
             val rec = StateCodec.decode(json) as? com.echoflow.weave.core.eval.WRec ?: com.echoflow.weave.core.eval.WRec(LinkedHashMap())

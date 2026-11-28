@@ -158,6 +158,23 @@ object Media {
         open?.let { ZoomViewer(srcs, it) { open = null } }
     }
 
+    /**
+     * The player's own play state, so a pause from elsewhere (the app going to the background)
+     * shows Play and the next tap resumes.
+     */
+    @Composable
+    private fun rememberPlayWhenReady(player: ExoPlayer?): androidx.compose.runtime.State<Boolean> {
+        val state = remember(player) { mutableStateOf(player?.playWhenReady == true) }
+        DisposableEffect(player) {
+            val l = object : Player.Listener {
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { state.value = playWhenReady }
+            }
+            player?.addListener(l)
+            onDispose { player?.removeListener(l) }
+        }
+        return state
+    }
+
     /** Playback stops when the app leaves the foreground (Home, another app), not only on dispose. */
     @Composable
     private fun PauseWhenStopped(player: ExoPlayer?) {
@@ -186,14 +203,14 @@ object Media {
         }
         DisposableEffect(player) { onDispose { player.release() } }
         PauseWhenStopped(player)
-        var playing by remember { mutableStateOf(player.playWhenReady) }
+        val playing by rememberPlayWhenReady(player)
         var pos by remember { mutableFloatStateOf(0f) }
         LaunchedEffect(player) { while (true) { delay(250); val d = player.duration.coerceAtLeast(1); pos = player.currentPosition.toFloat() / d } }
         val h = TokenResolver.height(node.args["h"], ctx.screenHeight)
         Column(modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().then(if (h != null) Modifier.height(h) else Modifier.aspectRatio(16f / 9f)).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.scrim)) {
                 PlayerSurface(player, Modifier.matchParentSize(), SURFACE_TYPE_TEXTURE_VIEW)
-                FilledTonalIconButton({ playing = !playing; player.playWhenReady = playing; if (playing) player.volume = 1f }, Modifier.align(Alignment.Center)) {
+                FilledTonalIconButton({ val play = !playing; player.playWhenReady = play; if (play) player.volume = 1f }, Modifier.align(Alignment.Center)) {
                     Icon(TokenResolver.icon(if (playing) "pause" else "play_arrow"), if (playing) "Pause" else "Play")
                 }
             }
@@ -208,14 +225,14 @@ object Media {
         val player = remember(src) { src?.let { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(Uri.parse(it))); prepare() } } }
         DisposableEffect(player) { onDispose { player?.release() } }
         PauseWhenStopped(player)
-        var playing by remember { mutableStateOf(false) }
+        val playing by rememberPlayWhenReady(player)
         var pos by remember { mutableFloatStateOf(0f) }
         var time by remember { mutableIntStateOf(0) }
         LaunchedEffect(player) { while (player != null) { delay(250); pos = player.currentPosition.toFloat() / player.duration.coerceAtLeast(1); time = (player.currentPosition / 1000).toInt() } }
         val scheme = MaterialTheme.colorScheme
         Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = scheme.surfaceContainer) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalIconButton({ playing = !playing; player?.playWhenReady = playing }, enabled = player != null) {
+                FilledTonalIconButton({ player?.playWhenReady = !playing }, enabled = player != null) {
                     Icon(TokenResolver.icon(if (playing) "pause" else "play_arrow"), if (playing) "Pause" else "Play")
                 }
                 Column(Modifier.weight(1f)) {
