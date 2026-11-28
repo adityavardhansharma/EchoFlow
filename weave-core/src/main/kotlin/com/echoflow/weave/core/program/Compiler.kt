@@ -139,19 +139,35 @@ object Compiler {
 
     fun build(lines: List<ParsedLine>, catalog: Catalog, complete: Boolean, frozenCount: Int): WeaveProgram {
         val f = fragment(lines, catalog, edit = false, streaming = !complete)
-        return assemble(f, catalog, complete, frozenCount)
+        val frozenNames = if (complete) null else lines.take(frozenCount).mapNotNull {
+            when (val st = it.stmt) {
+                is StateDecl -> "$" + st.name; is Binding -> st.name; is FnDecl -> st.name; else -> null
+            }
+        }.toSet()
+        return assemble(f, catalog, complete, frozenCount, frozenNames = frozenNames)
     }
 
     /** Builds the program maps, header, root and exports from a checked fragment. */
-    fun assemble(f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1): WeaveProgram {
+    fun assemble(f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1, frozenNames: Set<String>? = null): WeaveProgram {
         val diags = ArrayList(f.diagnostics)
+        // 05 §13.3: statements are accepted in source order while the source fits; the first one
+        // that would pass the limit, and everything after it, is dropped (not left active)
+        val printer = WeaveProgram.printer(catalog)
+        var used = f.header?.let { h -> runCatching { printer.stmt(h) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1 } ?: 0
+        val accepted = ArrayList<Stmt>()
+        for (st in f.stmts) {
+            val size = runCatching { printer.stmt(st) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1
+            if (used + size > Limits.SOURCE_BYTES) { diags += Diag.limit(st.span, "source"); break }
+            used += size
+            accepted += st
+        }
         val states = LinkedHashMap<String, StateDecl>()
         val bindings = LinkedHashMap<String, Binding>()
         val functions = LinkedHashMap<String, FnDecl>()
         val effects = LinkedHashMap<String, Effect>()
         val exports = LinkedHashSet<String>()
         val exportStmts = ArrayList<Export>()
-        for (s in f.stmts) when (s) {
+        for (s in accepted) when (s) {
             is StateDecl -> states[s.name] = s
             is Binding -> { functions.remove(s.name); bindings[s.name] = s }
             is FnDecl -> { bindings.remove(s.name); functions[s.name] = s }
@@ -170,10 +186,7 @@ object Compiler {
             if (first != null) { root = first.name; diags += Diag.noRoot(first.span, first.name) }
             else diags += Diag.noRoot(com.echoflow.weave.core.parse.Span.NONE, "")
         }
-        val prog = WeaveProgram(header, states, bindings, functions, effects, exports, root, diags, complete, frozenCount, version)
-        val bytes = prog.print(catalog).toByteArray(Charsets.UTF_8).size
-        if (bytes > Limits.SOURCE_BYTES) diags += Diag.limit(com.echoflow.weave.core.parse.Span.NONE, "source")
-        return if (bytes > Limits.SOURCE_BYTES) WeaveProgram(header, states, bindings, functions, effects, exports, root, diags, complete, frozenCount, version) else prog
+        return WeaveProgram(header, states, bindings, functions, effects, exports, root, diags, complete, frozenCount, version, frozenNames)
     }
 
     private val ID = Regex("[a-z][a-z0-9_]{0,31}")

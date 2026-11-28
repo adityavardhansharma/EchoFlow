@@ -247,8 +247,31 @@ object Builtins {
                 if (sep.isEmpty()) WList(x.codePoints().toArray().map { WStr(String(Character.toChars(it))) })
                 else WList(x.split(sep).map { WStr(it) })
             }
-            "join" -> { val l = list(arg(0)) ?: return WNull; WStr(l.joinToString(s(1) ?: ", ") { f.auto(it) }) }
-            "replace" -> { val x = s(0) ?: return WNull; val find = s(1) ?: return WNull; if (find.isEmpty()) WStr(x) else WStr(x.replace(find, s(2) ?: "")) }
+            "join" -> {
+                // bounded like concatenation: stop once the result would pass the string limit
+                val l = list(arg(0)) ?: return WNull; val sep = s(1) ?: ", "
+                val cap = com.echoflow.weave.core.Limits.STRING_CHARS
+                val sb = StringBuilder()
+                for ((i, item) in l.withIndex()) {
+                    if (i > 0) sb.append(sep)
+                    if (sb.length > cap) return WNull
+                    sb.append(f.auto(item))
+                    if (sb.length > cap) return WNull
+                }
+                chargeItems(l.size + sb.length / 64)
+                WStr(sb.toString())
+            }
+            "replace" -> {
+                val x = s(0) ?: return WNull; val find = s(1) ?: return WNull
+                if (find.isEmpty()) return WStr(x)
+                val with = s(2) ?: ""
+                // count matches first: the result size is known before anything is built
+                var count = 0L; var at = x.indexOf(find)
+                while (at >= 0) { count++; at = x.indexOf(find, at + find.length) }
+                val size = x.length + count * (with.length - find.length)
+                if (size > com.echoflow.weave.core.Limits.STRING_CHARS) WNull
+                else { chargeItems((x.length + size.toInt()) / 64); WStr(x.replace(find, with)) }
+            }
             "startsWith" -> WBool.of(s(0)?.startsWith(s(1) ?: return WBool.FALSE) == true)
             "endsWith" -> WBool.of(s(0)?.endsWith(s(1) ?: return WBool.FALSE) == true)
             "slice" -> {
@@ -410,7 +433,9 @@ object Builtins {
         if (a.size == 1 && a[0] is WList) (a[0] as WList).items else a.filterNotNull()
 
     fun round(x: Double, digits: Int): Double {
-        val bd = java.math.BigDecimal(x.toString()).setScale(digits, java.math.RoundingMode.HALF_UP)
+        // a double has at most ~17 significant digits and an exponent within ±324: any scale past
+        // these bounds changes nothing, but would make setScale build a huge decimal
+        val bd = java.math.BigDecimal(x.toString()).setScale(digits.coerceIn(-340, 340), java.math.RoundingMode.HALF_UP)
         return bd.toDouble()
     }
 

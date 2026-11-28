@@ -33,7 +33,31 @@ class Formatter(
 
     // ---- auto -----------------------------------------------------------------------------------
 
-    fun auto(v: WValue): String = when (v) {
+    /**
+     * 03 §11.1. Output stops at [Limits.STRING_CHARS] (ending in "…"), so a value that shares
+     * nested lists (`a30 = [a29, a29]`) is never walked in full: every visited item adds at least
+     * a separator, so the walk ends within the cap.
+     */
+    fun auto(v: WValue): String {
+        val sb = StringBuilder()
+        if (!autoTo(sb, v, com.echoflow.weave.core.Limits.STRING_CHARS)) { sb.setLength(com.echoflow.weave.core.Limits.STRING_CHARS); sb.append('…') }
+        return sb.toString()
+    }
+
+    private fun autoTo(sb: StringBuilder, v: WValue, cap: Int): Boolean = when (v) {
+        is WList -> {
+            var ok = true
+            for ((i, item) in v.items.withIndex()) {
+                if (i > 0) sb.append(", ")
+                if (sb.length > cap || !autoTo(sb, item, cap)) { ok = false; break }
+            }
+            ok && sb.length <= cap
+        }
+        is WRec -> jsonTo(sb, v, cap)
+        else -> { sb.append(autoLeaf(v)); sb.length <= cap }
+    }
+
+    private fun autoLeaf(v: WValue): String = when (v) {
         WNull -> "—"
         is WBool -> v.v.toString()
         is WNum -> autoNum(v.v)
@@ -43,8 +67,7 @@ class Formatter(
         is WDate -> date(v.v, "medium")
         is WTime -> time(v.v.atDate(LocalDate.of(2000, 1, 1)))
         is WDateTime -> datetime(v.v)
-        is WList -> v.items.joinToString(", ") { auto(it) }
-        is WRec -> json(v)
+        is WList, is WRec -> auto(v)
         is WNode -> PlainText.of(v, this)
         is WAction -> "!" + v.kind
         is WFn -> "fn"
@@ -197,15 +220,43 @@ class Formatter(
 
     // ---- JSON (rec → str) -----------------------------------------------------------------------
 
-    fun json(v: WValue): String = when (v) {
-        WNull -> "null"
-        is WBool -> v.v.toString()
-        is WNum -> com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
-        is WStr -> jsonString(v.v)
-        is WSym -> jsonString(v.name)
-        is WList -> "[" + v.items.joinToString(",") { json(it) } + "]"
-        is WRec -> "{" + v.fields.entries.joinToString(",") { (k, x) -> jsonString(k) + ":" + json(x) } + "}"
-        else -> jsonString(auto(v))
+    /**
+     * JSON text of [v]. It stops once it passes [cap] characters (the result is then cut off and
+     * only good for a size check), so a shared nested value is never serialised in full.
+     */
+    fun json(v: WValue, cap: Int = JSON_CAP): String {
+        val sb = StringBuilder()
+        jsonTo(sb, v, cap)
+        return sb.toString()
+    }
+
+    private fun jsonTo(sb: StringBuilder, v: WValue, cap: Int): Boolean {
+        when (v) {
+            WNull -> sb.append("null")
+            is WBool -> sb.append(v.v)
+            is WNum -> sb.append(com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v))
+            is WStr -> sb.append(jsonString(v.v))
+            is WSym -> sb.append(jsonString(v.name))
+            is WList -> {
+                sb.append('[')
+                for ((i, item) in v.items.withIndex()) {
+                    if (i > 0) sb.append(',')
+                    if (sb.length > cap || !jsonTo(sb, item, cap)) return false
+                }
+                sb.append(']')
+            }
+            is WRec -> {
+                sb.append('{')
+                for ((i, e) in v.fields.entries.withIndex()) {
+                    if (i > 0) sb.append(',')
+                    sb.append(jsonString(e.key)).append(':')
+                    if (sb.length > cap || !jsonTo(sb, e.value, cap)) return false
+                }
+                sb.append('}')
+            }
+            else -> sb.append(jsonString(auto(v)))
+        }
+        return sb.length <= cap
     }
 
     // ---- applying a format ----------------------------------------------------------------------
@@ -300,6 +351,8 @@ class Formatter(
     companion object {
         /** Most decimals any format shows. */
         const val MAX_DECIMALS = 20
+        /** Past the state limit, so a cut-off result still fails the size check (05 §13.3). */
+        const val JSON_CAP = com.echoflow.weave.core.Limits.STATE_BYTES + 1
 
         fun currencyOf(l: Locale): String = runCatching { Currency.getInstance(l).currencyCode }.getOrNull() ?: "USD"
 

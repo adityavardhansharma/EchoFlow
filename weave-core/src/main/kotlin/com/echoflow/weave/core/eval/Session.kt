@@ -80,8 +80,13 @@ class Session(
             initStates(next.states.keys.toList())
             return
         }
+        // only a frozen declaration whose inputs are all frozen may initialise: `$n = 1` may still
+        // grow into `$n = 1 + 2`, and a stored value would never be recomputed (03 §7.1)
+        val frozen = next.frozenNames
         while (true) {
-            val ready = next.states.keys.filter { it !in state && missingNames(next.states.getValue(it).init).isEmpty() }
+            val ready = next.states.keys.filter {
+                it !in state && (frozen == null || "$$it" in frozen) && missingNames(next.states.getValue(it).init).isEmpty()
+            }
             if (ready.isEmpty()) break
             initStates(ready)
             if (ready.none { it in state }) break
@@ -127,6 +132,12 @@ class Session(
      * Names an expression reaches that haven't arrived: undeclared bindings and functions, and
      * states that are undeclared or still waiting. Empty means the expression is ready.
      */
+    /** A declared binding or function that can no longer change (always true once complete). */
+    private fun frozenName(n: String): Boolean {
+        val frozen = program.frozenNames ?: return true
+        return (n !in program.bindings && n !in program.functions) || n in frozen
+    }
+
     fun missingNames(e: Expr): Set<String> {
         val out = HashSet<String>()
         val seen = HashSet<String>()
@@ -135,6 +146,8 @@ class Session(
                 is StateRef -> if (x.name !in state) out += "$" + x.name
                 is Name -> when {
                     x.name in bound -> {}
+                    // a binding or function still streaming may change: it hasn't arrived yet
+                    !frozenName(x.name) -> out += x.name
                     x.name in program.bindings -> if (seen.add(x.name)) walk(program.bindings.getValue(x.name).expr, emptySet())
                     x.name in program.functions -> if (seen.add(x.name)) program.functions.getValue(x.name).let { f -> f.body?.let { walk(it, f.params.toSet()) } }
                     catalog.full.function(x.name) != null || x.name in CONTEXT_NAMES -> {}
@@ -143,6 +156,7 @@ class Session(
                 is Call -> {
                     if (x.kind == CallKind.FUNCTION) when {
                         x.callee in bound -> {}
+                        x.callee in program.functions && !frozenName(x.callee) -> out += x.callee
                         x.callee in program.functions -> if (seen.add(x.callee)) program.functions.getValue(x.callee).let { f -> f.body?.let { walk(it, f.params.toSet()) } }
                         catalog.full.function(x.callee) != null -> {}
                         else -> out += x.callee
@@ -266,6 +280,9 @@ class Session(
         if (!r.accepted) return
         val old = program
         program = r.program
+        // history snapshots belong to the old declarations: an undo across an edit could bring
+        // back removed states or put an old value into a retyped one, so an edit starts afresh
+        undo.clear(); redo.clear()
         for (n in state.keys.toList()) if (n !in program.states) state.remove(n)
         for ((n, decl) in program.states) {
             if (n in r.resetStates) { state.remove(n); continue }
@@ -289,6 +306,10 @@ class Session(
 
     private class Tx(val work: LinkedHashMap<String, WValue>, val deferred: ArrayList<Deferred>, val fromEffect: Boolean) {
         var undid = false
+        /** Host effects and history moves are staged, and kept only if the transaction commits. */
+        val effects = ArrayList<HostEffect>()
+        var undoView: ArrayDeque<Pair<Map<String, WValue>, Map<String, WValue>>>? = null
+        var redoView: ArrayDeque<Pair<Map<String, WValue>, Map<String, WValue>>>? = null
         val evaluators = ArrayList<Evaluator>()
         /** True when anything this transaction evaluated read a waiting state (03 §7.1). */
         val readWaiting get() = evaluators.any { it.sawWaiting }
@@ -431,14 +452,22 @@ class Session(
                 val add = arg(1) as? WRec ?: return@let
                 writePlace(tx, p, WRec(LinkedHashMap(r.fields).apply { putAll(add.fields) }))
             }
-            "undo" -> undo.lastOrNull()?.let { (before, _) -> tx.work.clear(); tx.work.putAll(before); redo.addLast(undo.removeLast()); tx.undid = true }
-            "redo" -> redo.lastOrNull()?.let { (_, after) -> tx.work.clear(); tx.work.putAll(after); undo.addLast(redo.removeLast()); tx.undid = true }
+            "undo" -> {
+                val u = tx.undoView ?: ArrayDeque(undo).also { tx.undoView = it }
+                val r = tx.redoView ?: ArrayDeque(redo).also { tx.redoView = it }
+                u.lastOrNull()?.let { (before, _) -> tx.work.clear(); tx.work.putAll(before); r.addLast(u.removeLast()); tx.undid = true }
+            }
+            "redo" -> {
+                val u = tx.undoView ?: ArrayDeque(undo).also { tx.undoView = it }
+                val r = tx.redoView ?: ArrayDeque(redo).also { tx.redoView = it }
+                r.lastOrNull()?.let { (_, after) -> tx.work.clear(); tx.work.putAll(after); u.addLast(r.removeLast()); tx.undid = true }
+            }
             "if" -> {
                 val cond = arg(0)
                 val branch = if (cond.truthy()) a.args.getOrNull(1) else (a.args.getOrNull(2) ?: a.named.firstOrNull { it.first == "else" }?.second)
                 branch?.let { runIn(tx, ev.topLevel(it, a.scope)) }
             }
-            "open", "close", "go", "focus", "scrollTo", "refresh" -> outbox += HostEffect(a.kind, a.args.map { (it as? Name)?.let { n -> WStr(n.name) } ?: ev.topLevel(it, a.scope) }, emptyMap())
+            "open", "close", "go", "focus", "scrollTo", "refresh" -> tx.effects += HostEffect(a.kind, a.args.map { (it as? Name)?.let { n -> WStr(n.name) } ?: ev.topLevel(it, a.scope) }, emptyMap())
             // arguments are evaluated now, so a waiting read discards the whole transaction (T-279b)
             else -> tx.deferred += deferredArgs(a, ev)
         }
@@ -478,6 +507,10 @@ class Session(
         }
         val changed = tx.work != state
         state.clear(); state.putAll(tx.work)
+        // staged history moves and host effects land only now that the transaction is kept
+        tx.undoView?.let { undo.clear(); undo.addAll(it) }
+        tx.redoView?.let { redo.clear(); redo.addAll(it) }
+        outbox += tx.effects
         if (changed && !tx.undid && dragging && dragOpen && undo.isNotEmpty()) {
             undo.addLast(undo.removeLast().first to LinkedHashMap(tx.work))
             redo.clear()
@@ -488,7 +521,7 @@ class Session(
             redo.clear()
         }
         // deferred queue, in order (03 §7.2 step 6)
-        for (d in tx.deferred) deferred(d, tx.fromEffect)
+        for (d in tx.deferred) deferred(d, tx.fromEffect, chain)
         if (changed) changeEffects(before, chain)
     }
 
@@ -518,7 +551,7 @@ class Session(
         return Deferred(a, args, named)
     }
 
-    private fun deferred(d: Deferred, fromEffect: Boolean) {
+    private fun deferred(d: Deferred, fromEffect: Boolean, chain: IntArray) {
         val a = d.a
         val args = d.args
         val named = d.named
@@ -527,7 +560,9 @@ class Session(
             val act = args.getOrNull(1) ?: named["action"] ?: return
             // The callback keeps the origin of the event that scheduled it, so an effect can't
             // launder an outbound action through a timer (03 §7.4).
-            schedule(delay, "after@${a.origin.start}@$clock") { runEvent(act, null, fromEffect = fromEffect, chain = intArrayOf(0)) }
+            // ...and the event's effect chain, so `on change($n) -> !after(0ms, !inc($n))` stops at
+            // the chain limit instead of rescheduling itself forever
+            schedule(delay, "after@${a.origin.start}@$clock") { runEvent(act, null, fromEffect = fromEffect, chain = chain) }
             return
         }
         outbox += HostEffect(a.kind, args, named)
@@ -639,8 +674,15 @@ class Session(
     /** Advances the virtual clock, firing due timers in time order. */
     fun advance(ms: Long) {
         val end = clock + ms
+        var fired = 0
         while (true) {
             val next = timers.filter { it.at <= end }.minByOrNull { it.at } ?: break
+            // a callback that keeps scheduling itself at the same instant (a 0ms debounce or
+            // `!after`) must not hang the clock: one advance runs a bounded number of callbacks
+            if (++fired > MAX_CALLBACKS_PER_ADVANCE) {
+                if (!effectLoopReported) { report(Diag.effectLoop(Span.NONE)); effectLoopReported = true }
+                break
+            }
             timers.remove(next)
             clock = next.at
             if (next.repeat > 0) timers += next.copy(at = next.at + next.repeat)
@@ -719,6 +761,8 @@ class Session(
     private fun unused(b: Binding) = b
 
     private companion object {
+        /** Timer callbacks one [advance] may run; far above any real block (an hour of `every(1s)`). */
+        const val MAX_CALLBACKS_PER_ADVANCE = 10_000
         /** Context values (03 §4.3) and event variables that are always defined. */
         val CONTEXT_NAMES = setOf("device", "block", "user", "item", "index", "prev", "event", "value", "pi", "e")
     }

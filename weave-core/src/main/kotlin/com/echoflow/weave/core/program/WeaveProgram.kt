@@ -40,6 +40,11 @@ class WeaveProgram(
     val complete: Boolean,
     val frozenCount: Int,
     val version: Int = 1,
+    /**
+     * While streaming: the names declared by frozen statements (`$x` for states), which can no
+     * longer change (02 §10.1). Null when every statement is final (a complete block or an edit).
+     */
+    val frozenNames: Set<String>? = null,
 ) {
     /** A higher `@weave` version: render as code with "Needs a newer EchoFlow" (02 §7). */
     val needsNewerApp get() = header.version > 1
