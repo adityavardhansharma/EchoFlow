@@ -403,8 +403,28 @@ class OpenRouterService(private val context: Context) {
 
         val tools = if (serverWebSearch) openRouterWebTools() else null
         val hasPdf = historyHasPdfAttachment(history)
+        val docs = kotlinx.coroutines.currentCoroutineContext()[com.echoflow.weave.runtime.WeaveDocsTool]
 
-        streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
+        if (docs == null) {
+            streamCompletion(apiKey, model, buildMessagesPayload(history, systemPrompt), tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
+            return@flow
+        }
+        // Echo UI's weave_docs tool (06 §8): a short client loop. The exchange lives only in this
+        // request's messages and is never stored in chat history.
+        val messages = buildMessagesPayload(history, systemPrompt)
+        val maxRounds = WEAVE_DOCS_ROUNDS
+        for (round in 0 until maxRounds) {
+            val roundTools = buildList {
+                tools?.let { addAll(it) }
+                if (round < maxRounds - 1) addAll(docs.schemas())
+            }.takeIf { it.isNotEmpty() }
+            val result = streamCompletion(apiKey, model, messages, roundTools, params, pdfPluginEnabled = hasPdf) { emit(it) }
+            if (result.finishReason != "tool_calls" || result.toolCalls.isEmpty()) break
+            messages.add(assistantToolCallMessage(result))
+            for (call in result.toolCalls) {
+                messages.add(toolResultMessage(call.id, if (docs.handles(call.name)) docs.execute(call.arguments) else "Tool unavailable."))
+            }
+        }
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -819,6 +839,7 @@ class OpenRouterService(private val context: Context) {
         }
 
         val memory = kotlinx.coroutines.currentCoroutineContext()[com.echoflow.data.memory.MemoryTools]
+        val docs = kotlinx.coroutines.currentCoroutineContext()[com.echoflow.weave.runtime.WeaveDocsTool]
         val hasPdf = historyHasPdfAttachment(history)
         val messages: MutableList<Map<String, Any>> = buildMessagesPayload(history, systemPrompt)
         val toolSpec = listOf(
@@ -861,6 +882,7 @@ class OpenRouterService(private val context: Context) {
             val tools = if (round == maxRounds - 1) null else buildList {
                 if (searchesUsed < maxSearches && memory?.webEnabled != false) addAll(toolSpec)
                 memory?.let { addAll(it.schemas()) }
+                docs?.let { addAll(it.schemas()) }
                 if (serverSearch) addAll(openRouterWebTools())
             }.takeIf { it.isNotEmpty() }
             val result = streamCompletion(apiKey, model, messages, tools, params, pdfPluginEnabled = hasPdf) { emit(it) }
@@ -885,6 +907,10 @@ class OpenRouterService(private val context: Context) {
             messages.add(assistantMsg)
 
             for (call in searchCalls) {
+                if (docs?.handles(call.name) == true) {
+                    messages.add(toolResultMessage(call.id, docs.execute(call.arguments)))
+                    continue
+                }
                 if (memory?.handles(call.name) == true) {
                     messages.add(toolResultMessage(call.id, memory.execute(call.name, call.arguments) { emit(it) }))
                     continue
@@ -918,6 +944,18 @@ class OpenRouterService(private val context: Context) {
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    /** The assistant turn that asked for [result]'s tool calls, to send back before their results. */
+    private fun assistantToolCallMessage(result: TurnResult): Map<String, Any> {
+        val msg = mutableMapOf<String, Any>(
+            "role" to "assistant",
+            "tool_calls" to result.toolCalls.map { call ->
+                mapOf("id" to call.id, "type" to "function", "function" to mapOf("name" to call.name, "arguments" to call.arguments))
+            },
+        )
+        if (result.content.isNotBlank()) msg["content"] = result.content
+        return msg
+    }
 
     private fun toolResultMessage(toolCallId: String, content: String): Map<String, Any> = mapOf(
         "role" to "tool",
@@ -953,6 +991,9 @@ class OpenRouterService(private val context: Context) {
     }
 
     companion object {
+        /** weave_docs rounds per reply: up to three lookups, then a round with no docs tool. */
+        private const val WEAVE_DOCS_ROUNDS = 4
+
         fun framedImagePrompt(prompt: String, aspectRatio: String?): String {
             val framing = aspectRatio?.takeIf { it.isNotBlank() }?.let { "Aspect ratio: $it. " }.orEmpty()
             return framing + prompt

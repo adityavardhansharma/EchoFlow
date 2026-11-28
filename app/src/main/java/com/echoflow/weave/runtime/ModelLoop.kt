@@ -63,7 +63,7 @@ class ModelLoop(
         return true
     }
 
-    private fun system(): String = EchoUiPrompt.editorSection(tierFor().coerceIn(1, 4), runtime.catalog)
+    private fun system(): String = EchoUiPrompt.editorSection(tierFor().coerceIn(1, 4), runtime.catalog, scripts = runtime.scriptsEnabled())
 
     private fun stateJson(block: WeaveBlockController): String {
         val s = block.session ?: return "{}"

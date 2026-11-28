@@ -878,7 +878,7 @@ Gallery(srcs, alts?, cols = 3, viewer: bool = true)
 Video(src, poster?, autoplay: bool = false, loop: bool = false)          # Media3
 Audio(src, title?, waveform: bool = true)
 Map(center?: {lat, lng} | str, zoom = 12, markers?: list<{lat, lng, title, tone?, onTap?}>, route?: list<{lat, lng}>, h = l)
-Model3D(src, autoRotate: bool = true, h = l)                             # glTF via SceneView (tier 4)
+Model3D(src, autoRotate: bool = true, h = l)                             # glTF via Filament (tier 4)
 Lottie(src, loop: bool = true, h?)
 Qr(content, size = m)
 ```
@@ -1537,9 +1537,8 @@ appear as chat turns or affect conversation titles.
 - Already present: Compose BOM, Material 3, Media3.
 - JSON: no new library. The app uses Moshi; `weave-core` ships its own `TolerantJson` for
   streaming (05 §1).
-- New: Maps Compose (tier 3+, behind the existing
-  secrets plugin key), SceneView (tier 4, optional, dynamic feature or skipped), Lottie Compose,
-  QuickJS binding (optional `:weave-js`).
+- New: osmdroid (keyless OpenStreetMap `Map`, tier 3+), Filament with gltfio (`Model3D`, tier 4;
+  the engine SceneView wraps), Lottie Compose, quickjs-kt (`:weave-js`, tier 4 `js fn`).
 - AGSL shaders need API 33; `minSdk` is 24, so `Shader` falls back to `Gradient` below 33.
 
 ---
@@ -1742,9 +1741,9 @@ the app's `Spacing` and `Shapes`.
 2. **Default tier for flagship models** — start every top model at tier 2 and let evals promote to
    3/4, or trust tier 3 from day one?
 3. **`!ask` cost UX** — show a per-block spend indicator, or only a monthly summary?
-4. **Maps provider** — Google Maps (needs key, secrets plugin present) vs. an OSM-based renderer to
-   stay keyless and consistent with "no account" identity.
-5. **QuickJS** — ship in the main APK (~1 MB) or as an on-demand download?
+4. **Maps provider** — Settled in spec 1.6: OpenStreetMap through osmdroid, keyless and consistent
+   with the "no account" identity (04 §10).
+5. **QuickJS** — Settled in spec 1.5: shipped in the APK (quickjs-kt, ~1 MB per ABI; 03 §10.12).
 6. **Library sync** — kept blocks are local-only today; export/import via `.weave` covers backup.
    Anything more needs a decision about EchoFlow's no-backend principle.
 7. **Widget scope** — is the Glance subset worth Phase 3, or a later phase?

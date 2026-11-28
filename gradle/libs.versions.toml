@@ -64,8 +64,22 @@ roborazzi = "1.59.0"
 firebaseBom = "34.12.0"
 secretsGradlePlugin = "2.0.1"
 mlkitTextRecognition = "19.0.1"
+# QuickJS for Echo UI tier 4 `js fn` (:weave-js). 1.0.6+ is the first with an evaluation timeout
+# and interrupt, which the 50 ms per-call limit needs (docs/echo-ui/03 §10.12). It's built with
+# Kotlin 2.4, so it lifts the runtime kotlin-stdlib to 2.4 and kotlinx-coroutines to 1.11; the 2.3
+# compiler reads that metadata.
+quickjsKt = "1.0.19"
+# Echo UI Map (keyless OpenStreetMap, docs/echo-ui/04 §10) and Model3D (Filament's glTF viewer,
+# the engine SceneView wraps; SceneView itself would pull a newer Compose BOM).
+osmdroid = "6.1.20"
+filament = "1.77.3"
 
 [libraries]
+osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
+filament-android = { group = "com.google.android.filament", name = "filament-android", version.ref = "filament" }
+filament-gltfio-android = { group = "com.google.android.filament", name = "gltfio-android", version.ref = "filament" }
+filament-utils-android = { group = "com.google.android.filament", name = "filament-utils-android", version.ref = "filament" }
+quickjs-kt = { group = "io.github.dokar3", name = "quickjs-kt", version.ref = "quickjsKt" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

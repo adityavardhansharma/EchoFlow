@@ -251,37 +251,6 @@ object Media {
     }
 
     @Composable
-    fun MapR(node: WNode, ctx: RenderCtx, modifier: Modifier) {
-        val center = when (val c = node.args["center"]) {
-            is WRec -> listOfNotNull((c["lat"] as? WNum)?.v, (c["lng"] as? WNum)?.v).joinToString(", ")
-            is WStr -> c.v
-            else -> (node.list("markers")?.firstOrNull() as? WRec)?.let { ctx.fmt(it["title"]) } ?: ""
-        }
-        StaticCard("map", center.ifEmpty { "Map" }, "Open in Maps", modifier, TokenResolver.heightOr(node.args["h"], "l", ctx.screenHeight)) {
-            ctx.controller.hostEffect("map", listOf(node.args["center"] ?: WStr(center)))
-        }
-    }
-
-    @Composable
-    fun Model3DR(node: WNode, ctx: RenderCtx, modifier: Modifier) {
-        val src = srcOf(node)
-        StaticCard("view_in_ar", "3D model", "Open", modifier, TokenResolver.heightOr(node.args["h"], "l", ctx.screenHeight)) {
-            src?.let { ctx.controller.requestUrl(it) }
-        }
-    }
-
-    @Composable
-    private fun StaticCard(icon: String, text: String, action: String, modifier: Modifier, h: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
-        Surface(modifier.fillMaxWidth().height(h), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(TokenResolver.icon(icon), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                Text(text, style = MaterialTheme.typography.bodyLarge)
-                OutlinedButton(onClick) { Text(action) }
-            }
-        }
-    }
-
-    @Composable
     fun LottieR(node: WNode, ctx: RenderCtx, modifier: Modifier) {
         val src = srcOf(node)
         val h = TokenResolver.heightOr(node.args["h"], "m", ctx.screenHeight)
