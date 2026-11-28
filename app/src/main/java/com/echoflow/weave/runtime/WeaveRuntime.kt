@@ -86,6 +86,14 @@ class WeaveRuntime(
         }
     }
 
+    /**
+     * The block that runs `frame` effects (01 §15.4, T-452): the most visible composed block that
+     * has any. Ties go to the earlier block.
+     */
+    fun frameOwner(): WeaveBlockController? = controllers.values
+        .filter { it.onScreen && it.visibleFraction > 0f && it.session?.hasFrameEffects == true }
+        .maxWithOrNull(compareBy<WeaveBlockController> { it.visibleFraction }.thenByDescending { it.blockKey })
+
     /** Live controllers of a chat, for exports and edits. */
     private fun live(chatId: String) = controllers.values.filter { it.chatId == chatId }
 
@@ -357,6 +365,16 @@ class WeaveRuntime(
         private val HEADER = Regex("""^@weave\s+(\d+)([^\n]*)""")
 
         /** Ensures the stored source's header carries the thread id, so later edits can target it. */
+        /** 02 §7: a header id is `[a-z][a-z0-9_]{0,31}`. */
+        fun validBlockId(id: String) = Regex("[a-z][a-z0-9_]{0,31}").matches(id)
+
+        /**
+         * 02 §11.1 (T-107): the body of an edit fence whose target the thread doesn't have,
+         * as a new block with that id. `-name` deletions have nothing to delete and are dropped.
+         */
+        fun newBlockFromEdit(body: String, id: String): String =
+            withHeaderId(body.lines().filterNot { it.startsWith("-") }.joinToString("\n"), id)
+
         fun withHeaderId(source: String, id: String): String {
             val m = HEADER.find(source)
             if (m == null) return "@weave 1 id: $id\n$source"
