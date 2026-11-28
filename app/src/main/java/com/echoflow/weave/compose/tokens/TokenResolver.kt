@@ -36,10 +36,23 @@ fun WValue?.word(): String? = when (this) {
 /** Token tables from 04 §1 resolved against the current Material theme. */
 object TokenResolver {
 
-    /** `token<space>` (04 §1.1); numbers are dp. */
+    /** `token<space>` (04 §1.1); numbers are dp. Words resolve through the app's [Spacing] scale. */
     fun space(v: WValue?, default: Dp): Dp = when (v) {
         is WNum -> v.v.toFloat().coerceIn(0f, 96f).dp
-        else -> v.word()?.let { Tokens.SPACE[it] }?.dp ?: default
+        else -> v.word()?.let { spaceToken(it) } ?: default
+    }
+
+    /** 04 §1.1: Weave `l` is `Spacing.base`, not `Spacing.l`. */
+    fun spaceToken(word: String): Dp? = when (word) {
+        "none" -> 0.dp
+        "xxs" -> 2.dp
+        "xs" -> com.echoflow.ui.theme.Spacing.xs
+        "s" -> com.echoflow.ui.theme.Spacing.s
+        "m" -> com.echoflow.ui.theme.Spacing.m
+        "l" -> com.echoflow.ui.theme.Spacing.base
+        "xl" -> com.echoflow.ui.theme.Spacing.xl
+        "xxl" -> com.echoflow.ui.theme.Spacing.xxl
+        else -> null
     }
 
     /** `token<height>` (04 §1.2). Null = wrap content. [screen] is the window height. */
@@ -55,12 +68,25 @@ object TokenResolver {
     /** Height with a component default token. */
     fun heightOr(v: WValue?, default: String, screen: Dp): Dp = height(v, screen) ?: Tokens.HEIGHT[default]?.dp ?: 168.dp
 
-    /** `token<shape>` (04 §1.5), including the expressive shapes. */
+    /**
+     * `token<shape>` (04 §1.5), including the expressive shapes. The corner scale resolves through
+     * `MaterialTheme.shapes`, so a theme change reaches blocks (T-414).
+     */
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-    fun shape(v: WValue?, default: Shape = RoundedCornerShape(14.dp)): Shape {
+    @androidx.compose.runtime.Composable
+    @androidx.compose.runtime.ReadOnlyComposable
+    fun shape(v: WValue?, default: Shape = androidx.compose.material3.MaterialTheme.shapes.small): Shape {
         if (v is WNum) return RoundedCornerShape(v.v.toFloat().coerceIn(0f, 64f).dp)
         val w = v.word() ?: return default
-        Tokens.SHAPE[w]?.let { return if (it == 0) RectangleShape else RoundedCornerShape(it.dp) }
+        val shapes = androidx.compose.material3.MaterialTheme.shapes
+        when (w) {
+            "none" -> return RectangleShape
+            "xs" -> return shapes.extraSmall
+            "s" -> return shapes.small
+            "m" -> return shapes.medium
+            "l" -> return shapes.large
+            "xl" -> return shapes.extraLarge
+        }
         return when (w) {
             "full" -> CircleShape
             "circle" -> RoundedPolygonShape(MaterialShapes.Circle)
