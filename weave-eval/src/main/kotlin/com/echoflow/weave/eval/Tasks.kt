@@ -32,6 +32,8 @@ object Tasks {
     val calculators = listOf(
         // emi(5000000, 0.085, 20) = 43391.16
         t("calc_emi", "calculators", "Make me an EMI calculator for a ₹50 lakh home loan over 20 years. Let me change the interest rate with a slider, starting at 8%.",
+            // The starting rate is part of the task, so it is checked before the slider is moved.
+            Number(8.0, "rate|interest", tol = 0.01, relTol = 0.0),
             Input("rate|interest", 8.5), Number(43391.16, "emi|month|instal", tol = 1.0)),
         // 3000 * 1.10 / 5 = 660
         t("calc_tip", "calculators", "Build a tip splitter: the bill is ₹2,400, tip 10%, split between 4 people. Let me change the bill amount and the number of people.",
@@ -138,7 +140,9 @@ object Tasks {
             table, Number(3561.0, tol = 0.5)),
         // emi(4000000, 0.085, 20) = 34712.93; emi(4000000, 0.089, 15) = 40333.06
         t("cmp_loans", "comparison", "Compare two ₹40 lakh home loan offers: Bank A at 8.5% for 20 years and Bank B at 8.9% for 15 years. Show the monthly EMI and total interest of each.",
-            Number(34712.93, tol = 1.0), Number(40333.06, tol = 1.0)),
+            // EMI and total interest: total = emi * years * 12 - 40,00,000.
+            Number(34712.93, tol = 1.0), Number(40333.06, tol = 1.0),
+            Number(4331103.0, relTol = 0.002), Number(3259951.0, relTol = 0.002)),
         // 2999 / 365 = 8.22 per day
         t("cmp_mobile", "comparison", "Compare mobile plans by cost per day: Plan A ₹299 for 28 days, Plan B ₹719 for 84 days, Plan C ₹2,999 for 365 days.",
             Number(8.22, tol = 0.01, relTol = 0.0), Number(10.68, tol = 0.01, relTol = 0.0)),

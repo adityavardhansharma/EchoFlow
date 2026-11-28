@@ -1,6 +1,6 @@
 # 04 — Components, marks and tokens
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.3 · **Status:** normative
 
 This is the reference for everything a block can draw. For each component it gives: the signature,
 every parameter with type and default, positional order and aliases (for auto-fix), children,

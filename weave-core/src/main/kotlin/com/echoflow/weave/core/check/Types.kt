@@ -72,7 +72,7 @@ fun TypeSpec.isTokenSlot(): Boolean = when (this) {
 }
 
 fun TypeSpec.isColorSlot(): Boolean = when (this) {
-    is TypeSpec.Tok -> set == TokenSet.COLOR || set == TokenSet.TONE
+    is TypeSpec.Tok -> set == TokenSet.COLOR
     is TypeSpec.Union -> options.any { it.isColorSlot() }
     else -> false
 }

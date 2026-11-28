@@ -78,6 +78,7 @@ object Builtins {
             "rand" -> WNum.of(WeaveRandom.rand(arg(0), Math.floor((n(a.getOrNull(1)) ?: 0.0) + 0.5).toLong(), f))
             "randInt" -> {
                 val lo = n(arg(2)) ?: return WNull; val hi = n(arg(3)) ?: return WNull
+                if (lo != Math.rint(lo) || hi != Math.rint(hi)) return WNull
                 WNum.of(WeaveRandom.randInt(arg(0), Math.floor((n(arg(1)) ?: 0.0) + 0.5).toLong(), lo, hi, f))
             }
 
@@ -92,7 +93,11 @@ object Builtins {
                 val count = Math.ceil((hi - lo) / step)
                 if (count > Limits.RANGE_ITEMS) throw LimitExceeded("range")
                 if (count <= 0) return WList.EMPTY
-                chargeItems(count.toInt())
+                // Charge before building, so an over-budget range stops the caller instead of
+                // returning null and letting the caller keep going.
+                val n0 = count.toInt()
+                var left = n0
+                while (left > 0) { val take = minOf(left, 1000); chargeItems(take); left -= take }
                 WList((0 until count.toInt()).map { WNum.of(lo + it * step) })
             }
             "map", "each" -> { val l = list(arg(0)) ?: return WNull; WList(l.mapIndexed { i, it -> ev.callItem(arg(1), it, i) }) }
@@ -179,7 +184,13 @@ object Builtins {
             "flatten" -> { val l = list(arg(0)) ?: return WNull; WList(l.flatMap { if (it is WList) it.items else listOf(it) }) }
             "zip" -> { val x = list(arg(0)) ?: return WNull; val y = list(arg(1)) ?: return WNull; WList(x.zip(y) { p, q -> WList(listOf(p, q)) }) }
             "chunk" -> { val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull; if (k <= 0) WNull else WList(l.chunked(k).map { WList(it) }) }
-            "window" -> { val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull; if (k <= 0) WNull else WList(l.windowed(k).map { WList(it) }) }
+            "window" -> {
+                val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull
+                // windows copy k items each, so bound the total copied, not just the window count
+                val total = maxOf(0L, l.size.toLong() - k + 1) * k
+                if (k <= 0 || total > com.echoflow.weave.core.Limits.LIST_ITEMS) WNull
+                else { chargeItems(total.toInt()); WList(l.windowed(k).map { WList(it) }) }
+            }
             "cumsum" -> {
                 val l = list(arg(0)) ?: return WNull
                 var t = 0.0

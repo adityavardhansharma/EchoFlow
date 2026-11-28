@@ -383,7 +383,28 @@ class Session(
             "removeWhere" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items ?: return@let
                 val pred = named("pred") ?: arg(1)
-                writePlace(tx, p, WList(l.withIndex().filterNot { (i, it) -> ev.safeCallItem(pred, it, i).truthy() }.map { it.value }))
+                val kept = ArrayList<WValue>(l.size)
+                var stop: Diagnostic? = null
+                // Its own evaluator, so the step budget is one running total for the whole removal.
+                val predEv = txEvaluator(tx)
+                for ((i, it) in l.withIndex()) {
+                    try {
+                        if (!predEv.safeCallItem(pred, it, i).truthy()) kept += it
+                    } catch (x: BudgetExceeded) {
+                        // The rest of the list is untouched once the shared budget runs out.
+                        kept += l.subList(i, l.size)
+                        stop = Diag.budget(Span.NONE, "removeWhere")
+                        break
+                    } catch (x: LimitExceeded) {
+                        kept += l.subList(i, l.size)
+                        stop = Diag.limit(Span.NONE, x.what)
+                        break
+                    }
+                }
+                // Keep predEv recorded: a waiting read before the stop must still discard the
+                // whole gesture (03 §7.1). The diagnostic itself does not set that flag.
+                stop?.let { report(it) }
+                writePlace(tx, p, WList(kept))
             }
             "move" -> place(0)?.let { p ->
                 val l = (cur(p) as? WList)?.items?.toMutableList() ?: return@let
@@ -649,9 +670,23 @@ class Session(
         val render = n.args["render"] as? WFn
         return items.mapIndexed { i, item ->
             val v = if (render != null) runCatching { ev.callItem(render, item, i) }.getOrDefault(WNull) else WNull
-            v as? WNode ?: defaultItem(item, "${n.key}/$i", n.sourceStmt)
+            val row = v as? WNode
+            if (row == null) defaultItem(item, "${n.key}/$i", n.sourceStmt)
+            else withKey(row, "${n.key}/${explicitKey(row) ?: i.toString()}")
         }
     }
+
+    /**
+     * A row's identity is its `key` prop, or its index (04 §2.5). Descendants are scoped under
+     * that key even when they already have one, so two rows never share a key.
+     */
+    private fun withKey(n: WNode, key: String): WNode {
+        val kids = n.children.mapIndexed { i, ch -> withKey(ch, "$key/${explicitKey(ch) ?: i.toString()}") }
+        return WNode(n.type, n.args, kids, key, n.sourceStmt, n.places, n.waiting, n.error)
+    }
+
+    private fun explicitKey(n: WNode): String? =
+        n.args["key"]?.let { keyText(it) }
 
     /** 04 §8 default row: title = first string field, subtitle = the second one (spec 1.3). */
     fun defaultItem(item: WValue, key: String, stmt: String): WNode {
@@ -675,4 +710,27 @@ class Session(
         /** Context values (03 §4.3) and event variables that are always defined. */
         val CONTEXT_NAMES = setOf("device", "block", "user", "item", "index", "prev", "event", "value", "pi", "e")
     }
+}
+
+/**
+ * A key segment (04 §2.5). Only scalar values (text, symbols, numbers, booleans, dates, times and
+ * durations) are encoded, with their type, so a number and the same text stay different and a node
+ * or list is never walked. Anything else is no key.
+ */
+internal fun keyText(v: WValue): String? {
+    val raw = when (v) {
+        is WStr -> "s:" + v.v
+        is WSym -> "y:" + v.name
+        is WNum -> "n:" + com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
+        is WBool -> "b:" + v.v
+        is WDur -> "d:" + v.ms
+        is WDate -> "D:" + v.v
+        is WTime -> "t:" + v.v
+        is WDateTime -> "T:" + v.v
+        else -> return null
+    }
+    if (raw.length <= 200) return raw
+    // a 32-bit hash collides on crafted text ("…Aa" / "…BB"); a SHA-256 digest does not in practice
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+    return raw.take(120) + "#" + digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

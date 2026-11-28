@@ -30,6 +30,7 @@ internal class NodeBuilder(private val ev: Evaluator) {
         val args = LinkedHashMap<String, WValue>()
         val places = HashMap<String, Place>()
         var error: String? = null
+        var readOnly = false
         val waiting = ev.withWaitingTracking {
             for ((i, e) in c.leads.withIndex()) {
                 val p = leads.getOrNull(i) ?: continue
@@ -38,7 +39,12 @@ internal class NodeBuilder(private val ev: Evaluator) {
                     if (place != null) {
                         places[p.name] = place
                         args[p.name] = Places.read(ev.state(place.state), place.path)
-                    } else args[p.name] = ev.eval(e, scope)
+                    } else {
+                        // 04 §7: a lead that is not a place shows its value read-only (the checker
+                        // reports E210), so the control must not look writable
+                        args[p.name] = ev.eval(e, scope)
+                        readOnly = true
+                    }
                     continue
                 }
                 val r = ev.coerce.slot(ev.eval(e, scope), p.type)
@@ -50,7 +56,9 @@ internal class NodeBuilder(private val ev: Evaluator) {
             for ((k, e) in c.named) {
                 val p = param(k) ?: continue
                 if (p.type == TypeSpec.STATE) {
-                    place(e, scope)?.let { pl -> places[k] = pl; args[k] = Places.read(ev.state(pl.state), pl.path) }
+                    val pl = place(e, scope)
+                    if (pl != null) { places[k] = pl; args[k] = Places.read(ev.state(pl.state), pl.path) }
+                    else ev.report(Diag.badType(e.span, c.callee, k, "a state place", "a value"))
                     continue
                 }
                 val raw = ev.eval(e, scope)
@@ -66,12 +74,14 @@ internal class NodeBuilder(private val ev: Evaluator) {
                 error = "${c.callee} needs ${p.name}"
             }
         }
+        if (readOnly) args["disabled"] = WBool.TRUE
         val children = ArrayList<WNode>()
         c.children?.forEach { e -> flatten(ev.eval(e, scope), children) }
         return WNode(c.callee, args, children, "", ev.currentStmt(), places, waiting, error)
     }
 
     private fun flatten(v: WValue, out: MutableList<WNode>) {
+        ev.charge()
         when (v) {
             is WNode -> out += v
             is WList -> v.items.forEach { flatten(it, out) }

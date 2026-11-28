@@ -32,7 +32,8 @@ data class TaskScore(
 data class ModelReport(val model: String, val tier: Int, val scores: List<TaskScore>) {
     private val withBlock = scores.filter { !it.task.control && it.blocks > 0 }
     private val tasks = scores.filter { !it.task.control }
-    private val controls = scores.filter { it.task.control && it.responded }
+    /** All 20 control prompts (07 §10.2), answered or not: an unanswered control is not a block. */
+    private val controls = scores.filter { it.task.control }
 
     val blockCount get() = withBlock.size
     val parseSuccess get() = ratio(withBlock.count { it.parseOk }, withBlock.size)
@@ -44,7 +45,7 @@ data class ModelReport(val model: String, val tier: Int, val scores: List<TaskSc
     val missing get() = scores.count { !it.responded }
 
     fun passesBars(balanced: Boolean = true) = parseSuccess >= 0.95 && droppedPerBlock <= 0.5 && renderSuccess >= 0.97 &&
-        taskCompletion >= 0.85 && (!balanced || overUse <= 0.10)
+        taskCompletion >= 0.85 && (!balanced || (overUse <= 0.10 && controls.all { it.responded }))
 
     private fun ratio(a: Int, b: Int) = if (b == 0) 0.0 else a.toDouble() / b
 }
@@ -98,7 +99,7 @@ object Scoring {
         val parseOk = diags.none { it.code.startsWith("E1") }
         val dropped = diags.count { it.code in STATEMENT_DROPS }
         val session = Session(program, EvalContext(formatter()))
-        val root = if (program.renderable) session.root() else null
+        val root = if (program.renderable(session)) session.root() else null
         val renders = root != null && root.error == null
         var completed = false
         var detail = if (renders) "renders" else if (program.needsNewerApp) "needs a newer app" else "no renderable root"

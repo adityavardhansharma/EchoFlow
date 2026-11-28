@@ -33,6 +33,7 @@ class SettingsTest {
             "make a loan calculator", "show it as a table", "plot my expenses for March", "draw a chart of rainfall",
             "turn this into a checklist", "make this interactive", "build me a budget tracker",
             "show me how the table of contents works", "give me a chart of my spending", "put this in a table",
+            "compare these phones in a table",
         ).forEach { assertTrue(it, EchoUiTiers.isExplicitUiRequest(it)) }
     }
 
@@ -40,7 +41,7 @@ class SettingsTest {
         listOf(
             "what's the capital of France", "any good tabletop games?", "the plot of the novel", "explain the periodic table",
             "how do I set a timer on my phone?", "is this form valid HTML?", "give up on this game", "lay the table for dinner",
-            "my money is stuck in a card",
+            "my money is stuck in a card", "what does the red line in a chart mean?",
         ).forEach { assertFalse(it, EchoUiTiers.isExplicitUiRequest(it)) }
     }
 

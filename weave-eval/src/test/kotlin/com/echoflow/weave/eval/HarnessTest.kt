@@ -74,6 +74,10 @@ class HarnessTest {
         assertEquals(1, block.blocks)
         val report = ModelReport("m", 2, listOf(plain, block))
         assertEquals(0.5, report.overUse, 1e-9)
+        // An unanswered control is not a block, but it still counts in the 20 (07 §10.2).
+        val missing = ModelReport("m", 2, listOf(Scoring.score(c, null, 2)))
+        assertEquals(0.0, missing.overUse, 1e-9)
+        assertEquals(1, missing.missing)
     }
 
     @Test fun `missing replies count as failures, not crashes`() {
@@ -110,5 +114,44 @@ class RevealTextTest {
         assertFalse(CheckRunner(off).run(listOf(Check.Input("Amount", 4.0))).pass)
         val on = session("\$n = 1\nroot = Column [Slider(\$n, 0, 10, label: \"Amount\"), Text(\"{\$n * 2}\")]")
         assertTrue(CheckRunner(on).run(listOf(Check.Input("Amount", 4.0), Check.Number(8.0))).pass)
+    }
+
+    @Test fun `text checks don't fire a button an earlier tap disabled`() {
+        val body = "\$n = 0\nroot = Column [\n" +
+            "Button(\"First\", onTap: !set(\$n, 1)),\n" +
+            "Button(\"Second\", onTap: !set(\$n, 2), disabled: \$n == 1),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertFalse(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 1"))).pass)
+    }
+
+    @Test fun `two buttons with the same label are both tried`() {
+        val body = "\$n = 0\nroot = Column [\n" +
+            "Button(\"Reveal\", onTap: !set(\$n, 1)),\n" +
+            "Button(\"Reveal\", onTap: !set(\$n, 2)),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
+
+    @Test fun `a number and the same text are different buttons`() {
+        val body = "\$n = 0\nroot = Column [\n" +
+            "Button(\"Go\", key: 1.231, onTap: !set(\$n, 1)),\n" +
+            "Button(\"Go\", key: \"1.231\", onTap: !set(\$n, 2)),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
+
+    @Test fun `buttons rendered by a list are all tried`() {
+        val body = "\$n = 0\nrows = [1, 2]\nroot = Column [\n" +
+            "List(rows, render: (item, index) => Button(\"Reveal\", onTap: !set(\$n, index + 1))),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
+    }
+
+    @Test fun `numeric keys that display the same are still different buttons`() {
+        val body = "\$n = 0\nrows = [1.231, 1.234]\nroot = Column [\n" +
+            "List(rows, render: (item, index) => Button(\"Go\", key: item, onTap: !set(\$n, index + 1))),\n" +
+            "Text(\"answer {\$n}\")\n]"
+        assertTrue(CheckRunner(session(body)).run(listOf(Check.Text("answer 2"))).pass)
     }
 }

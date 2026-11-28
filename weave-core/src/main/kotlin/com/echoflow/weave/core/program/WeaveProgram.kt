@@ -30,10 +30,10 @@ data class Header(
 /** A checked program, 05 §3.4. Immutable. */
 class WeaveProgram(
     val header: Header,
-    val states: LinkedHashMap<String, StateDecl>,
-    val bindings: LinkedHashMap<String, Binding>,
-    val functions: LinkedHashMap<String, FnDecl>,
-    val effects: LinkedHashMap<String, Effect>,
+    statesIn: Map<String, StateDecl>,
+    bindingsIn: Map<String, Binding>,
+    functionsIn: Map<String, FnDecl>,
+    effectsIn: Map<String, Effect>,
     val exports: Set<String>,
     val root: String?,
     val diagnostics: List<Diagnostic>,
@@ -44,8 +44,21 @@ class WeaveProgram(
     /** A higher `@weave` version: render as code with "Needs a newer EchoFlow" (02 §7). */
     val needsNewerApp get() = header.version > 1
 
-    /** False when the block must render as a code fence with the "Couldn't render" chip. */
-    val renderable get() = !needsNewerApp && root != null
+    val states: Map<String, StateDecl> = java.util.Collections.unmodifiableMap(LinkedHashMap(statesIn))
+    val bindings: Map<String, Binding> = java.util.Collections.unmodifiableMap(LinkedHashMap(bindingsIn))
+    val functions: Map<String, FnDecl> = java.util.Collections.unmodifiableMap(LinkedHashMap(functionsIn))
+    val effects: Map<String, Effect> = java.util.Collections.unmodifiableMap(LinkedHashMap(effectsIn))
+
+    /**
+     * False when the block must render as a code fence with the "Couldn't render" chip (02 §5.6).
+     * A binding named `root` is not enough: it has to evaluate to a node. The caller passes its own
+     * session, because a fresh one would use a different clock and reject a root that renders there.
+     */
+    fun renderable(session: com.echoflow.weave.core.eval.Session? = null): Boolean {
+        if (needsNewerApp || root == null) return false
+        val s = session ?: com.echoflow.weave.core.eval.Session(this)
+        return runCatching { s.root() != null }.getOrDefault(false)
+    }
 
     val errors get() = diagnostics.filter { it.severity == Severity.ERROR }
     val warnings get() = diagnostics.filter { it.severity == Severity.WARNING }

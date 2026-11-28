@@ -97,6 +97,8 @@ class Evaluator(
     private val cycleMembers = HashSet<String>()
 
     private var steps = 0
+    /** Steps already spent by earlier items of the same removal, added back after each one. */
+    private var carried = 0
     private var depth = 0
     /** Set while evaluating when a waiting state (or a binding that read one) was read. */
     var readWaiting = false
@@ -174,9 +176,10 @@ class Evaluator(
     }
 
     fun safeCallItem(fn: WValue, item: WValue, index: Int): WValue {
-        val saved = steps
-        steps = 0
-        return try { callItem(fn, item, index) } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull } finally { steps = saved }
+        // One budget for the whole removal: each item starts from what earlier items already spent.
+        steps = carried
+        return try { callItem(fn, item, index) } catch (x: BudgetExceeded) { throw x } catch (x: LimitExceeded) { throw x } catch (x: StackOverflowError) { WNull } catch (x: RuntimeException) { WNull }
+        finally { carried = steps }
     }
 
     /** Evaluates one top-level expression (action argument, effect condition, state initial value). */
@@ -219,7 +222,7 @@ class Evaluator(
             is StateRef -> state(e.name)
             is Qualified -> ctx.exports(e.block, e.name) ?: WNull
             is Member -> member(eval(e.target, scope), e.name)
-            is Index -> Places.access(eval(e.target, scope), eval(e.index, scope))
+            is Index -> Places.access(eval(e.target, scope), eval(e.index, scope)) { charge() }
             is Unary -> unary(e.op, eval(e.operand, scope))
             is BinaryOp -> binary(e, scope)
             is Ternary -> if (eval(e.cond, scope).truthy()) eval(e.then, scope) else eval(e.otherwise, scope)
@@ -410,7 +413,7 @@ class Evaluator(
     private fun rekey(n: WNode, key: String, stmt: String): WNode {
         val kids = n.children.mapIndexed { i, ch ->
             if (ch.sourceStmt == stmt || ch.sourceStmt == "") {
-                val seg = (ch.args["key"]?.takeIf { it != WNull }?.let { f.auto(it) }) ?: i.toString()
+                val seg = ch.args["key"]?.let { keyText(it) } ?: i.toString()
                 rekey(ch, "$key/$seg", stmt)
             } else ch
         }

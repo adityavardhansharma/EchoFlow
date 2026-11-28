@@ -1402,8 +1402,10 @@ Dec 06:40–08:15") and Cancel / Confirm. `!say` content is visible before and a
 ### 24.4 Limits
 
 Every block is bounded: source size, statements, nodes, depth, evaluation steps, state size,
-timers, images, `!ask` and `query` rates, and script time and memory. The values and what happens
-when each is exceeded are in 05 §13.3 (`Limits.kt`); they are not repeated here so they can't drift.
+timers, images, `!ask` and `query` rates, and script time and memory. The values are listed in
+05 §13.3 (`Limits.kt`); what happens when one is exceeded is defined with the rule that enforces it
+(for example 03 §5.3 for evaluation steps and recursion depth). They are not repeated here so they
+can't drift.
 
 ### 24.5 Prompt injection
 
