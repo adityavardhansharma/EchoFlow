@@ -1,0 +1,1 @@
+needle = group(rotate: spring(remap(emi, 0, 100000, -120, 120), kind: bouncy)) [line(50, 50, 50, 12, stroke: primary, width: l)]

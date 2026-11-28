@@ -1,0 +1,23 @@
+@weave 1 id: misc title: "Corpus mix"
+$n = 0
+$todos = [{t: "a", done: false}]
+$rate: num = 8.5 transient
+root = Card(gap: m) [
+  Title("Mix", subtitle: "{$n} taps"),
+  Text("Rate {$rate | num(2)}", style: caption, tone: $n > 3 ? error : primary),
+  Slider($rate, min: 6, max: 14, step: 0.05),
+  Button("Tap", onTap: [!inc($n), !haptic(click)]),
+  List(items, render: (i, k) => Item(i.t, subtitle: "#{k}"))
+]
+items = $todos
+  |> filter(t => not t.done)
+  |> take(5)
+total = sum(map(1..10, x => x * 2))
+label = """
+  raw text
+    indented
+  """
+fn double(x) = x * 2
+on change($n, debounce: 300ms) when $n > 2 -> !toast("many")
+on every(1s) -> !inc($n)
+export total, $n

@@ -1,0 +1,20 @@
+@weave 1 id: pend title: "Pendulum lab" size: card
+$len = 1.5
+$angle = 0.8
+$vel = 0
+$run = true
+on frame when $run -> [
+  !set($vel, ($vel - 9.81 / $len * sin($angle) * dt) * 0.999),
+  !set($angle, $angle + $vel * dt)
+]
+bx = 50 + 40 * $len / 3 * sin($angle)
+by = 8 + 40 * $len / 3 * cos($angle)
+root = Card(gap: m) [
+  Canvas(view: [0, 0, 100, 60], h: l, onTap: _ => !toggle($run), label: "Pendulum, tap to pause") [
+    line(50, 8, bx, by, stroke: outline, width: s),
+    circle(50, 8, 1.5, fill: muted),
+    circle(bx, by, 5, fill: primary)
+  ],
+  Slider($len, min: 0.5, max: 3, step: 0.1, label: "Length", suffix: " m"),
+  Metric("Period", 2 * pi * sqrt($len / 9.81), format: num(2), suffix: " s")
+]

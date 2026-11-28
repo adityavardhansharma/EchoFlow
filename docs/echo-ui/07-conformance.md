@@ -1,6 +1,6 @@
 # 07 — Conformance tests
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.3 · **Status:** normative
 
 An implementation conforms when **every test in this document passes**. Each test has an id
 (`T-xxx`) that the other documents cite. Tests in §1–§4 and §11 are JVM unit tests in `weave-core`
@@ -140,6 +140,9 @@ lists diagnostic codes in order.
 | T-085 | colour slot hex → role: `#FF0000`, `#4CAF50`, `#2196F3`, `#FFC107`, `#9E9E9E`, `#000000` | `error`, `success`, `primary`, `warning`, `neutral`, `neutral` |
 | T-086 | `r = {name = "a"}` | `r = {name: "a"}` |
 | T-087 | `a = 2 elif` | `E105` (not fixed) |
+| T-088 | `root = Metric("BMI", 22.857, format: dec(1))` | `root = Metric("BMI", 22.857, format: "dec(1)")` (S13) |
+| T-089 | `$show = true`, `root = Column [when($show, Text("hi"))]` | no diagnostic; the node shows `hi` |
+| T-089b | `xs = [1, 2]`, `ys = map(xs, (item, index) => item + index)` | no diagnostic (`item` and `index` are parameters) |
 
 ---
 

@@ -1,0 +1,1 @@
+Coffee isn’t inherently bad for most healthy adults. Moderate intake can fit into a healthy diet, but caffeine may worsen sleep, anxiety, reflux, or palpitations. If it affects you, try less or avoid it later in the day. Pregnancy and some medical conditions can change what amount is appropriate.

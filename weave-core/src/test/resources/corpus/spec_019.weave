@@ -1,0 +1,12 @@
+@weave 1 id: week title: "This week" keep: true
+$board = {Todo: [{t: "Draft deck"}, {t: "Call bank"}], Doing: [{t: "Tax forms"}], Done: []}
+root = Column(gap: s) [
+  Sort($board, columns: ["Todo", "Doing", "Done"], render: i => Item(i.t)),
+  Row(gap: s) [
+    Button("Plan my days", onTap: !ask("Turn the board into a day-by-day plan below", update: [plan], with: [$board])),
+    IconButton("calendar_add_on", label: "Add to calendar", onTap: !calendar("Weekly review", addDays(today(), 6)))
+  ],
+  plan
+]
+plan = Empty("No plan yet", body: "Tap Plan my days", icon: "event_note")
+export $board

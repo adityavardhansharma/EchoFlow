@@ -1,0 +1,17 @@
+@weave 1 id: trip title: "3 days in Jaipur" size: card
+$budget = 40000
+$style = "relaxed"
+$tab = 0
+root = Column(gap: m) [controls, Tabs($tab, labels: ["Overview", "Day 1", "Day 2", "Day 3"]) [overview, d1, d2, d3]]
+controls = Card(style: tonal, gap: s) [
+  Slider($budget, min: 15000, max: 150000, step: 5000, format: inr, label: "Budget"),
+  Segmented($style, options: ["relaxed", "packed", "foodie"])
+]
+overview = Column(gap: s) [
+  Map("Jaipur", markers: [{lat: 26.9855, lng: 75.8513, title: "Amber Fort"}, {lat: 26.9239, lng: 75.8267, title: "Hawa Mahal"}], h: m),
+  Stat [Metric("Est. spend", $budget * 0.86, format: inr), Metric("Walking", 18, suffix: " km")]
+]
+d1 = lazy("Day 1 timeline with costs", budget: $budget, style: $style)
+d2 = lazy("Day 2 timeline with costs", budget: $budget, style: $style)
+d3 = lazy("Day 3 timeline with costs", budget: $budget, style: $style)
+on change($budget, debounce: 800ms) -> !ask("Rebalance the overview for the new budget", update: [overview], with: [$budget, $style])

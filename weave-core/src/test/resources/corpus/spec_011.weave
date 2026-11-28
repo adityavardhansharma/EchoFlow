@@ -1,0 +1,5 @@
+$p = {x: 50, y: 30}
+pad = Canvas(view: [0, 0, 100, 60], onDrag: d => !set($p, {x: d.x, y: d.y})) [
+  circle($p.x, $p.y, 6, fill: primary),
+  label(4, 8, "x {round($p.x)} · y {round($p.y)}", style: labelSmall)
+]

@@ -1,0 +1,1 @@
+GDP (gross domestic product) is the total market value of final goods and services produced within a country during a period, usually a quarter or a year. It’s one measure of economic activity, though it doesn’t capture every aspect of well-being.

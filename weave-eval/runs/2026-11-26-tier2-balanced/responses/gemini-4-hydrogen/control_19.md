@@ -1,0 +1,1 @@
+The sky looks blue because of **Rayleigh scattering**. Sunlight contains all the colors of the rainbow, and as it enters Earth's atmosphere, gas molecules scatter shorter wavelengths (blue and violet) much more strongly than longer wavelengths (red and yellow). Because our eyes are more sensitive to blue than violet—and the Sun emits more blue light—we see a blue sky.

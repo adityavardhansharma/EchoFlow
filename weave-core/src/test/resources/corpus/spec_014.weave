@@ -1,0 +1,12 @@
+@weave 1 id: tip title: "Split the bill"
+$bill = 2400
+$pct = 10
+$people = 4
+perHead = ($bill + $bill * $pct / 100) / $people
+root = Card(gap: m) [
+  TextField($bill, label: "Bill", kind: number, prefix: "₹"),
+  Segmented($pct, options: [0, 5, 10, 15, 20], suffix: "%"),
+  Stepper($people, min: 1, max: 30, label: "People"),
+  Metric("Each pays", perHead, format: inr, size: l, tone: primary),
+  Button("Send to group", icon: "send", onTap: !say("Each of us pays {perHead | inr} ({$people} people, {$pct}% tip)"))
+]

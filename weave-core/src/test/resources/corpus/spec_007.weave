@@ -1,0 +1,9 @@
+$budget = 40000
+$style = "relaxed"
+plan = Column [Text("Planning…")]
+controls = Column(gap: m) [
+  Slider($budget, min: 10000, max: 200000, step: 5000, format: inr, label: "Budget"),
+  Segmented($style, options: ["relaxed", "packed", "foodie"])
+]
+on change($budget, debounce: 700ms) -> !ask("Rebuild the 3-day Jaipur plan for this budget and style", update: [plan], with: [$budget, $style])
+on change($style) -> !ask("Rebuild the 3-day Jaipur plan for this budget and style", update: [plan], with: [$budget, $style])

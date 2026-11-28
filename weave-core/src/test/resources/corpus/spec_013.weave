@@ -1,0 +1,5 @@
+js fn solve(board) = """
+  // pure: JSON in, JSON out. No I/O, no globals, no timers.
+  ...
+  return next;
+"""

@@ -1,0 +1,1 @@
+Plot Delhi's average monthly maximum temperature in °C: Jan 21, Feb 24, Mar 30, Apr 36, May 40, Jun 39, Jul 35, Aug 34, Sep 34, Oct 33, Nov 28, Dec 23. Use a line chart and point out the hottest month.
