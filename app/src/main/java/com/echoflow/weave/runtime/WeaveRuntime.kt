@@ -170,6 +170,8 @@ class WeaveRuntime(
      */
     fun exportsChanged(chatId: String?, from: WeaveBlockController?) {
         chatId ?: return
+        // a remembered stored export may read the block that just changed (`a::$amount * 2`)
+        storedExports.keys.removeAll { it.startsWith("$chatId/") }
         live(chatId).forEach { if (it !== from) it.exportsChanged() }
     }
 

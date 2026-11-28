@@ -1,5 +1,6 @@
 package com.echoflow
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -149,7 +150,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val pendingShare by shareRequest.collectAsState()
+            // shared across activity instances: only the resumed one takes it, so a stopped
+            // instance in the back stack can't consume a share meant for the visible one
+            val pendingShare by shareRequest.collectAsStateWithLifecycle(minActiveState = androidx.lifecycle.Lifecycle.State.RESUMED)
             LaunchedEffect(pendingShare) {
                 pendingShare?.let { share ->
                     chatVm.openShare(share)
