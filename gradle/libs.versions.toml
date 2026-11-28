@@ -64,8 +64,14 @@ roborazzi = "1.59.0"
 firebaseBom = "34.12.0"
 secretsGradlePlugin = "2.0.1"
 mlkitTextRecognition = "19.0.1"
+# QuickJS for Echo UI tier 4 `js fn` (:weave-js). 1.0.6+ is the first with an evaluation timeout
+# and interrupt, which the 50 ms per-call limit needs (docs/echo-ui/03 §10.12). It's built with
+# Kotlin 2.4, so it lifts the runtime kotlin-stdlib to 2.4 and kotlinx-coroutines to 1.11; the 2.3
+# compiler reads that metadata.
+quickjsKt = "1.0.19"
 
 [libraries]
+quickjs-kt = { group = "io.github.dokar3", name = "quickjs-kt", version.ref = "quickjsKt" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
