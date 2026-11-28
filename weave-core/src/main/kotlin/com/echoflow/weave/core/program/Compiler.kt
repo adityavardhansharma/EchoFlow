@@ -139,16 +139,27 @@ object Compiler {
 
     fun build(lines: List<ParsedLine>, catalog: Catalog, complete: Boolean, frozenCount: Int): WeaveProgram {
         val f = fragment(lines, catalog, edit = false, streaming = !complete)
-        val frozenNames = if (complete) null else lines.take(frozenCount).mapNotNull {
-            when (val st = it.stmt) {
-                is StateDecl -> "$" + st.name; is Binding -> st.name; is FnDecl -> st.name; else -> null
-            }
-        }.toSet()
+        // frozen names come from the checked statements (after auto-fix renames such as S9's
+        // `Header` → `header`), picked by source position: a statement is frozen when it ends
+        // within the frozen lines
+        val frozenNames = if (complete) null else {
+            val boundary = lines.take(frozenCount).mapNotNull { it.stmt?.span?.end }.maxOrNull() ?: -1
+            f.stmts.filter { it.span.end in 0..boundary }.mapNotNull { st ->
+                when (st) { is StateDecl -> "$" + st.name; is Binding -> st.name; is FnDecl -> st.name; else -> null }
+            }.toSet()
+        }
         return assemble(f, catalog, complete, frozenCount, frozenNames = frozenNames)
     }
 
     /** Builds the program maps, header, root and exports from a checked fragment. */
-    fun assemble(f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1, frozenNames: Set<String>? = null): WeaveProgram {
+    /**
+     * [truncate]: drop statements past the source limit (a streamed or compiled block). An edit
+     * passes false: an oversized edit is rejected whole by `Edits.apply` instead (02 §11.2).
+     */
+    fun assemble(
+        f: Fragment, catalog: Catalog, complete: Boolean, frozenCount: Int, version: Int = 1, frozenNames: Set<String>? = null,
+        truncate: Boolean = true,
+    ): WeaveProgram {
         val diags = ArrayList(f.diagnostics)
         // 05 §13.3: statements are accepted in source order while the source fits; the first one
         // that would pass the limit, and everything after it, is dropped (not left active)
@@ -157,7 +168,7 @@ object Compiler {
         val accepted = ArrayList<Stmt>()
         for (st in f.stmts) {
             val size = runCatching { printer.stmt(st) }.getOrDefault("").toByteArray(Charsets.UTF_8).size + 1
-            if (used + size > Limits.SOURCE_BYTES) { diags += Diag.limit(st.span, "source"); break }
+            if (truncate && used + size > Limits.SOURCE_BYTES) { diags += Diag.limit(st.span, "source"); break }
             used += size
             accepted += st
         }

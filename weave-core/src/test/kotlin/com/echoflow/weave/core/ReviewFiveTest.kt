@@ -104,4 +104,26 @@ class ReviewFiveTest {
         assertTrue("huge" !in p.bindings && "later" !in p.bindings)
         assertTrue("root" in p.bindings)
     }
+
+    @Test fun `an oversized edit is rejected whole`() {
+        val s = W.session("a = 1\nb = 2\non change(\$x) -> !set(\$x, 0)\n\$x = 0\nroot = Text(b)")
+        val big = "x".repeat(com.echoflow.weave.core.Limits.SOURCE_BYTES)
+        val r = Edits.apply(s.program, "a = \"$big\"")
+        assertTrue(!r.accepted)
+        assertTrue("b" in r.program.bindings)
+    }
+
+    @Test fun `a renamed capitalised binding counts as frozen`() {
+        val p = IncrementalParser()
+        val prog = p.update("Header = 10\n\$n = Header\nroot = Text(\$n)\nx", false)
+        assertTrue(prog.frozenNames!!.contains("header"))
+        val s = Session(prog, W.ctx())
+        assertEquals(WNum(10.0), s.state["n"])
+    }
+
+    @Test fun `plain text of a shared node tree is bounded`() = fast {
+        val defs = (1..30).joinToString("\n") { "n$it = Column [n${it - 1}, n${it - 1}]" }
+        val s = W.session("n0 = Text(\"hi\")\n$defs\nroot = Column [Text(nodeText(n30))]")
+        assertTrue(s.plainText(s.root()!!).length <= com.echoflow.weave.core.Limits.STRING_CHARS + 1)
+    }
 }

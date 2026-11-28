@@ -372,19 +372,53 @@ object PlainText {
     private val TEXTY = setOf("Text", "Markdown", "Quote", "Code")
     private val INPUTS = setOf("Slider", "Segmented", "TextField", "Select", "Toggle", "Check", "Radio", "Chips", "Stepper")
 
-    fun of(n: WNode, f: Formatter): String = when {
+    /**
+     * Plain text of [n]. A tree can share subtrees (`n30 = Column [n29, n29]`), so the walk is
+     * bounded: it visits at most [MAX_NODES] nodes and stops once the text passes the string limit.
+     */
+    fun of(n: WNode, f: Formatter): String {
+        val budget = Budget()
+        val text = walk(n, f, budget)
+        val cap = com.echoflow.weave.core.Limits.STRING_CHARS
+        return if (text.length > cap) text.take(cap) + "…" else text
+    }
+
+    private const val MAX_NODES = 10_000
+
+    private class Budget(var nodes: Int = MAX_NODES, var chars: Int = com.echoflow.weave.core.Limits.STRING_CHARS)
+
+    private fun walk(n: WNode, f: Formatter, b: Budget): String {
+        if (b.nodes <= 0 || b.chars <= 0) return ""
+        b.nodes--
+        val text = self(n, f, b)
+        // a container's text is made of its children's: only leaves spend the character budget
+        if (n.children.isEmpty()) b.chars -= text.length
+        return text
+    }
+
+    private fun kids(n: WNode, f: Formatter, b: Budget, sep: String): String {
+        val parts = ArrayList<String>()
+        for (c in n.children) {
+            if (b.nodes <= 0 || b.chars <= 0) break
+            val t = walk(c, f, b)
+            if (t.isNotEmpty()) parts += t
+        }
+        return parts.joinToString(sep)
+    }
+
+    private fun self(n: WNode, f: Formatter, b: Budget): String = when {
         n.type in TEXTY -> f.auto(n.args["content"] ?: n.args["source"] ?: WNull).let { if (n.args["content"] == null && n.args["source"] == null) "" else it }
         n.type == "Title" -> listOfNotNull(n.args["content"]?.let { f.auto(it) }, (n.args["subtitle"] as? WStr)?.v).joinToString("\n")
         n.type == "Callout" -> listOfNotNull((n.args["title"] as? WStr)?.v, n.args["content"]?.let { f.auto(it) }).joinToString("\n")
         n.type == "Metric" -> metricText(n, f)
         n.type in INPUTS -> (n.args["label"]?.let { f.auto(it) + ": " } ?: "") + f.auto(n.args["value"] ?: WNull)
         n.type == "Table" -> tableText(n, f)
-        n.type == "List" -> n.children.joinToString("\n") { of(it, f) }
+        n.type == "List" -> kids(n, f, b, "\n")
         n.type == "Item" -> listOfNotNull(n.args["title"]?.let { f.auto(it) }, (n.args["subtitle"] as? WStr)?.v).joinToString(" ")
-        n.type == "Row" -> n.children.joinToString("  ") { of(it, f) }.trim()
+        n.type == "Row" -> kids(n, f, b, "  ").trim()
         n.type == "Image" -> (n.args["alt"] as? WStr)?.v ?: ""
         n.type == "Button" -> f.auto(n.args["label"] ?: WNull)
-        else -> n.children.map { of(it, f) }.filter { it.isNotEmpty() }.joinToString("\n")
+        else -> kids(n, f, b, "\n")
     }
 
     fun metricValue(n: WNode, f: Formatter): String {

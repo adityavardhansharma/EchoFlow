@@ -87,7 +87,7 @@ object Edits {
         val functions = stmts.filterIsInstance<FnDecl>().map { it.name }.toSet()
         val states = stmts.filterIsInstance<StateDecl>().map { it.name }.toSet()
         val checked = Compiler.checkFragment(program.header.stmt, stmts, catalog, bindings, functions, states, deleted = deleted - bindings - functions)
-        val next = Compiler.assemble(checked, catalog, complete = true, frozenCount = stmts.size, version = program.version + 1)
+        val next = Compiler.assemble(checked, catalog, complete = true, frozenCount = stmts.size, version = program.version + 1, truncate = false)
         val allDiags = diags + next.diagnostics
         val result = WeaveProgram(
             program.header, next.states, next.bindings, next.functions, next.effects, next.exports, next.root,
