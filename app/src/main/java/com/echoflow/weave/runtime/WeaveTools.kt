@@ -63,6 +63,26 @@ object WeaveTools {
             .dns(PublicOnlyDns).followSslRedirects(false).build()
     }
 
+    /**
+     * An https resource of at most [maxBytes] (`Model3D`, 04 §10), through the same public-only
+     * client as `web.read`. Null on any failure, a private host, or an oversized body.
+     */
+    suspend fun fetchBytes(url: String, maxBytes: Long): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!url.startsWith("https://")) return@runCatching null
+            val host = url.toHttpUrlOrNull()?.host ?: return@runCatching null
+            if (isPrivateHost(host)) return@runCatching null
+            client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                val body = r.body
+                if (!r.isSuccessful || body == null || body.contentLength() > maxBytes) return@use null
+                val buf = okio.Buffer()
+                val src = body.source()
+                while (buf.size <= maxBytes && src.read(buf, 8192) != -1L) Unit
+                if (buf.size > maxBytes) null else buf.readByteArray()
+            }
+        }.getOrNull()
+    }
+
     /** `web.read`: an https page as plain text (first 20,000 characters). */
     val webRead: WeaveTool = object : WeaveTool {
         override val name = "web.read"
