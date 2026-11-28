@@ -30,7 +30,8 @@ object EchoUiPrompt {
     /**
      * [docsIndex] trims the components to the common set plus the reference index behind the
      * `weave_docs` tool (06 §2.1, §8). Pass it only when the request carries that tool: see
-     * [WeaveDocs.usesIndex].
+     * [WeaveDocs.usesIndex]. [scripts] false (the user turned script functions off, 03 §10.12)
+     * leaves `js fn` out of the tier 4 syntax card.
      */
     fun section(
         tier: Int,
@@ -38,12 +39,13 @@ object EchoUiPrompt {
         form: PromptForm = PromptForm.SOURCE,
         catalog: Catalog = BuiltinCatalog.forBuild(tier),
         docsIndex: Boolean = false,
+        scripts: Boolean = true,
     ): String {
         if (tier <= 0 || level == IntelligentUiLevel.OFF) return ""
         val trimmed = docsIndex && tier >= 3
         val parts = listOf(
             intro(level),
-            syntax(tier, catalog),
+            syntax(tier, catalog, scripts),
             TOKENS,
             if (trimmed) components(catalog, WeaveDocs.COMMON_SET) + "\n\n" + WeaveDocs.index(catalog) else components(catalog),
             functions(tier, catalog),
@@ -56,8 +58,8 @@ object EchoUiPrompt {
     }
 
     /** The hidden-request system prompt (06 §4): the section with the editor intro. */
-    fun editorSection(tier: Int, catalog: Catalog = BuiltinCatalog.forBuild(tier)): String =
-        section(tier, IntelligentUiLevel.BALANCED, PromptForm.SOURCE, catalog).replaceFirst(BALANCED_INTRO, EDITOR_INTRO)
+    fun editorSection(tier: Int, catalog: Catalog = BuiltinCatalog.forBuild(tier), scripts: Boolean = true): String =
+        section(tier, IntelligentUiLevel.BALANCED, PromptForm.SOURCE, catalog, scripts = scripts).replaceFirst(BALANCED_INTRO, EDITOR_INTRO)
 
     // ---- 06 §2.2 --------------------------------------------------------------------------------
 
@@ -95,13 +97,14 @@ Effects: `on change(${'$'}x) -> !haptic(tick)`, `on every(1s) when ${'$'}running
 To change an existing block in a later reply, write a fence with the info string `weave edit <id>` containing only the statements to add or replace; `-name` deletes one. An `on` effect in an edit replaces every effect the block has on that same trigger, so to change one guarded effect, restate all the others on that trigger too.
 `export name, ${'$'}state` lets later blocks read `id::name`."""
 
-    private const val SYNTAX_4 = """`on frame -> …` runs every frame with `dt` (seconds) for simulations and games. `on tilt -> …` gives `x`, `y`. `Canvas(view: [0, 0, 100, 60]) [circle(50, 30, 5), …]` draws in its own coordinates; marks animate with `spring(value)`. `js fn name(a) = ""${'"'}…""${'"'}` defines a pure JavaScript function (JSON in, JSON out) for heavy logic."""
+    private const val SYNTAX_4_BASE = """`on frame -> …` runs every frame with `dt` (seconds) for simulations and games. `on tilt -> …` gives `x`, `y`. `Canvas(view: [0, 0, 100, 60]) [circle(50, 30, 5), …]` draws in its own coordinates; marks animate with `spring(value)`."""
+    private const val SYNTAX_4_JS = """ `js fn name(a) = ""${'"'}…""${'"'}` defines a pure JavaScript function (JSON in, JSON out) for heavy logic."""
 
-    private fun syntax(tier: Int, c: Catalog): String {
+    private fun syntax(tier: Int, c: Catalog, scripts: Boolean = true): String {
         val out = StringBuilder(SYNTAX_1)
         if (tier >= 2) out.append('\n').append(SYNTAX_2)
         if (tier >= 3 && c.action("ask") != null && c.function("lazy") != null) out.append('\n').append(SYNTAX_3)
-        if (tier >= 4 && c.component("Canvas") != null && c.trigger("frame") != null) out.append('\n').append(SYNTAX_4)
+        if (tier >= 4 && c.component("Canvas") != null && c.trigger("frame") != null) out.append('\n').append(SYNTAX_4_BASE).append(if (scripts) SYNTAX_4_JS else "")
         return out.toString()
     }
 
