@@ -376,6 +376,14 @@ private fun StableAssistantMessage(
         version = replyVersionIndex.takeIf { it != latestVersion },
         enabled = !streamActive && persistedMessage != null,
     ) {
+        // an older answer the user paged back to has its own blocks: they run from the fence text
+        // and never attach to (or read) the latest answer's stored rows
+        val archived = replyVersionIndex != latestVersion && persistedMessage != null
+        com.echoflow.weave.compose.ProvideWeave(
+            messageId = if (archived) com.echoflow.weave.runtime.WeaveRuntime.archivedKey(messageId, replyVersionIndex) else messageId,
+            chatId = if (archived) null else persistedMessage?.chatId,
+            streaming = streamActive,
+        ) {
         Column(modifier.fillMaxWidth()) {
             if (keepMountedLiveTree) {
                 StreamingAssistantBubble(
@@ -414,6 +422,7 @@ private fun StableAssistantMessage(
                     onReplyVersionChange = onReplyVersionChange,
                 )
             }
+        }
         }
     }
 }

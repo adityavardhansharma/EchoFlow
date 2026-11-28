@@ -1,5 +1,6 @@
 package com.echoflow
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -57,7 +58,11 @@ class MainActivity : ComponentActivity() {
     private val openScheduleRequest = MutableStateFlow<String?>(null)
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
     // Text or files another app shared into EchoFlow, opened as a new chat.
-    private val shareRequest = MutableStateFlow<IncomingShare?>(null)
+    /**
+     * A share waiting for the chat UI. Process-wide, not per activity: deciding whether a share is a
+     * `.weave` file can finish after a rotation, and the result must reach the new activity.
+     */
+    private val shareRequest get() = pendingShare
     // A launcher shortcut (new chat, voice, temporary, Imagine) to act on.
     private val shortcutRequest = MutableStateFlow<AppShortcut?>(null)
 
@@ -71,7 +76,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readShare(intent: Intent?) {
-        IncomingShare.from(intent)?.let { shareRequest.value = it }
+        com.echoflow.weave.compose.WeaveImport.read(this, intent) {
+            IncomingShare.from(intent)?.let { shareRequest.value = it }
+        }
     }
 
     // Launcher shortcuts arrive through ShortcutTrampolineActivity, which brings this task forward
@@ -143,7 +150,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val pendingShare by shareRequest.collectAsState()
+            // shared across activity instances: only the resumed one takes it, so a stopped
+            // instance in the back stack can't consume a share meant for the visible one
+            val pendingShare by shareRequest.collectAsStateWithLifecycle(minActiveState = androidx.lifecycle.Lifecycle.State.RESUMED)
             LaunchedEffect(pendingShare) {
                 pendingShare?.let { share ->
                     chatVm.openShare(share)
@@ -213,3 +222,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** See [MainActivity.shareRequest]. */
+private val pendingShare = MutableStateFlow<IncomingShare?>(null)

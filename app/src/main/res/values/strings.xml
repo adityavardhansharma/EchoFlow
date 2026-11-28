@@ -12,4 +12,5 @@
     <string name="shortcut_temporary_long">New temporary chat</string>
     <string name="shortcut_imagine_short">Imagine</string>
     <string name="shortcut_imagine_long">Create in Imagine</string>
+    <string name="weave_widget_description">A block you kept from a chat</string>
 </resources>

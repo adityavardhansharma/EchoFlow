@@ -1144,14 +1144,15 @@ drawn as `onSurface` modules on `surface`, 120/160/200 dp, with a 4-module quiet
 ## 11. Overlays
 
 Overlays are **bindings** opened with `!open(name)` and closed with `!close` (03 §7.3). They are not
-rendered in the flow; referencing an overlay binding as a child renders nothing.
+rendered in the flow; referencing an overlay binding as a child renders nothing. One overlay is open
+at a time: `!open` replaces the overlay that is open, so two modal surfaces never stack.
 
 | Component | Renders |
 |---|---|
 | `Sheet(title?: str, full = false) [content]` | M3 `ModalBottomSheet`, `skipPartiallyExpanded = full`. Title row in `titleLarge`. Content scrolls. |
 | `Dialog(title: str, confirm?: {label, onTap}, dismiss?: {label, onTap?}) [content]` | M3 `AlertDialog`. The block's title is always shown above `title` in `labelMedium` `onSurfaceVariant` (anti-spoofing, 05 §13). |
-| `Popover(anchor: name) [content]` | M3 `Popup` with a `surfaceContainer` card (shape `m`, elevation 2) positioned below the anchor node. |
-| `Menu(anchor: name, items: list<{label, icon?, onTap}>)` | M3 `DropdownMenu` anchored to the node. |
+| `Popover(anchor: name) [content]` | M3 `Popup` with a `surfaceContainer` card (shape `m`, elevation 2) positioned below the anchor node (above it when there is no room below, kept inside the window). |
+| `Menu(anchor: name, items: list<{label, icon?, onTap}>)` | An M3 menu (menu surface and `DropdownMenuItem`s) positioned below the anchor node (above it when there is no room below, kept inside the window). |
 
 Overlays live in their own window; Roborazzi can't capture them; verify them on the emulator
 (CLAUDE.md).

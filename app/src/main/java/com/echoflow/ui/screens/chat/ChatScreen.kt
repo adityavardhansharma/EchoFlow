@@ -70,6 +70,37 @@ fun ChatScreen(
     // The schedule pill under the bar pushes the first message down so it never hides its text.
     val messagesTopInset = if (scheduleThread != null) topBarInset + StatusPillHeight + Spacing.s else topBarInset
 
+    val uiLevel by chatViewModel.intelligentUiLevel.collectAsState()
+    val chatUiLevel by chatViewModel.chatIntelligentUi.collectAsState()
+    val turnCap by chatViewModel.echoUiTurnCap.collectAsState()
+    val selectedModelId by chatViewModel.selectedModelId.collectAsState()
+    // the chat's effective level (its override, else the global one); the turn being generated
+    // uses its own plan, which includes an Off chat's explicit-request exception (05 §11.4–11.5)
+    val effectiveLevel = chatUiLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: uiLevel
+    val weaveMaxBlocks = com.echoflow.weave.core.prompt.EchoUiTiers.maxBlocks(effectiveLevel)
+    val weaveImport by com.echoflow.weave.compose.WeaveImport.pending.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(weaveImport) {
+        weaveImport?.let { chatViewModel.importWeave(it); com.echoflow.weave.compose.WeaveImport.pending.value = null }
+    }
+    com.echoflow.weave.compose.WeaveHostLayer(
+        onSay = { text -> chatViewModel.sendMessage(text) },
+        maxBlocks = weaveMaxBlocks,
+        turnMaxBlocks = turnCap,
+        // local models can't run Echo UI (05 §10.1): no button that would do nothing
+        onMakeInteractive = if (selectedModelId.startsWith("local/")) null else { text -> chatViewModel.makeInteractive(text) },
+        hiddenModel = androidx.compose.runtime.remember(chatViewModel) { chatViewModel.echoUiHiddenModel() },
+        tools = androidx.compose.runtime.remember(chatViewModel) {
+            mapOf(
+                "web.search" to com.echoflow.weave.runtime.WeaveTools.webSearch { q -> chatViewModel.echoUiSearch(q)?.map { Triple(it.title, it.url, it.snippet) } },
+                "web.read" to com.echoflow.weave.runtime.WeaveTools.webRead,
+            )
+        },
+        autoFix = { chatViewModel.echoUiAutoFix() },
+        modelTier = { chatViewModel.echoUiModelTier() },
+        modelId = { chatViewModel.echoUiCurrentModel() },
+        qualityRead = { chatViewModel.echoUiPref(it) },
+        qualityWrite = { k, v -> chatViewModel.setEchoUiPref(k, v) },
+    ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         // Everything floats; each surface fills behind it. Insets are handled per element.
@@ -147,6 +178,7 @@ fun ChatScreen(
                 errorMessage?.let { ErrorBanner(it) { chatViewModel.clearError() } }
             }
         }
+    }
     }
 }
 

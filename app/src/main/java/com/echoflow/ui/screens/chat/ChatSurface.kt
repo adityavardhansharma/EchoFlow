@@ -169,6 +169,8 @@ internal fun ChatSurface(
 
     val pendingAttachments by chatViewModel.pendingAttachments.collectAsState()
     val selectedModelID by settingsViewModel.selectedModel.collectAsState()
+    val chatIntelligentUi by chatViewModel.chatIntelligentUi.collectAsState()
+    val globalUiLevel by chatViewModel.intelligentUiLevel.collectAsState()
     val customProviderConfig by settingsViewModel.customProviderConfig.collectAsState()
     val customModelsList by settingsViewModel.customModels.collectAsState()
     val customProviderModels by settingsViewModel.customProviderModels.collectAsState()
@@ -792,6 +794,10 @@ internal fun ChatSurface(
                 localSendBlocked -> "On-device model is busy in another chat"
                 else -> null
             },
+            intelligentUiShown = !selectedModelID.startsWith("local/"),
+            intelligentUi = chatIntelligentUi,
+            intelligentUiGlobal = globalUiLevel,
+            onIntelligentUi = { chatViewModel.setChatIntelligentUi(it) },
             memoryAvailable = memoryOffered,
             memoryOn = forceMemory && memoryAvailable,
             onToggleMemory = {

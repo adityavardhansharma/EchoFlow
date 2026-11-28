@@ -124,6 +124,35 @@ class ChatViewModel(
 
     /** Chat or Imagine. Lateral state, never a navigation destination — back never moves it. */
     val appMode: StateFlow<AppMode> = settingsRepository.appMode
+    /**
+     * The open chat's Intelligent UI override (05 §11.2). For a chat not created yet it is held
+     * here and written when the thread is created.
+     */
+    private val _pendingIntelligentUi = MutableStateFlow<String?>(null)
+    val chatIntelligentUi: StateFlow<String?> by lazy {
+        combine(allThreads, currentChatThreadId, _pendingIntelligentUi) { threads, id, pending ->
+            if (id == null) pending else threads.firstOrNull { it.id == id }?.intelligentUi
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+    }
+
+    fun setChatIntelligentUi(level: String?) {
+        val id = _currentChatThreadId.value
+        if (id == null) { _pendingIntelligentUi.value = level; return }
+        viewModelScope.launch { chatDao.setIntelligentUi(id, level) }
+    }
+
+    /** Echo UI level (05 §11.1); decides how many new blocks a reply renders (05 §11.4). */
+    val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = settingsRepository.intelligentUiLevel
+
+    /**
+     * The block cap of the turn being generated (05 §11.4), from that turn's plan: the chat's
+     * effective level, including an Off chat's explicit-request exception. Null before any turn.
+     */
+    private val _echoUiTurnCap = MutableStateFlow<Int?>(null)
+    val echoUiTurnCap: StateFlow<Int?> = _echoUiTurnCap.asStateFlow()
+
+    /** The selected model id, so the UI can hide model-only actions for local models. */
+    val selectedModelId: StateFlow<String> get() = settingsRepository.selectedModel
 
     /**
      * Switches surface, parking the current conversation so this mode returns to it later and
@@ -1396,6 +1425,7 @@ class ChatViewModel(
     }
 
     fun startNewChat() {
+        _pendingIntelligentUi.value = null
         selectThread(null)
     }
 
@@ -1551,6 +1581,71 @@ class ChatViewModel(
     /** Clear a turn only while its coroutine still owns both per-chat stream registries. */
     private fun clearStreamIfOwned(chatId: String, streamJob: Job?): Boolean {
         return turns.clearIfOwned(chatId, streamJob)
+    }
+
+    /** The Echo UI prompt section for one turn (05 §11.3), or "" when the effective tier is 0. */
+    private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false): String {
+        val level = chatLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: settingsRepository.getIntelligentUiLevelDirect()
+        val downgraded = (settingsRepository.getEchoUiString("echoui_downgrade_until_$modelId")?.toLongOrNull() ?: 0L) > System.currentTimeMillis()
+        val (tools, context) = echoUiCapabilities(modelId)
+        val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(
+            modelId, isLocal, settingsRepository.getEchoUiTierOverride(modelId), downgraded, toolUse = tools, contextTokens = context,
+        )
+        val plan = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.plan(level, tier, latestUserMessage, makeInteractive)
+        _echoUiTurnCap.value = if (plan.tier <= 0) 0 else plan.maxBlocks
+        if (plan.tier <= 0) return ""
+        return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
+    }
+
+    /**
+     * Tool support and context length for a model the tier table doesn't list (05 §10.2), from the
+     * OpenRouter directory. Unknown capabilities count as none (no tools, 16k context): an
+     * unmeasured model only gets the tier its reported capabilities earn. The directory loads in
+     * the background the first time, for the next turn.
+     */
+    private fun echoUiCapabilities(modelId: String): Pair<Boolean, Int> {
+        val models = com.echoflow.data.OpenRouterModelDirectory.lastChatModels
+        if (models == null) {
+            viewModelScope.launch { runCatching { com.echoflow.data.OpenRouterModelDirectory().allModels() } }
+            return false to 16_000
+        }
+        // exact id first (OpenRouter variants such as `:free` are their own rows), then without
+        // an `openrouter/` prefix, then without a provider prefix before ':'
+        val candidates = listOf(modelId, modelId.removePrefix("openrouter/"), modelId.substringAfter(":")).distinct()
+        val info = candidates.firstNotNullOfOrNull { c -> models.firstOrNull { it.id.equals(c, ignoreCase = true) } } ?: return false to 16_000
+        return (info.supportsTools == true) to (info.contextLength ?: 16_000)
+    }
+
+    /** Opens a `.weave` file as a block in a new chat, with its stored state (01 §23.4). */
+    fun importWeave(text: String) {
+        viewModelScope.launch {
+            val (source, state) = com.echoflow.weave.compose.WeaveShare.parseWeaveFile(text)
+            if (source.isBlank()) return@launch
+            val now = System.currentTimeMillis()
+            val program = com.echoflow.weave.core.program.Compiler.compile(source, com.echoflow.weave.core.catalog.BuiltinCatalog)
+            val title = program.header.title ?: "Shared block"
+            val chatId = chatRepository.createThread(mode = AppMode.Chat, title = title).id
+            val intro = "Opened from a .weave file.\n\n"
+            val messageId = java.util.UUID.randomUUID().toString()
+            messageDao.insertMessage(ChatMessage(id = messageId, chatId = chatId, role = "assistant", content = intro + "```weave\n" + source + "\n```", createdAt = now))
+            val db = com.echoflow.data.AppDatabase.getDatabase(getApplication())
+            db.weaveStorageDao().createBlock(
+                com.echoflow.weave.runtime.storage.WeaveBlockRow(
+                    id = java.util.UUID.randomUUID().toString(), chatId = chatId, messageId = messageId, blockKey = intro.length,
+                    blockId = program.header.id ?: "b1", version = 1, form = "source",
+                    source = com.echoflow.weave.runtime.WeaveRuntime.withHeaderId(source, program.header.id ?: "b1"),
+                    stateJson = state, historyJson = "[]", lazyJson = "{}", queryJson = "{}", consentJson = "{}",
+                    firedJson = "{}", askLogJson = "[]", uiStateJson = "{}", createdAt = now, updatedAt = now,
+                ),
+            )
+            selectThread(chatId)
+        }
+    }
+
+    /** "Make interactive" (05 §11.6): asks for one block at the model's full tier, even on Off. */
+    fun makeInteractive(assistantText: String) {
+        if (settingsRepository.getSelectedModelDirect().startsWith("local/")) return
+        sendMessage(com.echoflow.weave.core.prompt.EchoUiPrompt.makeInteractive(assistantText))
     }
 
     fun sendMessage(content: String, forceMemory: Boolean = false) {
@@ -1831,14 +1926,19 @@ class ChatViewModel(
                 } else prompt
             } else null
 
+            // Echo UI (05 §11.3, §12): the Weave section for ordinary chat turns on cloud models.
+            val echoUiSection = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
+                val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi } ?: _pendingIntelligentUi.value
+                echoUiSection(prompt, requestModel, isLocal, chatLevel, makeInteractive = prompt.startsWith(com.echoflow.weave.compose.MAKE_INTERACTIVE_PREFIX))
+            } else ""
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
                 // Tool-calling custom providers behave like cloud models: they call web_search
                 // themselves, so they get the standard "you have a web_search tool" prompt.
-                customToolCallingActive -> SystemPrompts.build(false, effectiveProvider)
+                customToolCallingActive -> SystemPrompts.build(false, effectiveProvider, echoUi = echoUiSection)
                 // Other custom providers have no native tool calling; their search results are
                 // pre-injected, so they need the "results are provided" prompt instead.
-                customProviderActive -> SystemPrompts.buildCustomProvider(effectiveProvider)
-                else -> SystemPrompts.build(isLocal, effectiveProvider)
+                customProviderActive -> SystemPrompts.buildCustomProvider(effectiveProvider, echoUi = echoUiSection)
+                else -> SystemPrompts.build(isLocal, effectiveProvider, echoUi = echoUiSection)
             }
 
             // Project context: the open thread's project (or the pending one for a brand-new
@@ -1876,6 +1976,9 @@ class ChatViewModel(
                     mode = if (activeProjectId != null) AppMode.Chat else startMode,
                     projectId = activeProjectId,
                 ).id
+                // An Intelligent UI level picked before the chat existed belongs to it now (05 §11.2).
+                _pendingIntelligentUi.value?.let { chatDao.setIntelligentUi(chatId, it) }
+                _pendingIntelligentUi.value = null
                 // A send typed into the new thread must see this turn too, open or not.
                 turns.extend(sendClaim, chatId)
                 if (stillOnBlank) {
@@ -2003,7 +2106,11 @@ class ChatViewModel(
 
             // Load updated dialog history
             // Quoted passages reach every provider as blockquotes ahead of the typed text.
-            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }
+            val fullHistory = chatRepository.history(chatId).map { it.withQuotesForModel() }.let { h ->
+                // Echo UI blocks go back to the model as their current source + state (05 §9.4).
+                val rows = runCatching { com.echoflow.data.AppDatabase.getDatabase(getApplication()).weaveBlockDao().forChat(chatId) }.getOrDefault(emptyList())
+                com.echoflow.weave.runtime.WeaveHistory.rewrite(h, rows)
+            }
             // Multi-photo turns: the legacy column carries the first photo, the rest ride to the
             // provider as extra image parts, on every user turn so earlier photos stay in context.
             fullHistory.forEach { it.extraAttachments = it.extraPhotos() }
@@ -2621,6 +2728,67 @@ class ChatViewModel(
         params: InferenceParams,
         search: suspend (String) -> List<SearchSource>,
     ): Flow<StreamChunk> = customProviderFlowRouter.streamWithTools(provider, config, model, history, systemPrompt, params, search)
+
+    /**
+     * One hidden Echo UI request (05 §8): the live-update model (or the chat's), temperature 0.4,
+     * 4,096 tokens, 60 s timeout ([timeoutMs] for regen). Never creates chat messages or touches
+     * the thread. Returns the streamed text, or null on failure. [onPartial] sees the text so far
+     * (used by `lazy`, which renders as it streams).
+     */
+    suspend fun echoUiHidden(
+        systemPrompt: String,
+        userText: String,
+        timeoutMs: Long = 60_000,
+        onPartial: (String) -> Unit = {},
+    ): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val model = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
+        if (model.startsWith("local/")) return@withContext null
+        val config = settingsRepository.getCustomProviderConfigDirect()
+        val provider = CustomProviderRouting.providerFor(model)
+        if (provider != null && CustomProviderRouting.disabledMessage(provider, config) != null) return@withContext null
+        val requestModel = CustomProviderRouting.requestModel(provider, model)
+        val params = settingsRepository.getInferenceParamsDirect(local = false).copy(temperature = 0.4f, maxTokens = 4096)
+        val history = listOf(ChatMessage(id = java.util.UUID.randomUUID().toString(), chatId = "echo-ui", role = "user", content = userText, createdAt = System.currentTimeMillis()))
+        val flow = if (provider != null) customProviderFlow(provider, config, requestModel, history, systemPrompt, params)
+        else {
+            val key = settingsRepository.getApiKeyDirect()
+            if (key.isBlank()) return@withContext null
+            openRouterGateway.stream(LlmStreamRequest(apiKey = key, model = model, chatId = "echo-ui", history = history, systemPrompt = systemPrompt, params = params))
+        }
+        val sb = StringBuilder()
+        val ok = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                flow.collect { chunk -> if (chunk is StreamChunk.Content) { sb.append(chunk.text); onPartial(sb.toString()) } }
+                true
+            }
+        }.getOrNull() == true
+        if (ok && sb.isNotBlank()) sb.toString() else null
+    }
+
+    /** The model loop's view of hidden requests (05 §8). */
+    fun echoUiHiddenModel(): com.echoflow.weave.runtime.HiddenModel = object : com.echoflow.weave.runtime.HiddenModel {
+        override suspend fun complete(systemPrompt: String, userText: String, timeoutMs: Long, onPartial: (String) -> Unit) =
+            echoUiHidden(systemPrompt, userText, timeoutMs, onPartial)
+        override val available: Boolean get() = !echoUiCurrentModel().startsWith("local/")
+    }
+
+    fun echoUiCurrentModel(): String = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
+    fun echoUiAutoFix(): Boolean = settingsRepository.echoUiAutoFix.value
+    fun echoUiModelTier(): Int {
+        val id = echoUiCurrentModel()
+        return com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(id, id.startsWith("local/"), settingsRepository.getEchoUiTierOverride(id))
+            .coerceAtMost(com.echoflow.weave.runtime.tiers.EchoUiModelTiers.shippedTier)
+    }
+    fun echoUiPref(key: String): String? = settingsRepository.getEchoUiString(key)
+    fun setEchoUiPref(key: String, value: String?) = settingsRepository.putEchoUiString(key, value)
+
+    /** `web.search` for Echo UI tools (05 §8.7): the user's configured client search provider. */
+    suspend fun echoUiSearch(query: String): List<SearchSource>? {
+        val provider = settingsRepository.getWebSearchProviderDirect()
+        val key = settingsRepository.getSearchApiKeyDirect(provider)
+        if (!ClientSearchProviders.isReady(provider, key)) return null
+        return runCatching { webSearchService.search(provider, key, query) }.getOrNull()
+    }
 
     private fun customProviderFlow(
         provider: String?,

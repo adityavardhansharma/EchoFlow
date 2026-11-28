@@ -136,6 +136,14 @@ class SettingsViewModel(
 
     // Artifacts
     val artifactsOffline: StateFlow<Boolean> = repository.artifactsOffline
+    val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = repository.intelligentUiLevel
+    val echoUiAutoFix: StateFlow<Boolean> = repository.echoUiAutoFix
+    val echoUiModel: StateFlow<String?> = repository.echoUiModel
+    fun setIntelligentUiLevel(level: com.echoflow.weave.core.prompt.IntelligentUiLevel) = repository.setIntelligentUiLevel(level)
+    fun setEchoUiAutoFix(on: Boolean) = repository.setEchoUiAutoFix(on)
+    fun setEchoUiModel(id: String?) = repository.setEchoUiModel(id)
+    fun echoUiTierOverride(modelId: String): Int? = repository.getEchoUiTierOverride(modelId)
+    fun setEchoUiTierOverride(modelId: String, tier: Int?) = repository.setEchoUiTierOverride(modelId, tier)
 
     // Dictation (uses the selected transcription provider’s key)
     val systemWideDictation: StateFlow<Boolean> = repository.systemWideDictation

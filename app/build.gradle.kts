@@ -65,6 +65,8 @@ android {
         abiFilters.clear()
         abiFilters += listOf("arm64-v8a", "x86_64")
       }
+      // debug builds try the later phases on device; release ships only what has passed eval
+      buildConfigField("int", "ECHO_UI_PHASE", "3")
     }
   }
   compileOptions {
@@ -75,6 +77,11 @@ android {
     aidl = true
     compose = true
     buildConfig = true
+  }
+  defaultConfig {
+    // Echo UI phase (05 §15): 1 → tier 2, 2 → tier 3, 3 → tier 4. Each phase ships once its tier
+    // passes the eval bars (07 §10.3); only tier 2 has (weave-eval/runs/2026-11-26-tier2-balanced).
+    buildConfigField("int", "ECHO_UI_PHASE", "1")
   }
   packaging {
     jniLibs {
@@ -95,6 +102,11 @@ secrets {
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation(project(":weave-core"))
+  implementation(libs.zxing.core)
+  implementation(libs.lottie.compose)
+  implementation(libs.glance.appwidget)
+  implementation(libs.glance.material3)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

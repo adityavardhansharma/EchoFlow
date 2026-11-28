@@ -46,6 +46,11 @@ data class ChatThread(
      * those simply keep whatever model is selected.
      */
     val modelId: String? = null,
+    /**
+     * Per-chat Intelligent UI level (Echo UI, 05 §11.2): `off`, `balanced` or `immersive`, or
+     * null to follow the global setting. Added in v33.
+     */
+    val intelligentUi: String? = null,
 ) {
     val mode: AppMode get() = AppMode.fromStorage(kind)
     val isPinned: Boolean get() = pinnedAt != null

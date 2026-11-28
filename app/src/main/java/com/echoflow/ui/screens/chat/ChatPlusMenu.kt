@@ -122,6 +122,11 @@ internal fun PlusMenu(
     memoryAvailable: Boolean = false,
     memoryOn: Boolean = false,
     onToggleMemory: () -> Unit = {},
+    /** Per-chat Intelligent UI (05 §11.2): the override (null = default) and the global level. Hidden for local models. */
+    intelligentUiShown: Boolean = false,
+    intelligentUi: String? = null,
+    intelligentUiGlobal: com.echoflow.weave.core.prompt.IntelligentUiLevel = com.echoflow.weave.core.prompt.IntelligentUiLevel.BALANCED,
+    onIntelligentUi: (String?) -> Unit = {},
 ) {
     // Bespoke popup anchored above the "+". One surface that blooms out of the anchor corner: a
     // fast scale + fade, no slide. The drop shadow is drawn by the *same* graphics layer as the
@@ -252,6 +257,7 @@ internal fun PlusMenu(
                         Column {
                             PlusMenuRow(Icons.Default.TravelExplore, "Web search", webSearchOn, labs = false, onClick = onToggleWebSearch)
                             PlusMenuRow(Icons.Default.Science, "Deep Research", deepResearchOn, labs = false, onClick = onToggleDeepResearch)
+                            if (intelligentUiShown) IntelligentUiRow(intelligentUi, intelligentUiGlobal, onIntelligentUi)
                         }
                         EchoLabsBand {
                             if (dataAgentAvailable) PlusMenuRow(Icons.Default.Dataset, "Data Agent", dataAgentOn, labs = true, onClick = onToggleDataAgent)
@@ -264,6 +270,43 @@ internal fun PlusMenu(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** "Intelligent UI" with its current level; tapping opens a submenu instead of toggling (05 §11.2). */
+@Composable
+private fun IntelligentUiRow(
+    current: String?,
+    global: com.echoflow.weave.core.prompt.IntelligentUiLevel,
+    onPick: (String?) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    fun title(l: com.echoflow.weave.core.prompt.IntelligentUiLevel) = when (l) {
+        com.echoflow.weave.core.prompt.IntelligentUiLevel.OFF -> "Off"
+        com.echoflow.weave.core.prompt.IntelligentUiLevel.BALANCED -> "Balanced"
+        com.echoflow.weave.core.prompt.IntelligentUiLevel.IMMERSIVE -> "Immersive"
+    }
+    val effective = current?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { open = true }.heightIn(min = 46.dp).padding(start = Spacing.xs + 2.dp, end = Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(32.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(Spacing.m))
+            Text("Intelligent UI", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(effective?.let { title(it) } ?: "Default", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        androidx.compose.material3.DropdownMenu(open, { open = false }) {
+            androidx.compose.material3.DropdownMenuItem({ Text("Use default (${title(global)})") }, { open = false; onPick(null) },
+                trailingIcon = { if (current == null) Icon(Icons.Default.Check, null) })
+            com.echoflow.weave.core.prompt.IntelligentUiLevel.entries.forEach { l ->
+                androidx.compose.material3.DropdownMenuItem({ Text(title(l)) }, { open = false; onPick(l.storageKey) },
+                    trailingIcon = { if (effective == l) Icon(Icons.Default.Check, null) })
             }
         }
     }

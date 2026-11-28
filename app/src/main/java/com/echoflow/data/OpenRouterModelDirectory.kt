@@ -20,6 +20,8 @@ data class OpenRouterModelInfo(
     val outputsText: Boolean = true, // architecture.output_modalities contains "text"
     /** True when OpenRouter bills image output separately from prompt/completion tokens. */
     val hasImageOutputPrice: Boolean = false,
+    /** `supported_parameters` lists `tools`; null when the directory didn't say. */
+    val supportsTools: Boolean? = null,
 ) {
     val isFree: Boolean
         get() = (promptPricePerM ?: 0.0) == 0.0 &&
@@ -54,7 +56,7 @@ class OpenRouterModelDirectory {
     @Volatile
     private var imageCache: List<OpenRouterModelInfo>? = null
 
-    suspend fun allModels(): List<OpenRouterModelInfo> = fetchInto(chatCache) { chatCache = it }
+    suspend fun allModels(): List<OpenRouterModelInfo> = fetchInto(chatCache) { chatCache = it; lastChatModels = it }
 
     /**
      * Every model OpenRouter will generate an image with, including dedicated Image API
@@ -87,6 +89,11 @@ class OpenRouterModelDirectory {
     }
 
     companion object {
+        /** The chat directory as last loaded by any instance in this process, or null. */
+        @Volatile
+        var lastChatModels: List<OpenRouterModelInfo>? = null
+            private set
+
         const val CHAT_DIRECTORY_URL = "https://openrouter.ai/api/v1/models"
         const val IMAGE_DIRECTORY_URL = "https://openrouter.ai/api/v1/models?output_modalities=image"
 
@@ -106,6 +113,7 @@ class OpenRouterModelDirectory {
                     hasImageOutputPrice = raw.pricing?.imageOutput
                         ?.toDoubleOrNull()
                         ?.let { it > 0.0 } == true,
+                    supportsTools = raw.supportedParameters?.any { it.equals("tools", ignoreCase = true) },
                 )
             }.sortedBy { it.name.lowercase() }
         }
@@ -139,6 +147,7 @@ internal data class RawModel(
     @Json(name = "context_length") val contextLength: Int? = null,
     val pricing: RawPricing? = null,
     val architecture: RawArchitecture? = null,
+    @Json(name = "supported_parameters") val supportedParameters: List<String>? = null,
 )
 
 internal data class RawArchitecture(

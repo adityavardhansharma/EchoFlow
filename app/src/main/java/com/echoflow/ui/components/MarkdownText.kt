@@ -65,9 +65,12 @@ fun MarkdownText(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
     streaming: Boolean = false,
+    /** Replaces opening the browser on a tap (Echo UI blocks confirm the destination first). */
+    onLinkClick: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val root = LocalView.current
+    val linkOverride by androidx.compose.runtime.rememberUpdatedState(onLinkClick)
     val renderedStyle = rememberReplyMarkdownStyle(textColor, style)
     var peekUrl by remember { mutableStateOf<String?>(null) }
     var anchor by remember { mutableStateOf<Rect?>(null) }
@@ -77,7 +80,7 @@ fun MarkdownText(
         ChunkLinks(
             onClick = { url ->
                 peekUrl = null
-                openUrl(context, url)
+                linkOverride?.invoke(url) ?: openUrl(context, url)
             },
             onLongClick = { url ->
                 val next = press.anchor(root.height)
@@ -144,14 +147,24 @@ internal fun StreamingMarkdown(
     val planner = remember(extensions.keys) { MarkdownStreamPlanner(extensions.keys) }
     val plan = remember(planner, text) { planner.plan(text) }
     Column(modifier) {
+        // one count per extension instance: kinds registered to the same extension share it
+        val ordinals = java.util.IdentityHashMap<MarkdownBlockExtension, Int>()
         plan.blocks.forEachIndexed { index, block ->
             val last = index == plan.blocks.lastIndex
+            val ordinal = (block as? MarkdownExtensionPart)?.block?.let { b ->
+                val ext = extensions[b.kind] ?: return@let 0
+                val n = ordinals.getOrDefault(ext, 0)
+                if (ext.countsTowardLimit(b)) ordinals[ext] = n + 1
+                n
+            } ?: 0
             key(block.key) {
                 when (block) {
                     is MarkdownChunk -> chunk(
                         MarkdownChunkSpec(block.source, plan.references, streamingTail = streaming && last, last = last)
                     )
-                    is MarkdownExtensionPart -> extensions[block.block.kind]?.Render(block.block, Modifier.fillMaxWidth())
+                    is MarkdownExtensionPart -> androidx.compose.runtime.CompositionLocalProvider(LocalMarkdownExtensionOrdinal provides ordinal) {
+                        extensions[block.block.kind]?.Render(block.block, Modifier.fillMaxWidth())
+                    }
                 }
             }
         }

@@ -410,9 +410,20 @@ object Builtins {
             "axis" -> WRec(LinkedHashMap<String, WValue>().apply {
                 listOf("title", "format", "min", "max", "ticks", "grid", "log", "hidden").forEachIndexed { i, k -> a.getOrNull(i)?.let { put(k, it) } }
             })
-            "pending", "loading", "failed" -> WBool.FALSE
+            "pending" -> WBool.FALSE
+            "loading" -> WBool.of((arg(0) as? WRec)?.get("loading")?.truthy() == true)
+            "failed" -> WBool.of(((arg(0) as? WRec)?.get("error") ?: WNull) != WNull)
             "spring", "tween" -> arg(0)
-            "loop" -> arg(0)
+            "loop" -> {
+                val from = n(arg(0)) ?: return arg(0)
+                val to = n(arg(1)) ?: return arg(0)
+                val period = ((arg(2) as? WDur)?.ms ?: 1000L).coerceAtLeast(16L)
+                val t = ev.ctx.animationTimeMs() ?: return WNum.of(from)
+                val phase = (t % period).toDouble() / period
+                val k = if ((a.getOrNull(3) as? WSym)?.name == "linear" || (a.getOrNull(3) as? WStr)?.v == "linear") phase
+                    else (1 - kotlin.math.cos(phase * 2 * Math.PI)) / 2
+                WNum.of(from + (to - from) * k)
+            }
             "stagger" -> { val i = n(arg(0)) ?: return WNull; val base = (a.getOrNull(1) as? WDur)?.ms ?: 40; WDur(Math.round(i * base)) }
             else -> WNull
         }

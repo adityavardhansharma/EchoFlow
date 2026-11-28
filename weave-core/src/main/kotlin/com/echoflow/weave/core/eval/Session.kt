@@ -93,6 +93,40 @@ class Session(
         }
     }
 
+    /**
+     * Restores stored values (03 §7.1 step 2): each must name a declared state and is already
+     * coerced to its type (see `StateCodec.decodeState`). Restored writes make no history.
+     */
+    fun restore(values: Map<String, WValue>) {
+        for ((k, v) in values) {
+            val decl = program.states[k] ?: continue
+            // JSON has no dates, times or durations: an untyped state whose initial value is one
+            // takes that type back, so `$day = date("2026-12-01")` restores as a date, not text
+            // only a stored string is revived; a stored number or list is the state's runtime value
+            // (an untyped state may have been written with another type) and is kept as it is
+            val t = if (decl.type != null || v !is WStr) null else when (state[k]) {
+                is WDate -> com.echoflow.weave.core.check.WType.DATE
+                is WTime -> com.echoflow.weave.core.check.WType.TIME
+                is WDateTime -> com.echoflow.weave.core.check.WType.DATETIME
+                is WDur -> com.echoflow.weave.core.check.WType.DUR
+                else -> null
+            }
+            state[k] = if (t == null) v else Coercion(ctx.formatter).toType(v, t).takeIf { it.ok }?.value ?: continue
+        }
+    }
+
+    /** Whether any timer (debounce, `!after`, `every`) is pending; the host ticks [advance] only then. */
+    val hasTimers: Boolean get() = timers.isNotEmpty()
+
+    /** Ms until the next timer is due, or null when none is pending. */
+    fun nextTimerIn(): Long? = timers.minOfOrNull { it.at }?.let { maxOf(0L, it - clock) }
+
+    /** True once `appear` has fired for this block (persisted in `firedJson`). */
+    val hasAppeared: Boolean get() = appeared
+
+    /** A block whose `appear` already fired in an earlier session: don't fire it again (03 §8.2). */
+    fun markAppeared() { appeared = true }
+
     /** States declared but not initialised yet (03 §7.1). */
     val waitingStates: Set<String> get() = program.states.keys - state.keys
 
@@ -292,8 +326,20 @@ class Session(
         runEvent(action, data, fromEffect = false, chain = chain)
     }
 
+    /** Writes during one continuous drag merge into a single history entry (03 §7.5). */
+    private var dragOpen = false
+    private var dragging = false
+
+    /** Ends a continuous drag: the next drag write starts a new history entry. */
+    fun endDrag() { dragOpen = false }
+
     /** An input writes its bound place (then its `onChange`), in one transaction (04 §7). */
-    fun input(place: Place, value: WValue, onChange: WValue? = null) {
+    fun input(place: Place, value: WValue, onChange: WValue? = null, drag: Boolean = false) {
+        dragging = drag
+        try { inputTx(place, value, onChange) } finally { dragging = false }
+    }
+
+    private fun inputTx(place: Place, value: WValue, onChange: WValue?) {
         val chain = intArrayOf(0)
         val tx = Tx(LinkedHashMap(state), ArrayList(), false)
         val before = LinkedHashMap(state)
@@ -468,7 +514,11 @@ class Session(
         tx.undoView?.let { undo.clear(); undo.addAll(it) }
         tx.redoView?.let { redo.clear(); redo.addAll(it) }
         outbox += tx.effects
-        if (changed && !tx.undid) {
+        if (changed && !tx.undid && dragging && dragOpen && undo.isNotEmpty()) {
+            undo.addLast(undo.removeLast().first to LinkedHashMap(tx.work))
+            redo.clear()
+        } else if (changed && !tx.undid) {
+            dragOpen = dragging
             undo.addLast(LinkedHashMap(before) to LinkedHashMap(tx.work))
             while (undo.size > Limits.HISTORY_ENTRIES) undo.removeFirst()
             redo.clear()
@@ -478,8 +528,31 @@ class Session(
         if (changed) changeEffects(before, chain)
     }
 
-    private fun deferredArgs(a: WAction, ev: Evaluator): Deferred =
-        Deferred(a, a.args.map { ev.topLevel(it, a.scope) }, a.named.associate { (k, v) -> k to ev.topLevel(v, a.scope) })
+    private fun deferredArgs(a: WAction, ev: Evaluator): Deferred {
+        // Names and places the host needs as names, not values: `!ask(update: [a, b])`,
+        // `!tool(into: $x)` (03 §9.2, §13.2).
+        fun asNames(e: Expr): WValue = when (e) {
+            is ListLit -> WList(e.items.map { (it as? Name)?.let { n -> WStr(n.name) } ?: ev.topLevel(it, a.scope) })
+            is Name -> WList(listOf(WStr(e.name)))
+            else -> ev.topLevel(e, a.scope)
+        }
+        fun asPlace(e: Expr): WValue = (e as? StateRef)?.let { WStr("$" + it.name) } ?: ev.topLevel(e, a.scope)
+        val args = a.args.mapIndexed { i, e ->
+            when {
+                a.kind == "ask" && i == 1 -> asNames(e)
+                a.kind == "tool" && i == 2 -> asPlace(e)
+                else -> ev.topLevel(e, a.scope)
+            }
+        }
+        val named = a.named.associate { (k, v) ->
+            k to when {
+                a.kind == "ask" && k == "update" -> asNames(v)
+                a.kind == "tool" && k == "into" -> asPlace(v)
+                else -> ev.topLevel(v, a.scope)
+            }
+        }
+        return Deferred(a, args, named)
+    }
 
     private fun deferred(d: Deferred, fromEffect: Boolean, chain: IntArray) {
         val a = d.a
@@ -553,6 +626,39 @@ class Session(
             program.effects.values.filter { it.trigger.callee == "appear" }.forEach { runEffect(it, WNull, intArrayOf(0)) }
         }
         startEvery()
+    }
+
+    /** Whether the program has `frame` effects (tier 4); the host then drives [frame] per frame. */
+    val hasFrameEffects: Boolean get() = program.effects.values.any { it.trigger.callee == "frame" }
+    val hasMotionEffects: Boolean get() = program.effects.values.any { it.trigger.callee == "tilt" || it.trigger.callee == "shake" }
+
+    /** One display frame (03 §8.2 `frame`): `dt` is seconds since the last frame, capped at 0.1. */
+    fun frame(dtMs: Long) {
+        val dt = (dtMs.coerceIn(0, 100)) / 1000.0
+        for (e in program.effects.values.filter { it.trigger.callee == "frame" }) runEffectWith(e, mapOf("dt" to WNum.of(dt)))
+    }
+
+    /** Device tilt (03 §8.2 `tilt`): `x`, `y` in -1..1. */
+    fun tilt(x: Double, y: Double) {
+        for (e in program.effects.values.filter { it.trigger.callee == "tilt" }) runEffectWith(e, mapOf("x" to WNum.of(x.coerceIn(-1.0, 1.0)), "y" to WNum.of(y.coerceIn(-1.0, 1.0))))
+    }
+
+    fun shake() {
+        for (e in program.effects.values.filter { it.trigger.callee == "shake" }) runEffectWith(e, emptyMap())
+    }
+
+    private fun runEffectWith(e: Effect, vars: Map<String, WValue>) {
+        val scope = Scope(vars, null)
+        val ev = Evaluator(program, HashMap(state), ctx, catalog)
+        if (e.condition != null && !ev.topLevel(e.condition, scope).truthy()) return
+        val action = ev.topLevel(e.action, scope)
+        val before = LinkedHashMap(state)
+        val tx = Tx(LinkedHashMap(state), ArrayList(), fromEffect = true)
+        runIn(tx, action)
+        // frame-rate writes don't fill history (03 §7.5)
+        val undoBefore = undo.size
+        commit(tx, before, intArrayOf(0))
+        while (undo.size > undoBefore) undo.removeLast()
     }
 
     private fun startEvery() {
