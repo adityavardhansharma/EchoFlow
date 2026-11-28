@@ -88,9 +88,11 @@ class Checker(
                     if (p in RESERVED && p !in PARAM_OK) { diags += Diag.reserved(s.span, p, name); return null }
                     if (p != "_" && !seen.add(p)) { diags += Diag.badName(s.span, p, name); return null }
                 }
-                if (s.js != null && catalog.tier < 4) { diags += Diag.tier(s.span, "js fn", name) }
+                // Below tier 4 a js fn stays declared but evaluates to null (02 §5.4).
+                val refused = s.js != null && catalog.tier < 4
+                if (refused) diags += Diag.tier(s.span, "js fn", name)
                 if (full.function(s.name) != null) diags += Diag.duplicate(s.span, s.name, name)
-                s.copy(body = s.body?.let { expr(it, Ctx(locals = s.params.toSet())) })
+                s.copy(body = s.body?.let { expr(it, Ctx(locals = s.params.toSet())) }, jsAllowed = !refused)
             }
             is Effect -> effect(s)
             else -> s
