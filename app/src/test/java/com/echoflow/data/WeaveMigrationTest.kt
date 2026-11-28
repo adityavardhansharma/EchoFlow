@@ -44,7 +44,7 @@ class WeaveMigrationTest {
             "'{}', '{}', '{}', '[]', '{}', 1, 1)"
     )
 
-    @Test fun `chats keep following the global level and blocks cascade with their message`() {
+    @Test fun `T-463 chats keep following the global level and blocks cascade with their message`() {
         v32().use {
             val db = it.writableDatabase
             db.execSQL("INSERT INTO chat_threads (id, title, createdAt, updatedAt) VALUES ('c1', 'Old chat', 1, 2)")

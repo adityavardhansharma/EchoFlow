@@ -63,7 +63,7 @@ class ModelLoop(
         return true
     }
 
-    private fun system(): String = EchoUiPrompt.editorSection(tierFor().coerceIn(1, 4), runtime.catalog)
+    private fun system(): String = EchoUiPrompt.editorSection(tierFor().coerceIn(1, 4), runtime.catalog, scripts = runtime.scriptsEnabled())
 
     private fun stateJson(block: WeaveBlockController): String {
         val s = block.session ?: return "{}"
@@ -194,12 +194,9 @@ class ModelLoop(
         val id = currentModelId().ifEmpty { return }
         val key = "echoui_quality_$id"
         val list = (StateCodec.decode(read(key) ?: "[]") as? WList)?.items?.mapNotNull { (it as? com.echoflow.weave.core.eval.WNum)?.v?.toInt() }.orEmpty()
-        val next = (list + errorCount).takeLast(10)
+        val (next, downgrade) = com.echoflow.weave.core.prompt.EchoUiTiers.recordQuality(list, errorCount)
         write(key, StateCodec.encode(WList(next.map { com.echoflow.weave.core.eval.WNum.of(it) })))
-        if (next.size >= 5 && next.average() > 2.0) {
-            write("echoui_downgrade_until_$id", (System.currentTimeMillis() + 7L * 86_400_000).toString())
-            write(key, "[]")
-        }
+        if (downgrade) write("echoui_downgrade_until_$id", (System.currentTimeMillis() + 7L * 86_400_000).toString())
     }
 
     // ---- query and !tool, 03 §13 --------------------------------------------------------------

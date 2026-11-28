@@ -141,6 +141,8 @@ class SettingsViewModel(
     val echoUiModel: StateFlow<String?> = repository.echoUiModel
     fun setIntelligentUiLevel(level: com.echoflow.weave.core.prompt.IntelligentUiLevel) = repository.setIntelligentUiLevel(level)
     fun setEchoUiAutoFix(on: Boolean) = repository.setEchoUiAutoFix(on)
+    val echoUiScripts: StateFlow<Boolean> = repository.echoUiScripts
+    fun setEchoUiScripts(on: Boolean) = repository.setEchoUiScripts(on)
     fun setEchoUiModel(id: String?) = repository.setEchoUiModel(id)
     fun echoUiTierOverride(modelId: String): Int? = repository.getEchoUiTierOverride(modelId)
     fun setEchoUiTierOverride(modelId: String, tier: Int?) = repository.setEchoUiTierOverride(modelId, tier)

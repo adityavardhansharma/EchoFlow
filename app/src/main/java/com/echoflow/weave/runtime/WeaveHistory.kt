@@ -29,14 +29,23 @@ object WeaveHistory {
         return history.mapIndexed { i, m ->
             if (m.role != "assistant" || !m.content.contains("weave")) return@mapIndexed m
             val turnsBack = assistantIdx.size - 1 - assistantIdx.indexOf(i)
-            val blocks = byMessage[m.id].orEmpty()
+            val all = byMessage[m.id].orEmpty()
+            // an edit whose target didn't exist became a block of this message with that id (T-107)
+            val editTargets = FENCE.findAll(m.content).mapNotNull { f ->
+                f.groupValues[3].trim().split(Regex("\\s+")).takeIf { it.firstOrNull() == "edit" }?.getOrNull(1)
+            }.toSet()
+            val editBorn = all.filter { it.blockId in editTargets }
+            val blocks = all - editBorn.toSet()
             var ordinal = 0
             val out = FENCE.replace(m.content) { match ->
                 val json = match.groupValues[2].isNotEmpty()
                 val info = match.groupValues[3].trim()
                 val fenceBody = match.groupValues[4]
                 // edits are dropped: their effect is in the target's stored source
-                if (info.startsWith("edit")) return@replace ""
+                if (info.startsWith("edit")) {
+                    val own = editBorn.firstOrNull { it.blockId == info.split(Regex("\\s+")).getOrNull(1) }
+                    return@replace own?.let { "```weave\n" + body(it, turnsBack > FULL_SOURCE_TURNS) + "\n```" } ?: ""
+                }
                 if (json && com.echoflow.weave.core.json.JsonLowering.lower(fenceBody)?.editTarget != null) return@replace ""
                 val row = blocks.getOrNull(ordinal++) ?: return@replace match.value
                 "```weave\n" + body(row, turnsBack > FULL_SOURCE_TURNS) + "\n```"

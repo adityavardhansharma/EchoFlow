@@ -1,6 +1,6 @@
 # 06 — Prompts
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.5 · **Status:** normative
 
 This document gives the **exact text** sent to models. Text in fenced `text` blocks is sent verbatim,
 with `{{placeholders}}` substituted. Do not paraphrase, re-order or "improve" it in code; change it
@@ -39,8 +39,9 @@ it ships.
 carries the full component lines for everything it advertises; there is no index. A prompt MUST
 never name a component without giving the model a way to get its signature in the same request.
 
-From phase 3, if the model supports tool use and `tier ≥ 3`, parts 4–5 are **trimmed**, not
-replaced: the
+From phase 3, if the model supports tool use, `tier ≥ 3`, and the request path can offer the
+`weave_docs` tool (in EchoFlow: the OpenRouter chat paths, not local models, custom providers or the
+Echo Agent / Adviser / Fusion modes), parts 4–5 are **trimmed**, not replaced: the
 **common set** keeps its full component lines (§3.3) and all functions, actions and effects stay
 inline; only the long tail moves to the **index** (§8) behind the `weave_docs` tool. The common set
 is the phase 1a slice (01 §29): `Column Row Card Title Text Metric Stat Callout Button Slider
@@ -134,6 +135,9 @@ Tier 4 adds:
 ```text
 `on frame -> …` runs every frame with `dt` (seconds) for simulations and games. `on tilt -> …` gives `x`, `y`. `Canvas(view: [0, 0, 100, 60]) [circle(50, 30, 5), …]` draws in its own coordinates; marks animate with `spring(value)`. `js fn name(a) = """…"""` defines a pure JavaScript function (JSON in, JSON out) for heavy logic.
 ```
+
+The last sentence (from `` `js fn `` on) is left out when "Script functions" is off (05 §11.1,
+03 §10.12).
 
 ### 3.2 Tokens
 
@@ -504,6 +508,14 @@ Text: Rich Markdown Icon Avatar Badge Chip Link Quote Code Kbd Empty
 ```
 
 The tool result is the §3.3 lines for the requested names (and the §3.4–3.6 text for group names),
-each followed by one short example line from the catalog. Unknown names are listed as
+each followed by one short example from the catalog (`CatalogExamples`): a usage line, preceded by
+the state and data lines it needs. A container component (`Chart`, `Canvas`) also lists its marks; a
+mark name gives the mark's line once per container the request can draw. Entries are separated by a
+blank line. Names are trimmed, a leading `!` or trailing `()` is dropped, duplicates are answered
+once and only the first 30 are answered. Names are looked up in the request's own catalog, so a
+component above its tier or phase, or one the renderer doesn't register, is listed as
 `unknown: <name>`. The tool call and result are part of that reply's tool exchange and are not stored
 in chat history.
+
+A reply may call `weave_docs` at most 4 times; after that the tool answers that the limit is reached.
+If the provider rejects tools for the request, the retry sends the untrimmed prompt with no tools.

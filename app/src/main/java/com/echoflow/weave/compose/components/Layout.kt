@@ -35,6 +35,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
@@ -116,14 +117,71 @@ object Layout {
             Row(modifier.fillMaxWidth(), horizontalArrangement = justify(node.word("justify"), gap), verticalAlignment = verticalAlignment(node.word("align"))) {
                 RenderChildren(node.children, ctx) { alignChild(it) }
             }
-        } else {
-            FlowRow(
-                modifier.fillMaxWidth(),
-                horizontalArrangement = justify(node.word("justify"), gap),
-                verticalArrangement = Arrangement.spacedBy(gap),
-                itemVerticalAlignment = verticalAlignment(node.word("align")),
-            ) {
-                RenderChildren(node.children, ctx)
+            return
+        }
+        // 04 §3.3: one custom Layout decides per pass, from intrinsic widths, between a row and a
+        // column. A child that can't answer intrinsics is never asked; the row becomes a column.
+        val asks = remember(node) { node.children.all { answersIntrinsics(it) } }
+        AdaptiveRow(
+            modifier.fillMaxWidth(), gap, justify(node.word("justify"), gap), node.word("align") ?: "center", asks,
+        ) { RenderChildren(node.children, ctx) }
+    }
+
+    /** Whether a node (and everything under it) can be asked for intrinsic sizes (04 §3.3). */
+    fun answersIntrinsics(n: WNode): Boolean {
+        if (com.echoflow.weave.core.catalog.BuiltinCatalog.component(n.type)?.intrinsics == false) return false
+        if (n.type == "List" && n.args["lazy"] == com.echoflow.weave.core.eval.WBool.TRUE) return false
+        return n.children.all { answersIntrinsics(it) }
+    }
+
+    @Composable
+    private fun AdaptiveRow(
+        modifier: Modifier,
+        gap: Dp,
+        arrangement: Arrangement.Horizontal,
+        align: String,
+        askIntrinsics: Boolean,
+        content: @Composable () -> Unit,
+    ) {
+        androidx.compose.ui.layout.Layout(content, modifier) { measurables, constraints ->
+            val gapPx = gap.roundToPx()
+            val free = constraints.copy(minWidth = 0, minHeight = 0)
+            val fitsAsRow = askIntrinsics && measurables.isNotEmpty() &&
+                measurables.sumOf { it.maxIntrinsicWidth(constraints.maxHeight) } + gapPx * (measurables.size - 1) <= constraints.maxWidth
+            if (!fitsAsRow) {
+                // a column with the same gap
+                val placeables = measurables.map { it.measure(free) }
+                val width = (placeables.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
+                val height = (placeables.sumOf { it.height } + gapPx * (placeables.size - 1).coerceAtLeast(0)).coerceIn(constraints.minHeight, constraints.maxHeight)
+                layout(width, height) {
+                    var y = 0
+                    placeables.forEach { it.placeRelative(0, y); y += it.height + gapPx }
+                }
+            } else {
+                var left = constraints.maxWidth
+                val placeables = measurables.mapIndexed { i, m ->
+                    m.measure(free.copy(maxWidth = left.coerceAtLeast(0))).also { left -= it.width + if (i < measurables.lastIndex) gapPx else 0 }
+                }
+                val width = constraints.maxWidth
+                val baseline = placeables.maxOfOrNull { (it[androidx.compose.ui.layout.FirstBaseline].takeIf { b -> b != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: it.height) } ?: 0
+                val rowHeight = if (align == "baseline") placeables.maxOfOrNull { p ->
+                    val b = p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height
+                    baseline - b + p.height
+                } ?: 0 else placeables.maxOfOrNull { it.height } ?: 0
+                val height = rowHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+                val xs = IntArray(placeables.size)
+                with(arrangement) { arrange(width, IntArray(placeables.size) { placeables[it].width }, layoutDirection, xs) }
+                layout(width, height) {
+                    placeables.forEachIndexed { i, p ->
+                        val y = when (align) {
+                            "top" -> 0
+                            "bottom" -> height - p.height
+                            "baseline" -> baseline - (p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height)
+                            else -> (height - p.height) / 2
+                        }
+                        p.place(xs[i], y)
+                    }
+                }
             }
         }
     }
@@ -144,9 +202,11 @@ object Layout {
         val cols = (node.num("cols") ?: 2.0).toInt().coerceIn(1, 6)
         val minW = node.num("minW")
         val gap = gap(node)
+        // 04 §4: rowGap defaults to gap.
+        val rowGap = TokenResolver.space(node.args["rowGap"], gap)
         BoxWithConstraints(modifier.fillMaxWidth()) {
             val n = if (minW != null && minW > 0) maxOf(1, (maxWidth.value / (minW.toFloat() * 8f)).toInt()).coerceAtMost(6) else cols
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
                 node.children.chunked(n).forEach { rowKids ->
                     Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                         rowKids.forEach { RenderNode(it, ctx.child(), Modifier.weight(1f)) }
@@ -200,7 +260,8 @@ object Layout {
         val pad = TokenResolver.space(node.args["pad"], 16.dp)
         val tone = TokenResolver.tone(node.word("tone"), node.word("emphasis"), MaterialTheme.colorScheme, ctx.dark)
         val content: @Composable ColumnScope.() -> Unit = {
-            Column(Modifier.padding(pad), verticalArrangement = Arrangement.spacedBy(gap(node))) {
+            // the tap target sits inside the card's clip, so its ripple follows the shape (T-402)
+            Column(Modifier.fillMaxWidth().then(com.echoflow.weave.compose.render.gestureModifier(node, ctx)).padding(pad), verticalArrangement = Arrangement.spacedBy(gap(node))) {
                 RenderChildren(node.children, ctx) { if (it.args["w"] == null) Modifier.fillMaxWidth() else Modifier }
             }
         }
@@ -221,7 +282,8 @@ object Layout {
             modifier, shape = TokenResolver.shape(node.args["shape"], MaterialTheme.shapes.medium),
             color = pair?.container ?: MaterialTheme.colorScheme.surface, contentColor = pair?.content ?: MaterialTheme.colorScheme.onSurface,
         ) {
-            Column(Modifier.padding(pad), verticalArrangement = Arrangement.spacedBy(gap(node))) { RenderChildren(node.children, ctx) }
+            // Surface propagates its min size, so this tap target covers it, inside its clip (T-402)
+            Column(com.echoflow.weave.compose.render.gestureModifier(node, ctx).padding(pad), verticalArrangement = Arrangement.spacedBy(gap(node))) { RenderChildren(node.children, ctx) }
         }
     }
 

@@ -55,6 +55,10 @@ class EvalContext(
      * the record `{value, loading, error, at}`; null when the host runs no queries.
      */
     val queryValue: (stmt: String, tool: String, args: WValue, everyMs: Long?) -> WValue? = { _, _, _, _ -> null },
+    /** Runs tier 4 `js fn` bodies for this block (03 §10.12); null = no engine, calls are `null`. */
+    val js: JsHost? = null,
+    /** Called with a `js fn` failure the block doesn't show (a throw, bad JSON), for logging. */
+    val onJsError: (name: String, message: String) -> Unit = { _, _ -> },
 ) {
     fun device() = WRec.of(
         "width" to WSym(deviceWidth), "landscape" to WBool.of(landscape), "dark" to WBool.of(dark),
@@ -309,13 +313,32 @@ class Evaluator(
         CallKind.FUNCTION -> function(c, scope)
     }
 
+    /**
+     * A `js fn` call (03 §10.12). Below tier 4 the checker refused it (`jsAllowed`), so it is `null`.
+     * Arguments go in as JSON and the result comes back through [StateCodec.decode]; values JSON
+     * can't carry (nodes, actions, functions) arrive as their placeholder strings.
+     */
+    private fun jsCall(fd: com.echoflow.weave.core.parse.FnDecl, c: Call, scope: Scope): WValue {
+        val source = fd.js?.takeIf { fd.jsAllowed } ?: return WNull
+        val args = c.leads.map { eval(it, scope) }
+        val host = ctx.js ?: return WNull
+        val argsJson = fd.params.indices.joinToString(",", "[", "]") { i ->
+            com.echoflow.weave.core.program.StateCodec.encode(args.getOrNull(i) ?: WNull, ctx.formatter.zone)
+        }
+        return when (val r = runCatching { host.call(fd.name, fd.params, source, argsJson) }.getOrElse { JsResult.Error(it.message ?: "failed") }) {
+            is JsResult.Ok -> com.echoflow.weave.core.program.StateCodec.decode(r.json)
+            is JsResult.Limit -> { report(Diag.budget(c.span, fd.name, currentStmt())); WNull }
+            is JsResult.Error -> { ctx.onJsError(fd.name, r.message); WNull }
+        }
+    }
+
     private fun function(c: Call, scope: Scope): WValue {
         // locals (lambda/fn params, event vars) first, then user fns, then built-ins (02 §6.1)
         scope.lookup(c.callee)?.let { v ->
             return if (v is WFn) callFn(v, c.leads.map { eval(it, scope) }) else { report(Diag.notCallable(c.span, c.callee)); WNull }
         }
         program.functions[c.callee]?.let { fd ->
-            if (fd.body == null) return WNull // js fn: tier 4 only
+            if (fd.body == null) return jsCall(fd, c, scope)
             return callFn(WFn(fd.params, fd.body, null, fd.span, name = fd.name), c.leads.map { eval(it, scope) })
         }
         if (c.callee in program.bindings) {

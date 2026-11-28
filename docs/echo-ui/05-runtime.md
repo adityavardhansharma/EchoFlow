@@ -1,6 +1,6 @@
 # 05 — Runtime, storage, model loop and settings
 
-**Spec version:** 1.3 · **Status:** normative
+**Spec version:** 1.7 · **Status:** normative
 
 This document says how Echo UI is built inside EchoFlow: modules, classes, threading, streaming
 integration, rendering, the hidden model requests, storage, tiers, the **Intelligent UI** setting,
@@ -229,16 +229,18 @@ or when the screen is disposed.
 | Frame effects | Main thread, `withFrameNanos` |
 | Model loop requests, queries, tools | `Dispatchers.IO`, results posted to main |
 | Persistence | `Dispatchers.IO`, debounced |
-| Chart downsampling and Audio waveform decode | `Dispatchers.Default` |
+| Chart downsampling | Inside the chart's draw pass, on points already projected to pixels (no `WValue`, no evaluator) |
+| Audio waveform decode | `Dispatchers.Default` |
 
 Evaluation MUST NOT block: budgets (03 §5.3) guarantee bounded work.
 
 **Bindings are main-thread only.** `BindingCache`, `StateStore` and `ContextValues` MUST be read only
 on the main thread (they are Compose snapshot state, and binding evaluation is the snapshot graph).
-Work on `Dispatchers.Default` — chart downsampling, waveform decode — receives already-evaluated,
-immutable `WValue`s captured on the main thread and MUST NOT call the evaluator or read a binding.
-Debug builds assert this (`check(Looper.myLooper() == Looper.getMainLooper())` in
-`BindingCache.read`). `[T-465]`
+Work off the main thread (waveform decode) receives already-evaluated, immutable values captured on
+the main thread and MUST NOT call the evaluator or read a binding. Chart downsampling (LTTB, 04
+§12.5) works on projected pixel coordinates, so it never sees a `WValue`. Debug builds assert the
+rule: `WeaveBlockController.root()`, `binding()` and `callFn()` `check(Looper.myLooper() ==
+Looper.getMainLooper())`. `[T-465]`
 
 ### 4.5 ActionBus
 
@@ -692,6 +694,9 @@ chip). If the average exceeds 2.0, the automatic tier is lowered by one for 7 da
     shows the description only);
   - "Model for live updates" (§8.8);
   - "Auto-fix broken blocks" switch (§8.4), default off;
+  - "Script functions" switch (03 §10.12), default on, key **`echoui_scripts`**. Off: `js fn`
+    calls are `null` at once (the block controller checks it on every call) and the prompt and the
+    hidden-request prompt leave `js fn` out;
   - a link "What is Intelligent UI?" opening a short explainer sheet.
 
 ### 11.2 Per-chat override

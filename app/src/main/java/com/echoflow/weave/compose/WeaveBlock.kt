@@ -3,6 +3,9 @@ package com.echoflow.weave.compose
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -112,8 +115,14 @@ class WeaveBlockExtension(
         }
         val words = block.info.trim().split(Regex("\\s+"))
         if (words.getOrNull(1) == "edit") {
-            EditChip(runtime, chatId, messageId, words.getOrNull(2) ?: "", block, modifier)
-            return
+            val target = words.getOrNull(2) ?: ""
+            var noTarget by remember(block.key) { mutableStateOf(false) }
+            if (!noTarget) {
+                EditChip(runtime, chatId, messageId, target, block, modifier) { noTarget = true }
+                return
+            }
+            // 02 §11.1 (T-107): an edit naming a block the thread doesn't have is a new block with that id
+            block = block.copy(info = block.kind, body = WeaveRuntime.newBlockFromEdit(block.body, target))
         }
         if (LocalMarkdownExtensionOrdinal.current >= maxBlocks) {
             // the cap limits new blocks only: one that already has a stored row rendered when its
@@ -226,7 +235,15 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
     val content: @Composable () -> Unit = {
         val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
         controller.captureLayer = layer
-        Box(Modifier.fillMaxWidth().drawWithContent { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) }) {
+        Box(
+            Modifier.fillMaxWidth()
+                // how much of the block is on screen decides which block runs `frame` effects (T-452)
+                .onGloballyPositioned { c ->
+                    val h = c.size.height
+                    controller.visibleFraction = if (h <= 0) 0f else (c.boundsInWindow().height / h).coerceIn(0f, 1f)
+                }
+                .drawWithContent { layer.record { this@drawWithContent.drawContent() }; drawLayer(layer) },
+        ) {
         Column(Modifier.fillMaxWidth().clipToBounds().animateContentSize()) {
             controller.consentRequest?.let { ConsentStrip(it) }
             if (controller.budgetBanner) BudgetBanner(controller)
@@ -235,6 +252,7 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
             if (!program.complete && root == null) Placeholders.Of(PlaceholderKind.TEXT)
         }
         com.echoflow.weave.compose.motion.ConfettiOverlay(controller.confetti, Modifier.matchParentSize())
+        if (controller.framePaused) FramePausedScrim(Modifier.matchParentSize()) { controller.resumeFrames() }
         com.echoflow.weave.compose.components.Overlays.Host(ctx)
         }
     }
@@ -455,12 +473,13 @@ private fun Modifier.androidxImePadding() = this.imePadding()
 
 /** 05 §5.2: an edit fence renders as a chip and applies once when it closes. */
 @Composable
-private fun EditChip(runtime: WeaveRuntime, chatId: String?, messageId: String?, target: String, block: MarkdownExtensionBlock, modifier: Modifier) {
+private fun EditChip(runtime: WeaveRuntime, chatId: String?, messageId: String?, target: String, block: MarkdownExtensionBlock, modifier: Modifier, onNoTarget: () -> Unit = {}) {
     var outcome by remember { mutableStateOf<WeaveRuntime.EditOutcome?>(null) }
     // chatId is null while the reply streams and arrives when it is saved
     LaunchedEffect(block.complete, messageId, chatId) {
         if (block.complete && chatId != null && messageId != null && target.isNotEmpty()) {
             outcome = runtime.applyEdit(chatId, target, block.body, messageId, block.key)
+            if (outcome == WeaveRuntime.EditOutcome.NoTarget && WeaveRuntime.validBlockId(target)) onNoTarget()
         }
     }
     val text = when (val o = outcome) {
@@ -473,6 +492,20 @@ private fun EditChip(runtime: WeaveRuntime, chatId: String?, messageId: String?,
         Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(TokenResolver.icon("edit"), null, Modifier.size(16.dp))
             Text(text, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** 01 §15.4: a simulation that ran over its frame budget waits for a tap (T-453). */
+@Composable
+private fun FramePausedScrim(modifier: Modifier, onResume: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier.background(scheme.scrim.copy(alpha = 0.32f)).clickable(onClickLabel = "Resume", onClick = onResume),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
+            Text("Paused — tap to resume", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
         }
     }
 }

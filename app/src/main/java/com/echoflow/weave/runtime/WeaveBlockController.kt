@@ -174,6 +174,8 @@ class WeaveBlockController internal constructor(
                 animationTimeMs = { if (base.reducedMotion) null else animationMs },
                 pendingNames = { pendingNames },
                 queryValue = { stmt, tool, args, every -> queryFor(stmt, tool, args, every) },
+                js = jsHost,
+                onJsError = { fn, message -> android.util.Log.w("WeaveJs", "js fn $fn: $message") },
             )
             val created = Session(next, withExtras, runtime.catalog)
             row?.let { r ->
@@ -191,9 +193,19 @@ class WeaveBlockController internal constructor(
     }
 
     /** The evaluated tree for the current version (05 §4.3). Never throws. */
-    fun root(): WNode? = runCatching { session?.root() }.getOrNull()
+    fun root(): WNode? { checkMain(); return runCatching { session?.root() }.getOrNull() }
 
-    fun binding(name: String): WValue? = runCatching { session?.binding(name) }.getOrNull()
+    fun binding(name: String): WValue? { checkMain(); return runCatching { session?.binding(name) }.getOrNull() }
+
+    /**
+     * Bindings are main-thread only (05 §5, T-465): debug builds fail fast when one is read
+     * elsewhere. Background work gets already-evaluated values instead.
+     */
+    private fun checkMain() {
+        if (com.echoflow.BuildConfig.DEBUG) check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            "Weave bindings are read on the main thread only (05 §5)"
+        }
+    }
 
     /** A gesture (03 §7.2). */
     fun fire(action: WValue, data: WValue? = null) {
@@ -216,6 +228,7 @@ class WeaveBlockController internal constructor(
     fun callFn(fn: WValue, args: List<WValue>): WValue? {
         val s = session ?: return null
         val f = fn as? com.echoflow.weave.core.eval.WFn ?: return null
+        checkMain()
         return runCatching { s.evaluator().callFn(f, args) }.getOrNull()
     }
 
@@ -255,11 +268,32 @@ class WeaveBlockController internal constructor(
 
     val hasMotionEffects: Boolean get() = session?.hasMotionEffects == true
 
+    /**
+     * How much of the block is on screen, 0–1, reported by the block surface. The most visible
+     * block with `frame` effects is the only one that runs them (01 §15.4, T-452).
+     */
+    var visibleFraction = 0f
+
+    /** "Paused — tap to resume" (01 §15.4, T-453): frame effects ran over budget 3 frames running. */
+    var framePaused by mutableStateOf(false)
+        private set
+    private var overBudget = 0
+
+    /** Clock for the frame budget; tests replace it. */
+    internal var nanoTime: () -> Long = System::nanoTime
+
+    fun resumeFrames() { overBudget = 0; framePaused = false }
+
     /** One display frame: advance `loop` time, run `frame` effects, re-render. */
     fun frame(dtMs: Long) {
         val s = session ?: return
         animationMs += dtMs
-        if (s.hasFrameEffects) runCatching { s.frame(dtMs) }
+        if (s.hasFrameEffects && !framePaused && runtime.frameOwner() === this) {
+            val start = nanoTime()
+            runCatching { s.frame(dtMs) }
+            overBudget = if (nanoTime() - start > FRAME_BUDGET_NS) overBudget + 1 else 0
+            if (overBudget >= 3) { overBudget = 0; framePaused = true }
+        }
         if (++frameEpoch % 1L == 0L) version++
         if (s.outbox.isNotEmpty()) afterEvent()
     }
@@ -269,10 +303,14 @@ class WeaveBlockController internal constructor(
     fun tilt(x: Double, y: Double) { session?.let { runCatching { it.tilt(x, y) }; version++ } }
     fun shake() { session?.let { runCatching { it.shake() }; afterEvent() } }
 
-    /** Advances the block clock by real elapsed time; only called while timers are pending. */
+    /**
+     * Advances the block clock by real elapsed time; only called while timers are pending. An
+     * off-screen block's timers don't run (T-451); the surface restarts its clock when it returns,
+     * so the time away isn't replayed.
+     */
     fun tick(ms: Long) {
         val s = session ?: return
-        if (!s.hasTimers) return
+        if (!s.hasTimers || !onScreen) return
         runCatching { s.advance(ms) }
         afterEvent()
     }
@@ -618,9 +656,28 @@ class WeaveBlockController internal constructor(
 
     fun resetAll() { session?.let { fire(com.echoflow.weave.core.eval.WAction("resetAll", emptyList(), emptyList(), com.echoflow.weave.core.eval.Scope.EMPTY, com.echoflow.weave.core.parse.Span.NONE)) } }
 
+    /**
+     * The block's `js fn` runtime (03 §10.12). QuickJS starts on the first call, so blocks without
+     * script functions never pay for it, and the setting is checked on every call.
+     */
+    private var quickJs: com.echoflow.weave.js.QuickJsHost? = null
+    private val jsHost = object : com.echoflow.weave.core.eval.JsHost {
+        override fun call(name: String, params: List<String>, source: String, argsJson: String): com.echoflow.weave.core.eval.JsResult {
+            if (!runtime.scriptsEnabled()) return com.echoflow.weave.core.eval.JsResult.Error("script functions are off")
+            val host = synchronized(this) { quickJs ?: com.echoflow.weave.js.QuickJsHost().also { quickJs = it } }
+            return host.call(name, params, source, argsJson)
+        }
+    }
+
     fun close() {
+        synchronized(jsHost) { quickJs?.close(); quickJs = null }
         flush()
         queryJobs.values.forEach { it.cancel() }
         queryJobs.clear()
+    }
+
+    companion object {
+        /** Frame-effect budget per frame (01 §15.4): over it 3 frames running pauses the block. */
+        const val FRAME_BUDGET_NS = 2_000_000L
     }
 }

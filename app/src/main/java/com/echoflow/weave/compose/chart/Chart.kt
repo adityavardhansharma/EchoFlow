@@ -335,8 +335,10 @@ object Charts {
                     val dim = selected != null && selected != WNull
                     when (m.type) {
                         "line", "area" -> {
-                            val pp = pts.map { Offset(it.second, py(it.third.second)) }.sortedBy { it.x }
-                            if (pp.isEmpty()) return@forEach
+                            val full = pts.map { Offset(it.second, py(it.third.second)) }.sortedBy { it.x }
+                            if (full.isEmpty()) return@forEach
+                            // 04 §12.5: at most 2 points per pixel of plot width
+                            val pp = Lttb.downsample(full, (2 * plot.width).toInt(), { it.x }, { it.y })
                             val curve = m.word("curve") ?: "smooth"
                             val path = linePath(pp, curve)
                             if (m.type == "area") {

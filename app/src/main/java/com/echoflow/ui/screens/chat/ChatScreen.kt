@@ -96,6 +96,7 @@ fun ChatScreen(
             )
         },
         autoFix = { chatViewModel.echoUiAutoFix() },
+        scripts = { chatViewModel.echoUiScripts() },
         modelTier = { chatViewModel.echoUiModelTier() },
         modelId = { chatViewModel.echoUiCurrentModel() },
         qualityRead = { chatViewModel.echoUiPref(it) },

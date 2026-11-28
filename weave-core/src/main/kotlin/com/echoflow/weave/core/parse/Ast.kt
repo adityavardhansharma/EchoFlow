@@ -33,6 +33,8 @@ data class FnDecl(
     val body: Expr?,
     val js: String?,
     override val span: Span,
+    /** False when the checker refused this `js fn` (below tier 4, `E209`): it keeps its source but calls are `null`. */
+    val jsAllowed: Boolean = true,
 ) : Stmt
 
 data class Effect(

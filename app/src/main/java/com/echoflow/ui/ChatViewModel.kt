@@ -1583,9 +1583,17 @@ class ChatViewModel(
         return turns.clearIfOwned(chatId, streamJob)
     }
 
+    /**
+     * One turn's Echo UI prompt section, plus the `weave_docs` tool when the section was trimmed
+     * to the common set and index (06 §2.1). [docsToolPath] says the turn's request path can
+     * offer that tool (the OpenRouter chat paths); [fullSection] is the untrimmed text, for a
+     * retry without tools.
+     */
+    private data class EchoUiTurn(val section: String, val fullSection: String = section, val docs: com.echoflow.weave.runtime.WeaveDocsTool? = null)
+
     /** The Echo UI prompt section for one turn (05 §11.3), or "" when the effective tier is 0. */
-    private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false): String {
-        val level = chatLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: settingsRepository.getIntelligentUiLevelDirect()
+    private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false, docsToolPath: Boolean = false): EchoUiTurn {
+        val level = com.echoflow.weave.core.prompt.EchoUiTiers.chatLevel(settingsRepository.getIntelligentUiLevelDirect(), chatLevel)
         val downgraded = (settingsRepository.getEchoUiString("echoui_downgrade_until_$modelId")?.toLongOrNull() ?: 0L) > System.currentTimeMillis()
         val (tools, context) = echoUiCapabilities(modelId)
         val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(
@@ -1593,8 +1601,12 @@ class ChatViewModel(
         )
         val plan = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.plan(level, tier, latestUserMessage, makeInteractive)
         _echoUiTurnCap.value = if (plan.tier <= 0) 0 else plan.maxBlocks
-        if (plan.tier <= 0) return ""
-        return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
+        if (plan.tier <= 0) return EchoUiTurn("")
+        val cache = com.echoflow.weave.runtime.EchoUiPromptCache
+        val scripts = settingsRepository.echoUiScripts.value
+        val full = cache.section(plan.tier, plan.level, scripts = scripts)
+        if (!docsToolPath || !cache.usesDocsIndex(plan.tier, tools)) return EchoUiTurn(full)
+        return EchoUiTurn(cache.section(plan.tier, plan.level, docsIndex = true, scripts = scripts), full, com.echoflow.weave.runtime.WeaveDocsTool(plan.tier))
     }
 
     /**
@@ -1927,10 +1939,15 @@ class ChatViewModel(
             } else null
 
             // Echo UI (05 §11.3, §12): the Weave section for ordinary chat turns on cloud models.
-            val echoUiSection = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
+            val echoUiTurn = if (echoSystemPrompt == null && !artifactMode && !imageGenMode && !videoGenMode) {
                 val chatLevel = startChatId?.let { chatRepository.thread(it)?.intelligentUi } ?: _pendingIntelligentUi.value
-                echoUiSection(prompt, requestModel, isLocal, chatLevel, makeInteractive = prompt.startsWith(com.echoflow.weave.compose.MAKE_INTERACTIVE_PREFIX))
-            } else ""
+                // weave_docs rides the OpenRouter chat paths (plain and client-search); other
+                // paths keep every signature inline (06 §2.1).
+                val docsToolPath = !isLocal && !customProviderActive
+                echoUiSection(prompt, requestModel, isLocal, chatLevel,
+                    makeInteractive = prompt.startsWith(com.echoflow.weave.compose.MAKE_INTERACTIVE_PREFIX), docsToolPath = docsToolPath)
+            } else EchoUiTurn("")
+            val echoUiSection = echoUiTurn.section
             val baseSystemPrompt = echoSystemPrompt ?: artifactSystemPrompt ?: when {
                 // Tool-calling custom providers behave like cloud models: they call web_search
                 // themselves, so they get the standard "you have a web_search tool" prompt.
@@ -2436,10 +2453,15 @@ class ChatViewModel(
                     val message = error.message.orEmpty().lowercase()
                     val unsupportedTools = "tool" in message &&
                         listOf("not support", "unsupported", "no endpoints", "not allowed").any { it in message }
-                    if (!memoryEnabled || emitted || !unsupportedTools) throw error
-                    emit(StreamChunk.MemoryActivity("unsupported", "This model can't use memory tools", false))
-                    val fallbackPrompt = systemPrompt.replace(MemoryTools.PROMPT, "") +
-                        "\nTools are unavailable. Do not claim to retrieve or save persistent memory."
+                    val docs = echoUiTurn.docs
+                    if ((!memoryEnabled && docs == null) || emitted || !unsupportedTools) throw error
+                    if (memoryEnabled) emit(StreamChunk.MemoryActivity("unsupported", "This model can't use memory tools", false))
+                    // The retry carries no tools, so it can't use weave_docs either: every
+                    // signature goes back inline.
+                    docs?.enabled = false
+                    val fallbackPrompt = systemPrompt.replace(MemoryTools.PROMPT, "")
+                        .let { if (docs != null) it.replace(echoUiTurn.section, echoUiTurn.fullSection) else it } +
+                        (if (memoryEnabled) "\nTools are unavailable. Do not claim to retrieve or save persistent memory." else "")
                     if (customProviderActive) emitAll(customProviderFlow(customProvider, customProviderConfig,
                         requestModel, customHistory, fallbackPrompt, inferenceParams))
                     else emitAll(openRouterGateway.stream(LlmStreamRequest(apiKey = apiKey, model = selectedModel,
@@ -2450,10 +2472,11 @@ class ChatViewModel(
 
             // In artifact mode, route the <echo:artifact> block out of the chat bubble into
             // artifact events; otherwise pass the stream through untouched.
+            val toolFlow = echoUiTurn.docs?.let { baseResponseFlow.flowOn(it) } ?: baseResponseFlow
             val responseFlow: Flow<StreamChunk> =
-                if (artifactMode) baseResponseFlow.extractArtifacts()
-                else if (memoryEnabled) baseResponseFlow.flowOn(MemoryTools(getApplication(), chatId, effectiveProvider in CLIENT_SEARCH_PROVIDERS, local = isLocal || customProvider == "ollama"))
-                else baseResponseFlow
+                if (artifactMode) toolFlow.extractArtifacts()
+                else if (memoryEnabled) toolFlow.flowOn(MemoryTools(getApplication(), chatId, effectiveProvider in CLIENT_SEARCH_PROVIDERS, local = isLocal || customProvider == "ollama"))
+                else toolFlow
 
             // Begin Streaming Assistant response
             val revealState = StreamRevealState()
@@ -2774,6 +2797,7 @@ class ChatViewModel(
 
     fun echoUiCurrentModel(): String = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
     fun echoUiAutoFix(): Boolean = settingsRepository.echoUiAutoFix.value
+    fun echoUiScripts(): Boolean = settingsRepository.echoUiScripts.value
     fun echoUiModelTier(): Int {
         val id = echoUiCurrentModel()
         return com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(id, id.startsWith("local/"), settingsRepository.getEchoUiTierOverride(id))

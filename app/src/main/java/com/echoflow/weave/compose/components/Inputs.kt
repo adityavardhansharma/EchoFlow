@@ -315,9 +315,15 @@ object Inputs {
     // ---- slider and stepper ---------------------------------------------------------------------
 
     /** Rounds to the step, or 4 significant decimals with no step (04 §7 Slider). */
+    /**
+     * The value a slider writes (T-405): on the step grid in decimal arithmetic, so `step: 0.05`
+     * writes `10.1`, never `10.100000000000001`.
+     */
     fun snap(v: Double, min: Double, step: Double?): Double =
-        if (step != null && step > 0) min + Math.round((v - min) / step) * step
-        else BigDecimal(v).round(MathContext(maxOf(1, BigDecimal(v).precision() - BigDecimal(v).scale() + 4), RoundingMode.HALF_UP)).toDouble()
+        if (step != null && step > 0) {
+            val k = Math.round((v - min) / step)
+            BigDecimal(min.toString()).add(BigDecimal(step.toString()).multiply(BigDecimal(k))).toDouble()
+        } else BigDecimal(v).round(MathContext(maxOf(1, BigDecimal(v).precision() - BigDecimal(v).scale() + 4), RoundingMode.HALF_UP)).toDouble()
 
     @Composable
     fun SliderR(node: WNode, ctx: RenderCtx, modifier: Modifier) {

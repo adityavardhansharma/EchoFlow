@@ -1,15 +1,21 @@
 # 07 — Conformance tests
 
-**Spec version:** 1.3 · **Status:** normative
+**Spec version:** 1.7 · **Status:** normative
 
 An implementation conforms when **every test in this document passes**. Each test has an id
 (`T-xxx`) that the other documents cite. Tests in §1–§4 and §11 are JVM unit tests in `weave-core`
 or `weave-runtime`; §5–§6 are Compose/Robolectric tests; §8 is a streaming corpus test; §9 checks the
 catalog and prompts; §10 is the model eval harness (run per release, not in CI).
 
-**Status of this document.** Nothing here runs yet: this is the test *specification*. The tests are
-written alongside the code they cover, in the same PR. The streaming corpus (§8) does not exist
-until it is collected; the eval harness (§10) does not exist until it is built. A test
+**Coverage is enforced.** Every id in this document must be named by a test, by itself (`T-012a`),
+its group (`T-012`) or a range (`T-250 to T-262`); `weave-core`'s `ConformanceCoverageTest` scans
+the repo's tests and fails otherwise. The only exceptions are listed in that test with where they
+are verified instead: `T-410` (popups, on the emulator) and `T-450` (process death, on a device).
+
+**Release runs.** Two tests are larger on a release run than on every build: `T-401` renders 3
+random argument sets per component on every build and 200 with `-Dweave.fuzzSets=200`; `T-408`
+renders monochrome light at font scale 1.0 on every build and the full matrix with
+`-Dweave.themeMatrix=true` (record the goldens with `recordRoborazziDebug`). A test
 **applies to a build only when everything it exercises ships in that build**: every component, mark
 and action it names has a renderer or handler in the build's registry (05 §3.3), and every feature
 it relies on (`!ask`, `lazy`, `query`, `frame`, Weave-JSON, the per-chat override, …) is in a phase

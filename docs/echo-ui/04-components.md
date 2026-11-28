@@ -1,6 +1,6 @@
 # 04 — Components, marks and tokens
 
-**Spec version:** 1.3 · **Status:** normative
+**Spec version:** 1.6 · **Status:** normative
 
 This is the reference for everything a block can draw. For each component it gives: the signature,
 every parameter with type and default, positional order and aliases (for auto-fix), children,
@@ -1121,14 +1121,31 @@ off the main thread), played portion in `primary`.
 ### Map
 
 `Map(center?: {lat, lng} | str, zoom = 12, markers?: list<{lat, lng, title?, tone?, onTap?}>, route?: list<{lat, lng}>, h = l, interactive = false)` · tier 3 · phase 3 —
-see 01 open question 4 for the provider. Until decided: renders a static card with a `map` icon,
-the centre text and a "Open in Maps" button (`!map`). `interactive = false` means the map doesn't
-capture scroll gestures until tapped.
+an OpenStreetMap map (osmdroid, standard tiles, no key or account; 01 §31 question 4), in a
+`surfaceContainerHigh` surface with shape `l` and the attribution "© OpenStreetMap contributors"
+(`labelSmall`) at the bottom end. Tiles are cached in the app's cache dir.
+
+- Centre: `{lat, lng}` (`lon` accepted), else a place-name string resolved with the platform
+  geocoder off the main thread, else the first marker, else the first route point. Out-of-range
+  coordinates are ignored. Unresolved: the place name is shown over the empty map.
+- `zoom` is clamped to 2–19.
+- Markers: the standard pin tinted with the tone's high-emphasis colour (default `primary`).
+  Tapping one runs its `onTap`, or shows its title when it has none.
+- `route`: a polyline (two or more points) in `primary`, 4 dp.
+- `interactive = false`: the map doesn't take gestures until tapped once (so the chat scrolls past
+  it); after that, and with `interactive = true`, it pans and pinch-zooms.
+- Accessibility: `label`, else the place name and marker titles.
 
 ### Model3D
 
-`Model3D(src: str, autoRotate = true, h = l)` · tier 4 · phase 3 — glTF via SceneView; https only,
-max 10 MB. Off-screen → released (05 §6.6).
+`Model3D(src: str, autoRotate = true, h = l)` · tier 4 · phase 3 — a binary glTF (`.glb`) drawn by
+Filament's `ModelViewer` (the engine SceneView wraps; SceneView itself is not used) in a
+`TextureView`, scaled to a unit cube, on a `surfaceContainerHigh` background with shape `l`. https
+only, max 10 MB, fetched through the same public-only client as `web.read`. While loading: a
+progress indicator. A load failure shows "Couldn't load the 3D model"; tapping it opens `src` after
+confirmation (`!url`). Drag orbits the camera and pinch zooms; `autoRotate` spins it at 0.6 rad/s
+about the vertical axis while it isn't being touched. Frames are drawn only while composed:
+off-screen → released (05 §6.6). Accessibility: `label`, default "3D model".
 
 ### Lottie
 

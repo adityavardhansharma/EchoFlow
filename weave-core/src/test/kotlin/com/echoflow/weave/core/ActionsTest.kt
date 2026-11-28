@@ -40,7 +40,7 @@ class ActionsTest {
         assertEquals(WNum(0.0), t.state["x"]); assertTrue("E205" in t.diagnostics.map { it.code })
     }
 
-    @Test fun `T-275 effects cannot run outbound actions`() {
+    @Test fun `T-275 and T-460 effects cannot run outbound actions`() {
         val s = W.session("root = Text(\"x\")\non appear -> [!url(\"https://example.com\"), !toast(\"hi\")]")
         s.appear()
         assertEquals(listOf("toast"), s.outbox.map { it.kind })

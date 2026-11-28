@@ -4,7 +4,9 @@ import com.echoflow.data.SystemPrompts
 import com.echoflow.weave.compose.WeaveEffects
 import com.echoflow.weave.compose.components.Inputs
 import com.echoflow.weave.core.prompt.IntelligentUiLevel
+import com.echoflow.weave.core.prompt.WeaveDocs
 import com.echoflow.weave.runtime.EchoUiPromptCache
+import com.echoflow.weave.runtime.WeaveDocsTool
 import com.echoflow.weave.runtime.WeaveRuntime
 import com.echoflow.weave.runtime.tiers.EchoUiModelTiers
 import org.junit.Assert.assertEquals
@@ -26,7 +28,9 @@ class EchoUiPolicyTest {
         assertEquals(SystemPrompts.build(false, "off", "Thursday, November 26, 2026"), SystemPrompts.build(false, "off", "Thursday, November 26, 2026", echoUi = ""))
     }
 
-    @Test fun `tiers come from the table, local models are 0, overrides win`() {
+    @Test fun `T-611 tiers come from the table, local models are 0, overrides win`() {
+        // a local model's effective tier is 0, so the turn gets no Weave section
+        assertEquals(0, EchoUiModelTiers.plan(IntelligentUiLevel.IMMERSIVE, EchoUiModelTiers.tierFor("local/gemma", isLocal = true, override = null), "make me a chart").tier)
         assertEquals(0, EchoUiModelTiers.tierFor("local/gemma", isLocal = true, override = 3))
         assertEquals(3, EchoUiModelTiers.tierFor("anthropic/claude-x", isLocal = false, override = null))
         assertEquals(1, EchoUiModelTiers.tierFor("openai/gpt-4o-mini", isLocal = false, override = null))
@@ -48,7 +52,7 @@ class EchoUiPolicyTest {
         for (l in listOf("Pincode", "PIN code", "Postal code", "Spinner", "Pinned notes", "Name")) assertFalse(l, Inputs.isSecretShaped(l, null))
     }
 
-    @Test fun `confirm sheet bolds the registrable domain`() {
+    @Test fun `T-459 confirm sheet bolds the registrable domain`() {
         assertEquals("example.com", WeaveEffects.registrableDomain("login.secure.example.com"))
         assertEquals("bank.co.in", WeaveEffects.registrableDomain("netbanking.bank.co.in"))
         assertEquals("localhost", WeaveEffects.registrableDomain("localhost"))
@@ -71,5 +75,31 @@ class EchoUiPolicyTest {
         assertTrue(t4.contains("Canvas") && t4.contains("Quiz"))
         assertTrue("tier 4 prompt is ${t4.length} chars", t4.length < 60_000)
         println("Echo UI prompt sizes: tier 3 ${t3.length / 4} tokens, tier 4 ${t4.length / 4} tokens (approx.)")
+    }
+
+    @Test fun `every name in the trimmed prompt's index is answered by weave_docs`() {
+        for (tier in 3..4) {
+            if (!EchoUiPromptCache.usesDocsIndex(tier, toolUse = true)) continue
+            val trimmed = EchoUiPromptCache.section(tier, IntelligentUiLevel.BALANCED, docsIndex = true)
+            val index = trimmed.substringAfter("### Reference index\n").substringBefore("\n\n").lines().drop(1)
+            assertTrue(index.isNotEmpty())
+            val tool = WeaveDocsTool(tier)
+            val names = index.flatMap { it.substringAfter(": ").split(' ') }
+            for (chunk in names.chunked(WeaveDocs.MAX_NAMES)) {
+                val answer = WeaveDocs.answer(chunk, tier, EchoUiPromptCache.catalog(tier))
+                assertFalse("tier $tier: ${answer.lines().filter { it.startsWith("unknown:") }}", answer.contains("unknown:"))
+            }
+            assertTrue(tool.handles("weave_docs"))
+            assertTrue(tool.execute("{\"names\": [\"${names.first()}\"]}").startsWith(names.first()))
+        }
+    }
+
+    @Test fun `weave_docs stops after its per-reply limit and when disabled`() {
+        val tool = WeaveDocsTool(4)
+        repeat(WeaveDocsTool.MAX_CALLS) { assertFalse(tool.execute("{\"names\": [\"Text\"]}").contains("limit reached")) }
+        assertTrue(tool.execute("{\"names\": [\"Text\"]}").contains("limit reached"))
+        tool.enabled = false
+        assertFalse(tool.handles("weave_docs"))
+        assertTrue(tool.schemas().isEmpty())
     }
 }
