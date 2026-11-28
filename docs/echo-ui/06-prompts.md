@@ -1,6 +1,6 @@
 # 06 — Prompts
 
-**Spec version:** 1.4 · **Status:** normative
+**Spec version:** 1.5 · **Status:** normative
 
 This document gives the **exact text** sent to models. Text in fenced `text` blocks is sent verbatim,
 with `{{placeholders}}` substituted. Do not paraphrase, re-order or "improve" it in code; change it
@@ -135,6 +135,9 @@ Tier 4 adds:
 ```text
 `on frame -> …` runs every frame with `dt` (seconds) for simulations and games. `on tilt -> …` gives `x`, `y`. `Canvas(view: [0, 0, 100, 60]) [circle(50, 30, 5), …]` draws in its own coordinates; marks animate with `spring(value)`. `js fn name(a) = """…"""` defines a pure JavaScript function (JSON in, JSON out) for heavy logic.
 ```
+
+The last sentence (from `` `js fn `` on) is left out when "Script functions" is off (05 §11.1,
+03 §10.12).
 
 ### 3.2 Tokens
 

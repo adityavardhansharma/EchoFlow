@@ -1,6 +1,6 @@
 # 03 — Semantics
 
-**Spec version:** 1.2 · **Status:** normative
+**Spec version:** 1.5 · **Status:** normative
 
 This document defines what a parsed Weave program **means**: the values it computes, how state
 changes, what actions do, when effects run, and the exact behaviour of every built-in function and
@@ -752,6 +752,34 @@ All arithmetic is unsigned 64-bit wrapping. `i` is rounded to an integer. `[T-29
 
 `spring`, `tween`, `loop` and `stagger` are built-in functions defined in 04 §13.1. Outside a
 rendering slot they return their target value, so they never change the result of a calculation.
+
+
+### 10.12 Script functions (`js fn`, tier 4)
+
+`js fn name(a, b) = """body"""` declares a function whose body is JavaScript (02 §5.4). It is
+called like any `fn`. The host runs it through `JsHost` (`EvalContext.js`); EchoFlow's host is
+`:weave-js` (`QuickJsHost`, package `com.echoflow.weave.js`) on QuickJS.
+
+- **Call.** The body runs as `function (a, b) { body }` in strict mode. Each argument is encoded
+  with the state codec (05 §8.6) and passed in as JSON: records become objects, lists arrays,
+  dates ISO strings, durations `"<n>ms"`, and nodes, actions and functions their placeholder
+  strings (`"[node]"`, …). A parameter named `_` is never bound. Missing arguments are `undefined`.
+- **Result.** `JSON.stringify` of the return value, decoded back with the state codec (objects →
+  records, arrays → lists). `undefined` → `null`.
+- **Isolation.** One runtime per block, on its own thread. No host objects: no `fetch`, `require`,
+  timers, file or network access. Strict mode, so assigning an undeclared name throws instead of
+  creating a global.
+- **Limits.** 50 ms wall time and 16 MB of memory per runtime, and at most 1,000,000 characters
+  of JSON in or out. Over a limit, the call is `null` and the calling statement gets `E303
+  budget`. A runtime that ran out of memory is replaced before the next call.
+- **Errors.** A throw, a syntax error or a result JSON can't encode (a `BigInt`, a cycle) makes the
+  call `null` with no diagnostic; the host logs it.
+- **Purity.** Bodies must be pure, so a host MAY cache results by (name, body, arguments). EchoFlow
+  keeps the last 64 answers per block. Limit outcomes are never cached.
+- **Off.** Below tier 4 a `js fn` is `E209 tier`: it keeps its source (so printing and history are
+  unchanged) but every call is `null` and never reaches the host. With no host, or with "Script
+  functions" off (05 §11.1), every call is `null`, and the prompt leaves `js fn` out of the tier 4
+  syntax card (06 §3.1).
 
 ---
 

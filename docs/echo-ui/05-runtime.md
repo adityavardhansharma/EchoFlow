@@ -1,6 +1,6 @@
 # 05 — Runtime, storage, model loop and settings
 
-**Spec version:** 1.3 · **Status:** normative
+**Spec version:** 1.5 · **Status:** normative
 
 This document says how Echo UI is built inside EchoFlow: modules, classes, threading, streaming
 integration, rendering, the hidden model requests, storage, tiers, the **Intelligent UI** setting,
@@ -692,6 +692,9 @@ chip). If the average exceeds 2.0, the automatic tier is lowered by one for 7 da
     shows the description only);
   - "Model for live updates" (§8.8);
   - "Auto-fix broken blocks" switch (§8.4), default off;
+  - "Script functions" switch (03 §10.12), default on, key **`echoui_scripts`**. Off: `js fn`
+    calls are `null` at once (the block controller checks it on every call) and the prompt and the
+    hidden-request prompt leave `js fn` out;
   - a link "What is Intelligent UI?" opening a short explainer sheet.
 
 ### 11.2 Per-chat override
