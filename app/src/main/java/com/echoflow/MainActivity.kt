@@ -57,7 +57,11 @@ class MainActivity : ComponentActivity() {
     private val openScheduleRequest = MutableStateFlow<String?>(null)
     private val scheduleChatFallback = MutableStateFlow<String?>(null)
     // Text or files another app shared into EchoFlow, opened as a new chat.
-    private val shareRequest = MutableStateFlow<IncomingShare?>(null)
+    /**
+     * A share waiting for the chat UI. Process-wide, not per activity: deciding whether a share is a
+     * `.weave` file can finish after a rotation, and the result must reach the new activity.
+     */
+    private val shareRequest get() = pendingShare
     // A launcher shortcut (new chat, voice, temporary, Imagine) to act on.
     private val shortcutRequest = MutableStateFlow<AppShortcut?>(null)
 
@@ -215,3 +219,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** See [MainActivity.shareRequest]. */
+private val pendingShare = MutableStateFlow<IncomingShare?>(null)

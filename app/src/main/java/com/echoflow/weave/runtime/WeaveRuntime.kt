@@ -94,7 +94,27 @@ class WeaveRuntime(
     fun exportOf(chatId: String?, blockId: String, name: String): WValue? {
         chatId ?: return null
         val c = live(chatId).firstOrNull { it.blockId == blockId }
-        val s = c?.session ?: storedSession(chatId, blockId) ?: return null
+        c?.session?.let { return exportFrom(it, name) }
+        // a stored row is a fixed snapshot, so its exports are evaluated once and remembered until
+        // the chat's rows are reloaded: a chain of blocks each reading the previous export twice
+        // stays linear instead of re-evaluating every link on every read
+        val key = "$chatId/$blockId::$name"
+        if (key in storedExports) return storedExports[key]
+        val s = storedSession(chatId, blockId) ?: return null
+        val cuts = cycleCuts
+        val v = exportFrom(s, name)
+        // a value that passed through a cut cycle is partial: don't remember it
+        if (cycleCuts == cuts) storedExports[key] = v
+        return v
+    }
+
+    /** Bumped each time the cycle guard cuts a read short. */
+    private var cycleCuts = 0
+
+    /** Stored-row export values (see [exportOf]); cleared with the chat's stored rows. */
+    private val storedExports = HashMap<String, WValue?>()
+
+    private fun exportFrom(s: com.echoflow.weave.core.eval.Session, name: String): WValue? {
         val p = s.program
         return when {
             name.startsWith("$") && name.removePrefix("$") in p.exports.map { it.removePrefix("$") } -> s.state[name.removePrefix("$")]
@@ -119,6 +139,8 @@ class WeaveRuntime(
             if (loadingRows.add(chatId)) scope.launch {
                 val loaded = runCatching { withContext(io) { dao.forChat(chatId) } }.getOrDefault(emptyList())
                 storedRows[chatId] = loaded
+                // values worked out while the rows were missing are stale now
+                storedExports.keys.removeAll { it.startsWith("$chatId/") }
                 loadingRows.remove(chatId)
                 exportsChanged(chatId, null)
             }
@@ -138,7 +160,7 @@ class WeaveRuntime(
 
     private fun exportGuarded(chatId: String, blockId: String, name: String): WValue? {
         val key = "$chatId/$blockId::$name"
-        if (!resolving.add(key)) return null
+        if (!resolving.add(key)) { cycleCuts++; return null }
         try { return exportOf(chatId, blockId, name) } finally { resolving.remove(key) }
     }
 
@@ -155,6 +177,7 @@ class WeaveRuntime(
     private fun forgetStored(chatId: String?) {
         chatId ?: return
         storedRows.remove(chatId)?.forEach { storedSessions.remove(it.id) }
+        storedExports.keys.removeAll { it.startsWith("$chatId/") }
     }
 
     private val library = db.weaveLibraryDao()
