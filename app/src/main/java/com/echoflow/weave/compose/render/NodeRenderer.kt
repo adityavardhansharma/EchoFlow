@@ -96,7 +96,7 @@ fun WNode.rec(k: String): WRec? = args[k] as? WRec
 fun WNode.node(k: String): WNode? = args[k] as? WNode
 fun WNode.has(k: String): Boolean = args[k] != null && args[k] != WNull
 
-private val SELF_GESTURE = setOf("Button", "IconButton", "Item", "Chip", "Fab", "Link", "Toggle", "Check", "Radio", "Flip", "Reveal")
+private val SELF_GESTURE = setOf("Button", "IconButton", "Item", "Chip", "Fab", "Link", "Toggle", "Check", "Radio", "Flip", "Reveal", "Card", "Surface")
 
 @Composable
 fun RenderNode(node: WNode, ctx: RenderCtx, modifier: Modifier = Modifier) {
@@ -186,13 +186,7 @@ fun commonModifier(node: WNode, ctx: RenderCtx): Modifier {
     }
     // gestures
     val tap = node.args["onTap"]; val long = node.args["onLongPress"]; val dbl = node.args["onDoubleTap"]
-    if (node.type !in SELF_GESTURE && !disabled && (isAction(tap) || isAction(long) || isAction(dbl))) {
-        m = m.combinedClickable(
-            onClick = { if (isAction(tap)) ctx.fire(tap) },
-            onLongClick = if (isAction(long)) ({ ctx.fire(long) }) else null,
-            onDoubleClick = if (isAction(dbl)) ({ ctx.fire(dbl) }) else null,
-        )
-    }
+    if (node.type !in SELF_GESTURE && !disabled) m = m.then(gestureModifier(node, ctx))
     if (disabled) m = m.alpha(0.38f)
     // enter animation (04 §2.3)
     val enter = node.word("enter") ?: if (ctx.depth == 1) "fade" else "none"
@@ -226,6 +220,21 @@ private fun enterModifier(kind: String, delayArg: WValue?): Modifier {
             "pop" -> { scaleX = 0.6f + 0.4f * p; scaleY = scaleX }
         }
     }
+}
+
+/**
+ * `onTap` / `onLongPress` / `onDoubleTap` (04 §2.1), or nothing. Containers with their own shape
+ * (`Card`, `Surface`) put this inside their clipped content, so the ripple follows the shape (T-402).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+fun gestureModifier(node: WNode, ctx: RenderCtx): Modifier {
+    val tap = node.args["onTap"]; val long = node.args["onLongPress"]; val dbl = node.args["onDoubleTap"]
+    if (node.bool("disabled") || !(isAction(tap) || isAction(long) || isAction(dbl))) return Modifier
+    return Modifier.combinedClickable(
+        onClick = { if (isAction(tap)) ctx.fire(tap) },
+        onLongClick = if (isAction(long)) ({ ctx.fire(long) }) else null,
+        onDoubleClick = if (isAction(dbl)) ({ ctx.fire(dbl) }) else null,
+    )
 }
 
 fun isAction(v: WValue?) = v is WAction || v is WFn || (v is WList && v.items.any { it is WAction })
