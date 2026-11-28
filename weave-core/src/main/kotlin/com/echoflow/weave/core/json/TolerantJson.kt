@@ -34,9 +34,9 @@ object TolerantJson {
             }
         }
         fun word(w: String, v: J): J? {
-            val end = minOf(s.length, i + w.length)
-            if (!w.startsWith(s.substring(i, end))) return null
-            i = end
+            // a cut-off literal (`tru`) is incomplete, not `true`: the entry is dropped
+            if (!s.startsWith(w, i)) return null
+            i += w.length
             return v
         }
         fun obj(): J {

@@ -158,6 +158,19 @@ object Media {
         open?.let { ZoomViewer(srcs, it) { open = null } }
     }
 
+    /** Playback stops when the app leaves the foreground (Home, another app), not only on dispose. */
+    @Composable
+    private fun PauseWhenStopped(player: ExoPlayer?) {
+        val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(player, lifecycle) {
+            val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) player?.pause()
+            }
+            lifecycle.addObserver(obs)
+            onDispose { lifecycle.removeObserver(obs) }
+        }
+    }
+
     @Composable
     fun VideoR(node: WNode, ctx: RenderCtx, modifier: Modifier) {
         val src = srcOf(node)
@@ -172,6 +185,7 @@ object Media {
             }
         }
         DisposableEffect(player) { onDispose { player.release() } }
+        PauseWhenStopped(player)
         var playing by remember { mutableStateOf(player.playWhenReady) }
         var pos by remember { mutableFloatStateOf(0f) }
         LaunchedEffect(player) { while (true) { delay(250); val d = player.duration.coerceAtLeast(1); pos = player.currentPosition.toFloat() / d } }
@@ -193,6 +207,7 @@ object Media {
         val context = LocalContext.current
         val player = remember(src) { src?.let { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(Uri.parse(it))); prepare() } } }
         DisposableEffect(player) { onDispose { player?.release() } }
+        PauseWhenStopped(player)
         var playing by remember { mutableStateOf(false) }
         var pos by remember { mutableFloatStateOf(0f) }
         var time by remember { mutableIntStateOf(0) }

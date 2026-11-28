@@ -15,6 +15,7 @@ import com.echoflow.weave.core.program.ModelResponses
 import com.echoflow.weave.core.program.StateCodec
 import com.echoflow.weave.core.prompt.EchoUiPrompt
 import com.echoflow.weave.core.prompt.HiddenPrompts
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -134,21 +135,30 @@ class ModelLoop(
                 val text = model.complete(system(), HiddenPrompts.regen(block.source(), stateJson(block)), timeoutMs = 90_000) ?: run { block.flashChip("Couldn't rewrite this block"); return@launch }
                 val body = ModelResponses.firstFence(text)
                 val next = Compiler.compile(body, runtime.catalog)
-                if (!next.renderable) { block.flashChip("Couldn't rewrite this block"); return@launch }
+                if (!next.renderable()) { block.flashChip("Couldn't rewrite this block"); return@launch }
                 block.replaceProgram(WeaveRuntime.withHeaderId(next.print(runtime.catalog), blockId(block)), "regen")
             } finally { block.setPending(emptySet()) }
         }
     }
 
-    /** 03 §9.3 / 05 §8.5: generate one lazy part, rendering it as it streams. */
+    /**
+     * 03 §9.3 / 05 §8.5: generate one lazy part, rendering it as it streams. It shares the block's
+     * one-request guard with `!ask`, remix and regen; a part skipped while another request runs is
+     * asked for again on the next render, which that request's result triggers.
+     */
     fun lazy(block: WeaveBlockController, name: String, prompt: String, context: WRec, key: String) {
-        if (block.lazyInFlight.contains(key) || !allow(block)) return
+        if (block.lazyInFlight.contains(key) || inFlight[block]?.isActive == true) return
+        if (!model.available) { block.flashChip("Live updates need a cloud model"); return }
+        if (!allow(block)) return
         block.lazyInFlight = block.lazyInFlight + key
-        runtime.scope.launch {
+        launch(block, cancelOlder = false) {
             try {
-                if (!model.available) { block.flashChip("Live updates need a cloud model"); return@launch }
                 val user = HiddenPrompts.lazy(blockId(block), block.title, block.source(), stateJson(block), name, prompt, StateCodec.encode(context))
-                val text = model.complete(system(), user) { partial -> block.lazyPartial(name, key, ModelResponses.firstFence(partial)) }
+                val text = model.complete(system(), user) { partial ->
+                    // the model streams on a background thread; the session is main-thread only
+                    val body = ModelResponses.firstFence(partial)
+                    runtime.scope.launch(Dispatchers.Main) { if (key in block.lazyInFlight) block.lazyPartial(name, key, body) }
+                }
                 val body = text?.let { ModelResponses.firstFence(it) }
                 if (body == null || !block.lazyResult(name, key, body)) block.lazyFailed(name)
             } finally { block.lazyInFlight = block.lazyInFlight - key }
@@ -203,6 +213,7 @@ class ModelLoop(
         val place = Place(into, emptyList())
         val t = tools[name]
         if (t == null) { block.input(place, queryRecord(WNull, false, "Unknown tool")); return }
+        if (!provenanceOk(block, t, args)) { block.input(place, queryRecord(WNull, false, LINK_NOT_IN_BLOCK)); return }
         block.requestConsent(t, args) { granted ->
             if (!granted) { block.input(place, queryRecord(WNull, false, "Not allowed")); return@requestConsent }
             block.input(place, queryRecord(WNull, true, null))
@@ -213,25 +224,41 @@ class ModelLoop(
         }
     }
 
-    /** Runs a `query` declared in [stmt] (03 §13.1) after consent; re-runs on args change and `every`. */
+    /**
+     * Runs a `query` declared in [stmt] (03 §13.1) after consent; re-runs on `every`. One job per
+     * statement: new arguments cancel the old job, a result is accepted only while its arguments
+     * are still current, and each repeat re-checks consent (a permission reset stops it) and waits
+     * while the block is off screen or the app is in the background.
+     */
     fun runQuery(block: WeaveBlockController, stmt: String, tool: String, args: WValue, everyMs: Long?) {
         val t = tools[tool]
-        if (t == null) { block.setQuery(stmt, queryRecord(WNull, false, "Unknown tool")); return }
+        if (t == null) { block.setQuery(stmt, queryRecord(WNull, false, "Unknown tool"), args); return }
+        if (!provenanceOk(block, t, args)) { block.setQuery(stmt, queryRecord(WNull, false, LINK_NOT_IN_BLOCK), args); return }
         block.requestConsent(t, args) { granted ->
-            if (!granted) { block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), false, "Not allowed")); return@requestConsent }
-            runtime.scope.launch {
-                do {
-                    block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), true, null))
+            if (!granted) { block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), false, "Not allowed"), args); return@requestConsent }
+            block.startQueryJob(stmt, runtime.scope.launch {
+                while (true) {
+                    if (!block.queryArgsStill(stmt, args)) break
+                    block.setQuery(stmt, queryRecord(block.queryValueOf(stmt), true, null), args)
                     val v = runCatching { t.run(args) }
-                    block.setQuery(stmt, v.fold({ queryRecord(it, false, null) }, { queryRecord(block.queryValueOf(stmt), false, it.message?.take(120) ?: "Failed") }))
+                    if (v.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw v.exceptionOrNull()!!
+                    block.setQuery(stmt, v.fold({ queryRecord(it, false, null) }, { queryRecord(block.queryValueOf(stmt), false, it.message?.take(120) ?: "Failed") }), args)
                     if (everyMs == null) break
                     delay(maxOf(everyMs, 60_000L))
-                } while (block.queryArgsStill(stmt, args))
-            }
+                    block.awaitQueryVisible()
+                    if (!block.hasConsent(t)) break
+                }
+            })
         }
     }
 
+    /** 01 §6.5: `web.read` only opens URLs from the block's source or an earlier result. */
+    private fun provenanceOk(block: WeaveBlockController, t: WeaveTool, args: WValue) =
+        t.name != "web.read" || WeaveTools.readAllowed(args, block.knownText())
+
     companion object {
+        private const val LINK_NOT_IN_BLOCK = "Only links shown in this block can be read"
+
         fun queryRecord(value: WValue, loading: Boolean, error: String?) = WRec.of(
             "value" to value, "loading" to WBool.of(loading), "error" to (error?.let { WStr(it) } ?: WNull),
             "at" to if (!loading && error == null) WDateTime(Instant.now()) else WNull,

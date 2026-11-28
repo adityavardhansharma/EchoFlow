@@ -65,6 +65,8 @@ android {
         abiFilters.clear()
         abiFilters += listOf("arm64-v8a", "x86_64")
       }
+      // debug builds try the later phases on device; release ships only what has passed eval
+      buildConfigField("int", "ECHO_UI_PHASE", "3")
     }
   }
   compileOptions {
@@ -77,8 +79,9 @@ android {
     buildConfig = true
   }
   defaultConfig {
-    // Echo UI phase (05 §15): 1 → tier 2, 2 → tier 3, 3 → tier 4.
-    buildConfigField("int", "ECHO_UI_PHASE", "3")
+    // Echo UI phase (05 §15): 1 → tier 2, 2 → tier 3, 3 → tier 4. Each phase ships once its tier
+    // passes the eval bars (07 §10.3); only tier 2 has (weave-eval/runs/2026-11-26-tier2-balanced).
+    buildConfigField("int", "ECHO_UI_PHASE", "1")
   }
   packaging {
     jniLibs {

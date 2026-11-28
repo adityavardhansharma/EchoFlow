@@ -167,13 +167,22 @@ object WeaveWidgets {
     val WIDGET_ACTIONS = setOf("set", "inc", "dec", "toggle", "push", "reset", "resetAll")
     private const val PREFS = "weave_widgets"
 
+    /**
+     * The kept block behind a widget. Assignments are stored per widget (`w:<id>` → library id), so
+     * pinning the same block twice gives two widgets that both find it; the row's single
+     * `pinnedWidgetId` is only a fallback for widgets pinned before this map existed.
+     */
     suspend fun rowFor(context: Context, appWidgetId: Int): WeaveLibraryRow? {
         val dao = AppDatabase.getDatabase(context).weaveLibraryDao()
-        dao.forWidget(appWidgetId)?.let { return it }
-        // a freshly pinned widget takes the block the user asked to pin
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.getString("w:$appWidgetId", null)?.let { id -> dao.get(id)?.let { return it } }
+        dao.forWidget(appWidgetId)?.let { row ->
+            prefs.edit().putString("w:$appWidgetId", row.id).apply()
+            return row
+        }
+        // a freshly pinned widget takes the block the user asked to pin
         val pending = prefs.getString("pending", null) ?: return null
-        prefs.edit().remove("pending").apply()
+        prefs.edit().remove("pending").putString("w:$appWidgetId", pending).apply()
         dao.setWidget(pending, appWidgetId)
         return dao.get(pending)
     }

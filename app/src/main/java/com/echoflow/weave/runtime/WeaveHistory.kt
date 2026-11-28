@@ -14,11 +14,16 @@ import com.echoflow.weave.runtime.storage.WeaveBlockRow
  * line; blocks shown as plain text are sent as that text.
  */
 object WeaveHistory {
-    private val FENCE = Regex("""(?m)^(```|~~~)weave([^\n]*)\n([\s\S]*?)\n?\1[ \t]*$""")
+    /**
+     * A top-level `weave` / `weave-json` fence as the renderer reads them: up to three leading
+     * spaces, three or more markers, closed by a fence of the same marker at least as long.
+     * Groups: 1 = opening run, 2 = `-json` or empty, 3 = rest of the info string, 4 = body.
+     */
+    private val FENCE = Regex("""(?m)^ {0,3}(`{3,}|~{3,})weave(-json)?([^\n]*)\n([\s\S]*?)\n?^ {0,3}\1[`~]*[ \t]*$""")
     private const val FULL_SOURCE_TURNS = 10
 
     fun rewrite(history: List<ChatMessage>, rows: List<WeaveBlockRow>): List<ChatMessage> {
-        if (rows.isEmpty() && history.none { it.role == "assistant" && it.content.contains("```weave edit") }) return history
+        if (rows.isEmpty() && history.none { it.role == "assistant" && it.content.contains("weave") && FENCE.containsMatchIn(it.content) }) return history
         val byMessage = rows.groupBy { it.messageId }.mapValues { (_, r) -> r.sortedBy { it.blockKey } }
         val assistantIdx = history.withIndex().filter { it.value.role == "assistant" }.map { it.index }
         return history.mapIndexed { i, m ->
@@ -27,8 +32,12 @@ object WeaveHistory {
             val blocks = byMessage[m.id].orEmpty()
             var ordinal = 0
             val out = FENCE.replace(m.content) { match ->
-                val info = match.groupValues[2].trim()
+                val json = match.groupValues[2].isNotEmpty()
+                val info = match.groupValues[3].trim()
+                val fenceBody = match.groupValues[4]
+                // edits are dropped: their effect is in the target's stored source
                 if (info.startsWith("edit")) return@replace ""
+                if (json && com.echoflow.weave.core.json.JsonLowering.lower(fenceBody)?.editTarget != null) return@replace ""
                 val row = blocks.getOrNull(ordinal++) ?: return@replace match.value
                 "```weave\n" + body(row, turnsBack > FULL_SOURCE_TURNS) + "\n```"
             }

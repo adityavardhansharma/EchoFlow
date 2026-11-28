@@ -55,10 +55,22 @@ class WeaveJsonTest {
         assertTrue(l.source.contains("emi = 1") && l.source.contains("-kpi"))
     }
 
+    @Test fun `a cut-off literal is dropped, not completed`() {
+        val o = com.echoflow.weave.core.json.TolerantJson.parse("{\"a\": 1, \"x\": tru") as com.echoflow.weave.core.json.TolerantJson.JObj
+        assertTrue(o.fields.containsKey("a"))
+        assertTrue(!o.fields.containsKey("x"))
+    }
+
     @Test fun `the schema names every component and parses as JSON`() {
         val schema = com.echoflow.weave.core.prompt.SchemaGenerator.schema()
         val parsed = com.echoflow.weave.core.json.TolerantJson.parse(schema) as com.echoflow.weave.core.json.TolerantJson.JObj
         assertTrue(parsed.fields.containsKey("${'$'}defs"))
         for (c in listOf("Slider", "Metric", "Card")) assertTrue(c, schema.contains("\"const\":\"$c\""))
+        // a Slider needs its value or a bind; a Card can't take `bind`; `do` is text or a text list
+        val slider = schema.substringAfter("\"const\":\"Slider\"").substringBefore("\"const\":")
+        assertTrue(slider, slider.contains("{\"required\":[\"bind\"]}"))
+        val card = schema.substringAfter("\"const\":\"Card\"").substringBefore("\"const\":")
+        assertTrue(card, !card.contains("\"bind\""))
+        assertTrue(schema.contains("\"do\":{\"anyOf\":[{\"type\":\"string\"}"))
     }
 }

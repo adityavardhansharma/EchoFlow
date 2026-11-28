@@ -37,30 +37,52 @@ object ModelResponses {
         return kept.joinToString("\n") to skipped
     }
 
+    /** A lazy edit and the helper names it defines, so the next generation may replace them. */
+    data class LazyEdit(val source: String, val helpers: Set<String>)
+
     /**
      * A `lazy` fragment (03 §9.3) as an edit that defines `<binding>__lazy` from the fragment's
      * root; helpers are prefixed with the binding name so they can't collide, and state is
      * dropped. Null when the fragment has no root.
+     *
+     * [taken] are names already defined in the block that the edit must not overwrite (pass the
+     * program's names minus the helpers this lazy part made last time). Renaming walks the parsed
+     * tree, so strings, record keys, member names and named arguments are never touched.
      */
-    fun lazyEdit(bindingName: String, fragment: String, catalog: Catalog = BuiltinCatalog): String? {
+    fun lazyEdit(bindingName: String, fragment: String, catalog: Catalog = BuiltinCatalog): String? =
+        lazyEditFor(bindingName, fragment, emptySet(), catalog)?.source
+
+    fun lazyEditFor(bindingName: String, fragment: String, taken: Set<String>, catalog: Catalog = BuiltinCatalog): LazyEdit? {
         val printer = WeaveProgram.printer(catalog)
         val lines = Compiler.parseLines(fragment).mapNotNull { it.stmt }
         val bindings = lines.filterIsInstance<Binding>()
-        val helpers = bindings.filter { it.name != "root" }.map { it.name } + lines.filterIsInstance<FnDecl>().map { it.name }
         val root = bindings.lastOrNull { it.name == "root" } ?: return null
-        fun rename(text: String): String {
-            var t = text
-            for (h in helpers) t = t.replace(Regex("\\b${Regex.escape(h)}\\b"), "${bindingName}__$h")
-            return t
+        val helpers = (bindings.filter { it.name != "root" }.map { it.name } + lines.filterIsInstance<FnDecl>().map { it.name }).distinct()
+        val used = HashSet(taken).apply { add(lazyName(bindingName)) }
+        val renames = LinkedHashMap<String, String>()
+        for (h in helpers) {
+            var candidate = "${bindingName}__$h"
+            var n = 2
+            while (candidate in used) candidate = "${bindingName}__${h}_${n++}"
+            used += candidate
+            renames[h] = candidate
+        }
+        fun rename(stmt: com.echoflow.weave.core.parse.Stmt) = com.echoflow.weave.core.parse.Rewrite.stmt(stmt) { e ->
+            when {
+                e is com.echoflow.weave.core.parse.Name && e.name in renames -> e.copy(name = renames.getValue(e.name))
+                e is com.echoflow.weave.core.parse.Call && e.kind == com.echoflow.weave.core.parse.CallKind.FUNCTION && e.callee in renames ->
+                    e.copy(callee = renames.getValue(e.callee))
+                else -> null
+            }
         }
         val out = ArrayList<String>()
-        out += rename(printer.stmt(root)).replaceFirst(Regex("^root\\b"), lazyName(bindingName))
+        out += printer.stmt(rename((root as Binding).copy(name = lazyName(bindingName))))
         for (s in lines) when (s) {
-            is Binding -> if (s.name != "root") out += rename(printer.stmt(s))
-            is FnDecl -> out += rename(printer.stmt(s))
+            is Binding -> if (s.name != "root") out += printer.stmt(rename(s.copy(name = renames.getValue(s.name))))
+            is FnDecl -> out += printer.stmt(rename(s.copy(name = renames.getValue(s.name))))
             else -> {}
         }
-        return out.joinToString("\n")
+        return LazyEdit(out.joinToString("\n"), renames.values.toSet())
     }
 
     fun lazyName(bindingName: String) = "${bindingName}__lazy"

@@ -18,15 +18,21 @@ internal class NodeBuilder(private val ev: Evaluator) {
 
     fun component(c: Call, scope: Scope): WValue {
         val spec = ev.catalog.full.component(c.callee) ?: return WNull
-        return build(c, scope, spec.leads, { spec.param(it) ?: BuiltinCatalog.COMMON.firstOrNull { p -> p.name == it } }, spec.allParams)
+        val marks = (spec.children as? com.echoflow.weave.core.catalog.ChildrenSpec.Marks)?.container
+        return build(c, scope, spec.leads, { spec.param(it) ?: BuiltinCatalog.COMMON.firstOrNull { p -> p.name == it } }, spec.allParams, marks)
     }
 
     fun mark(c: Call, scope: Scope): WValue {
-        val spec = ev.catalog.full.marks.firstOrNull { it.name == c.callee } ?: return WNull
+        // Chart and Canvas both have a `line` (and other shared names): use the parent's own mark
+        val container = ev.markContainer
+        val spec = container?.let { ev.catalog.full.mark(it, c.callee) }
+            ?: ev.catalog.full.marks.firstOrNull { it.name == c.callee } ?: return WNull
         return build(c, scope, spec.leads, { spec.param(it) }, spec.allParams)
     }
 
-    private fun build(c: Call, scope: Scope, leads: List<ParamSpec>, param: (String) -> ParamSpec?, all: List<ParamSpec>): WValue {
+    private fun build(
+        c: Call, scope: Scope, leads: List<ParamSpec>, param: (String) -> ParamSpec?, all: List<ParamSpec>, marksOf: String? = null,
+    ): WValue {
         val args = LinkedHashMap<String, WValue>()
         val places = HashMap<String, Place>()
         var error: String? = null
@@ -76,7 +82,13 @@ internal class NodeBuilder(private val ev: Evaluator) {
         }
         if (readOnly) args["disabled"] = WBool.TRUE
         val children = ArrayList<WNode>()
-        c.children?.forEach { e -> flatten(ev.eval(e, scope), children) }
+        val outer = ev.markContainer
+        ev.markContainer = marksOf
+        try {
+            c.children?.forEach { e -> flatten(ev.eval(e, scope), children) }
+        } finally {
+            ev.markContainer = outer
+        }
         return WNode(c.callee, args, children, "", ev.currentStmt(), places, waiting, error)
     }
 

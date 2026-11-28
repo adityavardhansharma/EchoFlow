@@ -18,7 +18,8 @@ import kotlin.random.Random
 /** `!confetti` (03 §10.3): a short burst of theme-coloured pieces over the block. */
 @Composable
 fun ConfettiOverlay(trigger: Int, modifier: Modifier = Modifier) {
-    if (trigger == 0) return
+    // reduced motion shows no burst at all (04 §13.1)
+    if (trigger == 0 || com.echoflow.ui.theme.rememberReducedMotion()) return
     val scheme = MaterialTheme.colorScheme
     val colors = listOf(scheme.primary, scheme.secondary, scheme.tertiary, scheme.error, scheme.primaryContainer)
     val t = remember(trigger) { Animatable(0f) }
@@ -42,7 +43,14 @@ fun ConfettiOverlay(trigger: Int, modifier: Modifier = Modifier) {
 
 /** Reduced motion (animator duration scale 0) and device-motion effects. */
 object Motion {
-    fun reducedMotion(): Boolean = runCatching { android.animation.ValueAnimator.areAnimatorsEnabled().not() }.getOrDefault(false)
+    /**
+     * Without a Compose context: `areAnimatorsEnabled` on API 26+, else the global animator scale.
+     * Inside composition, use `rememberReducedMotion()`.
+     */
+    fun reducedMotion(context: android.content.Context): Boolean = runCatching {
+        if (android.os.Build.VERSION.SDK_INT >= 26) !android.animation.ValueAnimator.areAnimatorsEnabled()
+        else android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }.getOrDefault(false)
 }
 
 /**

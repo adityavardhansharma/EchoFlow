@@ -58,13 +58,17 @@ object StateCodec {
     /**
      * Stored values for declared, non-transient states, coerced to their declared type. A value
      * that fails coercion is left out, so the state re-initialises (03 §7.1 step 2).
+     *
+     * `reset` is not applied here: it belongs to the edit that carries it (02 §11.3), which clears
+     * the stored value once when it is accepted. Skipping it on every load would throw away every
+     * later change to that state.
      */
     fun decodeState(program: WeaveProgram, json: String, f: Formatter = Formatter()): Map<String, WValue> {
         val rec = decode(json) as? WRec ?: return emptyMap()
         val out = LinkedHashMap<String, WValue>()
         for ((k, raw) in rec.fields) {
             val decl = program.states[k] ?: continue
-            if (decl.transient || decl.reset) continue
+            if (decl.transient) continue
             val t = decl.type
             if (t == null) { out[k] = raw; continue }
             val c = Coercion(f).toType(revive(raw), t)

@@ -44,14 +44,25 @@ class WeaveRuntime(
     private val db: AppDatabase,
     val registry: Set<String>,
     var host: WeaveHost? = null,
+    /** One-shot markers (`appear`) of kept blocks, which have no `weave_blocks` row to hold them. */
+    private val libraryFired: android.content.SharedPreferences? = null,
 ) {
     var modelLoop: WeaveModelLoop? = null
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val io = Dispatchers.IO
+    /**
+     * Storage writes outlive the screen: [close] flushes every controller and then cancels [scope],
+     * so the final writes must not run on it or leaving within the save delay would drop them.
+     */
+    private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val dao = db.weaveBlockDao()
     private val storage = db.weaveStorageDao()
-    private val idLock = Mutex()
+    /**
+     * Block-id allocation is serialised for the whole process, not per runtime: two screens can
+     * hold runtimes for the same chat (a navigation transition), and both must see each other's ids.
+     */
+    private val idLock = ID_LOCK
 
     /** The catalog this build can render: phase-filtered and limited to registered renderers (05 §3.3). */
     val catalog: Catalog = BuiltinCatalog.restrictedTo(4, BuildConfig.ECHO_UI_PHASE).registeredOnly(registry)
@@ -59,7 +70,7 @@ class WeaveRuntime(
     private val controllers = object : LinkedHashMap<String, WeaveBlockController>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WeaveBlockController>): Boolean {
             val evict = size > 64
-            if (evict) eldest.value.close()
+            if (evict) { eldest.value.close(); forgetStored(eldest.value.chatId) }
             return evict
         }
     }
@@ -75,17 +86,63 @@ class WeaveRuntime(
     /** Live controllers of a chat, for exports and edits. */
     private fun live(chatId: String) = controllers.values.filter { it.chatId == chatId }
 
-    /** `id::name` from an earlier block's `export` (01 §6.5). */
+    /**
+     * `id::name` from an earlier block's `export` (01 §6.5). A block on screen answers from its live
+     * session; one that isn't composed (scrolled away, evicted, or not reached yet when a long chat
+     * opens at the bottom) answers from its stored row, loaded once per chat.
+     */
     fun exportOf(chatId: String?, blockId: String, name: String): WValue? {
         chatId ?: return null
-        val c = live(chatId).firstOrNull { it.blockId == blockId } ?: return null
-        val s = c.session ?: return null
+        val c = live(chatId).firstOrNull { it.blockId == blockId }
+        val s = c?.session ?: storedSession(chatId, blockId) ?: return null
         val p = s.program
         return when {
             name.startsWith("$") && name.removePrefix("$") in p.exports.map { it.removePrefix("$") } -> s.state[name.removePrefix("$")]
-            name in p.exports -> s.binding(name)
+            name in p.exports -> runCatching { s.binding(name) }.getOrNull()
             else -> null
         }
+    }
+
+    /** Stored rows per chat, for exports of blocks that aren't composed. */
+    private val storedRows = HashMap<String, List<WeaveBlockRow>>()
+    private val loadingRows = HashSet<String>()
+    /** Sessions rebuilt from stored rows, by row id, with the row's `updatedAt`. */
+    private val storedSessions = HashMap<String, Pair<Long, com.echoflow.weave.core.eval.Session>>()
+
+    private fun storedSession(chatId: String, blockId: String): com.echoflow.weave.core.eval.Session? {
+        val rows = storedRows[chatId]
+        if (rows == null) {
+            if (loadingRows.add(chatId)) scope.launch {
+                val loaded = runCatching { withContext(io) { dao.forChat(chatId) } }.getOrDefault(emptyList())
+                storedRows[chatId] = loaded
+                loadingRows.remove(chatId)
+                exportsChanged(chatId, null)
+            }
+            return null
+        }
+        val row = rows.lastOrNull { it.blockId == blockId } ?: return null
+        storedSessions[row.id]?.let { (at, s) -> if (at == row.updatedAt) return s }
+        val program = Compiler.compile(row.source, catalog)
+        val s = runCatching {
+            com.echoflow.weave.core.eval.Session(program, catalog = catalog).also { it.restore(StateCodec.decodeState(program, row.stateJson)) }
+        }.getOrNull() ?: return null
+        storedSessions[row.id] = row.updatedAt to s
+        return s
+    }
+
+    /**
+     * An exporting block changed (or stored rows arrived): blocks of the chat that read `id::name`
+     * re-evaluate. [from] is the block that changed, skipped.
+     */
+    fun exportsChanged(chatId: String?, from: WeaveBlockController?) {
+        chatId ?: return
+        live(chatId).forEach { if (it !== from) it.exportsChanged() }
+    }
+
+    /** A controller left the cache: its stored row is now the latest copy, so reload rows. */
+    private fun forgetStored(chatId: String?) {
+        chatId ?: return
+        storedRows.remove(chatId)
     }
 
     private val library = db.weaveLibraryDao()
@@ -94,13 +151,14 @@ class WeaveRuntime(
      * The stored row for a block. A `library:<id>` key is a kept block (01 §23.5): it comes back
      * as an in-memory row whose state saves go to `weave_library`.
      */
-    suspend fun loadRow(messageId: String, blockKey: Int): WeaveBlockRow? = withContext(io) {
+    suspend fun loadRow(messageId: String, blockKey: Int): WeaveBlockRow? = if (isArchived(messageId)) null else withContext(io) {
         if (messageId.startsWith(LIBRARY)) {
             val l = library.get(messageId.removePrefix(LIBRARY)) ?: return@withContext null
             WeaveBlockRow(
                 id = messageId, chatId = "", messageId = messageId, blockKey = blockKey, blockId = "b1", version = 1, form = "source",
                 source = l.source, stateJson = l.stateJson, historyJson = "[]", lazyJson = l.lazyJson, queryJson = "{}", consentJson = "{}",
-                firedJson = "{}", askLogJson = "[]", uiStateJson = "{}", createdAt = l.createdAt, updatedAt = l.updatedAt,
+                firedJson = libraryFired?.getString(messageId, null) ?: "{}", askLogJson = "[]", uiStateJson = "{}",
+                createdAt = l.createdAt, updatedAt = l.updatedAt,
             )
         } else dao.get(messageId, blockKey)
     }
@@ -112,14 +170,15 @@ class WeaveRuntime(
         val now = System.currentTimeMillis()
         val row = com.echoflow.weave.runtime.storage.WeaveLibraryRow(
             id = java.util.UUID.randomUUID().toString(), title = p.header.title ?: "Block", icon = p.header.icon ?: "widgets",
-            source = controller.source(), stateJson = StateCodec.encodeState(p, s.state), lazyJson = "{}", pinnedWidgetId = null,
+            // generated lazy parts go with it: the Library has no model to make them again
+            source = controller.source(), stateJson = StateCodec.encodeState(p, s.state), lazyJson = controller.lazyJson(), pinnedWidgetId = null,
             createdAt = now, updatedAt = now,
         )
-        scope.launch(io) { library.upsert(row) }
+        writes.launch { library.upsert(row) }
     }
 
     fun observeLibrary() = library.observeAll()
-    fun deleteFromLibrary(id: String) { scope.launch(io) { library.delete(id) } }
+    fun deleteFromLibrary(id: String) { writes.launch { library.delete(id) } }
 
     /** Inserts the row for a block whose fence just closed (05 §9.3); returns the stored row. */
     suspend fun createRow(controller: WeaveBlockController, program: WeaveProgram, source: String): WeaveBlockRow? {
@@ -157,28 +216,34 @@ class WeaveRuntime(
     }
 
     fun saveState(rowId: String, stateJson: String) {
-        scope.launch(io) {
+        writes.launch {
             if (rowId.startsWith(LIBRARY)) library.updateState(rowId.removePrefix(LIBRARY), stateJson, System.currentTimeMillis())
             else dao.updateState(rowId, stateJson, "[]", System.currentTimeMillis())
         }
     }
 
     fun saveFired(rowId: String, firedJson: String) {
-        scope.launch(io) { dao.updateFired(rowId, firedJson, System.currentTimeMillis()) }
+        if (rowId.startsWith(LIBRARY)) { libraryFired?.edit()?.putString(rowId, firedJson)?.apply(); return }
+        writes.launch { dao.updateFired(rowId, firedJson, System.currentTimeMillis()) }
     }
 
     fun saveUiState(rowId: String, uiJson: String) {
-        scope.launch(io) { dao.updateUiState(rowId, uiJson, System.currentTimeMillis()) }
+        writes.launch { dao.updateUiState(rowId, uiJson, System.currentTimeMillis()) }
     }
 
-    fun saveAskLog(rowId: String, json: String) { scope.launch(io) { dao.updateAskLog(rowId, json, System.currentTimeMillis()) } }
-    fun saveLazy(rowId: String, json: String) { scope.launch(io) { dao.updateLazy(rowId, json, System.currentTimeMillis()) } }
-    fun saveQueries(rowId: String, json: String) { scope.launch(io) { dao.updateQueries(rowId, json, System.currentTimeMillis()) } }
-    fun saveConsent(rowId: String, json: String) { scope.launch(io) { dao.updateConsent(rowId, json, System.currentTimeMillis()) } }
+    fun saveAskLog(rowId: String, json: String) { writes.launch { dao.updateAskLog(rowId, json, System.currentTimeMillis()) } }
+    fun saveLazy(rowId: String, json: String) {
+        writes.launch {
+            if (rowId.startsWith(LIBRARY)) library.updateLazy(rowId.removePrefix(LIBRARY), json, System.currentTimeMillis())
+            else dao.updateLazy(rowId, json, System.currentTimeMillis())
+        }
+    }
+    fun saveQueries(rowId: String, json: String) { writes.launch { dao.updateQueries(rowId, json, System.currentTimeMillis()) } }
+    fun saveConsent(rowId: String, json: String) { writes.launch { dao.updateConsent(rowId, json, System.currentTimeMillis()) } }
 
     fun saveVersion(rowId: String, version: Int, source: String, cause: String) {
-        if (rowId.startsWith(LIBRARY)) { scope.launch(io) { library.updateSource(rowId.removePrefix(LIBRARY), source, System.currentTimeMillis()) }; return }
-        scope.launch(io) { storage.newVersion(rowId, version, source, cause, System.currentTimeMillis()) }
+        if (rowId.startsWith(LIBRARY)) { writes.launch { library.updateSource(rowId.removePrefix(LIBRARY), source, System.currentTimeMillis()) }; return }
+        writes.launch { storage.newVersion(rowId, version, source, cause, System.currentTimeMillis()) }
     }
 
     suspend fun versions(rowId: String) = withContext(io) { db.weaveVersionDao().forBlock(rowId) }
@@ -201,6 +266,15 @@ class WeaveRuntime(
         if (!r.accepted) return EditOutcome.Rejected(title, r.rejection ?: "rejected")
         val source = withHeaderId(r.program.print(catalog), targetId)
         withContext(io) { storage.newVersion(row.id, row.version + 1, source, "edit", System.currentTimeMillis()) }
+        // `reset` applies once, when the edit is accepted (02 §11.3): clear the stored values now,
+        // so a block that isn't on screen re-initialises them and later changes are kept
+        if (liveCtl == null && r.resetStates.isNotEmpty()) {
+            val stored = StateCodec.decode(row.stateJson) as? com.echoflow.weave.core.eval.WRec
+            if (stored != null && r.resetStates.any { it in stored.fields }) {
+                val kept = com.echoflow.weave.core.eval.WRec(LinkedHashMap(stored.fields.filterKeys { it !in r.resetStates }))
+                withContext(io) { dao.updateState(row.id, StateCodec.encode(kept), row.historyJson, System.currentTimeMillis()) }
+            }
+        }
         liveCtl?.applyEdit(r, row.version + 1, fired)
         return EditOutcome.Applied(title)
     }
@@ -213,8 +287,11 @@ class WeaveRuntime(
 
     fun dispatch(controller: WeaveBlockController, effect: HostEffect) {
         // hidden model requests go to the model loop; everything else to the UI host
-        if (effect.kind in MODEL_ACTIONS) modelLoop?.handle(controller, effect) ?: host?.perform(controller, effect)
-        else host?.perform(controller, effect)
+        if (effect.kind in MODEL_ACTIONS) {
+            val loop = modelLoop
+            // the Library (and any host without a model) can't run hidden requests: say so
+            if (loop == null) controller.flashChip("Live updates work in chat") else loop.handle(controller, effect)
+        } else host?.perform(controller, effect)
     }
 
     fun close() {
@@ -224,6 +301,12 @@ class WeaveRuntime(
     }
 
     companion object {
+        private val ID_LOCK = Mutex()
+        private const val ARCHIVED = "#version:"
+
+        /** The controller key for an older answer version: it never gets or reads a stored row. */
+        fun archivedKey(messageId: String, version: Int) = "$messageId$ARCHIVED$version"
+        fun isArchived(messageId: String?) = messageId?.contains(ARCHIVED) == true
         const val LIBRARY = "library:"
         private val MODEL_ACTIONS = setOf("ask", "refresh", "regen", "tool")
         private val HEADER = Regex("""^@weave\s+(\d+)([^\n]*)""")
@@ -232,9 +315,20 @@ class WeaveRuntime(
         fun withHeaderId(source: String, id: String): String {
             val m = HEADER.find(source)
             if (m == null) return "@weave 1 id: $id\n$source"
-            if (Regex("""\bid\s*:""").containsMatchIn(m.groupValues[2])) return source
-            return source.replaceRange(m.range, "@weave ${m.groupValues[1]} id: $id${m.groupValues[2]}")
+            val attrs = m.groupValues[2]
+            val existing = HEADER_ID.find(attrs)
+            // the thread may have given this block a different id than the model wrote (a reused
+            // id); the stored header must name the id the row is stored under, or later edits
+            // would target the other block
+            if (existing != null) {
+                if (existing.groupValues[1] == id) return source
+                val fixed = attrs.replaceRange(existing.groups[1]!!.range, id)
+                return source.replaceRange(m.range, "@weave ${m.groupValues[1]}$fixed")
+            }
+            return source.replaceRange(m.range, "@weave ${m.groupValues[1]} id: $id$attrs")
         }
+
+        private val HEADER_ID = Regex("""\bid\s*:\s*([A-Za-z0-9_-]+)""")
 
         fun addFlag(json: String, flag: String): String {
             val rec = StateCodec.decode(json) as? com.echoflow.weave.core.eval.WRec ?: com.echoflow.weave.core.eval.WRec(LinkedHashMap())

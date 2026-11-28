@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -19,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import com.echoflow.weave.compose.render.RenderChildren
@@ -38,6 +38,27 @@ import com.echoflow.weave.core.eval.WRec
  */
 object Overlays {
     val TYPES = setOf("Sheet", "Dialog", "Popover", "Menu")
+
+    /**
+     * Places a popup just below [anchor] (window bounds of the named node), flipping above it when
+     * there is no room and staying inside the window. Without a known anchor it falls back to the
+     * block host's own bounds.
+     */
+    private fun below(anchor: androidx.compose.ui.geometry.Rect?) = object : androidx.compose.ui.window.PopupPositionProvider {
+        override fun calculatePosition(
+            anchorBounds: androidx.compose.ui.unit.IntRect,
+            windowSize: androidx.compose.ui.unit.IntSize,
+            layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+            popupContentSize: androidx.compose.ui.unit.IntSize,
+        ): androidx.compose.ui.unit.IntOffset {
+            val left = anchor?.left?.toInt() ?: anchorBounds.left
+            val top = anchor?.top?.toInt() ?: anchorBounds.top
+            val bottom = anchor?.bottom?.toInt() ?: anchorBounds.bottom
+            val x = left.coerceIn(0, maxOf(0, windowSize.width - popupContentSize.width))
+            val y = if (bottom + popupContentSize.height <= windowSize.height) bottom else maxOf(0, top - popupContentSize.height)
+            return androidx.compose.ui.unit.IntOffset(x, y)
+        }
+    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -69,15 +90,26 @@ object Overlays {
                         dismissButton = dismiss?.let { d -> { TextButton({ close(); ctx.fire(d["onTap"]) }) { Text(ctx.fmt(d["label"])) } } },
                     )
                 }
-                "Popover" -> Popup(onDismissRequest = close) {
+                "Popover" -> Popup(popupPositionProvider = below(c.nodeBounds[node.str("anchor") ?: ""]), onDismissRequest = close) {
                     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, shadowElevation = 2.dp) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { RenderChildren(node.children, ctx) }
                     }
                 }
-                "Menu" -> DropdownMenu(true, close) {
-                    node.list("items")?.filterIsInstance<WRec>()?.forEach { item ->
-                        DropdownMenuItem({ Text(ctx.fmt(item["label"])) }, { close(); ctx.fire(item["onTap"]) },
-                            leadingIcon = item["icon"].word()?.let { ic -> { Icon(TokenResolver.icon(ic), null) } })
+                // a menu card placed below its anchor, with the M3 menu's surface and items
+                "Menu" -> Popup(
+                    popupPositionProvider = below(c.nodeBounds[node.str("anchor") ?: ""]), onDismissRequest = close,
+                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+                ) {
+                    Surface(
+                        Modifier.widthIn(min = 112.dp, max = 280.dp), shape = MaterialTheme.shapes.extraSmall,
+                        color = MaterialTheme.colorScheme.surfaceContainer, shadowElevation = 3.dp, tonalElevation = 3.dp,
+                    ) {
+                        Column(Modifier.padding(vertical = 8.dp)) {
+                            node.list("items")?.filterIsInstance<WRec>()?.forEach { item ->
+                                DropdownMenuItem({ Text(ctx.fmt(item["label"])) }, { close(); ctx.fire(item["onTap"]) },
+                                    leadingIcon = item["icon"].word()?.let { ic -> { Icon(TokenResolver.icon(ic), null) } })
+                            }
+                        }
                     }
                 }
             }

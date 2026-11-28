@@ -35,7 +35,9 @@ object Placeholders {
     fun ForNode(node: WNode, ctx: RenderCtx, modifier: Modifier = Modifier) {
         val kind = BuiltinCatalog.component(node.type)?.placeholder ?: PlaceholderKind.BAR
         when (kind) {
-            PlaceholderKind.NONE -> RenderChildren(node.children, ctx)
+            // a container keeps its own layout while an argument is pending (a waiting value reads
+            // as null, so its default applies); only leaf components show a placeholder
+            PlaceholderKind.NONE -> Registry.renderers[node.type]?.invoke(node, ctx, modifier) ?: RenderChildren(node.children, ctx)
             PlaceholderKind.CHART -> Bar(modifier.fillMaxWidth(), TokenResolver.heightOr(node.args["h"], "m", ctx.screenHeight), RoundedCornerShape(20.dp))
             else -> Of(kind, modifier)
         }

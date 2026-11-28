@@ -91,6 +91,9 @@ class Evaluator(
     val diagnostics = ArrayList<Diagnostic>()
     private val reported = HashSet<String>()
 
+    /** The Chart/Canvas whose children are being evaluated, so a mark takes that container's signature. */
+    internal var markContainer: String? = null
+
     private val cache = HashMap<String, WValue>()
     private val waitingCache = HashSet<String>()
     private val inProgress = ArrayList<String>()

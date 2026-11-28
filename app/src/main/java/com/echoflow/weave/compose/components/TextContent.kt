@@ -142,7 +142,8 @@ object TextContent {
     fun MarkdownR(node: WNode, ctx: RenderCtx, modifier: Modifier) {
         // No nested Weave fences (04 §5 Markdown): render with no block extensions.
         CompositionLocalProvider(LocalMarkdownBlockExtensions provides emptyMap()) {
-            MarkdownText(ctx.fmt(node.args["source"]), modifier.fillMaxWidth())
+            // links go through the block's confirmation sheet, like Link and Text (05 §13.2)
+            MarkdownText(ctx.fmt(node.args["source"]), modifier.fillMaxWidth(), onLinkClick = { ctx.controller.requestUrl(it) })
         }
     }
 

@@ -91,6 +91,14 @@ class WeaveBlockExtension(
     private val chatId: String?,
     private val maxBlocks: Int,
 ) : MarkdownBlockExtension {
+    /** New blocks take a slot; edits (`weave edit …`, or a Weave-JSON body with `"edit"`) don't. */
+    override fun countsTowardLimit(block: MarkdownExtensionBlock): Boolean {
+        val words = block.info.trim().split(Regex("\\s+"))
+        if (words.getOrNull(1) == "edit") return false
+        if (block.kind == "weave-json") return com.echoflow.weave.core.json.JsonLowering.lower(block.body, runtime.catalog)?.editTarget == null
+        return block.info.trim() == block.kind
+    }
+
     @Composable
     override fun Render(block0: MarkdownExtensionBlock, modifier: Modifier) {
         // Weave-JSON (02 §12) lowers to source and then takes the same path
@@ -108,11 +116,18 @@ class WeaveBlockExtension(
             return
         }
         if (LocalMarkdownExtensionOrdinal.current >= maxBlocks) {
-            CodeFence(block.body, modifier)
-            return
+            // the cap limits new blocks only: one that already has a stored row rendered when its
+            // reply arrived, and a later level change mustn't turn it back into code (05 §11.4)
+            val stored by androidx.compose.runtime.produceState<Boolean?>(null, messageId, block.key) {
+                value = messageId != null && runCatching { runtime.loadRow(messageId, block.key) }.getOrNull() != null
+            }
+            if (stored != true) {
+                CodeFence(block.body, modifier)
+                return
+            }
         }
         val controller = runtime.controller(messageId, chatId, block.key)
-        WeaveBlock(controller, block, modifier)
+        WeaveBlock(controller, block, modifier, chatKey = chatId)
     }
 }
 
@@ -141,9 +156,10 @@ private fun evalContext(): EvalContext {
 }
 
 @Composable
-fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, modifier: Modifier = Modifier) {
+fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, modifier: Modifier = Modifier, chatKey: String? = null) {
     val context = evalContext()
-    LaunchedEffect(controller, block.body, block.complete) { controller.update(block.body, block.complete, context) }
+    // the reply's chat id arrives when it is saved; re-run so a closed fence still gets its row
+    LaunchedEffect(controller, block.body, block.complete, chatKey) { controller.update(block.body, block.complete, context) }
     val program = controller.program
     val version = controller.version
     if (program == null) {
@@ -154,7 +170,7 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
         Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) { CodeFence(block.body); ErrorChip("Needs a newer EchoFlow") }
         return
     }
-    if (program.complete && !program.renderable) {
+    if (program.complete && !program.renderable(controller.session)) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) { CodeFence(block.body); ErrorChip("Couldn't render this block") }
         return
     }
@@ -180,12 +196,17 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
         }
     }
     LaunchedEffect(controller) {
-        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            try { kotlinx.coroutines.awaitCancellation() } finally { controller.flush() }
-        }
+        try {
+            lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                // queries refresh only while the block is composed and the app is in the foreground
+                controller.onScreen = true
+                try { kotlinx.coroutines.awaitCancellation() } finally { controller.onScreen = false; controller.flush() }
+            }
+        } finally { controller.onScreen = false }
     }
     // `frame` effects and `loop()` run per display frame while the app is in the foreground (03 §8, 04 §13.1)
-    val reducedMotion = remember { com.echoflow.weave.compose.motion.Motion.reducedMotion() }
+    // the app-wide check (animator duration scale), which works on every API level
+    val reducedMotion = com.echoflow.ui.theme.rememberReducedMotion()
     LaunchedEffect(controller, program, reducedMotion) {
         if (!program.complete || reducedMotion || !controller.animated) return@LaunchedEffect
         lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -217,7 +238,15 @@ fun WeaveBlock(controller: WeaveBlockController, block: MarkdownExtensionBlock, 
         com.echoflow.weave.compose.components.Overlays.Host(ctx)
         }
     }
-    BlockChrome(controller, program.header.size, program.header.title, program.header.icon, modifier, onExpand = { expanded = true }, content = content)
+    // one live content tree at a time: while expanded, the inline slot shows a stand-in, so media
+    // players and overlays aren't created twice
+    val inline: @Composable () -> Unit = if (!expanded) content else {
+        {
+            Text("Open in full screen", Modifier.fillMaxWidth().padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    BlockChrome(controller, program.header.size, program.header.title, program.header.icon, modifier, onExpand = { expanded = true }, content = inline)
     val expandReq = controller.expandRequest
     LaunchedEffect(expandReq) { if (expandReq != null) { expanded = expandReq; controller.expandRequest = null } }
     if (expanded) FullScreen(controller, program.header.title, { expanded = false }, content)
@@ -428,7 +457,8 @@ private fun Modifier.androidxImePadding() = this.imePadding()
 @Composable
 private fun EditChip(runtime: WeaveRuntime, chatId: String?, messageId: String?, target: String, block: MarkdownExtensionBlock, modifier: Modifier) {
     var outcome by remember { mutableStateOf<WeaveRuntime.EditOutcome?>(null) }
-    LaunchedEffect(block.complete, messageId) {
+    // chatId is null while the reply streams and arrives when it is saved
+    LaunchedEffect(block.complete, messageId, chatId) {
         if (block.complete && chatId != null && messageId != null && target.isNotEmpty()) {
             outcome = runtime.applyEdit(chatId, target, block.body, messageId, block.key)
         }

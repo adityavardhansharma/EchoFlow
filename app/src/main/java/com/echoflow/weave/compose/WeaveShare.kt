@@ -37,8 +37,11 @@ object WeaveShare {
     }
 
     fun weaveFile(context: Context, block: WeaveBlockController) {
+        val text = weaveText(block)
+        // never write a file the import side would refuse (WeaveImport.MAX_FILE_BYTES)
+        if (text.toByteArray().size > WeaveImport.MAX_FILE_BYTES) { block.flashChip("This block is too big to share as a file"); return }
         val f = file(context, safeName(block.title) + ".weave")
-        runCatching { f.writeText(weaveText(block)) }.onSuccess { share(context, f, "application/octet-stream") }
+        runCatching { f.writeText(text) }.onSuccess { share(context, f, "application/x-weave") }
     }
 
     /** Splits a `.weave` file into its source and stored state JSON (01 §23.4). */

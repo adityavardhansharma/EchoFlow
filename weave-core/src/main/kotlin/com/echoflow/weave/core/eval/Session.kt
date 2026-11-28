@@ -93,7 +93,19 @@ class Session(
      * coerced to its type (see `StateCodec.decodeState`). Restored writes make no history.
      */
     fun restore(values: Map<String, WValue>) {
-        for ((k, v) in values) if (k in program.states) state[k] = v
+        for ((k, v) in values) {
+            val decl = program.states[k] ?: continue
+            // JSON has no dates, times or durations: an untyped state whose initial value is one
+            // takes that type back, so `$day = date("2026-12-01")` restores as a date, not text
+            val t = if (decl.type != null) null else when (state[k]) {
+                is WDate -> com.echoflow.weave.core.check.WType.DATE
+                is WTime -> com.echoflow.weave.core.check.WType.TIME
+                is WDateTime -> com.echoflow.weave.core.check.WType.DATETIME
+                is WDur -> com.echoflow.weave.core.check.WType.DUR
+                else -> null
+            }
+            state[k] = if (t == null) v else Coercion(ctx.formatter).toType(v, t).takeIf { it.ok }?.value ?: continue
+        }
     }
 
     /** Whether any timer (debounce, `!after`, `every`) is pending; the host ticks [advance] only then. */

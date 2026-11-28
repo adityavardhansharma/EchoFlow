@@ -271,7 +271,17 @@ object Charts {
                 val bottomH = measurer.measure("0", label).size.height + 8.dp.toPx()
                 val plot = androidx.compose.ui.geometry.Rect(leftW, 8.dp.toPx(), size.width - 8.dp.toPx(), size.height - bottomH)
                 fun py(v: Double) = (plot.bottom - (v - yLo) / (yHi - yLo) * plot.height).toFloat()
-                val bandW = if (cats.isNotEmpty()) plot.width / cats.size else 0f
+                // a numeric or date x has no categories: bars take the closest spacing between x
+                // values as their band, so a BarChart over years still draws bars
+                val bandW = if (cats.isNotEmpty()) plot.width / cats.size else {
+                    val ns = xs.mapNotNull { numOf(it) }.distinct().sorted()
+                    val gap = ns.zipWithNext { a, b -> b - a }.filter { it > 0 }.minOrNull()
+                    when {
+                        ns.isEmpty() -> 0f
+                        gap == null || xHi == xLo -> plot.width / 4f
+                        else -> (gap / (xHi - xLo) * plot.width).toFloat().coerceAtMost(plot.width / 4f)
+                    }
+                }
                 fun px(v: WValue): Float = if (linearX) {
                     val n = numOf(v) ?: xLo
                     if (xHi == xLo) plot.center.x else (plot.left + (n - xLo) / (xHi - xLo) * plot.width).toFloat()

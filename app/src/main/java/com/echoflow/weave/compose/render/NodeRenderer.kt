@@ -31,6 +31,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -116,6 +118,11 @@ private fun RenderVisible(node: WNode, ctx: RenderCtx, modifier: Modifier) {
                 // 04 §2.6: nodes whose statement is being rewritten by !ask show a pending shimmer
                 val pending = node.sourceStmt.isNotEmpty() && node.sourceStmt in ctx.controller.pendingNames
                 val m = modifier.then(commonModifier(node, ctx)).then(if (pending) Modifier.pendingOverlay() else Modifier)
+                    .then(
+                        // remembered so a Popover/Menu can open below the node it names (04 §11)
+                        if (node.sourceStmt.isEmpty()) Modifier
+                        else Modifier.onGloballyPositioned { ctx.controller.nodeBounds[node.sourceStmt] = it.boundsInWindow() },
+                    )
                 val badge = node.args["badge"]
                 if (badge != null && badge != WNull && badge != WBool.FALSE) {
                     BadgedBox(badge = { BadgeFor(badge, ctx) }) { r(node, ctx, m) }

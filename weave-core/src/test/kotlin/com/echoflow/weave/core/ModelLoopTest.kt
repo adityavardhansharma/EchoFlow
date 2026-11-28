@@ -45,6 +45,14 @@ class ModelLoopTest {
         assertTrue(Edits.apply(s.program, edit).accepted)
     }
 
+    @Test fun `lazy renames references, not strings or keys, and avoids existing names`() {
+        val e = ModelResponses.lazyEditFor(
+            "day", "items = [\"Fort\"]\nroot = Column [Text(\"items\"), List(items), Text({items: 1}.items)]", taken = setOf("day__items"),
+        )!!
+        assertTrue(e.source, e.source.contains("day__lazy = Column [Text(\"items\"), List(day__items_2), Text({items: 1}.items)]"))
+        assertEquals(setOf("day__items_2"), e.helpers)
+    }
+
     @Test fun `templates carry the source, state and task`() {
         val t = HiddenPrompts.ask("b1", "Tip", "root = Text(\"x\")", "{}", "[]", listOf("shorter" to listOf("note")), "make it blue", listOf("note"))
         assertTrue(t.contains("```weave edit b1```"))

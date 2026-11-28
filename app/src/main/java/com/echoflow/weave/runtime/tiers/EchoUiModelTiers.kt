@@ -11,9 +11,10 @@ import com.echoflow.weave.core.prompt.IntelligentUiLevel
  */
 object EchoUiModelTiers {
     private val TABLE: Map<String, Int> = mapOf(
-        // measured (weave-eval/runs/2026-11-26-tier2-balanced)
-        "google/gemini-4-hydrogen" to 3,
-        "openai/gpt-6-luna" to 3,
+        // measured (weave-eval/runs/2026-11-26-tier2-balanced): validated at tier 2 only, so they
+        // stay there until a tier-3 run passes
+        "google/gemini-4-hydrogen" to 2,
+        "openai/gpt-6-luna" to 2,
         // flagship cloud families
         "anthropic/" to 3, "claude-" to 3,
         "openai/" to 3, "gpt-" to 3, "o3" to 3, "o4" to 3,
@@ -46,15 +47,18 @@ object EchoUiModelTiers {
 
     /**
      * The model's tier: the user override (05 §10.3) when set, else the table, else the unknown-model
-     * rule (05 §10.2, assuming a modern cloud model with tools and a large context), lowered by an
+     * rule (05 §10.2) from the model's reported tool support and context length, lowered by an
      * active auto-downgrade (05 §10.4).
      */
-    fun tierFor(modelId: String, isLocal: Boolean, override: Int?, downgraded: Boolean = false): Int {
+    fun tierFor(
+        modelId: String, isLocal: Boolean, override: Int?, downgraded: Boolean = false,
+        toolUse: Boolean = true, contextTokens: Int = 128_000,
+    ): Int {
         if (isLocal) return 0
         if (override != null) return override.coerceIn(0, 4)
         val id = modelId.lowercase()
         val table = TABLE.entries.filter { id.startsWith(it.key) }.maxByOrNull { it.key.length }?.value
-            ?: EchoUiTiers.unknownModelTier(toolUse = true, contextTokens = 128_000)
+            ?: EchoUiTiers.unknownModelTier(toolUse = toolUse, contextTokens = contextTokens)
         return (if (downgraded) table - 1 else table).coerceIn(0, 4)
     }
 

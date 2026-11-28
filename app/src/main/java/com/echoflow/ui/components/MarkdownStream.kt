@@ -45,15 +45,23 @@ internal data class MarkdownExtensionPart(val block: MarkdownExtensionBlock) : M
 interface MarkdownBlockExtension {
     @Composable
     fun Render(block: MarkdownExtensionBlock, modifier: Modifier)
+
+    /**
+     * Whether [block] takes a slot of the reply's limit. By default a block whose info string is
+     * exactly its kind; an extension that also renders edits (`weave edit …`, a JSON edit body)
+     * says so here.
+     */
+    fun countsTowardLimit(block: MarkdownExtensionBlock): Boolean = block.info.trim() == block.kind
 }
 
 /** Fenced-block extensions by kind. Empty by default, so every fence draws as code. */
 val LocalMarkdownBlockExtensions = staticCompositionLocalOf<Map<String, MarkdownBlockExtension>> { emptyMap() }
 
 /**
- * The position of the extension block being drawn among the reply's blocks of the same kind,
- * counting only the ones whose info string is exactly the kind (not `weave edit …`). Lets an
- * extension cap how many blocks a reply renders (Echo UI, 05 §11.4).
+ * The position of the extension block being drawn among the reply's blocks handled by the same
+ * extension (so aliases such as `weave` and `weave-json` share one count), counting only blocks the
+ * extension says take a slot ([MarkdownBlockExtension.countsTowardLimit]). Lets an extension cap
+ * how many blocks a reply renders (Echo UI, 05 §11.4).
  */
 val LocalMarkdownExtensionOrdinal = androidx.compose.runtime.compositionLocalOf { 0 }
 

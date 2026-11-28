@@ -19,6 +19,7 @@ import com.echoflow.weave.runtime.storage.WeaveBlockRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -135,16 +136,30 @@ class WeaveBlockController internal constructor(
         // A stored row wins over the fence text: it holds the current version (05 §9.3).
         val src = row?.source ?: body
         val done = row != null || complete
-        if (src == lastBody && done == lastComplete) return
+        if (src == lastBody && done == lastComplete) {
+            // unchanged text, but the row may still be missing (its chat id arrived late)
+            if (done && row == null) program?.let { ensureRow(it, src) }
+            return
+        }
         lastBody = src; lastComplete = done
         val next = parseLock.withLock { withContext(Dispatchers.Default) { parser.update(src, done) } }
         publish(next)
-        if (done && row == null && messageId != null) {
+        if (done && row == null) ensureRow(next, src)
+    }
+
+    private var creatingRow = false
+
+    private suspend fun ensureRow(next: WeaveProgram, src: String) {
+        if (creatingRow || row != null || messageId == null || WeaveRuntime.isArchived(messageId)) return
+        creatingRow = true
+        try {
             row = runtime.createRow(this, next, src)
-            row?.let { blockVersion = it.version }
-            // a block that arrived with errors may get one repair round (05 §8.9)
-            (runtime.modelLoop as? ModelLoop)?.maybeRepair(this)
+        } finally {
+            creatingRow = false
         }
+        row?.let { blockVersion = it.version }
+        // a block that arrived with errors may get one repair round (05 §8.9)
+        if (row != null) (runtime.modelLoop as? ModelLoop)?.maybeRepair(this)
     }
 
     private fun publish(next: WeaveProgram) {
@@ -275,7 +290,9 @@ class WeaveBlockController internal constructor(
     fun localNavigation(kind: String, args: List<WValue>) {
         val name = (args.firstOrNull() as? com.echoflow.weave.core.eval.WStr)?.v
         when (kind) {
-            "open" -> if (name != null && name !in openOverlays) openOverlays = openOverlays + name
+            // one overlay at a time (04 §11): opening another replaces it, so a dialog opened from a
+            // sheet doesn't stack two modal surfaces
+            "open" -> if (name != null) openOverlays = listOf(name)
             "close" -> openOverlays = if (name == null) emptyList() else openOverlays - name
             "go" -> {
                 val target = name?.let { binding(it) } as? WNode ?: return
@@ -290,6 +307,9 @@ class WeaveBlockController internal constructor(
     }
 
     fun closeOverlay(name: String) { openOverlays = openOverlays - name }
+
+    /** Window bounds of rendered nodes by binding name, for `Popover`/`Menu` anchors (04 §11). */
+    val nodeBounds = HashMap<String, androidx.compose.ui.geometry.Rect>()
 
     /** `!ask`, `!refresh`, `!regen`, `!tool`: hidden model requests (05 §8), handled by the model loop. */
     fun modelAction(e: com.echoflow.weave.core.eval.HostEffect) { runtime.modelLoop?.handle(this, e) }
@@ -311,6 +331,12 @@ class WeaveBlockController internal constructor(
         effects.forEach { runtime.dispatch(this, it) }
         version++
         scheduleSave()
+        if (program?.exports?.isNotEmpty() == true) runtime.exportsChanged(chatId, this)
+    }
+
+    /** A block this one may read through `id::name` changed: re-evaluate (01 §6.5). */
+    fun exportsChanged() {
+        if (lastBody?.contains("::") == true) version++
     }
 
     /** Debounced 500 ms per block (05 §9.3); [flush] writes immediately (ON_STOP). */
@@ -401,7 +427,8 @@ class WeaveBlockController internal constructor(
         val key = ModelLoop.lazyKey(prompt, context)
         val part = lazyParts[name]
         if (part == null && program?.complete == true) (runtime.modelLoop as? ModelLoop)?.lazy(this, name, (prompt as? com.echoflow.weave.core.eval.WStr)?.v ?: "", context, key)
-        if (part == null) return null
+        // while the part streams, show what has arrived (lazyPartial installs it as it comes)
+        if (part == null && key !in lazyInFlight) return null
         return binding(com.echoflow.weave.core.program.ModelResponses.lazyName(name)) as? WNode
     }
 
@@ -416,6 +443,9 @@ class WeaveBlockController internal constructor(
         (runtime.modelLoop as? ModelLoop)?.lazy(this, name, (prompt as? com.echoflow.weave.core.eval.WStr)?.v ?: "", ctx, ModelLoop.lazyKey(prompt, ctx))
     }
 
+    /** Helper names each lazy part defined in its latest generation (03 §9.3). */
+    private val lazyHelpers = HashMap<String, Set<String>>()
+
     fun lazyPartial(name: String, key: String, body: String) {
         if (applyLazySource(name, body, keep = false)) version++
     }
@@ -423,42 +453,67 @@ class WeaveBlockController internal constructor(
     fun lazyResult(name: String, key: String, body: String): Boolean {
         if (!applyLazySource(name, body)) return false
         lazyParts[name] = key to body
-        row?.let { r ->
-            val json = StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(lazyParts.mapValues { (_, v) ->
-                com.echoflow.weave.core.eval.WRec.of("key" to com.echoflow.weave.core.eval.WStr(v.first), "source" to com.echoflow.weave.core.eval.WStr(v.second))
-            })))
-            runtime.saveLazy(r.id, json)
-        }
+        row?.let { r -> runtime.saveLazy(r.id, lazyJson()) }
         version++
         return true
     }
+
+    /** The lazy cache as stored in `lazyJson` (05 §8.5). */
+    fun lazyJson(): String = StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(lazyParts.mapValues { (_, v) ->
+        com.echoflow.weave.core.eval.WRec.of("key" to com.echoflow.weave.core.eval.WStr(v.first), "source" to com.echoflow.weave.core.eval.WStr(v.second))
+    })))
 
     fun lazyFailed(name: String) = flashChip("Couldn't load $name")
 
     private fun applyLazySource(name: String, body: String, keep: Boolean = true): Boolean {
         val s = session ?: return false
-        val edit = com.echoflow.weave.core.program.ModelResponses.lazyEdit(name, body, runtime.catalog) ?: return false
-        val r = com.echoflow.weave.core.program.Edits.apply(s.program, edit, runtime.catalog)
+        // helpers this part made last time may be replaced; every other existing name is kept
+        val previous = lazyHelpers[name].orEmpty()
+        val taken = (s.program.bindings.keys + s.program.functions.keys + s.program.states.keys) - previous
+        val lazy = com.echoflow.weave.core.program.ModelResponses.lazyEditFor(name, body, taken, runtime.catalog) ?: return false
+        val r = com.echoflow.weave.core.program.Edits.apply(s.program, lazy.source, runtime.catalog)
         if (!r.accepted) return false
         runCatching { s.applyEdit(r) }
+        lazyHelpers[name] = lazy.helpers
         if (keep) program = s.program
         return true
     }
 
     // ---- queries and consent (03 §13, 05 §8.7) ----
 
+    /** One job per query statement (its delay and its request loop), so new arguments cancel it. */
+    private val queryJobs = HashMap<String, Job>()
+
+    /** True while the block is composed and the app is in the foreground; queries wait otherwise. */
+    var onScreen by mutableStateOf(false)
+
     private fun queryFor(stmt: String, tool: String, args: WValue, every: Long?): WValue {
         val known = queries[stmt]
         val argsChanged = known != null && known.second != WNull && !com.echoflow.weave.core.eval.weaveEquals(known.second, args)
-        if ((stmt !in queryStarted || argsChanged) && program?.complete == true && queryStarted.size < com.echoflow.weave.core.Limits.QUERIES_PER_BLOCK) {
+        // the per-block cap limits how many statements may run, not how often one may refresh
+        val room = stmt in queryStarted || queryStarted.size < com.echoflow.weave.core.Limits.QUERIES_PER_BLOCK
+        if ((stmt !in queryStarted || argsChanged) && program?.complete == true && room) {
             queryStarted += stmt
             queries[stmt] = (known?.first ?: ModelLoop.queryRecord(WNull, true, null)) to args
-            runtime.scope.launch { delay(if (argsChanged) 400 else 0); (runtime.modelLoop as? ModelLoop)?.runQuery(this@WeaveBlockController, stmt, tool, args, every) }
+            startQueryJob(stmt, runtime.scope.launch {
+                delay(if (argsChanged) 400 else 0)
+                val loop = runtime.modelLoop as? ModelLoop
+                if (loop == null) setQuery(stmt, ModelLoop.queryRecord(queryValueOf(stmt), false, "Not available here"), args)
+                else loop.runQuery(this@WeaveBlockController, stmt, tool, args, every)
+            })
         }
         return queries[stmt]?.first ?: ModelLoop.queryRecord(WNull, true, null)
     }
 
-    fun setQuery(stmt: String, value: WValue) {
+    /** Replaces the statement's running job; the older delay or request is cancelled. */
+    fun startQueryJob(stmt: String, job: Job) {
+        val old = queryJobs.put(stmt, job)
+        if (old != null && old != job && old.isActive) old.cancel()
+    }
+
+    /** A query result, accepted only while [args] are still the statement's current arguments. */
+    fun setQuery(stmt: String, value: WValue, args: WValue) {
+        if (!queryArgsStill(stmt, args)) return
         queries[stmt] = value to (queries[stmt]?.second ?: WNull)
         version++
         row?.let { r -> runtime.saveQueries(r.id, StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(queries.mapValues { it.value.first })))) }
@@ -467,19 +522,46 @@ class WeaveBlockController internal constructor(
     fun queryValueOf(stmt: String): WValue = ((queries[stmt]?.first as? com.echoflow.weave.core.eval.WRec)?.get("value")) ?: WNull
     fun queryArgsStill(stmt: String, args: WValue) = queries[stmt]?.second?.let { com.echoflow.weave.core.eval.weaveEquals(it, args) } != false
 
+    /** The block's source, query results and state as text: what `web.read` may open (01 §6.5). */
+    fun knownText(): String = buildString {
+        append(source())
+        queries.values.forEach { append('\n').append(StateCodec.encode(it.first)) }
+        session?.let { s -> append('\n').append(StateCodec.encode(com.echoflow.weave.core.eval.WRec(LinkedHashMap(s.state)))) }
+    }
+
+    /** Suspends until the block is on screen with the app in the foreground. */
+    suspend fun awaitQueryVisible() {
+        androidx.compose.runtime.snapshotFlow { onScreen }.first { it }
+    }
+
+    /** "Always" consent only: an "Allow once" answer covers a single request, not its repeats. */
+    fun hasConsent(tool: WeaveTool) = WeaveRuntime.hasFlag(consentJson, tool.name)
+
+    /** Consent requests waiting behind the one on screen (05 §8.7); each gets its own answer. */
+    private val consentQueue = ArrayDeque<ConsentRequest>()
+
     fun requestConsent(tool: WeaveTool, args: WValue, then: (Boolean) -> Unit) {
         if (WeaveRuntime.hasFlag(consentJson, tool.name)) { then(true); return }
-        consentRequest = ConsentRequest(tool.name, tool.consentText(args)) { granted, always ->
-            consentRequest = null
+        val req = ConsentRequest(tool.name, tool.consentText(args)) { granted, always ->
             if (granted && always) {
                 consentJson = WeaveRuntime.addFlag(consentJson, tool.name)
                 row?.let { runtime.saveConsent(it.id, consentJson) }
             }
+            consentRequest = consentQueue.removeFirstOrNull()
             then(granted)
         }
+        if (consentRequest == null) consentRequest = req else consentQueue.addLast(req)
     }
 
-    fun revokeConsents() { consentJson = "{}"; row?.let { runtime.saveConsent(it.id, consentJson) } }
+    /** "Reset permissions": forget grants and stop running queries; they ask again when shown. */
+    fun revokeConsents() {
+        consentJson = "{}"
+        row?.let { runtime.saveConsent(it.id, consentJson) }
+        queryJobs.values.forEach { it.cancel() }
+        queryJobs.clear()
+        queryStarted.clear()
+        version++
+    }
 
     /** Restores an earlier version from the Versions sheet (05 §7.2). */
     suspend fun restoreVersion(source: String) {
@@ -519,5 +601,7 @@ class WeaveBlockController internal constructor(
 
     fun close() {
         flush()
+        queryJobs.values.forEach { it.cancel() }
+        queryJobs.clear()
     }
 }

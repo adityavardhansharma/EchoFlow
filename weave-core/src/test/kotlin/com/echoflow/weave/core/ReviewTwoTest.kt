@@ -1,5 +1,9 @@
 package com.echoflow.weave.core
 
+import com.echoflow.weave.core.catalog.BuiltinCatalog
+
+import com.echoflow.weave.core.program.Compiler
+
 import com.echoflow.weave.core.eval.WNull
 import com.echoflow.weave.core.eval.WNum
 import com.echoflow.weave.core.eval.WList
@@ -96,6 +100,14 @@ class ReviewTwoTest {
         val keys = s.nodes().filter { it.type == "Text" }.map { it.key }
         assertEquals(2, keys.toSet().size)
         assertTrue(keys.toString(), keys.all { it.contains("D:2026-01-0") })
+    }
+
+    @Test fun `a canvas line keeps its four coordinates`() {
+        val p = Compiler.compile("root = Canvas [line(0, 0, 100, 60, stroke: primary)]", BuiltinCatalog)
+        val s = com.echoflow.weave.core.eval.Session(p, W.ctx(), BuiltinCatalog)
+        val line = s.root()!!.children.firstOrNull { it.type == "line" } ?: error("no line: ${p.diagnostics.map { it.code + " " + it.message }}")
+        assertEquals(listOf("x1", "y1", "x2", "y2"), listOf("x1", "y1", "x2", "y2").filter { it in line.args })
+        assertEquals(com.echoflow.weave.core.eval.WNum(100.0), line.args["x2"])
     }
 
     @Test fun `a nested list used as a key is not expanded`() {

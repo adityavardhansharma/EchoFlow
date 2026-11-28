@@ -86,6 +86,9 @@ interface WeaveLibraryDao {
     @Query("UPDATE weave_library SET source = :source, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateSource(id: String, source: String, updatedAt: Long)
 
+    @Query("UPDATE weave_library SET lazyJson = :json, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateLazy(id: String, json: String, updatedAt: Long)
+
     @Query("UPDATE weave_library SET pinnedWidgetId = :widgetId WHERE id = :id")
     suspend fun setWidget(id: String, widgetId: Int?)
 

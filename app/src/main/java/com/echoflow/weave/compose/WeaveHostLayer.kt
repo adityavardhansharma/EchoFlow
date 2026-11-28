@@ -109,7 +109,10 @@ fun WeaveHostLayer(
     val view = LocalView.current
     val say by rememberUpdatedState(onSay)
     var confirm by remember { mutableStateOf<ConfirmRequest?>(null) }
-    val runtime = remember { WeaveRuntime(AppDatabase.getDatabase(context.applicationContext), Registry.names) }
+    val runtime = remember {
+        val app = context.applicationContext
+        WeaveRuntime(AppDatabase.getDatabase(app), Registry.names, libraryFired = app.getSharedPreferences("weave_library_fired", android.content.Context.MODE_PRIVATE))
+    }
     val host = remember(runtime) {
         object : WeaveHost {
             override fun perform(block: WeaveBlockController, effect: HostEffect) {

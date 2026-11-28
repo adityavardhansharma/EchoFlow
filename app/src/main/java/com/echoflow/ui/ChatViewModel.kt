@@ -145,6 +145,16 @@ class ChatViewModel(
     val intelligentUiLevel: StateFlow<com.echoflow.weave.core.prompt.IntelligentUiLevel> = settingsRepository.intelligentUiLevel
 
     /**
+     * The block cap of the turn being generated (05 §11.4), from that turn's plan: the chat's
+     * effective level, including an Off chat's explicit-request exception. Null before any turn.
+     */
+    private val _echoUiTurnCap = MutableStateFlow<Int?>(null)
+    val echoUiTurnCap: StateFlow<Int?> = _echoUiTurnCap.asStateFlow()
+
+    /** The selected model id, so the UI can hide model-only actions for local models. */
+    val selectedModelId: StateFlow<String> get() = settingsRepository.selectedModel
+
+    /**
      * Switches surface, parking the current conversation so this mode returns to it later and
      * restoring whatever the target mode had open. Switching is free: renders and streams keep
      * running in the mode you left, and [renderingModes] is what says so.
@@ -1577,10 +1587,31 @@ class ChatViewModel(
     private fun echoUiSection(latestUserMessage: String, modelId: String, isLocal: Boolean, chatLevel: String?, makeInteractive: Boolean = false): String {
         val level = chatLevel?.let { com.echoflow.weave.core.prompt.IntelligentUiLevel.fromStorage(it) } ?: settingsRepository.getIntelligentUiLevelDirect()
         val downgraded = (settingsRepository.getEchoUiString("echoui_downgrade_until_$modelId")?.toLongOrNull() ?: 0L) > System.currentTimeMillis()
-        val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(modelId, isLocal, settingsRepository.getEchoUiTierOverride(modelId), downgraded)
+        val (tools, context) = echoUiCapabilities(modelId)
+        val tier = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(
+            modelId, isLocal, settingsRepository.getEchoUiTierOverride(modelId), downgraded, toolUse = tools, contextTokens = context,
+        )
         val plan = com.echoflow.weave.runtime.tiers.EchoUiModelTiers.plan(level, tier, latestUserMessage, makeInteractive)
+        _echoUiTurnCap.value = if (plan.tier <= 0) 0 else plan.maxBlocks
         if (plan.tier <= 0) return ""
         return com.echoflow.weave.runtime.EchoUiPromptCache.section(plan.tier, plan.level)
+    }
+
+    /**
+     * Tool support and context length for a model the tier table doesn't list (05 §10.2), from the
+     * OpenRouter directory. Unknown capabilities count as none (no tools, 16k context): an
+     * unmeasured model only gets the tier its reported capabilities earn. The directory loads in
+     * the background the first time, for the next turn.
+     */
+    private fun echoUiCapabilities(modelId: String): Pair<Boolean, Int> {
+        val models = com.echoflow.data.OpenRouterModelDirectory.lastChatModels
+        if (models == null) {
+            viewModelScope.launch { runCatching { com.echoflow.data.OpenRouterModelDirectory().allModels() } }
+            return false to 16_000
+        }
+        val id = modelId.substringAfter(":").removePrefix("openrouter/")
+        val info = models.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: return false to 16_000
+        return (info.supportsTools == true) to (info.contextLength ?: 16_000)
     }
 
     /** Opens a `.weave` file as a block in a new chat, with its stored state (01 §23.4). */
