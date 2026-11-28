@@ -621,8 +621,9 @@ class Session(
 }
 
 /**
- * A key segment (04 §2.5). Only simple values are encoded, with their type, so a number and the
- * same text stay different and a node or list is never walked. Anything else is no key.
+ * A key segment (04 §2.5). Only scalar values (text, symbols, numbers, booleans, dates, times and
+ * durations) are encoded, with their type, so a number and the same text stay different and a node
+ * or list is never walked. Anything else is no key.
  */
 internal fun keyText(v: WValue): String? {
     val raw = when (v) {
@@ -630,8 +631,14 @@ internal fun keyText(v: WValue): String? {
         is WSym -> "y:" + v.name
         is WNum -> "n:" + com.echoflow.weave.core.parse.CanonicalPrinter.number(v.v)
         is WBool -> "b:" + v.v
+        is WDur -> "d:" + v.ms
+        is WDate -> "D:" + v.v
+        is WTime -> "t:" + v.v
+        is WDateTime -> "T:" + v.v
         else -> return null
     }
     if (raw.length <= 200) return raw
-    return raw.take(180) + "#" + raw.hashCode().toUInt().toString(16)
+    // a 32-bit hash collides on crafted text ("…Aa" / "…BB"); a SHA-256 digest does not in practice
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+    return raw.take(120) + "#" + digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

@@ -50,6 +50,13 @@ object Normalize {
                 else -> when {
                     s.startsWith("\"\"\"", i) -> { inRaw = true; out.append("\"\"\""); i += 3; continue }
                     c == '"' || c == '“' || c == '„' || c == '‟' -> { inStr = true; strOpen = c; out.append(c) }
+                    (c == '\'' || c == '‘' || c == '’') && singleEnd(s, i) > 0 -> {
+                        // the lexer accepts one-line single-quoted strings (A1); keep their tabs
+                        val end = singleEnd(s, i)
+                        out.append(s, i, end)
+                        i = end
+                        continue
+                    }
                     c == '#' && !isHexToken(s, i) -> { inComment = true; out.append(c) }
                     c == '\t' -> out.append(' ')
                     else -> out.append(c)
@@ -58,6 +65,18 @@ object Normalize {
             i++
         }
         return out.toString()
+    }
+
+    /** Mirrors `Lexer.lexSingle`: the index just after a closing quote on the same line, or -1. */
+    private fun singleEnd(s: String, i: Int): Int {
+        var k = i + 1
+        while (k < s.length && s[k] != '\n') {
+            val c = s[k]
+            if (c == '\\' && k + 1 < s.length) { k += 2; continue }
+            if (c == '\'' || c == '’') return k + 1
+            k++
+        }
+        return -1
     }
 
     /** 02 §2.10: `#` followed by 3, 4, 6 or 8 hex digits after `:`, `(`, `,`, `=` or `[` is a colour, not a comment. */

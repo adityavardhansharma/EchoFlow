@@ -77,6 +77,28 @@ class ReviewTwoTest {
     }
 
     @Test fun `a node used as a key is not expanded`() {
+        val defs = (1..20).joinToString("\n") { "n$it = Column [n${it - 1}, n${it - 1}]" }
+        val start = System.nanoTime()
+        val s = W.session("n0 = Text(\"leaf\")\n$defs\nroot = Column [Text(\"ok\", key: n20)]")
+        assertEquals("ok", s.nodes().first { it.type == "Text" && s.plainText(it) == "ok" }.let { s.plainText(it) })
+        assertTrue(System.nanoTime() - start < 2_000_000_000)
+    }
+
+    @Test fun `long text keys that share a 32-bit hash stay distinct`() {
+        val prefix = "k".repeat(250)
+        assertTrue((prefix + "Aa").hashCode() == (prefix + "BB").hashCode())
+        assertTrue(com.echoflow.weave.core.eval.keyText(com.echoflow.weave.core.eval.WStr(prefix + "Aa")) !=
+            com.echoflow.weave.core.eval.keyText(com.echoflow.weave.core.eval.WStr(prefix + "BB")))
+    }
+
+    @Test fun `dates and durations are keys`() {
+        val s = W.session("rows = [{d: date(\"2026-01-01\")}, {d: date(\"2026-01-02\")}]\nroot = List(rows, render: item => Text(\"x\", key: item.d))")
+        val keys = s.nodes().filter { it.type == "Text" }.map { it.key }
+        assertEquals(2, keys.toSet().size)
+        assertTrue(keys.toString(), keys.all { it.contains("D:2026-01-0") })
+    }
+
+    @Test fun `a nested list used as a key is not expanded`() {
         val defs = (1..20).joinToString("\n") { "a$it = [a${it - 1}, a${it - 1}]" }
         val start = System.nanoTime()
         val s = W.session("a0 = [{x: 1}]\n$defs\nroot = Column [Text(\"ok\", key: a20)]")

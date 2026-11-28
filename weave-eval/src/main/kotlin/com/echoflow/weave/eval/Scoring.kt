@@ -45,7 +45,7 @@ data class ModelReport(val model: String, val tier: Int, val scores: List<TaskSc
     val missing get() = scores.count { !it.responded }
 
     fun passesBars(balanced: Boolean = true) = parseSuccess >= 0.95 && droppedPerBlock <= 0.5 && renderSuccess >= 0.97 &&
-        taskCompletion >= 0.85 && (!balanced || overUse <= 0.10)
+        taskCompletion >= 0.85 && (!balanced || (overUse <= 0.10 && controls.all { it.responded }))
 
     private fun ratio(a: Int, b: Int) = if (b == 0) 0.0 else a.toDouble() / b
 }

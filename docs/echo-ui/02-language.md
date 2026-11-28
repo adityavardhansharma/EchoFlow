@@ -380,6 +380,7 @@ primary       = NUMBER | PERCENT | DURATION | STRING | RAW_STRING
               | STATE
               | qualified
               | IDENT
+              | "when"                     (* only directly before call_args: the when() built-in, §2.3 *)
               | CAP_IDENT
               | ACTION                     (* must be followed by call_args *)
               | list_lit

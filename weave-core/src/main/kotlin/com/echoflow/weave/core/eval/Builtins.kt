@@ -184,7 +184,13 @@ object Builtins {
             "flatten" -> { val l = list(arg(0)) ?: return WNull; WList(l.flatMap { if (it is WList) it.items else listOf(it) }) }
             "zip" -> { val x = list(arg(0)) ?: return WNull; val y = list(arg(1)) ?: return WNull; WList(x.zip(y) { p, q -> WList(listOf(p, q)) }) }
             "chunk" -> { val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull; if (k <= 0) WNull else WList(l.chunked(k).map { WList(it) }) }
-            "window" -> { val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull; if (k <= 0) WNull else WList(l.windowed(k).map { WList(it) }) }
+            "window" -> {
+                val l = list(arg(0)) ?: return WNull; val k = n(arg(1))?.toInt() ?: return WNull
+                // windows copy k items each, so bound the total copied, not just the window count
+                val total = maxOf(0L, l.size.toLong() - k + 1) * k
+                if (k <= 0 || total > com.echoflow.weave.core.Limits.LIST_ITEMS) WNull
+                else { chargeItems(total.toInt()); WList(l.windowed(k).map { WList(it) }) }
+            }
             "cumsum" -> {
                 val l = list(arg(0)) ?: return WNull
                 var t = 0.0

@@ -29,6 +29,9 @@ object Finance {
         var flo = npv(lo, flows)
         val fhi = npv(hi, flows)
         if (flo.isNaN() || fhi.isNaN() || flo * fhi > 0) return null
+        // an endpoint that is already a root has no sign for bisection to compare against
+        if (flo == 0.0) return lo
+        if (fhi == 0.0) return hi
         for (k in 0 until 200) {
             val mid = (lo + hi) / 2
             val fm = npv(mid, flows)

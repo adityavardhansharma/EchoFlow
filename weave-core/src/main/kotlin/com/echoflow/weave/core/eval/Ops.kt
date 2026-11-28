@@ -46,20 +46,29 @@ object Ops {
         a is WStr || b is WStr -> concat(a, b, f)
         a is WList && b is WList -> if (a.items.size + b.items.size > com.echoflow.weave.core.Limits.LIST_ITEMS) WNull else WList(a.items + b.items)
         a is WRec && b is WRec -> WRec(LinkedHashMap(a.fields).apply { putAll(b.fields) })
-        a is WDate && b is WDur -> WDate(a.v.plusDays(b.ms / 86_400_000L))
-        a is WDateTime && b is WDur -> WDateTime(a.v.plusMillis(b.ms))
-        a is WDur && b is WDur -> WDur(a.ms + b.ms)
+        a is WDate && b is WDur -> safe { WDate(a.v.plusDays(b.ms / 86_400_000L)) }
+        a is WDateTime && b is WDur -> safe { WDateTime(a.v.plusMillis(b.ms)) }
+        a is WDur && b is WDur -> safe { WDur(Math.addExact(a.ms, b.ms)) }
         else -> WNull
     }
 
     private fun minus(a: WValue, b: WValue, f: Formatter): WValue = when {
         a is WNum && b is WNum -> WNum.of(a.v - b.v)
-        a is WDate && b is WDur -> WDate(a.v.minusDays(b.ms / 86_400_000L))
-        a is WDateTime && b is WDur -> WDateTime(a.v.minusMillis(b.ms))
-        a is WDate && b is WDate -> WDur(ChronoUnit.DAYS.between(b.v, a.v) * 86_400_000L)
-        a is WDateTime && b is WDateTime -> WDur(a.v.toEpochMilli() - b.v.toEpochMilli())
-        a is WDur && b is WDur -> WDur(a.ms - b.ms)
+        a is WDate && b is WDur -> safe { WDate(a.v.minusDays(b.ms / 86_400_000L)) }
+        a is WDateTime && b is WDur -> safe { WDateTime(a.v.minusMillis(b.ms)) }
+        a is WDate && b is WDate -> safe { WDur(Math.multiplyExact(ChronoUnit.DAYS.between(b.v, a.v), 86_400_000L)) }
+        a is WDateTime && b is WDateTime -> safe { WDur(Math.subtractExact(a.v.toEpochMilli(), b.v.toEpochMilli())) }
+        a is WDur && b is WDur -> safe { WDur(Math.subtractExact(a.ms, b.ms)) }
         else -> WNull
+    }
+
+    /** Arithmetic that overflows a long or leaves the supported date range is `null` (03 §6). */
+    private inline fun safe(block: () -> WValue): WValue = try {
+        block()
+    } catch (_: ArithmeticException) {
+        WNull
+    } catch (_: java.time.DateTimeException) {
+        WNull
     }
 
     @Suppress("unused")

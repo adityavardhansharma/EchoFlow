@@ -28,7 +28,7 @@ SDK, a CLI coding agent standing in for the model (how the first run was produce
 | Render success | the block has a root that evaluates to a node without an error chip |
 | Task completion | the task's checks pass on a live `Session`: inputs are set by label, then numbers / text / node types are read from what the block shows |
 | Token cost | ceil(UTF-8 bytes / 4) of the block body, the same tokenizer as the prompt snapshots |
-| Over-use | (Balanced) of the 20 control prompts, how many got a block. An unanswered control is not a block, and it still counts in the 20 |
+| Over-use | (Balanced) of the 20 control prompts, how many got a block. An unanswered control is not a block, and it still counts in the 20; a run with any control unanswered fails the over-use bar |
 
 A model meets the tier bar (07 §10.3) at parse ≥ 95 %, dropped ≤ 0.5, render ≥ 97 %,
 completion ≥ 85 % and over-use ≤ 10 %.
