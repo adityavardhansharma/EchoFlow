@@ -55,6 +55,7 @@ internal fun IntelligentUiLevel.title(): String = when (this) {
 internal fun IntelligentUiPage(viewModel: SettingsViewModel, onOpenLibrary: () -> Unit = {}, onBack: () -> Unit) {
     val level by viewModel.intelligentUiLevel.collectAsState()
     val autoFix by viewModel.echoUiAutoFix.collectAsState()
+    val scripts by viewModel.echoUiScripts.collectAsState()
     val uiModel by viewModel.echoUiModel.collectAsState()
     var explainer by remember { mutableStateOf(false) }
     SettingsPageScaffold(title = "Intelligent UI", subtitle = "Powered by Echo UI", onBack = onBack) {
@@ -112,6 +113,13 @@ internal fun IntelligentUiPage(viewModel: SettingsViewModel, onOpenLibrary: () -
                 Text("Sends one hidden request to repair a block the model got wrong.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(autoFix, { viewModel.setEchoUiAutoFix(it) })
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = Spacing.s), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Script functions", style = MaterialTheme.typography.bodyLarge)
+                Text("Lets the most capable models add small JavaScript functions to a block. They run on your phone with no network or file access.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(scripts, { viewModel.setEchoUiScripts(it) })
         }
         TextButton(onOpenLibrary) {
             Icon(TokenResolver.icon("bookmarks"), null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Made for you")

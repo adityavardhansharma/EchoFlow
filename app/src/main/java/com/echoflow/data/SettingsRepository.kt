@@ -209,6 +209,10 @@ class SettingsRepository(context: Context) {
     /** "Auto-fix broken blocks" (05 §8.4, §8.9): one hidden repair request per broken block. */
     val echoUiAutoFix: StateFlow<Boolean> = _echoUiAutoFix.asStateFlow()
 
+    private val _echoUiScripts = MutableStateFlow(prefs.getBoolean("echoui_scripts", true))
+    /** "Script functions" (03 §10.12): tier 4 blocks may run `js fn` in QuickJS. */
+    val echoUiScripts: StateFlow<Boolean> = _echoUiScripts.asStateFlow()
+
     private val _echoUiModel = MutableStateFlow(prefs.getString("echoui_model", null))
     /** "Model for live updates" (05 §8.8); null = the chat's own model. */
     val echoUiModel: StateFlow<String?> = _echoUiModel.asStateFlow()
@@ -713,6 +717,11 @@ class SettingsRepository(context: Context) {
     fun setEchoUiAutoFix(enabled: Boolean) {
         prefs.edit().putBoolean("echoui_autofix", enabled).apply()
         _echoUiAutoFix.value = enabled
+    }
+
+    fun setEchoUiScripts(enabled: Boolean) {
+        prefs.edit().putBoolean("echoui_scripts", enabled).apply()
+        _echoUiScripts.value = enabled
     }
 
     fun setEchoUiModel(modelId: String?) {

@@ -24,8 +24,8 @@ object EchoUiPromptCache {
     /** Whether a turn at [tier] gets the trimmed prompt and the `weave_docs` tool (06 §2.1). */
     fun usesDocsIndex(tier: Int, toolUse: Boolean): Boolean = WeaveDocs.usesIndex(tier, BuildConfig.ECHO_UI_PHASE, toolUse)
 
-    fun section(tier: Int, level: IntelligentUiLevel, form: PromptForm = PromptForm.SOURCE, docsIndex: Boolean = false): String =
-        cache.getOrPut("$tier:${level.storageKey}:$form:${BuildConfig.ECHO_UI_PHASE}:$docsIndex") {
-            EchoUiPrompt.section(tier, level, form, catalog(tier), docsIndex)
+    fun section(tier: Int, level: IntelligentUiLevel, form: PromptForm = PromptForm.SOURCE, docsIndex: Boolean = false, scripts: Boolean = true): String =
+        cache.getOrPut("$tier:${level.storageKey}:$form:${BuildConfig.ECHO_UI_PHASE}:$docsIndex:$scripts") {
+            EchoUiPrompt.section(tier, level, form, catalog(tier), docsIndex, scripts)
         }
 }

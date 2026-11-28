@@ -1603,9 +1603,10 @@ class ChatViewModel(
         _echoUiTurnCap.value = if (plan.tier <= 0) 0 else plan.maxBlocks
         if (plan.tier <= 0) return EchoUiTurn("")
         val cache = com.echoflow.weave.runtime.EchoUiPromptCache
-        val full = cache.section(plan.tier, plan.level)
+        val scripts = settingsRepository.echoUiScripts.value
+        val full = cache.section(plan.tier, plan.level, scripts = scripts)
         if (!docsToolPath || !cache.usesDocsIndex(plan.tier, tools)) return EchoUiTurn(full)
-        return EchoUiTurn(cache.section(plan.tier, plan.level, docsIndex = true), full, com.echoflow.weave.runtime.WeaveDocsTool(plan.tier))
+        return EchoUiTurn(cache.section(plan.tier, plan.level, docsIndex = true, scripts = scripts), full, com.echoflow.weave.runtime.WeaveDocsTool(plan.tier))
     }
 
     /**
@@ -2796,6 +2797,7 @@ class ChatViewModel(
 
     fun echoUiCurrentModel(): String = settingsRepository.echoUiModel.value ?: settingsRepository.getSelectedModelDirect()
     fun echoUiAutoFix(): Boolean = settingsRepository.echoUiAutoFix.value
+    fun echoUiScripts(): Boolean = settingsRepository.echoUiScripts.value
     fun echoUiModelTier(): Int {
         val id = echoUiCurrentModel()
         return com.echoflow.weave.runtime.tiers.EchoUiModelTiers.tierFor(id, id.startsWith("local/"), settingsRepository.getEchoUiTierOverride(id))
