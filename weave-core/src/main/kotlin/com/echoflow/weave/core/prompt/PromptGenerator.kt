@@ -27,13 +27,25 @@ enum class PromptForm { SOURCE, JSON }
  */
 object EchoUiPrompt {
 
-    fun section(tier: Int, level: IntelligentUiLevel, form: PromptForm = PromptForm.SOURCE, catalog: Catalog = BuiltinCatalog.forBuild(tier)): String {
+    /**
+     * [docsIndex] trims the components to the common set plus the reference index behind the
+     * `weave_docs` tool (06 §2.1, §8). Pass it only when the request carries that tool: see
+     * [WeaveDocs.usesIndex].
+     */
+    fun section(
+        tier: Int,
+        level: IntelligentUiLevel,
+        form: PromptForm = PromptForm.SOURCE,
+        catalog: Catalog = BuiltinCatalog.forBuild(tier),
+        docsIndex: Boolean = false,
+    ): String {
         if (tier <= 0 || level == IntelligentUiLevel.OFF) return ""
+        val trimmed = docsIndex && tier >= 3
         val parts = listOf(
             intro(level),
             syntax(tier, catalog),
             TOKENS,
-            components(catalog),
+            if (trimmed) components(catalog, WeaveDocs.COMMON_SET) + "\n\n" + WeaveDocs.index(catalog) else components(catalog),
             functions(tier, catalog),
             actions(tier, catalog),
             effects(tier, catalog),
@@ -108,13 +120,14 @@ formats: int num(2) dec(1) compact percent pct currency(USD) inr money inrCompac
 
     // ---- 06 §3.3 --------------------------------------------------------------------------------
 
-    private val GROUPS = listOf("Layout", "Text", "Numbers", "Inputs", "Data", "Navigation", "Media", "Overlays", "Charts", "Canvas", "Visual", "Play")
+    internal val GROUPS = listOf("Layout", "Text", "Numbers", "Inputs", "Data", "Navigation", "Media", "Overlays", "Charts", "Canvas", "Visual", "Play")
 
-    private fun components(c: Catalog): String {
+    /** 06 §3.3; with [only], just those components (the common set of 06 §2.1). */
+    private fun components(c: Catalog, only: Set<String>? = null): String {
         if (c.components.isEmpty()) return ""
         val sb = StringBuilder("### Components\n").append(BuiltinCatalog.COMMON_LINE)
         for (g in GROUPS) {
-            val comps = c.components.filter { it.group == g }
+            val comps = c.components.filter { it.group == g && (only == null || it.name in only) }
             if (comps.isEmpty()) continue
             sb.append("\n#### ").append(g)
             for (comp in comps) sb.append('\n').append(componentLine(comp))
@@ -173,7 +186,7 @@ finance (rates are fractions: 8.5% = 0.085): pmt(rate, n, pv) emi(principal, ann
 units: convert(value, "km", "mi") bmi
 helpers: if(c, a, b) when(c, node) col(header, value) axis(title?, format?)"""
 
-    private fun functions(tier: Int, c: Catalog): String {
+    internal fun functions(tier: Int, c: Catalog): String {
         val sb = StringBuilder(FUNCTIONS)
         if (tier >= 3) {
             val t3 = listOf("lazy", "query", "pending", "loading").filter { c.function(it) != null }
@@ -192,7 +205,7 @@ feedback: !haptic(tick|click|confirm|reject|heavy) !toast("text") !copy(value) !
 conversation: !say("text the user sends", attach: [${'$'}data])
 device (the user confirms each): !url("https://…") !share(value) !export(value, as: csv) !calendar(title, start, end?) !remind(text, at) !dial(number) !map(place)"""
 
-    private fun actions(tier: Int, c: Catalog): String {
+    internal fun actions(tier: Int, c: Catalog): String {
         if (tier == 1) return "### Actions\n!copy(value) !share(value) !url(\"https://…\")"
         val sb = StringBuilder(ACTIONS)
         if (tier >= 3 && c.action("ask") != null) sb.append("\nmodel: !ask(prompt, update: [names], with: [values]) !refresh(lazyName) !regen")
@@ -204,7 +217,7 @@ device (the user confirms each): !url("https://…") !share(value) !export(value
 on change(${'$'}x) -> action        on change(${'$'}x, debounce: 600ms) -> action
 on appear -> action            on every(5s) when ${'$'}running -> action"""
 
-    private fun effects(tier: Int, c: Catalog): String {
+    internal fun effects(tier: Int, c: Catalog): String {
         if (tier < 2) return ""
         val sb = StringBuilder(EFFECTS)
         if (tier >= 4 && c.trigger("frame") != null) sb.append("\non frame -> action (uses dt)        on tilt -> action (uses x, y)        on shake -> action")
