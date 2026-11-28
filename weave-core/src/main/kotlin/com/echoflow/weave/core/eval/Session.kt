@@ -82,10 +82,10 @@ class Session(
         }
         // only a frozen declaration whose inputs are all frozen may initialise: `$n = 1` may still
         // grow into `$n = 1 + 2`, and a stored value would never be recomputed (03 §7.1)
-        val frozen = next.frozenNames
+        val frozen = next.frozenNames ?: emptySet()
         while (true) {
             val ready = next.states.keys.filter {
-                it !in state && (frozen == null || "$$it" in frozen) && missingNames(next.states.getValue(it).init).isEmpty()
+                it !in state && "$$it" in frozen && missingNames(next.states.getValue(it).init).isEmpty()
             }
             if (ready.isEmpty()) break
             initStates(ready)
@@ -134,7 +134,8 @@ class Session(
      */
     /** A declared binding or function that can no longer change (always true once complete). */
     private fun frozenName(n: String): Boolean {
-        val frozen = program.frozenNames ?: return true
+        // a streaming program that didn't say what is frozen is treated as having nothing frozen
+        val frozen = program.frozenNames ?: if (program.complete) return true else emptySet()
         return (n !in program.bindings && n !in program.functions) || n in frozen
     }
 
@@ -684,7 +685,9 @@ class Session(
                 break
             }
             timers.remove(next)
-            clock = next.at
+            // an overdue timer left by an earlier bounded advance runs at the current time, so the
+            // clock never goes back and nothing is scheduled in the past
+            clock = maxOf(clock, next.at)
             if (next.repeat > 0) timers += next.copy(at = next.at + next.repeat)
             next.run()
         }

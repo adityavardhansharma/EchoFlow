@@ -162,7 +162,8 @@ class Coercion(private val f: Formatter) {
             return Math.floor(total + 0.5).toLong()
         }
 
-        private const val MAX_DURATION_CHARS = 64
+        /** Generous for any real duration ("1h 30m 15s 200ms" and well beyond); matching is linear anyway. */
+        private const val MAX_DURATION_CHARS = 1_000
 
         private val TIME24 = Regex("(\\d{1,2}):(\\d{2})")
         private val TIME12 = Regex("(\\d{1,2}):(\\d{2})\\s*([aApP][mM])")
